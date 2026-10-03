@@ -336,7 +336,7 @@ public class PrefillLoginRunTests
     {
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
-        // What Login.cs:1443 leaves when the sign-in it judged ended in the instant between the sweep's check and that line.
+        // What the owner branch of CancelLoginAsync leaves when the sign-in it judged still waiting ended in the instant before that branch.
         session.LoginStopReason = "common.notifications.warnings.signInExpired";
         await daemon.StartLoginAsync(session.Id);
         var operationId = Assert.IsType<Guid>(session.LoginOperationId);
@@ -373,6 +373,38 @@ public class PrefillLoginRunTests
         Assert.False(canceled);
         Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
         Assert.Null(session.LoginStopReason);
+    }
+
+    /// <summary>
+    /// The daemon can finish the sign-in while the sweep's cancel is on its way to it. A daemon whose login
+    /// finished announces the sign-in and leaves it alone when the cancel arrives, so the session stays signed
+    /// in and the sweep does not count a cancel.
+    /// </summary>
+    [Fact]
+    public async Task ASignInThatFinishesWhileTheExpiryCancelIsInFlightStaysSignedInAsync()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        await daemon.StartLoginAsync(session.Id);
+        var operationId = Assert.IsType<Guid>(session.LoginOperationId);
+        session.AuthState = DaemonAuthState.UsernameRequired;
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        client.HoldCancelLogin = true;
+
+        var sweep = daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var status = RunClient.Capabilities(Guid.NewGuid().ToString());
+        status.Status = "logged-in";
+        client.StatusOverride = status;
+        client.LoginFinished = true;
+        await daemon.GetSessionStatusAsync(session.Id);
+        client.ReleaseCancelLogin.TrySetResult();
+        var result = await sweep.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+        Assert.Equal(OperationStatus.Completed, tracker.GetOperation(operationId)!.Status);
+        Assert.Equal(0, result.AbandonedLoginsCancelled);
     }
 
     /// <summary>

@@ -572,6 +572,9 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
     /// <summary>Completed by the test to let a held cancel-login command finish.</summary>
     public TaskCompletionSource ReleaseCancelLogin { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    /// <summary>The daemon's own login already finished: like the real daemons, a cancel-login is acknowledged and announces nothing.</summary>
+    public bool LoginFinished { get; set; }
+
     /// <summary>
     /// When true, only the FIRST login command yields the scripted challenge; a later one behaves
     /// like a fresh self-auth. Lets a concurrency test prove a post-cleanup manual login starts a
@@ -762,7 +765,7 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
 
         // The daemons announce the ended sign-in before they answer an acknowledged cancel-login
         // (epic-prefill-daemon SocketCommandInterface.cs:607 before :609); a refused cancel announces nothing.
-        if (CancelAcknowledged)
+        if (CancelAcknowledged && !LoginFinished)
         {
             await DaemonEventDispatch.InvokeAllAsync(OnStatusUpdate, new DaemonStatus
             {

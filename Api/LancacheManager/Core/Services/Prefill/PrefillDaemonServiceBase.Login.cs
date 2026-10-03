@@ -1378,7 +1378,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// ended sign-in before it answers; cleared when this call fails, never set by a call that joins another cancel,
     /// and ignored (nothing is canceled) when the sign-in already ended.
     /// </param>
-    /// <returns>False when <paramref name="loginAttempt"/> names an older attempt and nothing was cancelled.</returns>
+    /// <returns>False when nothing was cancelled: <paramref name="loginAttempt"/> names an older attempt, an app-made cancel found the sign-in already ended, or the sign-in finished while the cancel was on its way.</returns>
     public async Task<bool> CancelLoginAsync(string sessionId, CancellationToken cancellationToken = default,
         long? loginAttempt = null, Guid? loginId = null, string? stopReason = null)
     {
@@ -1459,6 +1459,7 @@ public abstract partial class PrefillDaemonServiceBase
         if (joined is not null) return await joined.WaitAsync(cancellationToken);
 
         Exception? failure = null;
+        var signedInMeanwhile = false;
         try
         {
             _logger.LogInformation("Cancelling login for session {SessionId}", sessionId);
@@ -1545,11 +1546,22 @@ public abstract partial class PrefillDaemonServiceBase
                         Context = new() { ["sessionId"] = session.Id }
                     };
                 }
-                session.AuthState = DaemonAuthState.NotAuthenticated;
-                session.LoginSettled = true;
-                await NotifyAuthStateChangeAsync(session);
-
-                _logger.LogInformation("Login cancelled for session {SessionId}, ready for new attempt", sessionId);
+                // A daemon whose sign-in finished during the round trip announced it and leaves a finished sign-in alone
+                // when the cancel reaches it, so the session stays signed in instead of disagreeing with the daemon.
+                lock (session.PrefillLock)
+                {
+                    signedInMeanwhile = session.AuthState == DaemonAuthState.Authenticated;
+                    if (!signedInMeanwhile)
+                    {
+                        session.AuthState = DaemonAuthState.NotAuthenticated;
+                        session.LoginSettled = true;
+                    }
+                }
+                if (!signedInMeanwhile)
+                {
+                    await NotifyAuthStateChangeAsync(session);
+                    _logger.LogInformation("Login cancelled for session {SessionId}, ready for new attempt", sessionId);
+                }
             }
         }
         catch (Exception ex)
@@ -1566,7 +1578,7 @@ public abstract partial class PrefillDaemonServiceBase
                 if (failure is not null && ReferenceEquals(session.LoginCancelTask, completion!.Task))
                     session.LoginCancelTask = null;
             }
-            if (failure is null) completion!.TrySetResult(true);
+            if (failure is null) completion!.TrySetResult(!signedInMeanwhile);
             else completion!.TrySetException(failure);
         }
         return await completion!.Task;

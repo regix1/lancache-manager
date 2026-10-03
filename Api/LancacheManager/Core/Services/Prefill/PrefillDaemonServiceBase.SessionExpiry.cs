@@ -155,8 +155,10 @@ public abstract partial class PrefillDaemonServiceBase
                 _logger.LogInformation(
                     "Login for session {SessionId} went unanswered past its deadline. Cancelling it.",
                     session.Id);
-                await CancelLoginAsync(session.Id, stopReason: "common.notifications.warnings.signInExpired");
-                Interlocked.Increment(ref abandonedLoginsCancelled);
+                if (await CancelLoginAsync(session.Id, stopReason: "common.notifications.warnings.signInExpired"))
+                {
+                    Interlocked.Increment(ref abandonedLoginsCancelled);
+                }
             }
             catch (Exception ex)
             {
