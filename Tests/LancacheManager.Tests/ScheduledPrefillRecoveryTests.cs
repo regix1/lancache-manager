@@ -549,6 +549,8 @@ public sealed class ScheduledPrefillRecoveryTests
     [InlineData(PrefillPlatform.Steam, null, "success,failed", true)]
     [InlineData(PrefillPlatform.Steam, null, "already_cached,failed", true)]
     [InlineData(PrefillPlatform.BattleNet, "download-failed", "success,failed", true)]
+    [InlineData(PrefillPlatform.Steam, null, "success,failed,nothing-to-download", true)]
+    [InlineData(PrefillPlatform.BattleNet, "download-failed", "success,failed,nothing-to-download", true)]
     [InlineData(PrefillPlatform.Steam, null, "failed,failed", false)]
     [InlineData(PrefillPlatform.Steam, "auth-lost", "success,failed,skipped", false)]
     [InlineData(PrefillPlatform.BattleNet, "download-failed", "success,failed,skipped", false)]
@@ -605,6 +607,32 @@ public sealed class ScheduledPrefillRecoveryTests
         Assert.Equal("failed", daemonRun.Snapshot.State);
         Assert.NotNull(daemonRun.CompletedAtUtc);
         Assert.Equal(daemonRun.CompletedAtUtc, ((ScheduleState)(object)state).LastActualRun);
+    }
+
+    [Fact]
+    public async Task ARunThatEndedInSessionWithSomeFailedGamesStampsItsLastRunAfterARestartAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        var id = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam);
+        var started = await fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["20", "30"], scheduleId: id,
+            scheduleName: "Named schedule", notificationMode: "silent");
+        await fixture.RefreshAsync();
+        var daemonRun = fixture.Daemon.GetRun(fixture.Session.Id, started.RunId!.Value)!;
+        FinishFailedRun(fixture, daemonRun, null, ["success", "failed"]);
+        await fixture.RefreshAsync();
+        fixture.Session.Runs.Clear();
+        await fixture.RefreshAsync();
+        var reloaded = fixture.Daemon.GetRun(fixture.Session.Id, started.RunId!.Value)!;
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var state = DispatchProxy.Create<IStateService, ScheduleState>();
+        ((ScheduleState)(object)state).Config = config;
+        using var services = new ServiceCollection().AddSingleton(fixture.Daemon).BuildServiceProvider();
+        using var scheduler = CreateScheduler(services, state);
+
+        Restore(scheduler, config);
+
+        Assert.NotNull(reloaded.CompletedAtUtc);
+        Assert.Equal(reloaded.CompletedAtUtc, ((ScheduleState)(object)state).LastActualRun);
     }
 
     [Fact]
@@ -894,7 +922,8 @@ public sealed class ScheduledPrefillRecoveryTests
 
     // Ends a run the way the daemons' shared run library does (RunProgress.CompleteAsync): every game keeps its
     // own result, a game that never ran reads "skipped" with the run's reason, the counters are counted from the
-    // games, and a run in which any game failed ends "failed".
+    // games, and a run in which any game failed ends "failed". The token "nothing-to-download" is a game the
+    // daemon skipped on its own (Steam: no depots for the chosen OS or language), which keeps a null reason.
     private static void FinishFailedRun(RunFixture fixture, DaemonRun run, string? reason, string[] results)
     {
         var page = fixture.Client.Pages[run.PrefillRunId];
@@ -903,8 +932,9 @@ public sealed class ScheduledPrefillRecoveryTests
         {
             AppId = appId,
             State = "completed",
-            Result = results[index],
-            Reason = results[index] != "skipped" ? null : reason is null ? "notAttempted" : reason,
+            Result = results[index] == "nothing-to-download" ? "skipped" : results[index],
+            Reason = results[index] == "nothing-to-download" ? null
+                : results[index] != "skipped" ? null : reason is null ? "notAttempted" : reason,
             BytesTransferred = results[index] == "success" ? 100 : 0,
             TotalBytes = 100,
             Sequence = sequence
@@ -921,7 +951,7 @@ public sealed class ScheduledPrefillRecoveryTests
                 CompletedApps = results.Count(result => result == "success"),
                 CachedApps = results.Count(result => result == "already_cached"),
                 FailedApps = results.Count(result => result == "failed"),
-                SkippedApps = results.Count(result => result == "skipped")
+                SkippedApps = results.Count(result => result is "skipped" or "nothing-to-download")
             },
             Items = items
         };

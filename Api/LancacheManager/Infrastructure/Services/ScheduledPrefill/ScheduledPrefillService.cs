@@ -1579,13 +1579,17 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     // "download-failed" reason its crashes carry, so neither the state nor the reason tells a run that lost
     // some games from one that stopped. The games do: a run that stopped early (a crash, a stall, the time
     // limit, sign-in lost, a daemon restart) leaves games that never finished, which the daemon ends as
-    // "cancelled" or as "skipped" with its reason, or which keep no result at all.
+    // "cancelled" or as "skipped" with its reason, or which keep no result at all. A game the daemon
+    // skipped on its own carries no reason.
     private static bool EndedWithSomeGamesFailed(DaemonRun run)
         => run.Snapshot is { State: "failed", FailedApps: > 0 } snapshot
             && snapshot.CompletedApps + snapshot.CachedApps > 0
             && run.Items.Count > 0
             && run.Items.Values.All(item => item.Result is "success" or "already_cached" or "failed"
-                || item.Reason == "skippedOverlap");
+                || item.Reason == "skippedOverlap"
+                // A game the daemon skipped on its own (no depots for the chosen OS or language) ended; a
+                // game a stopped run never reached is skipped with the run's reason or "notAttempted".
+                || item.Result == "skipped" && item.Reason is null);
 
     /// <summary>
     /// Turns the daemon's live progress PUSH into this run's universal-notification events.

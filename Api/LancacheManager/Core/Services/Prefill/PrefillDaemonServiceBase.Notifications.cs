@@ -1015,6 +1015,14 @@ public abstract partial class PrefillDaemonServiceBase
                     _ => PrefillState.Downloading
                 }
             };
+            // Only a run that ended failed can have lost some games; its stored games tell which.
+            if (row.CompletedAtUtc.HasValue && row.State == "failed")
+            {
+                foreach (var item in await _sessionService.GetRunItemsAsync(row.Id, cancellationToken))
+                {
+                    restored.Items[item.AppId] = item;
+                }
+            }
             session.Runs.TryAdd(row.Id, restored);
             if (restored.TerminalCompletedFlag == 2)
                 restored.Completion.TrySetResult(DaemonSessionDto.FromRun(restored));
