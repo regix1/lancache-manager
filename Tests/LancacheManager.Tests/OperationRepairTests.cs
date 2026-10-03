@@ -2448,7 +2448,7 @@ public sealed class OperationRepairTests : IDisposable
     {
         var state = CreateStateService(_root);
         state.SetSetupCompleted(true);
-        var repair = NewRemovalRepair(OperationType.GameRemoval, new CacheRepairTarget { SteamAppId = 480 });
+        var repair = NewCacheClearingRepair(Path.Combine(_root, "cache", "restored-amber"));
         repair.Phase = OperationRepairPhase.Repairing;
         repair.Outcome = OperationStatus.Failed;
         repair.Error = "Cache clear failed after clearing alpha: boom";
@@ -2487,7 +2487,15 @@ public sealed class OperationRepairTests : IDisposable
     {
         var state = CreateStateService(_root);
         state.SetSetupCompleted(true);
-        var repair = NewRemovalRepair(OperationType.GameRemoval, new CacheRepairTarget { SteamAppId = 480 });
+        var repair = new OperationRepair
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.LogRemoval,
+            Name = "Log removal",
+            StartedAt = DateTime.UtcNow,
+            Sources = [Source("alpha")],
+            LogRemoval = new LogRemovalRepair { Service = "steam", Datasource = "alpha" }
+        };
         repair.Phase = OperationRepairPhase.Repairing;
         repair.Outcome = OperationStatus.Failed;
         repair.Error = "Failed to reopen nginx writer 'host' with exit code 1";
@@ -2516,6 +2524,67 @@ public sealed class OperationRepairTests : IDisposable
         Assert.Null(row.Error);
         var warning = Assert.Single(row.Warnings);
         Assert.Equal("common.notifications.warnings.nginxReopenFailed", warning.StageKey);
+
+        release.TrySetResult(true);
+        await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);
+    }
+
+    [Theory]
+    [InlineData(OperationType.CacheClearing)]
+    [InlineData(OperationType.LogRemoval)]
+    public async Task ARestoredRunThatWasForceStoppedAfterItsStepReturnedStaysCanceledAsync(OperationType type)
+    {
+        var state = CreateStateService(_root);
+        state.SetSetupCompleted(true);
+        var clear = type == OperationType.CacheClearing;
+        var repair = clear
+            ? NewCacheClearingRepair(Path.Combine(_root, "cache", "force-stopped"))
+            : new OperationRepair
+            {
+                Id = Guid.NewGuid(),
+                Type = OperationType.LogRemoval,
+                Name = "Log removal",
+                StartedAt = DateTime.UtcNow,
+                Sources = [Source("alpha")],
+                LogRemoval = new LogRemovalRepair { Service = "steam", Datasource = "alpha" }
+            };
+        // A force stop saves the outcome as canceled; the owner's later save, after its step returned, marks
+        // the run's own work as done.
+        repair.Phase = OperationRepairPhase.Repairing;
+        repair.Outcome = OperationStatus.Cancelled;
+        repair.Error = null;
+        repair.RunCompleted = true;
+        repair.Warnings =
+        [
+            clear
+                ? new RunWarning(
+                    "common.notifications.warnings.datasourcesNotCleared",
+                    new Dictionary<string, object?> { ["datasources"] = "beta" })
+                : new RunWarning(
+                    "common.notifications.warnings.nginxReopenFailed",
+                    new Dictionary<string, object?> { ["error"] = "Failed to reopen nginx writer 'host' with exit code 1" })
+        ];
+        state.SaveOperationRepairs([repair]);
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await RepairHarness.CreateAsync(
+            _root,
+            stateService: CreateStateService(_root),
+            apply: async (_, cancellationToken) =>
+            {
+                entered.TrySetResult(true);
+                await release.Task.WaitAsync(cancellationToken);
+            });
+
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
+        Assert.Equal("cancelled", row.Status);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal(
+            clear
+                ? "common.notifications.warnings.datasourcesNotCleared"
+                : "common.notifications.warnings.nginxReopenFailed",
+            warning.StageKey);
 
         release.TrySetResult(true);
         await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);

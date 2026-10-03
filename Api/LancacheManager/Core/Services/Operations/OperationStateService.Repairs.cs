@@ -2146,8 +2146,10 @@ public partial class OperationStateService
             }
         }
 
-        var success = repair.Outcome == OperationStatus.Completed || repair.RunCompleted;
+        // A force stop the person asked for stays canceled even when the owner's later save marked the job's
+        // own work as done.
         var cancelled = repair.Outcome == OperationStatus.Cancelled;
+        var success = !cancelled && (repair.Outcome == OperationStatus.Completed || repair.RunCompleted);
         _operationTracker.CompleteOperation(
             operationId,
             success,
