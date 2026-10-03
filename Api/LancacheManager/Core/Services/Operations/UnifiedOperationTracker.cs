@@ -1026,7 +1026,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     // What a run left undone, in the order found: the eviction scan's failed game detection, which
     // its progress context carries, then every warning the job or its repair set.
-    private static List<RunWarning> ReadWarnings(OperationInfo operation)
+    internal static List<RunWarning> ReadWarnings(OperationInfo operation)
     {
         var warnings = new List<RunWarning>();
         if (ReadContext(operation.Metadata)?.GetValueOrDefault("detectionError") is string { Length: > 0 } detectionError)

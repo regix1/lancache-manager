@@ -100,6 +100,58 @@ public sealed class ScheduleExecutionServiceTests
     }
 
     [Fact]
+    public void AnEvictionScanWhoseDetectionFailedKeepsItsWarningOnItsHistoryRowAsync()
+    {
+        var service = ScheduleExecutionTestService.Create();
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var id = tracker.RegisterOperation(
+            OperationType.EvictionScan,
+            "Eviction Scan",
+            new CancellationTokenSource(),
+            metadata: new Dictionary<string, object?>
+            {
+                ["context"] = new Dictionary<string, object?> { ["detectionError"] = "Detection failed" }
+            },
+            notice: new RunNotice(NotificationMode.All, RunTrigger.Scheduled));
+        tracker.CompleteOperation(id, success: true, error: null, cancelled: false, skipped: false);
+
+        var execution = service.Capture(tracker.GetOperation(id)!, "evictionScan");
+
+        Assert.Equal("signalr.gameDetect.error.fatal", execution.Warning!.StageKey);
+        Assert.Equal("Detection failed", execution.Warning.Context["errorDetail"]);
+    }
+
+    [Fact]
+    public async Task AWarningLongerThanItsColumnIsCutToFitAndTheRowIsKeptAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new ScheduleExecutionService(
+            database.Factory,
+            NullLogger<ScheduleExecutionService>.Instance);
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var id = tracker.RegisterOperation(
+            OperationType.LogRotation,
+            "Log Rotation",
+            new CancellationTokenSource(),
+            notice: new RunNotice(NotificationMode.All, RunTrigger.Scheduled));
+        tracker.SetWarning(id, new RunWarning(
+            "signalr.logRotation.logReopenPartlyFailed",
+            new Dictionary<string, object?> { ["errors"] = new string('x', 5000) }));
+        tracker.CompleteOperation(id, success: true, error: null, cancelled: false, skipped: false);
+
+        var execution = service.Capture(tracker.GetOperation(id)!, "logRotation");
+
+        Assert.True(JsonSerializer.Serialize(execution.Warning).Length <= 4096);
+        Assert.True(await service.InsertAsync(execution));
+        var item = Assert.Single((await service.GetPageAsync(1, 10)).Items);
+        Assert.Equal("signalr.logRotation.logReopenPartlyFailed", item.Warning!.StageKey);
+    }
+
+    [Fact]
     public async Task InsertRejectsOneOperationTwiceAndPagesTiedTimesByNewestId()
     {
         await using var database = await TestDatabase.CreateAsync();

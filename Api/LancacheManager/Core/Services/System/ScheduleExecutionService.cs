@@ -1,3 +1,4 @@
+using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
@@ -63,6 +64,26 @@ public class ScheduleExecutionService
             ? null
             : operation.Message[..Math.Min(operation.Message.Length, DetailLimit)];
 
+        var warning = operation.Status == OperationStatus.Completed
+            ? UnifiedOperationTracker.ReadWarnings(operation).FirstOrDefault()
+            : null;
+        // The column holds 4096 characters of serialized warning. A longer one, such as a nginx writer's
+        // stderr, would fail the insert and drop the row, so its longest text value is cut until it fits.
+        if (warning is not null)
+        {
+            var context = new Dictionary<string, object?>(warning.Context);
+            var json = JsonSerializer.Serialize(new RunWarning(warning.StageKey, context));
+            while (json.Length > DetailLimit
+                && context.Where(pair => pair.Value is string { Length: > 0 })
+                    .OrderByDescending(pair => ((string)pair.Value!).Length)
+                    .FirstOrDefault() is { Key: { } name, Value: string text })
+            {
+                context[name] = text[..Math.Max(0, text.Length - (json.Length - DetailLimit))];
+                json = JsonSerializer.Serialize(new RunWarning(warning.StageKey, context));
+            }
+            warning = new RunWarning(warning.StageKey, context);
+        }
+
         return new ScheduleExecution
         {
             OperationId = operation.Id,
@@ -75,7 +96,7 @@ public class ScheduleExecutionService
             StartedAt = DateTime.SpecifyKind(operation.StartedAt, DateTimeKind.Utc),
             CompletedAt = DateTime.SpecifyKind(operation.CompletedAt!.Value, DateTimeKind.Utc),
             Detail = detail,
-            Warning = operation.Status == OperationStatus.Completed ? operation.Warnings.FirstOrDefault() : null,
+            Warning = warning,
             ScheduleId = serviceRun?.ScheduleId,
             ScheduleName = serviceRun?.Name,
             Platform = serviceRun?.ServiceId,
