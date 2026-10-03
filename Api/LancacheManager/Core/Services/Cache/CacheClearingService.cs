@@ -177,6 +177,8 @@ public class CacheClearingService : ScheduledBackgroundService
         // A datasource whose clear failed fails the run only after every other datasource had its turn.
         var failedDatasources = new List<string>();
         RustProcessException? firstFailure = null;
+        // Another datasource deleted files, so the clear worked with errors and the card is amber.
+        var partlyCleared = false;
         // Files a datasource's clear could not delete stay on disk, and every ending of the run names them.
         var undeletedFiles = 0UL;
         string? firstUndeleted = null;
@@ -606,6 +608,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
             if (firstFailure is not null)
             {
+                partlyCleared = clearedDatasourceNames.Count > 0;
                 throw new InvalidOperationException(
                     $"{string.Join(", ", failedDatasources)} could not be cleared: {firstFailure.Message}",
                     firstFailure);
@@ -789,7 +792,17 @@ public class CacheClearingService : ScheduledBackgroundService
             // Mark operation as complete (failed) in unified tracker.
             // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure,
             // which reads this error string from OperationTerminalInfo.Error.
-            _operationTracker.CompleteOperation(operationId, success: false, error: failureMessage);
+            if (partlyCleared)
+            {
+                await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
+                    "common.notifications.warnings.datasourcesNotCleared",
+                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", failedDatasources) }));
+                _operationTracker.CompleteOperation(operationId, success: true);
+            }
+            else
+            {
+                _operationTracker.CompleteOperation(operationId, success: false, error: failureMessage);
+            }
             if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
             await ReportProgressAsync(operationId);

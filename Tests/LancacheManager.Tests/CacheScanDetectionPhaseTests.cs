@@ -1200,6 +1200,78 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Equal("/cache/missing", warning.Context["folders"]);
     }
 
+    [Fact]
+    public async Task AScanThatCheckedNoCacheFolderFailsNamingThemAsync()
+    {
+        using var ctx = new PhaseContext();
+        await using var context = ctx.CreateContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        PhaseContext.SetField(ctx.Scan, "_stateService", ctx.State);
+        PhaseContext.SetField(ctx.Scan, "_datasourceService", ctx.Datasources);
+        PhaseContext.SetField(ctx.Scan, "_cacheScanGate", Idle());
+        var cachePath = Assert.Single(ctx.Datasources.GetDatasources()).CachePath;
+        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", new ScanResultRustProcessHelper(
+            async (operationId, cancellationToken) =>
+            {
+                var checkpoint = await context.EvictionScanCheckpoints
+                    .SingleAsync(item => item.OperationId == operationId, cancellationToken);
+                checkpoint.FinalizedAtUtc = DateTime.UtcNow;
+                await context.SaveChangesAsync(cancellationToken);
+            },
+            // What cache_eviction_scan writes when its only cache root is missing: the root is in uncheckedFolders as
+            // the datasource gave it (collect_files_on_disk_with keeps ds.cache_path).
+            JsonSerializer.Serialize(new
+            {
+                success = true,
+                processed = 0,
+                evicted = 0,
+                unEvicted = 0,
+                uncheckedFolders = new[] { cachePath }
+            })));
+        var scanNotice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        var scanId = ctx.RegisterScan(scanNotice);
+
+        var scan = (Task)typeof(CacheReconciliationService)
+            .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(ctx.Scan, [context, scanId, CancellationToken.None, scanNotice, false])!;
+        var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        await ctx.CompleteDetectionAsync(detection.Id);
+        await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
+
+        // The scan's outcome is a private record; its Success is what ends the card.
+        var outcome = scan.GetType().GetProperty("Result")!.GetValue(scan)!;
+        Assert.False((bool)outcome.GetType().GetProperty("Success")!.GetValue(outcome)!);
+        var warning = Assert.Single(
+            Assert.Single(tracker.GetRuns().Runs, row => row.OperationId == scanId).Warnings);
+        Assert.Equal("common.notifications.warnings.cacheFoldersUnchecked", warning.StageKey);
+        Assert.Equal(cachePath, warning.Context["folders"]);
+    }
+
+    [Fact]
+    public async Task ACanceledEvictionScanStaysCanceledAsync()
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        // A cancel from the card kills the running scan, and the scan sees the cancel as the process helper reports it.
+        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", new ScanResultRustProcessHelper((operationId, _) =>
+        {
+            tracker.CancelOperation(operationId);
+            throw new OperationCanceledException();
+        }));
+        var scanId = Assert.IsType<Guid>(typeof(CacheReconciliationService)
+            .GetMethod("StartScanInBackground", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(ctx.Scan, ["Eviction Scan", false, new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
+        var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        await ctx.CompleteDetectionAsync(detection.Id);
+
+        Assert.Equal(OperationStatus.Cancelled, (await WaitForTerminalAsync(tracker, scanId)).Status);
+    }
+
     [Theory]
     [InlineData(NotificationMode.All, RunTrigger.Manual, RunVisibility.Card)]
     [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, RunVisibility.Background)]
@@ -1880,6 +1952,23 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
+    public async Task AnEvictionRemovalWithoutItsPurgeProgramNamesTheDatasourcesAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("alpha", new[] { "access.log" }, false));
+        await SeedEvictedDownloadAsync(run.Database, "alpha", "/remove");
+        File.Delete(new TempDirPathResolver(run.Root).GetRustLogPurgePath());
+
+        var removalId = await run.Scan.StartBulkEvictionRemovalAsync(CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Completed, (await WaitForTerminalAsync(run.Tracker, removalId)).Status);
+        Assert.Empty(run.Rust.Runs);
+        var row = Assert.Single(run.Tracker.GetRuns().Runs, item => item.OperationId == removalId);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.logPurgeProgramMissing", warning.StageKey);
+        Assert.Equal("alpha", warning.Context["datasources"]);
+    }
+
+    [Fact]
     public async Task AnEvictionRemovalStartedBehindARepairThatOwesAResetLetsBothFinish()
     {
         await using var run = await RepairRun.CreateAsync(("alpha", ["access.log"], false));
@@ -2008,7 +2097,7 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
-    public async Task AClearWhoseMiddleDatasourceFailsStillClearsTheRestThenFailsAsync()
+    public async Task AClearWhoseMiddleDatasourceFailsStillClearsTheRestThenEndsAmberAsync()
     {
         await using var run = await RepairRun.CreateAsync(("alpha", [], true), ("beta", [], true), ("gamma", [], true));
         var alpha = run.Datasources.GetDatasource("alpha")!.CachePath;
@@ -2038,10 +2127,71 @@ public sealed class CacheScanDetectionPhaseTests
         var clearId = Assert.IsType<Guid>(await run.Clearing.StartCacheClearAsync());
 
         var terminal = await WaitForTerminalAsync(run.Tracker, clearId);
-        Assert.Equal(OperationStatus.Failed, terminal.Status);
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
         Assert.Equal([alpha, beta, gamma], run.Rust.ClearedPaths);
-        Assert.Contains("after clearing alpha, gamma", terminal.Message, StringComparison.Ordinal);
-        Assert.Contains("beta could not be cleared", terminal.Message, StringComparison.Ordinal);
+        var row = Assert.Single(run.Tracker.GetRuns().Runs, item => item.OperationId == clearId);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.datasourcesNotCleared", warning.StageKey);
+        Assert.Equal("beta", warning.Context["datasources"]);
+    }
+
+    [Fact]
+    public async Task AClearThatClearedOneDatasourceAndFailedOnAnotherEndsAmberAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("alpha", [], true), ("beta", [], true));
+        var alpha = run.Datasources.GetDatasource("alpha")!.CachePath;
+        var beta = run.Datasources.GetDatasource("beta")!.CachePath;
+        // cache_clear that deleted a file in its root: it exits 0 and reports one file deleted.
+        run.Rust.Clears[alpha] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 100.0,
+                status = "completed",
+                stageKey = "signalr.cacheClear.progress",
+                context = new { processed = 1, totalDirs = 1, activeCount = 0 },
+                directoriesProcessed = 1,
+                totalDirectories = 1,
+                bytesDeleted = 4096,
+                filesDeleted = 1,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 0
+            }),
+            0,
+            string.Empty);
+        // cache_clear for a root it cannot list: main writes the failed progress, prints the error and exits 1.
+        run.Rust.Clears[beta] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 0.0,
+                status = "failed",
+                stageKey = "signalr.cacheClear.error.fatal",
+                context = new { errorDetail = "failed to enumerate cache root: Input/output error (os error 5)" },
+                directoriesProcessed = 0,
+                totalDirectories = 1,
+                bytesDeleted = 0,
+                filesDeleted = 0,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 0
+            }),
+            1,
+            "Error: failed to enumerate cache root: Input/output error (os error 5)");
+
+        var clearId = Assert.IsType<Guid>(await run.Clearing.StartCacheClearAsync());
+
+        var terminal = await WaitForTerminalAsync(run.Tracker, clearId);
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        var row = Assert.Single(run.Tracker.GetRuns().Runs, item => item.OperationId == clearId);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.datasourcesNotCleared", warning.StageKey);
+        Assert.Equal("beta", warning.Context["datasources"]);
+        // The repair keeps the failed outcome so its full scan decides the datasource that failed.
+        Assert.Equal(OperationStatus.Failed, (await run.WaitForCompletedRepairAsync(clearId)).Outcome);
     }
 
     [Fact]

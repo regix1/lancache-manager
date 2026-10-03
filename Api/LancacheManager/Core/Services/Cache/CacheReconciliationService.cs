@@ -220,6 +220,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             operationId,
                             outcome.Success || outcome.Skipped,
                             outcome.Error,
+                            cancelled: outcome.Cancelled,
                             skipped: outcome.Skipped,
                             onCompleting: operation =>
                             {
@@ -662,27 +663,33 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // Parse result
             var scanResult = ParseScanResult(result);
 
-            if (scanResult.Success)
+            // A cache folder that was missing, empty or partly unreadable was not checked, so a
+            // wrong mount no longer passes as a clean scan.
+            if (scanResult.Success && scanResult.UncheckedFolders.Count > 0)
+            {
+                var folders = string.Join(", ", scanResult.UncheckedFolders);
+                _logger.LogWarning("[EvictionScan] Cache folders not checked: {Folders}", folders);
+                _operationTracker.SetWarning(operationId, new RunWarning(
+                    "common.notifications.warnings.cacheFoldersUnchecked",
+                    new Dictionary<string, object?> { ["folders"] = folders }));
+                // Kept on the repair record at once, so a restart before the run ends restores the warning.
+                await repairOwner.SaveRepairAsync(
+                    operationId,
+                    repair => repair.EvictionScan!.UncheckedFolders = scanResult.UncheckedFolders,
+                    stoppingToken);
+            }
+
+            // Every cache root was missing, empty or unreadable, so nothing was checked: a failure.
+            var checkedNothing = scanResult.Success
+                && scanResult.UncheckedFolders.Count > 0
+                && datasourceConfig.Select(datasource => datasource.cachePath).Distinct()
+                    .All(path => scanResult.UncheckedFolders.Contains(path));
+
+            if (scanResult.Success && !checkedNothing)
             {
                 _logger.LogInformation(
                     "[EvictionScan] Scan complete: processed {Total} downloads, {Evicted} newly evicted, {UnEvicted} un-evicted (re-cached)",
                     scanResult.Processed, scanResult.Evicted, scanResult.UnEvicted);
-
-                // A cache folder that was missing, empty or partly unreadable was not checked, so a
-                // wrong mount no longer passes as a clean scan.
-                if (scanResult.UncheckedFolders.Count > 0)
-                {
-                    var folders = string.Join(", ", scanResult.UncheckedFolders);
-                    _logger.LogWarning("[EvictionScan] Cache folders not checked: {Folders}", folders);
-                    _operationTracker.SetWarning(operationId, new RunWarning(
-                        "common.notifications.warnings.cacheFoldersUnchecked",
-                        new Dictionary<string, object?> { ["folders"] = folders }));
-                    // Kept on the repair record at once, so a restart before the run ends restores the warning.
-                    await repairOwner.SaveRepairAsync(
-                        operationId,
-                        repair => repair.EvictionScan!.UncheckedFolders = scanResult.UncheckedFolders,
-                        stoppingToken);
-                }
 
                 await ReportScanProgressAsync(
                     operationId,
@@ -741,6 +748,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 stoppingToken.ThrowIfCancellationRequested();
                 operationSucceeded = true;
+            }
+            else if (checkedNothing)
+            {
+                operationError = "No cache folder could be checked";
+                _logger.LogError("[EvictionScan] {Error}: {Folders}", operationError, string.Join(", ", scanResult.UncheckedFolders));
             }
             else
             {
@@ -829,7 +841,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         return new EvictionScanRunOutcome(operationSucceeded, operationError,
             RepairStarted: true,
-            Processed: completedScan.Processed, Evicted: completedScan.Evicted, UnEvicted: completedScan.UnEvicted);
+            Processed: completedScan.Processed, Evicted: completedScan.Evicted, UnEvicted: completedScan.UnEvicted,
+            Cancelled: operationCancelled);
     }
 
     public Task RestoreRepairAsync(OperationRepair repair, CancellationToken stoppingToken)
@@ -1801,7 +1814,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// </summary>
     private sealed record EvictionScanRunOutcome(bool Success, string? Error, bool Skipped = false,
         bool RepairStarted = false,
-        int Processed = 0, int Evicted = 0, int UnEvicted = 0);
+        int Processed = 0, int Evicted = 0, int UnEvicted = 0, bool Cancelled = false);
 
     /// <summary>
     /// Mutable terminal-metrics holder for an in-flight EvictionRemoval. Populated BY VALUE in
@@ -2450,6 +2463,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _logger.LogWarning(
                 "[EvictedLogPurge] cache_purge_log_entries binary not found at {Path} - skipping log rewrite. DB deletes will still proceed.",
                 rustBinaryPath);
+            // The rows go and the log lines stay, so the card is amber and names the datasources.
+            await _serviceProvider.GetRequiredService<OperationStateService>().SetRunWarningAsync(
+                operationId,
+                new RunWarning(
+                    "common.notifications.warnings.logPurgeProgramMissing",
+                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", datasources.Select(datasource => datasource.Name)) }));
             return purged;
         }
 
