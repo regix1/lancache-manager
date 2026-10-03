@@ -328,34 +328,51 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
-    /// The sweep's cancel can meet a newer sign-in that started while the daemon answered. The newer
-    /// sign-in owns the ending, so the sweep's reason must not stay behind to end it red.
+    /// A new sign-in starts with no stop reason, so a reason left on the session by a cancel that judged an
+    /// earlier sign-in ended never turns this sign-in's cancel red.
     /// </summary>
     [Fact]
-    public async Task AnExpiryCancelThatMeetsANewerAttemptLeavesNoReasonAsync()
+    public async Task ANewSignInStartsWithNoStopReasonAsync()
     {
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        // What Login.cs:1443 leaves when the sign-in it judged ended in the instant between the sweep's check and that line.
+        session.LoginStopReason = "common.notifications.warnings.signInExpired";
         await daemon.StartLoginAsync(session.Id);
         var operationId = Assert.IsType<Guid>(session.LoginOperationId);
         session.AuthState = DaemonAuthState.UsernameRequired;
-        var client = (ScriptedLoginDaemonClient)session.Client;
-        client.HoldCancelLogin = true;
 
-        var sweep = daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
-        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        // A new login takes the next attempt number and drops the finished cancel as Login.cs:648-649 do.
-        session.LoginAttempt++;
-        session.LoginCancelTask = null;
-        client.ReleaseCancelLogin.SetResult();
-        await sweep;
-
-        Assert.Null(session.LoginStopReason);
         await daemon.CancelLoginAsync(session.Id);
 
         var operation = tracker.GetOperation(operationId)!;
         Assert.Equal(OperationStatus.Cancelled, operation.Status);
         Assert.Empty(operation.Warnings);
+    }
+
+    /// <summary>
+    /// The sweep reads the sign-in's state when it lists sessions, so its cancel can land after the sign-in
+    /// succeeded. A cancel that names a stop reason ends only a sign-in that still waits: this one stays
+    /// signed in and keeps no reason.
+    /// </summary>
+    [Fact]
+    public async Task AnExpiryCancelThatLandsAfterTheSignInSucceededLeavesItSignedInAsync()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        await daemon.StartLoginAsync(session.Id);
+        var operationId = Assert.IsType<Guid>(session.LoginOperationId);
+        var status = RunClient.Capabilities(Guid.NewGuid().ToString());
+        status.Status = "logged-in";
+        ((ScriptedLoginDaemonClient)session.Client).StatusOverride = status;
+        await daemon.GetSessionStatusAsync(session.Id);
+        Assert.Equal(OperationStatus.Completed, tracker.GetOperation(operationId)!.Status);
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+
+        var canceled = await daemon.CancelLoginAsync(session.Id, stopReason: "common.notifications.warnings.signInExpired");
+
+        Assert.False(canceled);
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+        Assert.Null(session.LoginStopReason);
     }
 
     /// <summary>

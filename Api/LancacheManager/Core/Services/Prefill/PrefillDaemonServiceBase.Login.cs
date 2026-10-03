@@ -365,6 +365,8 @@ public abstract partial class PrefillDaemonServiceBase
             notice: new RunNotice(NotificationMode.All, RunTrigger.Manual),
             ownerSessionId: ownerSessionId);
         session.LoginExpiresAtUtc = DateTime.UtcNow.AddSeconds(GetAbandonedLoginTimeoutSeconds());
+        // A new sign-in starts with no stop reason, so one a sweep left on an ended sign-in never colors this one.
+        session.LoginStopReason = null;
 
         // Cancelling the operation only cancels a token; ending the login is real work, and it has one
         // tested implementation whose clear-before-round-trip ordering must not be bypassed by a second
@@ -1373,8 +1375,8 @@ public abstract partial class PrefillDaemonServiceBase
     /// </param>
     /// <param name="stopReason">
     /// The reason an app-made cancel names. Set before the daemon round trip, because the daemon announces the
-    /// ended sign-in before it answers; cleared when this call fails or meets a newer attempt, and never set by a
-    /// call that joins another cancel.
+    /// ended sign-in before it answers; cleared when this call fails, never set by a call that joins another cancel,
+    /// and ignored (nothing is canceled) when the sign-in already ended.
     /// </param>
     /// <returns>False when <paramref name="loginAttempt"/> names an older attempt and nothing was cancelled.</returns>
     public async Task<bool> CancelLoginAsync(string sessionId, CancellationToken cancellationToken = default,
@@ -1422,6 +1424,13 @@ public abstract partial class PrefillDaemonServiceBase
                 _logger.LogInformation(
                     "Ignoring cancel-login for session {SessionId}: attempt {Expected} is no longer current (current {Actual})",
                     sessionId, loginAttempt, attempt);
+                return false;
+            }
+            // An app-made cancel ends only a sign-in that still waits: one that ended between the sweep's check and this
+            // lock (signed in, or refused) is left as it is, so the app neither signs it out nor leaves a reason behind.
+            if (stopReason is not null &&
+                session.AuthState is DaemonAuthState.Authenticated or DaemonAuthState.NotAuthenticated)
+            {
                 return false;
             }
             if (session.LoginCancelTask is { } running)
@@ -1517,8 +1526,6 @@ public abstract partial class PrefillDaemonServiceBase
             lock (session.PrefillLock)
             {
                 newerAttempt = session.LoginAttempt != attempt;
-                // The newer attempt owns the sign-in now, so this call's reason must not end it.
-                if (newerAttempt && stopReason is not null) session.LoginStopReason = null;
             }
             if (newerAttempt)
             {
