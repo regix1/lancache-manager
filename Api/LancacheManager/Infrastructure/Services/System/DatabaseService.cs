@@ -393,6 +393,9 @@ public class DatabaseService
             // loop so the completion report can name them instead of claiming a clean sweep.
             var failedPersistentLogins = new List<string>();
 
+            // Sign-ins and files the reset could not clear; named on the amber completion card.
+            var notReset = new List<string>();
+
             if (tablesToClear.Contains("UserSessions"))
             {
                 // SECURITY: Clear Steam, Xbox and Epic auth FIRST, before clearing user sessions
@@ -407,6 +410,7 @@ public class DatabaseService
                 }
                 catch (Exception steamEx)
                 {
+                    notReset.Add("Steam sign-in");
                     _logger.LogWarning(steamEx, "Error clearing Steam auth during session reset");
                 }
 
@@ -416,6 +420,7 @@ public class DatabaseService
                 }
                 catch (Exception xboxEx)
                 {
+                    notReset.Add("Xbox sign-in");
                     _logger.LogWarning(xboxEx, "Error clearing Xbox auth during session reset");
                 }
 
@@ -425,6 +430,7 @@ public class DatabaseService
                 }
                 catch (Exception epicEx)
                 {
+                    notReset.Add("Epic sign-in");
                     _logger.LogWarning(epicEx, "Error clearing Epic auth during session reset");
                 }
 
@@ -653,6 +659,7 @@ public class DatabaseService
                                 }
                                 catch (Exception ex)
                                 {
+                                    notReset.Add(Path.GetFileName(picsJsonPath));
                                     _logger.LogWarning(ex, "Failed to delete PICS JSON file: {Path}", picsJsonPath);
                                 }
                             }
@@ -1108,6 +1115,7 @@ public class DatabaseService
                                 }
                                 catch (Exception ex)
                                 {
+                                    notReset.Add(file);
                                     _logger.LogWarning(ex, $"Failed to delete file: {file}");
                                 }
                             }
@@ -1177,6 +1185,16 @@ public class DatabaseService
                     : $"Cleared {tablesToClear.Count} table(s): {string.Join(", ", tablesToClear)}. Prefill login still active for: {string.Join(", ", failedPersistentLogins)}",
                 tablesCleared: tablesToClear.Count,
                 totalTables: tablesToClear.Count);
+
+            // The tables were cleared; a sign-in or file it could not reset makes the reset amber.
+            // The file deletes run inside the retried transaction, so a retry can name one twice.
+            notReset.AddRange(failedPersistentLogins.Select(platform => $"{platform} prefill sign-in"));
+            if (notReset.Count > 0)
+            {
+                _operationTracker.SetWarning(operationId, new RunWarning(
+                    "common.notifications.warnings.resetLeftovers",
+                    new Dictionary<string, object?> { ["items"] = string.Join(", ", notReset.Distinct()) }));
+            }
 
             _operationTracker.CompleteOperation(operationId, success: true);
         }

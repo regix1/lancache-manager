@@ -129,6 +129,40 @@ public class DatabaseResetProgressContractTests
     }
 
     /// <summary>
+    /// The tables are cleared, but a platform sign-out that failed (the service is left out here, so
+    /// the Steam call throws into the reset's catch) is named on an amber card, not a green one.
+    /// </summary>
+    [Fact]
+    public async Task AResetThatCouldNotSignOutAPlatformEndsAmberNamingItAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RecordingTrackerProxy>();
+        var trackerState = (RecordingTrackerProxy)(object)tracker;
+        var service = new DatabaseService(
+            context: null!,
+            DispatchProxy.Create<ISignalRNotificationService, NoopSignalRProxy>(),
+            NullLogger<DatabaseService>.Instance,
+            pathResolver: null!,
+            database.Factory,
+            steamKit2Service: null!,
+            xboxCatalogMappingService: null!,
+            epicMappingService: null!,
+            serviceProvider: null!,
+            cacheManagementService: null!,
+            stateRepository: null!,
+            datasourceService: null!,
+            tracker);
+
+        _ = service.StartResetAsync(["UserSessions"]);
+        var terminal = await trackerState.Terminal.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.True(terminal.Success, terminal.Error);
+        var warning = Assert.Single(trackerState.Warnings);
+        Assert.Equal("common.notifications.warnings.resetLeftovers", warning.StageKey);
+        Assert.Contains("Steam sign-in", (string)warning.Context["items"]!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// A reset that clears sessions and download rows logs every platform out once and before it
     /// takes the log lock, and empties the sessions table under that lock. Each logout fails into
     /// its own warning (the services are left out, as above), which is where the lock is read.
@@ -260,10 +294,15 @@ public class DatabaseResetProgressContractTests
         internal TaskCompletionSource<(Guid OperationId, bool Success, string Error)> Terminal { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        internal List<RunWarning> Warnings { get; } = [];
+
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             switch (targetMethod?.Name)
             {
+                case nameof(IUnifiedOperationTracker.SetWarning):
+                    Warnings.Add((RunWarning)args![1]!);
+                    return null;
                 case nameof(IUnifiedOperationTracker.RegisterOperation):
                     _terminalCleanup = args?[4] as Action;
                     _operation = new OperationInfo
