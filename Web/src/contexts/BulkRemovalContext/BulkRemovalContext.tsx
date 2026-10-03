@@ -59,7 +59,7 @@ interface BatchItemRequest {
 /** Inputs for {@link settleBatchItem}: the run's end and the item's own failure text. */
 interface SettleBatchItemOptions {
   end: NotificationTerminal;
-  ctx: { cancelRun: () => void };
+  ctx: { cancelRun: () => void; wasCancelled: () => boolean };
   failedMessage: string;
   neverStartedMessage: string;
 }
@@ -103,6 +103,12 @@ function settleBatchItem({
     case 'skipped':
       throw new Error(end.error ?? neverStartedMessage);
     case 'gone':
+      // The server keeps a failed removal run until it is closed, so after X a run it stopped tracking
+      // ended canceled, not failed.
+      if (ctx.wasCancelled()) {
+        ctx.cancelRun();
+        return false;
+      }
       throw new Error(failedMessage);
   }
 }

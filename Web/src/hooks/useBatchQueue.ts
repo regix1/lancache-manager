@@ -41,6 +41,8 @@ interface BatchQueueItemContext {
    * failed item - cancellation is a terminal state of its own, not a failure.
    */
   cancelRun: () => void;
+  /** Whether X was pressed on this batch, so an item whose run the browser lost can end as canceled. */
+  wasCancelled: () => boolean;
 }
 
 interface BatchQueueRunArgs<TItem> {
@@ -310,7 +312,8 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
               // Drop it first and the cancel below reaches nothing, which is the honest outcome.
               currentItemOperationIdRef.current = null;
               triggerCancel();
-            }
+            },
+            wasCancelled
           };
 
           let failedWithoutRun = false;

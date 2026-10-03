@@ -232,7 +232,7 @@ export const finalizeBulkRemovalNotification = ({
     return;
   }
 
-  // An item that finished with a warning folds under this card, so the batch ends amber and says so.
+  // An item that finished with a warning draws its own amber card, and the batch ends amber and counts it.
   updateNotification(id, (card) => ({
     status: 'completed',
     progress: FULL_PROGRESS_PERCENT,

@@ -192,7 +192,9 @@ const createBatchHarness = (queueName = 'runCacheQueue') => {
     cancelRun: () => {
       cancelRunCalls += 1;
       cancelRun();
-    }
+    },
+    // As useBatchQueue.ts:276 reads it.
+    wasCancelled: () => cancelRequestedRef.current
   };
 
   // The real run loop, so a click landing between `setOperationId` calls is exercised through the
@@ -444,6 +446,21 @@ test('each way a run ends settles the item the way the batch counts it', async (
     await assert.rejects(settled, { message }, `${terminal.status} fails the item`);
     assert.equal(harness.cancelRunCount(), 0);
   }
+});
+
+test('an item whose run the browser lost after X ends canceled, not failed', async () => {
+  const harness = createBatchHarness();
+  const settled = harness.start(SERVICE_ENTRY, {
+    operationId: 'run-x',
+    queued: false,
+    alreadyRunning: false,
+    status: 'running'
+  });
+  await flush();
+  harness.triggerCancel();
+  harness.end({ operationId: 'run-x', status: 'gone' });
+  await settled;
+  assert.equal(harness.cancelRunCount(), 1);
 });
 
 test('a cancel with no operation id yet ends the run cleanly and reports nothing', async () => {
