@@ -2198,6 +2198,66 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
+    public async Task APartlyClearedClearSavesItsWarningBeforeItsOutcomeAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("alpha", [], true), ("beta", [], true));
+        var alpha = run.Datasources.GetDatasource("alpha")!.CachePath;
+        var beta = run.Datasources.GetDatasource("beta")!.CachePath;
+        run.Rust.Clears[alpha] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 100.0,
+                status = "completed",
+                stageKey = "signalr.cacheClear.progress",
+                context = new { processed = 1, totalDirs = 1, activeCount = 0 },
+                directoriesProcessed = 1,
+                totalDirectories = 1,
+                bytesDeleted = 4096,
+                filesDeleted = 1,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 0
+            }),
+            0,
+            string.Empty);
+        run.Rust.Clears[beta] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 0.0,
+                status = "failed",
+                stageKey = "signalr.cacheClear.error.fatal",
+                context = new { errorDetail = "failed to enumerate cache root: Input/output error (os error 5)" },
+                directoriesProcessed = 0,
+                totalDirectories = 1,
+                bytesDeleted = 0,
+                filesDeleted = 0,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 0
+            }),
+            1,
+            "Error: failed to enumerate cache root: Input/output error (os error 5)");
+        // Every repair file write is what a restart right after it would read.
+        var state = Assert.IsType<OperationRepairTests.FailingStateService>(run.State);
+        var writes = new List<List<OperationRepair>>();
+        state.OnRepairWrite = contents => writes.Add(JsonSerializer.Deserialize<List<OperationRepair>>(contents)!);
+
+        var clearId = Assert.IsType<Guid>(await run.Clearing.StartCacheClearAsync());
+
+        await run.WaitForCompletedRepairAsync(clearId);
+        var firstOutcome = writes
+            .SelectMany(repairs => repairs)
+            .First(repair => repair.Id == clearId && repair.Outcome is not null);
+        Assert.NotNull(firstOutcome.Warnings);
+        var warning = Assert.Single(firstOutcome.Warnings);
+        Assert.Equal("common.notifications.warnings.datasourcesNotCleared", warning.StageKey);
+    }
+
+    [Fact]
     public async Task AClearThatCouldNotDeleteSomeFilesCompletesWithAWarningAsync()
     {
         await using var run = await RepairRun.CreateAsync(("alpha", [], true));

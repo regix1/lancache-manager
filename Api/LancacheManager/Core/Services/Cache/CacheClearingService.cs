@@ -783,6 +783,14 @@ public class CacheClearingService : ScheduledBackgroundService
                     new Dictionary<string, object?> { ["folders"] = string.Join(", ", skippedFolders) }));
             }
 
+            // Saved before the outcome, so a restart between the two saves still restores the warning.
+            if (partlyCleared)
+            {
+                await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
+                    "common.notifications.warnings.datasourcesNotCleared",
+                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", failedDatasources) }));
+            }
+
             if (repairPrepared)
             {
                 await FinishClearRepairAsync(
@@ -798,9 +806,6 @@ public class CacheClearingService : ScheduledBackgroundService
             // which reads this error string from OperationTerminalInfo.Error.
             if (partlyCleared)
             {
-                await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
-                    "common.notifications.warnings.datasourcesNotCleared",
-                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", failedDatasources) }));
                 _operationTracker.CompleteOperation(operationId, success: true);
             }
             else
