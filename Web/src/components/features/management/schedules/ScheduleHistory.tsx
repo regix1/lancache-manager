@@ -18,6 +18,7 @@ import { getErrorMessage, isAbortError } from '@utils/error';
 import { formatCount, formatWarningCounts } from '@utils/formatters';
 import { rowToggleHandlers } from '@utils/rowToggle';
 import { formatServiceLabel } from '@utils/serviceDisplayName';
+import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 import { VARIANT_BY_STATUS } from '@utils/statusVariant';
 import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from './scheduled-prefill/constants';
 import {
@@ -348,7 +349,7 @@ export function ScheduleHistory() {
               const detail = execution.warning
                 ? t(execution.warning.stageKey, formatWarningCounts(execution.warning.context))
                 : typeof execution.detail === 'string' && execution.detail.trim().length > 0
-                  ? execution.detail
+                  ? translateStageKeyMessage(execution.detail)
                   : null;
 
               return (

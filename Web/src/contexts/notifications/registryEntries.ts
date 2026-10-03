@@ -22,7 +22,7 @@
  */
 
 import i18n from '@/i18n';
-import { translateRecoveryStage } from '@utils/stageKeyMessage';
+import { translateRecoveryStage, translateStageKeyMessage } from '@utils/stageKeyMessage';
 import {
   ACTIVE_PROGRESS_PERCENT_CAP,
   GENERIC_FAILURE_I18N_KEY,
@@ -125,14 +125,14 @@ export function stageKeyMessage<TEvent extends StageKeyEvent = StageKeyEvent>(
 }
 
 /**
- * Terminal message precedence: a server-formatted error wins, then the event's own
- * stage key, then a fixed fallback key.
+ * Terminal message precedence: a server error wins (one that is a locale key is translated),
+ * then the event's own stage key, then a fixed fallback key.
  */
 export function errorOrStageKeyMessage<
   TEvent extends TerminalStageKeyEvent = TerminalStageKeyEvent
 >(fallbackKey: string): (event: TEvent) => string {
   return (event) =>
-    event.error ??
+    (event.error ? translateStageKeyMessage(event.error) : undefined) ??
     (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
     i18n.t(fallbackKey);
 }

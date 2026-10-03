@@ -56,6 +56,16 @@ const localeValues = {
 const readTranslation = (language, key) =>
   key.split('.').reduce((value, part) => value?.[part], localeValues[language]);
 
+const { translateStageKeyMessage } = await import(
+  await compileToUrl('../src/utils/stageKeyMessage.ts', {
+    '@/i18n': moduleUrl(
+      `const locale = ${JSON.stringify(localeValues.en)};
+       const read = (key) => key.split('.').reduce((value, part) => value?.[part], locale);
+       export default { t: (key) => read(key) ?? key, exists: (key) => typeof read(key) === 'string' };`
+    )
+  })
+);
+
 const defer = () => {
   let resolve;
   let reject;
@@ -284,6 +294,7 @@ const makeComponent = (capture, language = 'en') => {
     isAbortError: (error) => error?.name === 'AbortError',
     formatCount: (value) => value.toString(),
     formatWarningCounts,
+    translateStageKeyMessage,
     rowToggleHandlers: (toggle) => {
       const handlers = rowToggles.rowToggleHandlers(toggle);
       capture.rows.push(handlers);
@@ -638,6 +649,28 @@ test('a completed row with a warning draws amber and prints the warning sentence
   const { capture, html } = renderHistory(response, query(), new Set([1]));
   assert.equal(capture.badges[0].variant, 'warning');
   assert.match(html, /schedule-history-terminal-detail">1 of 3 games failed to download</);
+});
+
+test('a row whose detail is a locale key prints its sentence', () => {
+  const items = [
+    {
+      id: 1,
+      operationId: 'depot-skipped',
+      serviceKey: 'depotMapping',
+      status: 'failed',
+      startedAt: '2026-09-27T10:00:00Z',
+      completedAt: '2026-09-27T10:00:05Z',
+      workerStarted: true,
+      actorKind: 'server',
+      detail: 'signalr.depotMapping.skippedSteamUnreachable'
+    }
+  ];
+  const response = { items, page: 1, pageSize: 20, totalCount: 1, totalPages: 1 };
+  const { html } = renderHistory(response, query(), new Set([1]));
+  assert.match(
+    html,
+    /schedule-history-terminal-detail">Depot mapping did not run: could not reach Steam</
+  );
 });
 
 test('a history warning prints its counts with thousands separators', () => {

@@ -1123,3 +1123,23 @@ test('incomplete localized interpolation retains the same server sentence', asyn
     'Finished 2 of 5'
   );
 });
+
+test('a terminal error that is a locale key is translated', async () => {
+  const markingI18n = moduleUrl(`export default { t: (key) => 'T:' + key, exists: () => false };`);
+  const constantsUrl = await compileToUrl('../src/contexts/notifications/constants.ts');
+  const stageKeyUrl = await compileToUrl('../src/utils/stageKeyMessage.ts', {
+    '@/i18n': markingI18n
+  });
+  const entriesUrl = await compileToUrl('../src/contexts/notifications/registryEntries.ts', {
+    './constants': constantsUrl,
+    '@utils/stageKeyMessage': stageKeyUrl,
+    '@/i18n': markingI18n
+  });
+  const { errorOrStageKeyMessage } = await import(entriesUrl);
+  const message = errorOrStageKeyMessage('signalr.depotMapping.failed');
+  assert.equal(
+    message({ error: 'signalr.depotMapping.skippedSteamUnreachable' }),
+    'T:signalr.depotMapping.skippedSteamUnreachable'
+  );
+  assert.equal(message({ error: 'disk full' }), 'disk full');
+});
