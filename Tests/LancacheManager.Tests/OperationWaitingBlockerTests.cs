@@ -183,7 +183,8 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         Assert.Equal("Disk read failed", response.Error);
         Assert.Null(response.Message);
         Assert.False(response.Active);
-        Reap(tracker, last);
+        // A failed final target is kept until its card is closed; closing it reaps it and the chain.
+        Assert.True(tracker.CloseRun(last));
         Assert.Null(tracker.GetOperation(first, true));
         var links = Assert.IsType<System.Collections.Concurrent.ConcurrentDictionary<Guid, Guid>>(
             typeof(UnifiedOperationTracker).GetField("_handoffs", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker));
