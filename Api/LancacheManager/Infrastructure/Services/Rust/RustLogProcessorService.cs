@@ -441,14 +441,15 @@ public class RustLogProcessorService
                             "common.notifications.warnings.datasourcesFailed",
                             new Dictionary<string, object?> { ["datasources"] = string.Join(", ", batch.FailedDatasourceNames) }));
             }
+            // The batch ends with the outcome it saved: a force stop that lands after the save leaves the ending to this owner.
             CompleteBatchOperation(
                 batchOperationId,
                 batch,
                 confirmed.EntriesProcessed,
                 confirmed.LinesProcessed,
-                cancelled: batchToken.IsCancellationRequested,
+                cancelled: outcome.Cancelled,
                 batchFinished: true);
-            return allSuccess && !batchToken.IsCancellationRequested;
+            return allSuccess && !outcome.Cancelled;
         }
         finally
         {

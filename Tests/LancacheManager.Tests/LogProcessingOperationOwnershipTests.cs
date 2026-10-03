@@ -448,6 +448,52 @@ public sealed class LogProcessingOperationOwnershipTests
     }
 
     [Fact]
+    public async Task AForceStopAfterProcessAllSavedItsSuccessEndsTheRunGreenAsync()
+    {
+        await using var fixture = new ProcessorFixture(transport: true, datasourceCount: 2);
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 5
+        });
+        fixture.State.SetLogPosition("beta", 7);
+        var cancellation = new OperationCancellationService(
+            fixture.Tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            fixture.RepairOwner,
+            NullLogger<OperationCancellationService>.Instance);
+        var operationId = Guid.Empty;
+        Task<bool>? stop = null;
+        // The force stop starts inside the batch's own outcome save, so it lands after the batch took its cancel flag.
+        fixture.State.OnRepairWrite = contents =>
+        {
+            if (stop is not null) return;
+            var repairs = JsonSerializer.Deserialize<List<OperationRepair>>(contents)!;
+            if (!repairs.Any(repair => repair.Id == operationId && repair.Outcome == OperationStatus.Completed)) return;
+            stop = Task.Run(() => cancellation.ForceKillAsync(operationId));
+            SpinWait.SpinUntil(() => fixture.Tracker.GetOperation(operationId)!.Cancelled, TimeSpan.FromSeconds(10));
+        };
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync());
+        await fixture.Pipe!.ConnectAsync();
+        operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
+        await fixture.Pipe.SendAsync(
+            TerminalProgress(10, 20, "completed", sourcePosition: 25),
+            exitCode: 0);
+        await fixture.Pipe.ConnectAsync();
+        await fixture.Pipe.SendAsync(
+            TerminalProgress(0, 0, "completed", sourcePosition: 7),
+            exitCode: 0);
+
+        await run.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.True(await stop!.WaitAsync(TimeSpan.FromSeconds(10)));
+        var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(
+            Assert.Single(fixture.Messages.Completions));
+        Assert.True(complete.Success);
+        Assert.False(complete.Cancelled);
+        Assert.Equal(OperationStatus.Completed, fixture.Tracker.GetOperation(operationId)!.Status);
+    }
+
+    [Fact]
     public async Task ABatchThatFailedAfterADatasourceSkippedFilesStillNamesThemAsync()
     {
         await using var fixture = new ProcessorFixture(transport: true, datasourceCount: 2);
@@ -1457,7 +1503,7 @@ public sealed class LogProcessingOperationOwnershipTests
         public RustLogProcessorService Processor { get; }
         public CompletionMessages Messages { get; }
         public OperationStateService RepairOwner => _repairOwner;
-        public StateService State { get; }
+        public OperationRepairTests.FailingStateService State { get; }
         public LogPipe? Pipe { get; }
 
         public Task<bool> Track(Task<bool> run)
@@ -1540,7 +1586,7 @@ public sealed class LogProcessingOperationOwnershipTests
             }
         }
 
-        private static StateService CreateStateService(
+        private static OperationRepairTests.FailingStateService CreateStateService(
             string root,
             IConfiguration configuration,
             IPathResolver pathResolver)
@@ -1559,7 +1605,7 @@ public sealed class LogProcessingOperationOwnershipTests
                 NullLogger<SteamAuthStorageService>.Instance,
                 pathResolver,
                 encryption);
-            var state = new StateService(
+            var state = new OperationRepairTests.FailingStateService(
                 NullLogger<StateService>.Instance,
                 pathResolver,
                 encryption,
