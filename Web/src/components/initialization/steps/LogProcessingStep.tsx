@@ -22,6 +22,7 @@ import type {
   LogProcessingCompleteEvent
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
+import { ApiError } from '@services/apiError';
 import { useConfig } from '@contexts/useConfig';
 import { useSelectionSet } from '@hooks/useSelectionSet';
 import { getErrorMessage } from '@utils/error';
@@ -76,6 +77,9 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   const sessionStartedRef = React.useRef(false);
   const activeOperationIdRef = React.useRef<string | null>(null);
   const processingRef = React.useRef(false);
+  // Set once the pass is ending (a force stop was sent, or the processor is idle while the run still saves its
+  // outcome): the tracker drops a finished run 10 s after it ends, so the watchdog then reads it at its next tick.
+  const endingPendingRef = React.useRef(false);
 
   useEffect(() => {
     activeOperationIdRef.current = activeOperationId;
@@ -264,7 +268,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     if (!processing) return;
 
     const watchdog = setInterval(async () => {
-      if (Date.now() - lastEventAt < 30000) {
+      if (Date.now() - lastEventAt < (endingPendingRef.current ? 4000 : 30000)) {
         return;
       }
 
@@ -274,6 +278,12 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           // Once no pass runs the processing status only says idle, so the pass's own run says how it ended.
           const operationId = activeOperationIdRef.current;
           const run = operationId ? await ApiService.getTrackedOperation(operationId) : null;
+          if (run?.status === 'running' || run?.status === 'cancelling') {
+            // The pass is still saving its outcome; its run is read again at the next tick.
+            endingPendingRef.current = true;
+            setLastEventAt(Date.now());
+            return;
+          }
           setProcessing(false);
           if (run?.status === 'completed') {
             setComplete(true);
@@ -284,6 +294,11 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
             });
           } else if (run?.status === 'cancelled') {
             setNotice({ tone: 'info', message: t('initialization.logProcessing.cancelled') });
+          } else if (run?.status === 'failed') {
+            setNotice({
+              tone: 'error',
+              message: t('initialization.logProcessing.failedToProcess')
+            });
           }
         } else {
           setLastEventAt(Date.now());
@@ -341,6 +356,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     setForceStopConfirmOpen(false);
     setActionLoading('all');
     completionHandledRef.current = false;
+    endingPendingRef.current = false;
     sessionStartedRef.current = true;
     setActiveOperationId(null);
     setLastEventAt(Date.now());
@@ -374,6 +390,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     setForceStopConfirmOpen(false);
     setActionLoading(datasourceName);
     completionHandledRef.current = false;
+    endingPendingRef.current = false;
     sessionStartedRef.current = true;
     setActiveOperationId(null);
     setLastEventAt(Date.now());
@@ -422,7 +439,14 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
 
       // The completion event that follows a force stop says how the pass ended, and the watchdog below ends the step if
       // that event is lost, so the step keeps its running view until one of them does.
-      await ApiService.forceKillOperation(operationId);
+      try {
+        await ApiService.forceKillOperation(operationId);
+      } catch (err: unknown) {
+        // The run already ended and was dropped; the watchdog reads how the step ends.
+        if (!(err instanceof ApiError && err.status === 404)) throw err;
+      }
+      endingPendingRef.current = true;
+      setLastEventAt(Date.now());
     } catch (err: unknown) {
       setNotice({
         tone: 'error',
