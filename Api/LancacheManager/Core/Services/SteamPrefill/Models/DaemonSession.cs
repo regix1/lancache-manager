@@ -1,3 +1,5 @@
+using LancacheManager.Models;
+
 namespace LancacheManager.Core.Services.SteamPrefill;
 
 /// <summary>
@@ -87,6 +89,12 @@ public class DaemonSession
 
     /// <summary>The locale key naming why the app ended the current sign-in; null when a person ended it or it is still running.</summary>
     public string? LoginStopReason { get; set; }
+
+    /// <summary>
+    /// How this session's last tracked sign-in ended, by its <see cref="LoginAttempt"/>, for a browser that missed the
+    /// auth-state event. Null until one ends. Transient - not persisted.
+    /// </summary>
+    public PrefillLoginEnding? LastLoginEnding { get; set; }
 
     /// <summary>
     /// The <see cref="CredentialChallenge.ChallengeId"/> of the login challenge most recently answered via

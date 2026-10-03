@@ -132,11 +132,14 @@ public class PersistentLoginStatusResponse
     /// <summary>Id of the persistent session the login resolved on.</summary>
     public required string SessionId { get; set; }
 
-    /// <summary>Login status; "logged-in" for the already-authenticated case.</summary>
+    /// <summary>Login status: "logged-in" once signed in, or "ended" when the sign-in the poll's login started was refused or stopped.</summary>
     public string Status { get; set; } = "logged-in";
 
     /// <summary>Human-readable status message (e.g. "Already logged in"). Null when there is nothing extra to say beyond <see cref="Status"/>.</summary>
     public string? Message { get; set; }
+
+    /// <summary>How the poll's sign-in ended when <see cref="Status"/> is "ended"; null otherwise.</summary>
+    public PrefillLoginEnding? LoginEnding { get; set; }
 }
 
 /// <summary>

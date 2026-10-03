@@ -1,3 +1,5 @@
+using LancacheManager.Models;
+
 namespace LancacheManager.Core.Services.SteamPrefill;
 
 /// <summary>
@@ -24,6 +26,13 @@ public class DaemonSessionDto
     public string? ErrorMessage { get; set; }
 
     public string AuthState { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How this session's last sign-in ended, by its attempt number, so a browser that missed the auth-state event
+    /// reads it on its next subscribe. Null until a sign-in on this session has ended.
+    /// </summary>
+    public PrefillLoginEnding? LoginEnding { get; set; }
+
     public bool IsPrefilling { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
@@ -145,6 +154,7 @@ public class DaemonSessionDto
             Status = session.Status.ToString(),
             ErrorMessage = session.ErrorMessage,
             AuthState = session.AuthState.ToString(),
+            LoginEnding = session.LastLoginEnding,
             IsPrefilling = session.IsPrefilling,
             CreatedAt = session.CreatedAt,
             ExpiresAt = session.ExpiresAt,

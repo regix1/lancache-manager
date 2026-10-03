@@ -116,6 +116,16 @@ public class PrefillLoginRunTests
         await daemon.GetSessionStatusAsync(session.Id);
 
         Assert.Equal(signedIn ? OperationStatus.Completed : OperationStatus.Running, tracker.GetOperation(operationId)!.Status);
+        if (signedIn)
+        {
+            var ending = Assert.IsType<PrefillLoginEnding>(session.LastLoginEnding);
+            Assert.Equal(OperationStatus.Completed, ending.Status);
+            Assert.Equal("prefill.persistent.status.loggedIn", ending.StageKey);
+        }
+        else
+        {
+            Assert.Null(session.LastLoginEnding);
+        }
     }
 
     /// <summary>
@@ -169,6 +179,71 @@ public class PrefillLoginRunTests
         Assert.Equal(expected, tracker.GetOperation(operationId)!.Status);
         Assert.Equal(expected == OperationStatus.Failed,
             tracker.GetRuns().Runs.Any(row => row.OperationId == operationId && row.Retained));
+        var ending = Assert.IsType<PrefillLoginEnding>(session.LastLoginEnding);
+        Assert.Equal(session.LoginAttempt, ending.LoginAttempt);
+        Assert.Equal(expected, ending.Status);
+        Assert.Equal(
+            expected == OperationStatus.Failed ? "prefill.auth.signInRefused" : "errors.integration.attemptExpired",
+            ending.StageKey);
+    }
+
+    /// <summary>
+    /// A browser that missed the auth-state event reads how the sign-in ended from the session snapshot every
+    /// resubscribe sends.
+    /// </summary>
+    [Fact]
+    public async Task ASessionSnapshotCarriesItsLastSignInsEnding()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        await daemon.StartLoginAsync(session.Id);
+        session.AuthState = DaemonAuthState.PasswordRequired;
+
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
+
+        var snapshot = DaemonSessionDto.FromSession(session);
+        Assert.NotNull(snapshot.LoginEnding);
+        Assert.Equal(session.LastLoginEnding, snapshot.LoginEnding);
+    }
+
+    /// <summary>
+    /// A refused persistent sign-in sends no further challenge, so the poll for the login that started it must
+    /// answer how it ended instead of waiting out its deadline; a poll for another login must not.
+    /// </summary>
+    [Fact]
+    public async Task APersistentChallengePollAnswersHowItsLoginsSignInEnded()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(
+            tracker, ScheduledPrefillConstants.DeriveSystemUserId(), isPersistent: true);
+        var controller = CreateController(daemon, Guid.NewGuid());
+        var loginId = Guid.NewGuid();
+        await controller.StartLoginAsync(
+            new PersistentLoginRequest
+            {
+                Service = PrefillPlatform.Steam,
+                SessionId = session.Id,
+                EditSessionId = "edit-session-login",
+                EditActionId = "login",
+                LoginId = loginId
+            },
+            CancellationToken.None);
+        session.AuthState = DaemonAuthState.PasswordRequired;
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
+
+        var ended = await controller.GetChallengeAsync(
+            PrefillPlatform.Steam, sessionId: session.Id, timeoutSeconds: 1, loginId: loginId);
+
+        var response = Assert.IsType<PersistentLoginStatusResponse>(Assert.IsType<OkObjectResult>(ended.Result).Value);
+        Assert.Equal("ended", response.Status);
+        Assert.Equal(OperationStatus.Failed, Assert.IsType<PrefillLoginEnding>(response.LoginEnding).Status);
+        Assert.Equal("prefill.auth.signInRefused", response.LoginEnding.StageKey);
+
+        var other = await controller.GetChallengeAsync(
+            PrefillPlatform.Steam, sessionId: session.Id, timeoutSeconds: 1, loginId: Guid.NewGuid());
+        Assert.False((other.Result as OkObjectResult)?.Value is PersistentLoginStatusResponse { Status: "ended" });
     }
 
     /// <summary>
@@ -234,6 +309,9 @@ public class PrefillLoginRunTests
         var operation = tracker.GetOperation(operationId)!;
         Assert.Equal(OperationStatus.Failed, operation.Status);
         Assert.Equal("common.notifications.warnings.signInExpired", Assert.Single(operation.Warnings).StageKey);
+        var ending = Assert.IsType<PrefillLoginEnding>(session.LastLoginEnding);
+        Assert.Equal(OperationStatus.Failed, ending.Status);
+        Assert.Equal("common.notifications.warnings.signInExpired", ending.StageKey);
     }
 
     /// <summary>

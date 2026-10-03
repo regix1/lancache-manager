@@ -390,7 +390,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// ending (the user cancelling, a logout) ends as a canceled run, which shows a gray card that leaves
     /// on its own unless Keep Notifications Visible holds it; the login modal shows the refusal itself.
     /// Idempotent: the handle is cleared before the tracker is called, so two terminal paths racing on
-    /// one session cannot both hand the tracker the same id.
+    /// one session cannot both hand the tracker the same id. It also keeps that ending on the session by attempt number.
     /// </summary>
     private void CompleteLoginOperation(DaemonSession session)
     {
@@ -404,6 +404,13 @@ public abstract partial class PrefillDaemonServiceBase
 
         var authenticated = session.AuthState == DaemonAuthState.Authenticated;
         var stoppedByApp = !authenticated && session.LoginStopReason is not null;
+        // Kept by attempt for a browser that missed this ending: a guest reads it on its next subscribe, and a
+        // persistent login's challenge poll reads it by the login id bound to this attempt.
+        var (endingStatus, endingKey) = authenticated ? (OperationStatus.Completed, "prefill.persistent.status.loggedIn")
+            : stoppedByApp ? (OperationStatus.Failed, session.LoginStopReason!)
+            : session.LastLoginFailureMessage is not null ? (OperationStatus.Failed, "prefill.auth.signInRefused")
+            : (OperationStatus.Cancelled, "errors.integration.attemptExpired");
+        session.LastLoginEnding = new PrefillLoginEnding(session.LoginAttempt, endingStatus, endingKey);
         if (stoppedByApp)
         {
             _operationTracker.SetWarning(operationId, new RunWarning(session.LoginStopReason!, new Dictionary<string, object?>()));
@@ -1261,6 +1268,22 @@ public abstract partial class PrefillDaemonServiceBase
         if (request.Canceled || (request.Attempt is { } bound && bound != attempt))
             throw new OperationCanceledException("Login request was cancelled.");
         request.Attempt = attempt;
+    }
+
+    /// <summary>
+    /// How the sign-in bound to a persistent login request ended, once it ended. Null while it runs, when the request
+    /// never reached a sign-in, or when a newer sign-in on the session has ended since.
+    /// </summary>
+    public PrefillLoginEnding? GetLoginEnding(DaemonSession session, Guid loginId)
+    {
+        lock (session.PrefillLock)
+        {
+            return session.LoginRequests.TryGetValue(loginId, out var request)
+                && request.Attempt is { } attempt
+                && session.LastLoginEnding is { } ending && ending.LoginAttempt == attempt
+                    ? ending
+                    : null;
+        }
     }
 
     /// <summary>

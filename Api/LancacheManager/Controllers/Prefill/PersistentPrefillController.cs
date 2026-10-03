@@ -948,6 +948,7 @@ public class PersistentPrefillController : ControllerBase
     /// Of the running persistent session. AccountHolder analogue of
     /// <c>GET {service}/sessions/{id}/challenge</c>. Delegates to
     /// <see cref="PrefillDaemonServiceBase.WaitForChallengeAsync(string, TimeSpan?, CancellationToken)"/>.
+    /// With <c>loginId</c>, answers how the sign-in that login started ended once it ended other than signed in.
     /// </remarks>
     [HttpGet("challenge")]
     [ProducesResponseType(typeof(CredentialChallenge), StatusCodes.Status200OK)]
@@ -955,6 +956,7 @@ public class PersistentPrefillController : ControllerBase
         [FromQuery] PrefillPlatform service,
         [FromQuery] string? sessionId = null,
         [FromQuery] int timeoutSeconds = 30,
+        [FromQuery] Guid? loginId = null,
         CancellationToken cancellationToken = default)
     {
         // RC3: sessionId is REQUIRED - no fallback defaults - so a
@@ -970,10 +972,28 @@ public class PersistentPrefillController : ControllerBase
             return error;
         }
 
+        // A refused or stopped sign-in sends no further challenge, so the poll for the login that started it answers with
+        // how it ended: before the wait, when it is already over, and after it, when it ended during the wait. A sign-in
+        // that succeeded keeps answering "logged-in" below.
+        PersistentLoginStatusResponse? Ended() =>
+            loginId is { } id && daemon!.GetLoginEnding(session!, id) is { Status: not OperationStatus.Completed } ending
+                ? new PersistentLoginStatusResponse { SessionId = session!.Id, Status = "ended", LoginEnding = ending }
+                : null;
+
+        if (Ended() is { } endedBefore)
+        {
+            return Ok(endedBefore);
+        }
+
         var challenge = await daemon!.WaitForChallengeAsync(session!.Id, TimeSpan.FromSeconds(timeoutSeconds), cancellationToken);
 
         if (challenge == null)
         {
+            if (Ended() is { } endedDuring)
+            {
+                return Ok(endedDuring);
+            }
+
             var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
             if (status?.Status == "logged-in")
             {

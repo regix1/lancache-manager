@@ -28,6 +28,13 @@ public sealed record IntegrationLoginEnding(
     string StageKey,
     Dictionary<string, object?>? Context = null);
 
+/// <summary>
+/// How one sign-in on a prefill daemon session ended, kept by the session's attempt number for a browser that missed
+/// the ending. The prefill counterpart of <see cref="IntegrationLoginEnding"/>: a daemon session numbers its sign-ins
+/// instead of giving each one an id.
+/// </summary>
+public sealed record PrefillLoginEnding(long LoginAttempt, OperationStatus Status, string StageKey);
+
 public sealed class IntegrationLoginRequest
 {
     public Guid? AttemptId { get; set; }
