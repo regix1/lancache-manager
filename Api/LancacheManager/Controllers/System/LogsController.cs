@@ -744,7 +744,7 @@ public class LogsController : ControllerBase
                 expectsPublication: false,
                 cancellationToken);
         }
-        catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException)
+        catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException or TimeoutException)
         {
             throw new ConflictException(
                 $"The delete could not check that no other program is writing to the log files. Nothing was deleted. {error.Message}")

@@ -980,6 +980,25 @@ public sealed class LogsControllerRustFileOperationsTests
     }
 
     [Fact]
+    public async Task DeleteLogFile_AWriterSearchThatDoesNotAnswerDeletesNothingAndSaysWhyAsync()
+    {
+        ReopenWaitingNginx? nginx = null;
+        using var fixture = new ControllerFixture(paths => nginx = new ReopenWaitingNginx(paths));
+        var current = Path.Combine(fixture.AlphaLogPath, "access.log");
+        await File.WriteAllTextAsync(current, string.Concat(Enumerable.Repeat("x\n", 3)));
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 3 });
+        nginx!.HangWriterSearch = true;
+
+        var refusal = await Assert.ThrowsAsync<ConflictException>(() => fixture.Controller.DeleteLogFileAsync("alpha"))
+            .WaitAsync(TimeSpan.FromSeconds(45));
+
+        Assert.Equal("errors.logs.writerCheckFailed", refusal.StageKey);
+        Assert.Contains("30 seconds", refusal.Message);
+        Assert.Empty(fixture.RustHelper.DeleteRequests);
+        Assert.Equal(3, fixture.State.GetLogPosition("alpha"));
+    }
+
+    [Fact]
     public async Task DeleteLogFile_AFileTheAppCannotOpenDuringTheWriterSearchDeletesNothingAsync()
     {
         ReopenWaitingNginx? nginx = null;
@@ -1615,6 +1634,8 @@ public sealed class LogsControllerRustFileOperationsTests
         public TaskCompletionSource ReleaseReopen { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         /// <summary>Runs while the delete looks for the log files' writer.</summary>
         public Action? DuringWriterSearch { get; set; }
+        /// <summary>The writer search blocks until the process is killed, as a host read on a stuck process does.</summary>
+        public bool HangWriterSearch { get; set; }
         /// <summary>The exit code of the reopen signal; the real signal exits non-zero when the writer is gone.</summary>
         public int ReopenExitCode { get; set; }
         protected override bool CanProbeHostWriters => true;
@@ -1628,6 +1649,10 @@ public sealed class LogsControllerRustFileOperationsTests
             {
                 case "host nginx writer identity":
                     DuringWriterSearch?.Invoke();
+                    if (HangWriterSearch)
+                    {
+                        return await new TaskCompletionSource<ProcessCommandResult>().Task.WaitAsync(cancellationToken);
+                    }
                     return new ProcessCommandResult { ExitCode = 0, Output = "4242|waiting\n" };
                 case "host nginx verified reopen":
                     ReopenReached.SetResult();
