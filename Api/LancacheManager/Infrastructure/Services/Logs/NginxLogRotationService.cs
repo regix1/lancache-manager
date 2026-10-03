@@ -321,7 +321,7 @@ public class NginxLogRotationService
         if (!string.IsNullOrWhiteSpace(configuredName) &&
             !string.Equals(configuredName, "auto", StringComparison.OrdinalIgnoreCase))
         {
-            return await ContainerHasNginxAsync(configuredName, CancellationToken.None)
+            return await ContainerHasNginxAsync(configuredName, CancellationToken.None) == true
                 ? DockerProbeResult.AvailableResult
                 : DockerProbeResult.Unknown;
         }
@@ -720,6 +720,9 @@ public class NginxLogRotationService
             path => path,
             _ => new List<string>(),
             pathComparer);
+        // Logs a container that did not answer could write: their step fails even when another writer was found,
+        // because the writer nobody signals would keep writing to the replaced file.
+        var unanswered = affectedPaths.ToDictionary(path => path, _ => new List<string>(), pathComparer);
         if (_pathResolver.IsDockerSocketAvailable())
         {
             var configured = _configuration.GetValue<string>("NginxLogRotation:ContainerName")
@@ -916,7 +919,22 @@ public class NginxLogRotationService
                 {
                     continue;
                 }
-                var writer = await ReadDockerWriterIdentityAsync(name, cancellationToken);
+                NginxWriterIdentity? writer;
+                try
+                {
+                    writer = await ReadDockerWriterIdentityAsync(name, cancellationToken);
+                }
+                catch (TimeoutException timeout) when (!configured.Contains(name, StringComparer.Ordinal))
+                {
+                    foreach (var path in affectedPaths.Where(path => containerMounts.Any(mount =>
+                                 IsWithinMount(path, mount.Source, comparison) ||
+                                 IsWithinMount(path, mount.Destination, comparison) ||
+                                 (hostPaths[path] is { } hostPath && IsWithinMount(hostPath, mount.Source, comparison)))))
+                    {
+                        unanswered[path].Add(timeout.Message);
+                    }
+                    continue;
+                }
                 if (writer is null)
                 {
                     if (configured.Contains(name, StringComparer.Ordinal))
@@ -929,14 +947,23 @@ public class NginxLogRotationService
 
                 foreach (var path in affectedPaths)
                 {
-                    var match = await ReadDockerWriterAsync(
-                        name,
-                        path,
-                        hostPaths[path],
-                        containerMounts,
-                        writer,
-                        discoveryErrors[path],
-                        cancellationToken);
+                    NginxWriterMatch match;
+                    try
+                    {
+                        match = await ReadDockerWriterAsync(
+                            name,
+                            path,
+                            hostPaths[path],
+                            containerMounts,
+                            writer,
+                            discoveryErrors[path],
+                            cancellationToken);
+                    }
+                    catch (TimeoutException timeout)
+                    {
+                        unanswered[path].Add(timeout.Message);
+                        continue;
+                    }
                     if (match.Matches)
                     {
                         writers[path].Add(match.Writer);
@@ -956,6 +983,11 @@ public class NginxLogRotationService
 
         foreach (var path in affectedPaths)
         {
+            if (unanswered[path].Count > 0)
+            {
+                throw new TimeoutException(unanswered[path][0]);
+            }
+
             var distinct = writers[path]
                 .DistinctBy(writer => (writer.Kind, writer.Name, writer.ProcessId, writer.StartIdentity))
                 .ToList();
@@ -1028,6 +1060,10 @@ public class NginxLogRotationService
             process.ArgumentList.Add("nginx-file-identity");
             process.ArgumentList.Add(candidate);
             var result = await RunLimitedAsync(process, "docker nginx file identity", cancellationToken);
+            if (result.TimedOut)
+            {
+                throw new TimeoutException($"Container '{containerName}' and '{affectedPaths}': {result.Error}");
+            }
             if (result.ExitCode != 0)
             {
                 var message =
@@ -1064,6 +1100,11 @@ public class NginxLogRotationService
                 $"exec {containerName} sh -c \"pids=\\\"$(cat /run/nginx.pid 2>/dev/null; cat /var/run/nginx.pid 2>/dev/null; pgrep -f 'nginx[:] master' 2>/dev/null)\\\"; found=; for pid in $pids; do case \\\"$pid\\\" in ''|*[!0-9]*) continue;; esac; tr '\\0' ' ' </proc/$pid/cmdline 2>/dev/null | grep -q 'nginx: master' || continue; start=$(awk '{{print $22}}' /proc/$pid/stat 2>/dev/null) || continue; test -n \\\"$start\\\" || continue; printf '%s|%s\\n' \\\"$pid\\\" \\\"$start\\\"; found=1; done; test -n \\\"$found\\\"\""),
             "docker nginx writer identity",
             cancellationToken);
+        if (identities.TimedOut)
+        {
+            // A container that does not answer may still be the writer, so it is never read as "no nginx".
+            throw new TimeoutException($"Container '{containerName}': {identities.Error}");
+        }
         if (identities.ExitCode != 0)
         {
             return null;
@@ -1082,6 +1123,10 @@ public class NginxLogRotationService
                     $"exec {containerName} sh -c \"owner=$(readlink /proc/self/ns/mnt 2>/dev/null) || exit 5; test -n \\\"$owner\\\" || exit 5; candidate=$(readlink /proc/{candidate.ProcessId}/ns/mnt 2>/dev/null) || exit 6; test \\\"$candidate\\\" = \\\"$owner\\\" || exit 7; start=$(awk '{{print $22}}' /proc/{candidate.ProcessId}/stat 2>/dev/null) || exit 8; test \\\"$start\\\" = '{candidate.StartIdentity}'\""),
                 "docker nginx writer ownership",
                 cancellationToken);
+            if (ownership.TimedOut)
+            {
+                throw new TimeoutException($"Container '{containerName}': {ownership.Error}");
+            }
             if (ownership.ExitCode == 0)
             {
                 return candidate;
@@ -1263,6 +1308,7 @@ public class NginxLogRotationService
             {
                 // No exit code: the command was stopped.
                 ExitCode = -1,
+                TimedOut = true,
                 Error = $"{label} did not finish within {_writerSignalTimeout.TotalSeconds:0} seconds"
             };
         }
@@ -1271,7 +1317,7 @@ public class NginxLogRotationService
     /// <summary>
     /// Signals nginx to reopen log files. A configured or auto-detected LANCache container is
     /// preferred; when none is found, the host nginx master is signaled locally. Each command stops
-    /// after 30 seconds: a container that does not answer is skipped, a writer that does not answer is
+    /// after 30 seconds: a container that does not answer the nginx check is skipped, a writer that does not answer is
     /// named as not reopened, and a host writer read that does not answer fails the reopen. A cancel of
     /// <paramref name="cancellationToken"/> stops it.
     /// </summary>
@@ -1366,6 +1412,14 @@ public class NginxLogRotationService
                     : Array.Empty<NginxWriterIdentity>();
                 if (hosts.Count == 0)
                 {
+                    // Docker failed or did not answer: that is the cause to name, not a missing pid: host.
+                    if (detectionError is { } dockerFailure &&
+                        dockerFailure != NoNginxContainerFoundError &&
+                        !dockerFailure.Contains("Docker socket", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return LogRotationResult.Failed(dockerFailure);
+                    }
+
                     const string failureReason =
                         "Host nginx is not visible to the manager; enable pid: host and preserve CAP_KILL";
                     LogBareMetalFailure(failureReason);
@@ -1531,7 +1585,7 @@ public class NginxLogRotationService
                 foreach (var candidate in monolithicCandidates)
                 {
                     var hasNginx = await ContainerHasNginxAsync(candidate.Name, cancellationToken);
-                    if (hasNginx)
+                    if (hasNginx == true)
                     {
                         _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", candidate.Name);
                         return (candidate.Name, null);
@@ -1549,7 +1603,9 @@ public class NginxLogRotationService
                 // A single "lancache"-named match is ambiguous: a database or other sidecar
                 // can share the prefix, so confirm nginx is actually present before claiming
                 // it as the reopen target. If it is not, keep searching for a real nginx host.
-                if (await ContainerHasNginxAsync(match.Name, cancellationToken))
+                // A LANCache-named container that did not answer stays the target: its writer read then names the
+                // timeout, and another container that runs nginx is never signaled in its place.
+                if (await ContainerHasNginxAsync(match.Name, cancellationToken) != false)
                 {
                     _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", match.Name);
                     return (match.Name, null);
@@ -1565,7 +1621,7 @@ public class NginxLogRotationService
                 foreach (var candidate in candidates)
                 {
                     var hasNginx = await ContainerHasNginxAsync(candidate.Name, cancellationToken);
-                    if (hasNginx)
+                    if (hasNginx == true)
                     {
                         _logger.LogInformation("Auto-detected monolithic container: {ContainerName}", candidate.Name);
                         return (candidate.Name, null);
@@ -1584,7 +1640,7 @@ public class NginxLogRotationService
                 if (LooksLikeNonCache(container.Name) || LooksLikeNonCache(container.Image)) continue;
 
                 var hasNginx = await ContainerHasNginxAsync(container.Name, cancellationToken);
-                if (!hasNginx) continue;
+                if (hasNginx != true) continue;
 
                 // Found a container with nginx
                 _logger.LogInformation("Found container with nginx: {ContainerName}", container.Name);
@@ -1604,9 +1660,9 @@ public class NginxLogRotationService
     }
 
     /// <summary>
-    /// Check if a container has nginx by trying to execute nginx -v
+    /// Whether a container runs nginx; null when it did not answer within the limit, which is not "no nginx".
     /// </summary>
-    private async Task<bool> ContainerHasNginxAsync(string containerName, CancellationToken cancellationToken)
+    private async Task<bool?> ContainerHasNginxAsync(string containerName, CancellationToken cancellationToken)
     {
         try
         {
@@ -1614,7 +1670,7 @@ public class NginxLogRotationService
                 $"exec {containerName} sh -c \"which nginx || command -v nginx\"");
 
             var result = await RunLimitedAsync(processStartInfo, "docker exec nginx-check", cancellationToken);
-            return result.ExitCode == 0;
+            return result.TimedOut ? null : result.ExitCode == 0;
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
