@@ -16,6 +16,8 @@ use lancache_processor::progress_events;
 use lancache_processor::removal_core;
 use progress_events::ProgressReporter;
 
+const SERVICE_SWEEP_STAGE_KEY: &str = "signalr.serviceRemove.cache.sweeping";
+
 /// Service cache removal utility - removes all cache files for a specific service
 #[derive(clap::Parser, Debug)]
 #[command(name = "cache_service_remove")]
@@ -164,6 +166,7 @@ fn collect_cache_digests(
     urls: &HashMap<String, i64>,
     scheme: cache_utils::CacheKeyScheme,
     progress: Option<&removal_core::CollectionProgress<'_>>,
+    on_sweep_folder: &(dyn Fn(usize) + Sync),
 ) -> Result<Vec<(u128, Option<String>)>> {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -221,7 +224,7 @@ fn collect_cache_digests(
                         )
                         .is_ok()
                 {
-                    removal_core::report_collection_progress(progress, walked, total_urls);
+                    removal_core::report_collection_progress(progress, walked, total_urls, 30.0);
                 }
             }
 
@@ -235,9 +238,17 @@ fn collect_cache_digests(
     let claimed: HashSet<u128> = walked.iter().map(|(digest, _)| *digest).collect();
     let bases = removal_core::object_key_bases(urls.keys().map(|url| (&service_owned, url)));
 
+    if removal_core::every_slice_claimed(
+        cache_dir,
+        urls.keys().map(|url| (&service_owned, url)),
+        &claimed,
+    ) {
+        return Ok(walked);
+    }
+
     let mut digests = walked;
     digests.extend(
-        removal_core::key_header_residue(cache_dir, &bases, &claimed)?
+        removal_core::key_header_residue(cache_dir, &bases, &claimed, on_sweep_folder)?
             .into_iter()
             .map(|(digest, key)| (digest, Some(key))),
     );
@@ -261,7 +272,20 @@ fn remove_cache_files_for_service(
 
     // Re-walked from disk here, inside the deleting process, so the set deleted is the set
     // that exists now rather than one an earlier pass recorded.
-    let digests_to_delete = collect_cache_digests(cache_dir, service, urls, scheme, None)?;
+    let digests_to_delete =
+        collect_cache_digests(cache_dir, service, urls, scheme, None, &|folders| {
+            // The card stays at the removal's starting 10% while the sweep reads the rest of the cache.
+            let _ = removal_core::write_progress(
+                progress_path,
+                reporter,
+                "removing_cache",
+                SERVICE_SWEEP_STAGE_KEY,
+                json!({ "n": folders, "total": removal_core::TOP_LEVEL_CACHE_FOLDERS }),
+                10.0,
+                folders,
+                removal_core::TOP_LEVEL_CACHE_FOLDERS,
+            );
+        })?;
 
     let total_paths = digests_to_delete.len();
     eprintln!("Checking {} potential cache file locations...", total_paths);
@@ -565,9 +589,17 @@ async fn main() -> Result<()> {
             reporter: &reporter,
             stage_key: "signalr.serviceRemove.counting.progress",
         };
-        let cache_files_found =
-            collect_cache_digests(&cache_dir, service, &urls, key_scheme, Some(&collection_progress))?
-                .len();
+        let cache_files_found = collect_cache_digests(
+            &cache_dir,
+            service,
+            &urls,
+            key_scheme,
+            Some(&collection_progress),
+            &|folders| {
+                removal_core::report_sweep_progress(&collection_progress, SERVICE_SWEEP_STAGE_KEY, folders)
+            },
+        )?
+        .len();
 
         fs::write(
             &output_json,
@@ -837,6 +869,7 @@ mod tests {
             &urls,
             cache_utils::CacheKeyScheme::Monolithic,
             None,
+            &|_| {},
         )
         .unwrap()
         .len();
@@ -986,11 +1019,72 @@ mod tests {
             &HashMap::new(),
             cache_utils::CacheKeyScheme::Monolithic,
             None,
+            &|_| {},
         )
         .unwrap()
         .len();
 
         assert_eq!(counted, 0);
+    }
+
+    #[test]
+    fn counting_a_service_reports_the_sweep_as_its_own_stage() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let url = "/bundle/one";
+        let base = cache_utils::object_key_base("riot", url).unwrap();
+        let slice_key = |index: u64| {
+            let start = index * cache_utils::DEFAULT_SLICE_SIZE;
+            format!(
+                "{base}bytes={start}-{}",
+                start + cache_utils::DEFAULT_SLICE_SIZE - 1
+            )
+        };
+        // Slice 400 sits behind a hole far wider than the forward walk's tolerance.
+        let write_slice = |index: u64, contents: String| {
+            let path = cache_utils::cache_path_for_digest(
+                &root,
+                cache_utils::calculate_md5_digest(&slice_key(index)),
+            );
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, contents).unwrap();
+        };
+        write_slice(
+            0,
+            format!(
+                "KEY: {}\nHTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-1048575/{}\r\n\r\nbody",
+                slice_key(0),
+                401 * cache_utils::DEFAULT_SLICE_SIZE
+            ),
+        );
+        write_slice(400, format!("KEY: {}\nbody", slice_key(400)));
+
+        let progress_path = temp.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+        let progress = removal_core::CollectionProgress {
+            progress_path: &progress_path,
+            reporter: &reporter,
+            stage_key: "signalr.serviceRemove.counting.progress",
+        };
+        let urls = HashMap::from([(url.to_string(), 0_i64)]);
+
+        let counted = collect_cache_digests(
+            &root,
+            "riot",
+            &urls,
+            cache_utils::CacheKeyScheme::Monolithic,
+            Some(&progress),
+            &|folders| {
+                removal_core::report_sweep_progress(&progress, SERVICE_SWEEP_STAGE_KEY, folders)
+            },
+        )
+        .unwrap()
+        .len();
+
+        assert_eq!(counted, 2);
+        let written: serde_json::Value =
+            serde_json::from_slice(&fs::read(progress_path).unwrap()).unwrap();
+        assert_eq!(written["stageKey"], "signalr.serviceRemove.cache.sweeping");
     }
 
     #[test]

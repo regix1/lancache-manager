@@ -752,7 +752,7 @@ fn trim_ascii(mut value: &[u8]) -> &[u8] {
     value
 }
 
-fn parse_content_range(value: &[u8]) -> Option<(u64, String)> {
+pub(crate) fn parse_content_range(value: &[u8]) -> Option<(u64, String)> {
     let text = std::str::from_utf8(trim_ascii(value)).ok()?;
     let rest = text.strip_prefix("bytes ")?;
     if rest.contains(',') {

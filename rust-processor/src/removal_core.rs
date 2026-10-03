@@ -66,6 +66,11 @@ pub enum ProgressCadence {
     OnPercentAdvanceOrEveryEighth,
 }
 
+/// nginx's `levels=2:2` layout has at most 256 top-level folders under a cache root. The KEY-header
+/// sweep counts how many it has started reading; a cache that never filled every folder ends its count
+/// below this total.
+pub const TOP_LEVEL_CACHE_FOLDERS: usize = 256;
+
 /// Whether the forward slice walk already reaches every slice of this removal's objects, or
 /// the KEY-header pass has to look for the ones it cannot.
 ///
@@ -80,8 +85,9 @@ pub enum ProgressCadence {
 pub enum SliceReach {
     /// Steam / Epic: every slice is reachable by walking forward from slice 0.
     ForwardWalkIsComplete,
-    /// Services and named games: sweep KEY headers for slices behind eviction holes.
-    SweepKeyHeaders,
+    /// Services and named games: sweep KEY headers for slices behind eviction holes, reporting the
+    /// sweep's folder count under `stage_key`.
+    SweepKeyHeaders { stage_key: &'static str },
 }
 
 /// Outcome of the cache-file deletion phase.
@@ -113,12 +119,13 @@ pub struct CollectionProgress<'a> {
 }
 
 /// Emit one collection-phase tick. Shared by every collection walk so the count's progress
-/// shape is identical wherever it runs. The band is 5%-95%: the count's own run is the walk.
+/// shape is identical wherever it runs. The band starts at 5% and ends at `percent_to`: the whole bar when no KEY-header sweep can follow, 30% when one can.
 #[allow(dead_code)]
 pub fn report_collection_progress(
     progress: &CollectionProgress<'_>,
     urls_walked: usize,
     total_urls: usize,
+    percent_to: f64,
 ) {
     let _ = write_progress(
         progress.progress_path,
@@ -126,9 +133,28 @@ pub fn report_collection_progress(
         "counting_files",
         progress.stage_key,
         json!({ "n": urls_walked, "total": total_urls }),
-        5.0 + (urls_walked as f64 / total_urls as f64) * 90.0,
+        5.0 + (urls_walked as f64 / total_urls as f64) * (percent_to - 5.0),
         urls_walked,
         total_urls,
+    );
+}
+
+/// Emit one KEY-header sweep tick for a count: the sweep has the bar from 30% to 95%, after the URL walk.
+#[allow(dead_code)]
+pub fn report_sweep_progress(
+    progress: &CollectionProgress<'_>,
+    stage_key: &str,
+    folders_started: usize,
+) {
+    let _ = write_progress(
+        progress.progress_path,
+        progress.reporter,
+        "counting_files",
+        stage_key,
+        json!({ "n": folders_started, "total": TOP_LEVEL_CACHE_FOLDERS }),
+        30.0 + (folders_started as f64 / TOP_LEVEL_CACHE_FOLDERS as f64) * 65.0,
+        folders_started,
+        TOP_LEVEL_CACHE_FOLDERS,
     );
 }
 
@@ -146,17 +172,24 @@ pub fn report_collection_progress(
 /// number any other way would compute a cache key nginx never wrote.
 ///
 /// The forward walk above is joined by [`key_header_residue`], which recovers the slices it
-/// cannot reach, so both the count and the delete loop see the whole object.
+/// cannot reach, unless [`every_slice_claimed`] proves there are none; the count and the delete loop
+/// run this same collection, so both see the whole object and agree.
 pub fn collect_cache_paths(
     cache_dir: &Path,
     url_data: &HashMap<String, (String, i64)>,
     scheme: cache_utils::CacheKeyScheme,
     reach: SliceReach,
     progress: Option<&CollectionProgress<'_>>,
+    on_sweep_folder: &(dyn Fn(&str, usize) + Sync),
 ) -> Result<Vec<(PathBuf, Option<String>)>> {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    let walk_percent_to = if reach == SliceReach::ForwardWalkIsComplete {
+        95.0
+    } else {
+        30.0
+    };
     let total_urls = url_data.len();
     let urls_walked = AtomicUsize::new(0);
     let last_reported_percent = AtomicUsize::new(0);
@@ -182,7 +215,7 @@ pub fn collect_cache_paths(
                         )
                         .is_ok()
                 {
-                    report_collection_progress(progress, walked, total_urls);
+                    report_collection_progress(progress, walked, total_urls, walk_percent_to);
                 }
             }
 
@@ -190,9 +223,9 @@ pub fn collect_cache_paths(
         })
         .collect::<Vec<_>>();
 
-    if reach == SliceReach::ForwardWalkIsComplete {
+    let SliceReach::SweepKeyHeaders { stage_key } = reach else {
         return Ok(walked);
-    }
+    };
 
     let claimed: HashSet<u128> = walked
         .iter()
@@ -205,16 +238,26 @@ pub fn collect_cache_paths(
 
     let bases = object_key_bases(url_data.iter().map(|(url, (service, _))| (service, url)));
 
+    if every_slice_claimed(
+        cache_dir,
+        url_data.iter().map(|(url, (service, _))| (service, url)),
+        &claimed,
+    ) {
+        return Ok(walked);
+    }
+
     let mut paths = walked;
     paths.extend(
-        key_header_residue(cache_dir, &bases, &claimed)?
-            .into_iter()
-            .map(|(digest, key)| {
-                (
-                    cache_utils::cache_path_for_digest(cache_dir, digest),
-                    Some(key),
-                )
-            }),
+        key_header_residue(cache_dir, &bases, &claimed, &|folders| {
+            on_sweep_folder(stage_key, folders)
+        })?
+        .into_iter()
+        .map(|(digest, key)| {
+            (
+                cache_utils::cache_path_for_digest(cache_dir, digest),
+                Some(key),
+            )
+        }),
     );
     Ok(paths)
 }
@@ -228,6 +271,57 @@ pub fn object_key_bases<'a>(
         .filter_map(|(service, url)| cache_utils::object_key_base(service, url))
         .map(|base| cache_utils::calculate_md5_digest(&base))
         .collect()
+}
+
+/// Whether the forward walk already claimed every slice of every object, so no slice can sit behind an
+/// eviction hole and the KEY-header sweep has nothing to find. An object counts when the walk claimed its
+/// slice 0 and every slice up to the size slice 0's own `Content-Range` header names. A missing slice 0, an
+/// unreadable header or a header with no size means the sweep runs.
+pub fn every_slice_claimed<'a>(
+    cache_dir: &Path,
+    mut objects: impl Iterator<Item = (&'a String, &'a String)>,
+    claimed: &HashSet<u128>,
+) -> bool {
+    use std::io::Read;
+
+    objects.all(|(service, url)| {
+        let Some(base) = cache_utils::object_key_base(service, url) else {
+            return false;
+        };
+        let slice = |index: u64| {
+            let start = index * cache_utils::DEFAULT_SLICE_SIZE;
+            cache_utils::calculate_md5_digest(&format!(
+                "{base}bytes={start}-{}",
+                start + cache_utils::DEFAULT_SLICE_SIZE - 1
+            ))
+        };
+        let first = slice(0);
+        if !claimed.contains(&first) {
+            return false;
+        }
+        // The cached response's headers follow the KEY line inside the same first 8 KiB the KEY read covers.
+        let mut head = Vec::new();
+        let Ok(file) = fs::File::open(cache_utils::cache_path_for_digest(cache_dir, first)) else {
+            return false;
+        };
+        if file.take(8192).read_to_end(&mut head).is_err() {
+            return false;
+        }
+        let size = head.split(|byte| *byte == b'\n').find_map(|line| {
+            let colon = line.iter().position(|byte| *byte == b':')?;
+            if !line[..colon].eq_ignore_ascii_case(b"content-range") {
+                return None;
+            }
+            let (_, text) =
+                crate::cache_structural_scanner::parse_content_range(&line[colon + 1..])?;
+            text.rsplit_once('/')?.1.parse::<u64>().ok()
+        });
+        let Some(size) = size else {
+            return false;
+        };
+        (1..size.div_ceil(cache_utils::DEFAULT_SLICE_SIZE))
+            .all(|index| claimed.contains(&slice(index)))
+    })
 }
 
 /// The cache files whose own `KEY:` header names one of `bases`' objects but which the
@@ -244,10 +338,12 @@ pub fn object_key_bases<'a>(
 /// deleting pass pays it once rather than per URL. Files already claimed are skipped without
 /// being opened. A 2-hex folder linked to another disk is read like the eviction index reads it; a
 /// folder of the layout it cannot read is an error.
+/// Reports each top-level cache folder it starts reading through `on_folder`.
 pub fn key_header_residue(
     cache_dir: &Path,
     bases: &HashSet<u128>,
     claimed: &HashSet<u128>,
+    on_folder: &(dyn Fn(usize) + Sync),
 ) -> Result<Vec<(u128, String)>> {
     use rayon::prelude::*;
 
@@ -256,12 +352,19 @@ pub fn key_header_residue(
     }
 
     let hidden = std::sync::atomic::AtomicBool::new(false);
+    let folders_started = std::sync::atomic::AtomicUsize::new(0);
     let residue: Vec<(u128, String)> = cache_utils::cache_root_walk(cache_dir, |_| {})
         .parallelism(jwalk::Parallelism::RayonNewPool(num_cpus::get()))
         .into_iter()
         .inspect(|item| {
             if cache_utils::hides_cache_files(cache_dir, item) {
                 hidden.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            // The walk is depth first, so a top-level folder is reached once the folders before it were read.
+            if matches!(item, Ok(entry) if entry.depth == 1) {
+                let started =
+                    folders_started.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                on_folder(started.min(TOP_LEVEL_CACHE_FOLDERS));
             }
         })
         .filter_map(|entry| entry.ok())
@@ -321,8 +424,15 @@ pub fn count_cache_files(
     reach: SliceReach,
     progress: &CollectionProgress<'_>,
 ) -> Result<usize> {
-    let cache_files_found =
-        collect_cache_paths(cache_dir, url_data, scheme, reach, Some(progress))?.len();
+    let cache_files_found = collect_cache_paths(
+        cache_dir,
+        url_data,
+        scheme,
+        reach,
+        Some(progress),
+        &|stage_key, folders| report_sweep_progress(progress, stage_key, folders),
+    )?
+    .len();
 
     fs::write(
         output_json,
@@ -369,7 +479,26 @@ pub fn remove_cache_files(
 
     // Re-walked from disk here, inside the deleting process, so the set deleted is the set
     // that exists now rather than one an earlier pass recorded.
-    let paths_to_check = collect_cache_paths(cache_dir, url_data, scheme, reach, None)?;
+    let paths_to_check = collect_cache_paths(
+        cache_dir,
+        url_data,
+        scheme,
+        reach,
+        None,
+        &|stage_key, folders| {
+            // The card stays at the removal's starting 10% while the sweep reads the rest of the cache.
+            let _ = write_progress(
+                progress_path,
+                reporter,
+                "removing_cache",
+                stage_key,
+                json!({ "n": folders, "total": TOP_LEVEL_CACHE_FOLDERS }),
+                10.0,
+                folders,
+                TOP_LEVEL_CACHE_FOLDERS,
+            );
+        },
+    )?;
 
     let total_paths = paths_to_check.len();
     eprintln!("Checking {} potential cache file locations...", total_paths);
@@ -841,7 +970,9 @@ mod tests {
             &TEST_STAGE_KEYS,
             ProgressCadence::OnPercentAdvance,
             scheme,
-            SliceReach::SweepKeyHeaders,
+            SliceReach::SweepKeyHeaders {
+                stage_key: "test.cache.sweeping",
+            },
         )
         .unwrap()
     }
@@ -867,7 +998,9 @@ mod tests {
             &output_json,
             "Some Game",
             cache_utils::CacheKeyScheme::Monolithic,
-            SliceReach::SweepKeyHeaders,
+            SliceReach::SweepKeyHeaders {
+                stage_key: "test.cache.sweeping",
+            },
             &CollectionProgress {
                 progress_path: &progress_path,
                 reporter: &reporter,
@@ -907,7 +1040,9 @@ mod tests {
             &temp.path().join("count.json"),
             "Some Game",
             cache_utils::CacheKeyScheme::Monolithic,
-            SliceReach::SweepKeyHeaders,
+            SliceReach::SweepKeyHeaders {
+                stage_key: "test.cache.sweeping",
+            },
             &CollectionProgress {
                 progress_path: &progress_path,
                 reporter: &reporter,
@@ -1204,6 +1339,55 @@ mod tests {
         digest
     }
 
+    // The cache file nginx writes for slice 0 of a range-served object: its KEY line, then the
+    // upstream 206 response headers, then the body.
+    fn write_slice_zero(root: &Path, key: &str, object_size: u64) -> u128 {
+        let digest = cache_utils::calculate_md5_digest(key);
+        let path = cache_utils::cache_path_for_digest(root, digest);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            format!(
+                "KEY: {key}\nHTTP/1.1 206 Partial Content\r\nContent-Range: bytes 0-1048575/{object_size}\r\n\r\nbody"
+            ),
+        )
+        .unwrap();
+        digest
+    }
+
+    fn slice_key(base: &str, index: u64) -> String {
+        let start = index * cache_utils::DEFAULT_SLICE_SIZE;
+        format!(
+            "{base}bytes={start}-{}",
+            start + cache_utils::DEFAULT_SLICE_SIZE - 1
+        )
+    }
+
+    fn count_riot_object(root: &Path, scratch: &Path, progress_path: &Path) -> usize {
+        let urls = HashMap::from([("/bundle/one".to_string(), ("riot".to_string(), 0_i64))]);
+        let reporter = ProgressReporter::new(false);
+        count_cache_files(
+            root,
+            &urls,
+            &scratch.join("count.json"),
+            "Some Game",
+            cache_utils::CacheKeyScheme::Monolithic,
+            SliceReach::SweepKeyHeaders {
+                stage_key: "test.cache.sweeping",
+            },
+            &CollectionProgress {
+                progress_path,
+                reporter: &reporter,
+                stage_key: "test.cache.counting",
+            },
+        )
+        .unwrap()
+    }
+
+    fn read_progress(progress_path: &Path) -> serde_json::Value {
+        serde_json::from_slice(&fs::read(progress_path).unwrap()).unwrap()
+    }
+
     #[test]
     fn the_key_header_pass_finds_a_slice_the_forward_walk_cannot_reach() {
         let temp = tempfile::tempdir().unwrap();
@@ -1225,7 +1409,7 @@ mod tests {
             .collect();
         let claimed: HashSet<u128> = [reachable].into_iter().collect();
 
-        let residue = key_header_residue(&root, &bases, &claimed).unwrap();
+        let residue = key_header_residue(&root, &bases, &claimed, &|_| {}).unwrap();
 
         let (digest, key) = assert_single(residue);
         assert_eq!(digest, stranded);
@@ -1254,7 +1438,7 @@ mod tests {
             .into_iter()
             .collect();
 
-        let residue = key_header_residue(&root, &bases, &HashSet::new()).unwrap();
+        let residue = key_header_residue(&root, &bases, &HashSet::new(), &|_| {}).unwrap();
 
         let (digest, _) = assert_single(residue);
         assert_eq!(digest, stranded);
@@ -1286,7 +1470,7 @@ mod tests {
             .into_iter()
             .collect();
 
-        assert!(key_header_residue(&root, &bases, &HashSet::new()).is_err());
+        assert!(key_header_residue(&root, &bases, &HashSet::new(), &|_| {}).is_err());
     }
 
     #[test]
@@ -1302,9 +1486,122 @@ mod tests {
             .collect();
         let claimed: HashSet<u128> = [only_slice].into_iter().collect();
 
-        assert!(key_header_residue(&root, &bases, &claimed)
+        assert!(key_header_residue(&root, &bases, &claimed, &|_| {})
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn the_count_reports_the_sweep_as_its_own_stage() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let base = cache_utils::object_key_base("riot", "/bundle/one").unwrap();
+        // Slice 400 sits behind a hole far wider than the forward walk's tolerance.
+        write_slice_zero(
+            &root,
+            &slice_key(&base, 0),
+            401 * cache_utils::DEFAULT_SLICE_SIZE,
+        );
+        write_keyed_cache_file(&root, &slice_key(&base, 400));
+        let progress_path = temp.path().join("progress.json");
+
+        let counted = count_riot_object(&root, temp.path(), &progress_path);
+
+        assert_eq!(counted, 2);
+        let progress = read_progress(&progress_path);
+        assert_eq!(progress["stageKey"], "test.cache.sweeping");
+        assert_eq!(progress["context"]["total"], 256);
+        let percent = progress["percentComplete"].as_f64().unwrap();
+        assert!(
+            percent > 30.0 && percent <= 95.0,
+            "sweep percent was {percent}"
+        );
+
+        let outcome = remove_one(
+            &root,
+            "riot",
+            "/bundle/one",
+            cache_utils::CacheKeyScheme::Monolithic,
+            &progress_path,
+        );
+        assert_eq!(outcome.deleted_files, counted);
+    }
+
+    #[test]
+    fn the_sweep_is_skipped_when_the_walk_reached_every_slice() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let base = cache_utils::object_key_base("riot", "/bundle/one").unwrap();
+        write_slice_zero(
+            &root,
+            &slice_key(&base, 0),
+            2 * cache_utils::DEFAULT_SLICE_SIZE + 10,
+        );
+        write_keyed_cache_file(&root, &slice_key(&base, 1));
+        write_keyed_cache_file(&root, &slice_key(&base, 2));
+        let progress_path = temp.path().join("progress.json");
+
+        let counted = count_riot_object(&root, temp.path(), &progress_path);
+
+        assert_eq!(counted, 3);
+        assert_eq!(
+            read_progress(&progress_path)["stageKey"],
+            "test.cache.counting"
+        );
+
+        let outcome = remove_one(
+            &root,
+            "riot",
+            "/bundle/one",
+            cache_utils::CacheKeyScheme::Monolithic,
+            &progress_path,
+        );
+        assert_eq!(outcome.deleted_files, counted);
+    }
+
+    #[test]
+    fn the_sweep_runs_when_the_walk_stopped_short_of_the_size() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let base = cache_utils::object_key_base("riot", "/bundle/one").unwrap();
+        write_slice_zero(
+            &root,
+            &slice_key(&base, 0),
+            21 * cache_utils::DEFAULT_SLICE_SIZE,
+        );
+        // Slices 3 through 19 are gone: a hole wider than the walk's tolerance hides slice 20.
+        for index in [1, 2, 20] {
+            write_keyed_cache_file(&root, &slice_key(&base, index));
+        }
+        let progress_path = temp.path().join("progress.json");
+
+        let counted = count_riot_object(&root, temp.path(), &progress_path);
+
+        assert_eq!(counted, 4);
+        assert_eq!(
+            read_progress(&progress_path)["stageKey"],
+            "test.cache.sweeping"
+        );
+
+        let outcome = remove_one(
+            &root,
+            "riot",
+            "/bundle/one",
+            cache_utils::CacheKeyScheme::Monolithic,
+            &progress_path,
+        );
+        assert_eq!(outcome.deleted_files, counted);
+    }
+
+    #[test]
+    fn the_sweep_runs_when_slice_zero_is_gone() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let base = cache_utils::object_key_base("riot", "/bundle/one").unwrap();
+        write_keyed_cache_file(&root, &slice_key(&base, 400));
+        let progress_path = temp.path().join("progress.json");
+
+        assert_eq!(count_riot_object(&root, temp.path(), &progress_path), 1);
     }
 
     #[test]

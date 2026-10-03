@@ -7852,6 +7852,7 @@
       },
       "cache": {
         "removing": "正在移除 {{count}} 个URL的缓存文件",
+        "sweeping": "正在检查缓存其余部分中属于此游戏的文件：{{n}} / {{total}} 个文件夹",
         "file": {
           "progress": "已检查 {{n}} / {{total}} 个文件"
         }
@@ -7947,6 +7948,7 @@
       },
       "cache": {
         "removing": "正在检查 {{count}} 个 URL 是否有可移除的缓存文件",
+        "sweeping": "正在检查缓存其余部分中属于此服务的文件：{{n}} / {{total}} 个文件夹",
         "file": {
           "progress": "已检查 {{n}} / {{total}} 个文件"
         }

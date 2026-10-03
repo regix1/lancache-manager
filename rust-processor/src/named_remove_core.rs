@@ -92,6 +92,8 @@ const NAMED_STAGE_KEYS: RemovalStageKeys = RemovalStageKeys {
 /// Steam/Epic AppId, so the template must not reference `{{gameAppId}}`.
 const NAMED_GAME_REMOVE_STARTING_KEY: &str = "signalr.namedRemove.starting";
 
+const NAMED_SWEEP_STAGE_KEY: &str = "signalr.gameRemove.cache.sweeping";
+
 /// Context for the starting progress event. Carries `gameName` and `service`, and
 /// deliberately never a `gameAppId` key — named games (blizzard/riot/xbox) don't have
 /// one. Extracted as a pure fn so the shape is unit-testable without a live removal run.
@@ -393,7 +395,9 @@ pub async fn run(service: &str) -> Result<()> {
                 &output_json,
                 game_name,
                 cache_utils::active_key_scheme(),
-                removal_core::SliceReach::SweepKeyHeaders,
+                removal_core::SliceReach::SweepKeyHeaders {
+                    stage_key: NAMED_SWEEP_STAGE_KEY,
+                },
                 &collection_progress,
             )?;
             removal_core::write_progress(
@@ -468,7 +472,9 @@ pub async fn run(service: &str) -> Result<()> {
             ProgressCadence::OnPercentAdvance,
             // Blizzard TACT archives, Riot bundles and Xbox payloads are range-served, so a slice
             // can sit behind an eviction hole the forward walk cannot cross.
-            removal_core::SliceReach::SweepKeyHeaders,
+            removal_core::SliceReach::SweepKeyHeaders {
+                stage_key: NAMED_SWEEP_STAGE_KEY,
+            },
             &write_failure_report,
         )?
         else {

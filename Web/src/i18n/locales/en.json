@@ -7886,6 +7886,7 @@
       },
       "cache": {
         "removing": "Checking {{count}} URLs for cache files to remove",
+        "sweeping": "Checking the rest of the cache for this game's files: {{n}} of {{total}} folders",
         "file": {
           "progress": "Checked {{n}} of {{total}} files"
         }
@@ -7981,6 +7982,7 @@
       },
       "cache": {
         "removing": "Checking {{count}} URLs for cache files to remove",
+        "sweeping": "Checking the rest of the cache for this service's files: {{n}} of {{total}} folders",
         "file": {
           "progress": "Checked {{n}} of {{total}} files"
         }
