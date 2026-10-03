@@ -414,6 +414,8 @@
       "repairFailed": "修复失败：{{reason}}",
       "warnings": {
         "cacheFilesKept": "无法删除的缓存文件：{{fileCount}} 个，例如 {{path}}。这些文件仍在磁盘上；其余缓存已清除。",
+        "cacheFilesNotDeleted": "无法删除的缓存文件：{{fileCount}} 个，例如 {{path}}。这些文件仍在磁盘上。",
+        "datasourcesNotCleared": "以下数据源无法清除：{{datasources}}。",
         "logFilesSkipped": "以下日志文件出错，已跳过：{{fileNames}}。其他文件中的 {{entriesSaved}} 条记录已保存。",
         "cacheFoldersUnchecked": "以下缓存文件夹未检查，其中的内容未标记为已驱逐：{{folders}}。这些文件夹不存在、没有缓存文件或无法完整读取；其余缓存已检查。",
         "logFoldersMissing": "下载记录已移除，但由于日志文件夹不存在，这些数据源中的日志行仍然保留：{{datasources}}。从头重新读取这些日志可能会让它们再次出现。",

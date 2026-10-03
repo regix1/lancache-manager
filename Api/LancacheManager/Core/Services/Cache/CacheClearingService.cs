@@ -174,6 +174,12 @@ public class CacheClearingService : ScheduledBackgroundService
     {
         var clearedDatasourceNames = new List<string>();
         var repairPrepared = false;
+        // A datasource whose clear failed fails the run only after every other datasource had its turn.
+        var failedDatasources = new List<string>();
+        RustProcessException? firstFailure = null;
+        // Files a datasource's clear could not delete stay on disk, and every ending of the run names them.
+        var undeletedFiles = 0UL;
+        string? firstUndeleted = null;
         try
         {
             _logger.LogInformation($"Executing cache clear operation {operationId}");
@@ -378,12 +384,6 @@ public class CacheClearingService : ScheduledBackgroundService
             var totalBytesDeleted = 0L;
             var totalFilesDeleted = 0L;
             var totalDirsProcessed = 0;
-            // A datasource whose clear failed fails the run only after every other datasource had its turn.
-            var failedDatasources = new List<string>();
-            RustProcessException? firstFailure = null;
-            // Files a datasource's clear could not delete stay on disk; the run completes and names them.
-            var undeletedFiles = 0UL;
-            string? firstUndeleted = null;
             var dirsProcessedBefore = 0;
 
             // Get operation for CancellationToken access
@@ -599,6 +599,14 @@ public class CacheClearingService : ScheduledBackgroundService
                     firstFailure);
             }
 
+            // Kept files leave a clear amber only beside files it did delete; one that deleted none
+            // cleared nothing, so it fails, and the failure names no datasource as cleared.
+            if (undeletedFiles > 0 && totalFilesDeleted == 0)
+            {
+                clearedDatasourceNames.Clear();
+                throw new InvalidOperationException("No cache file could be deleted");
+            }
+
             var datasourceNames = string.Join(", ", validCachePaths.Select(p => p.Name));
             var successMessage = validCachePaths.Count > 1
                 ? $"Successfully cleared {totalDirsProcessed} cache directories across {validCachePaths.Count} datasources ({datasourceNames})"
@@ -687,6 +695,20 @@ public class CacheClearingService : ScheduledBackgroundService
                     error: null);
             }
 
+            // A datasource that failed, or files that stayed, before the cancel are named on the canceled card.
+            if (failedDatasources.Count > 0)
+            {
+                _operationTracker.SetWarning(operationId, new RunWarning(
+                    "common.notifications.warnings.datasourcesNotCleared",
+                    new Dictionary<string, object?> { ["datasources"] = string.Join(", ", failedDatasources) }));
+            }
+            if (undeletedFiles > 0)
+            {
+                _operationTracker.SetWarning(operationId, new RunWarning(
+                    "common.notifications.warnings.cacheFilesNotDeleted",
+                    new Dictionary<string, object?> { ["fileCount"] = undeletedFiles, ["path"] = firstUndeleted }));
+            }
+
             // If a universal force-kill already completed this op, the CompletedFlag-gated
             // CompleteOperation below is a no-op and the onTerminalEmit closure does not re-fire.
             if (_operationTracker.GetOperation(operationId)?.Status.IsTerminal() != true)
@@ -731,6 +753,12 @@ public class CacheClearingService : ScheduledBackgroundService
             // Mark operation as complete (failed) in unified tracker.
             // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure,
             // which reads this error string from OperationTerminalInfo.Error.
+            if (undeletedFiles > 0)
+            {
+                _operationTracker.SetWarning(operationId, new RunWarning(
+                    "common.notifications.warnings.cacheFilesNotDeleted",
+                    new Dictionary<string, object?> { ["fileCount"] = undeletedFiles, ["path"] = firstUndeleted }));
+            }
             _operationTracker.CompleteOperation(operationId, success: false, error: failureMessage);
             if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 

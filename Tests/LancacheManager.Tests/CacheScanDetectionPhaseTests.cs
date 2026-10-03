@@ -1975,8 +1975,8 @@ public sealed class CacheScanDetectionPhaseTests
                 context = new { processed = 1, totalDirs = 1, activeCount = 0 },
                 directoriesProcessed = 1,
                 totalDirectories = 1,
-                bytesDeleted = 0,
-                filesDeleted = 0,
+                bytesDeleted = 4096,
+                filesDeleted = 1,
                 activeDirectories = Array.Empty<string>(),
                 activeCount = 0,
                 timestamp = "2026-10-02T00:00:00Z",
@@ -1998,6 +1998,122 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.True(row.Retained);
         var repair = await run.WaitForCompletedRepairAsync(clearId);
         Assert.False(Assert.Single(repair.Sources).NativeCompletionAccepted);
+    }
+
+    [Fact]
+    public async Task AClearThatDeletedNoFileFailsNamingTheFilesItKeptAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("alpha", [], true));
+        var alpha = run.Datasources.GetDatasource("alpha")!.CachePath;
+        var kept = Path.Combine(alpha, "aa", "0123456789abcdef0123456789abcdef");
+        // cache_clear when no file could be deleted: every folder still counts as processed, it exits 0 and
+        // its final progress has filesDeleted 0 and names the files it kept.
+        run.Rust.Clears[alpha] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 100.0,
+                status = "completed",
+                stageKey = "signalr.cacheClear.progress",
+                context = new { processed = 1, totalDirs = 1, activeCount = 0 },
+                directoriesProcessed = 1,
+                totalDirectories = 1,
+                bytesDeleted = 0,
+                filesDeleted = 0,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 2,
+                firstUndeleted = kept
+            }),
+            0,
+            string.Empty);
+
+        var clearId = Assert.IsType<Guid>(await run.Clearing.StartCacheClearAsync());
+
+        var terminal = await WaitForTerminalAsync(run.Tracker, clearId);
+        Assert.Equal(OperationStatus.Failed, terminal.Status);
+        Assert.DoesNotContain("after clearing", terminal.Message, StringComparison.Ordinal);
+        var row = Assert.Single(run.Tracker.GetRuns().Runs, item => item.OperationId == clearId);
+        var warning = Assert.Single(row.Warnings);
+        Assert.Equal("common.notifications.warnings.cacheFilesNotDeleted", warning.StageKey);
+        Assert.Equal(2UL, warning.Context["fileCount"]);
+        Assert.Equal(kept, warning.Context["path"]);
+    }
+
+    [Fact]
+    public async Task ACanceledClearNamesTheDatasourceThatFailedAndTheFilesItKeptAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("alpha", [], true), ("beta", [], true), ("gamma", [], true));
+        var alpha = run.Datasources.GetDatasource("alpha")!.CachePath;
+        var beta = run.Datasources.GetDatasource("beta")!.CachePath;
+        var gamma = run.Datasources.GetDatasource("gamma")!.CachePath;
+        var kept = Path.Combine(alpha, "aa", "0123456789abcdef0123456789abcdef");
+        // cache_clear when one file could not be deleted: it clears the rest, exits 0 and names the file
+        // in its final progress.
+        run.Rust.Clears[alpha] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 100.0,
+                status = "completed",
+                stageKey = "signalr.cacheClear.progress",
+                context = new { processed = 1, totalDirs = 1, activeCount = 0 },
+                directoriesProcessed = 1,
+                totalDirectories = 1,
+                bytesDeleted = 4096,
+                filesDeleted = 1,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 1,
+                firstUndeleted = kept
+            }),
+            0,
+            string.Empty);
+        // cache_clear for a root it cannot list: main writes the failed progress, prints the error and exits 1.
+        run.Rust.Clears[beta] = (
+            JsonSerializer.Serialize(new
+            {
+                isProcessing = false,
+                percentComplete = 0.0,
+                status = "failed",
+                stageKey = "signalr.cacheClear.error.fatal",
+                context = new { errorDetail = "failed to enumerate cache root: Input/output error (os error 5)" },
+                directoriesProcessed = 0,
+                totalDirectories = 1,
+                bytesDeleted = 0,
+                filesDeleted = 0,
+                activeDirectories = Array.Empty<string>(),
+                activeCount = 0,
+                timestamp = "2026-10-02T00:00:00Z",
+                undeletedFiles = 0
+            }),
+            1,
+            "Error: failed to enumerate cache root: Input/output error (os error 5)");
+        run.Rust.OnClear = (path, operationId) =>
+        {
+            if (path != gamma)
+            {
+                return Task.CompletedTask;
+            }
+            // A cancel kills the running cache_clear, and the run sees the cancel as EnsureSuccess reports it.
+            run.Tracker.CancelOperation(operationId);
+            throw new OperationCanceledException();
+        };
+
+        var clearId = Assert.IsType<Guid>(await run.Clearing.StartCacheClearAsync());
+
+        Assert.Equal(OperationStatus.Cancelled, (await WaitForTerminalAsync(run.Tracker, clearId)).Status);
+        Assert.Equal([alpha, beta, gamma], run.Rust.ClearedPaths);
+        var row = Assert.Single(run.Tracker.GetRuns().Runs, item => item.OperationId == clearId);
+        Assert.Equal(2, row.Warnings.Count);
+        var failed = Assert.Single(row.Warnings, item => item.StageKey == "common.notifications.warnings.datasourcesNotCleared");
+        Assert.Equal("beta", failed.Context["datasources"]);
+        var stayed = Assert.Single(row.Warnings, item => item.StageKey == "common.notifications.warnings.cacheFilesNotDeleted");
+        Assert.Equal(1UL, stayed.Context["fileCount"]);
+        Assert.Equal(kept, stayed.Context["path"]);
+        Assert.True(row.Retained);
     }
 
     [Theory]
@@ -2773,6 +2889,8 @@ public sealed class CacheScanDetectionPhaseTests
         /// its exit code and its stderr. A path not listed ends at once as done.
         /// </summary>
         public Dictionary<string, (string Progress, int ExitCode, string Error)> Clears { get; } = [];
+        /// <summary>Runs when a cache_cleaner run starts, with its cache path and its operation.</summary>
+        public Func<string, Guid, Task>? OnClear { get; set; }
 
         public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
             ProcessStartInfo start,
@@ -2787,6 +2905,10 @@ public sealed class CacheScanDetectionPhaseTests
                     .Select(match => match.Groups[1].Value)
                     .ToArray();
                 ClearedPaths.Add(clearArguments[0]);
+                if (OnClear is not null)
+                {
+                    await OnClear(clearArguments[0], Assert.IsType<Guid>(operationId));
+                }
                 if (!Clears.TryGetValue(clearArguments[0], out var clear))
                 {
                     return new ProcessExecutionResult { ExitCode = 0 };

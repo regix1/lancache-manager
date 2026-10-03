@@ -414,6 +414,8 @@
       "repairFailed": "Repair failed: {{reason}}",
       "warnings": {
         "cacheFilesKept": "Cache files that could not be deleted: {{fileCount}}, for example {{path}}. They are still on disk; everything else was cleared.",
+        "cacheFilesNotDeleted": "Cache files that could not be deleted: {{fileCount}}, for example {{path}}. They are still on disk.",
+        "datasourcesNotCleared": "These datasources could not be cleared: {{datasources}}.",
         "logFilesSkipped": "Log files with errors were skipped: {{fileNames}}. {{entriesSaved}} entries from the other files were saved.",
         "cacheFoldersUnchecked": "Cache folders not checked, so nothing in them was marked evicted: {{folders}}. Each was missing, held no cache files or could not be fully read; the rest of the cache was checked.",
         "logFoldersMissing": "The downloads were removed, but their log lines stay in these datasources because the log folder is missing: {{datasources}}. Reading those logs again from the start can bring them back.",
