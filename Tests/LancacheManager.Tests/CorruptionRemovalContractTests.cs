@@ -606,7 +606,7 @@ public sealed class CorruptionRemovalContractTests
     public async Task AllServices_XThatTheCurrentServiceFailsAfterStopsTheRemainingServicesAsync(CorruptionDetectionMethod method)
     {
         using var fixture = new RemovalRun(method);
-        // X, then the service ends red (a failed nginx reopen): the tracker clears the cancel mark on a failure.
+        // X, then the service ends red (a failed nginx reopen): Remove all stops, and the red card keeps the failures summary.
         fixture.Messages.OnStarted = id =>
         {
             if (fixture.Messages.Started.Count == 1)
@@ -617,7 +617,12 @@ public sealed class CorruptionRemovalContractTests
         };
         await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
         var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.True(aggregate.Cancelled);
+        Assert.False(aggregate.Cancelled);
+        Assert.False(aggregate.Success);
+        Assert.Equal(method == CorruptionDetectionMethod.Structural
+            ? "signalr.corruptionRemove.allCompleteWithFailuresStructural"
+            : "signalr.corruptionRemove.allCompleteWithFailures", aggregate.StageKey);
+        Assert.Equal(1, aggregate.Context!["failedCount"]);
         Assert.Single(fixture.Messages.Started);
         fixture.Messages.Resume.TrySetResult();
     }

@@ -1055,7 +1055,9 @@ public class CacheController : ControllerBase
                     cancelled |= bulkState.Cancelled;
                     var lastOperationId = bulkState.LastOperationId;
                     var processedCount = bulkState.SucceededServices + bulkState.FailedServices;
-                    if (cancelled)
+                    // A service that failed for a real reason after the stop keeps its red card, and the summary on it says
+                    // services failed rather than that all of them were canceled.
+                    if (cancelled && _operationTracker.GetOperation(lastOperationId)?.Status != OperationStatus.Failed)
                     {
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(false, "all",
