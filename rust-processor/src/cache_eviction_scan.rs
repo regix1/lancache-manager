@@ -792,7 +792,7 @@ async fn run_scan(
         }
         let probe_results: Vec<(u128, bool)> = unprobed
             .into_par_iter()
-            .map(|(memo_key, key)| (memo_key, key.has_cache_file(&files_on_disk)))
+            .map(|(memo_key, key)| (memo_key, key.has_cache_file(files_on_disk)))
             .collect();
         probe_memo.extend(probe_results);
 

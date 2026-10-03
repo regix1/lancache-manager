@@ -1277,10 +1277,7 @@ mod tests {
                 if remove_calls.fetch_add(1, Ordering::SeqCst) == 0 {
                     fs::remove_file(path)
                 } else {
-                    Err(std::io::Error::new(
-                        ErrorKind::Other,
-                        "injected unlink failure",
-                    ))
+                    Err(std::io::Error::other("injected unlink failure"))
                 }
             },
             &|path: &Path| fs::remove_dir(path),
@@ -1619,12 +1616,7 @@ mod tests {
             &bytes,
             &inspect_entry,
             &|path: &Path| fs::remove_file(path),
-            &|_| {
-                Err(io::Error::new(
-                    ErrorKind::Other,
-                    "injected directory removal failure",
-                ))
-            },
+            &|_| Err(io::Error::other("injected directory removal failure")),
         )
         .unwrap_err();
 

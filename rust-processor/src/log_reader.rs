@@ -171,6 +171,27 @@ impl LogFileReader {
     }
 }
 
+/// Opens a file for reading with proper sharing on Windows
+/// This allows other processes (like lancache) to continue writing while we read
+fn open_file_shared_read(path: &Path) -> Result<File> {
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, use share_mode to allow other processes to read, write, and delete
+        // FILE_SHARE_READ (0x01) | FILE_SHARE_WRITE (0x02) | FILE_SHARE_DELETE (0x04) = 0x07
+        OpenOptions::new()
+            .read(true)
+            .share_mode(0x07)
+            .open(path)
+            .with_context(|| format!("Failed to open file with shared access: {}", path.display()))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // On Unix, File::open already allows sharing
+        File::open(path).with_context(|| format!("Failed to open file: {}", path.display()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,26 +365,5 @@ mod tests {
         assert_eq!(len, 6);
         assert!(!prefix_matched);
         assert_eq!(contents, "x\ny\nz\n");
-    }
-}
-
-/// Opens a file for reading with proper sharing on Windows
-/// This allows other processes (like lancache) to continue writing while we read
-fn open_file_shared_read(path: &Path) -> Result<File> {
-    #[cfg(target_os = "windows")]
-    {
-        // On Windows, use share_mode to allow other processes to read, write, and delete
-        // FILE_SHARE_READ (0x01) | FILE_SHARE_WRITE (0x02) | FILE_SHARE_DELETE (0x04) = 0x07
-        OpenOptions::new()
-            .read(true)
-            .share_mode(0x07)
-            .open(path)
-            .with_context(|| format!("Failed to open file with shared access: {}", path.display()))
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        // On Unix, File::open already allows sharing
-        File::open(path).with_context(|| format!("Failed to open file: {}", path.display()))
     }
 }

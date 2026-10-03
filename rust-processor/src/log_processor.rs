@@ -415,6 +415,7 @@ struct Processor {
     #[cfg(test)]
     before_resume_open: Option<Box<dyn FnMut() + Send>>,
     #[cfg(test)]
+    #[allow(clippy::type_complexity)]
     before_content_open: Option<Box<dyn FnMut(&Path) + Send>>,
     #[cfg(test)]
     after_stem_read: Option<Box<dyn FnMut() + Send>>,
@@ -759,7 +760,7 @@ impl Processor {
             let mut stop_sources = false;
 
             'stem_attempt: loop {
-                let point = use_saved_point.then(|| saved_point.as_ref()).flatten();
+                let point = use_saved_point.then_some(saved_point.as_ref()).flatten();
                 let mut lines_to_skip = if point.is_some() {
                     0
                 } else {
@@ -1233,6 +1234,7 @@ impl Processor {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn process_single_file_with_cancel<F>(
         &mut self,
         log_file: &LogFile,
@@ -6811,7 +6813,7 @@ mod session_continuity_tests {
         let Some((many_pool, many_schema, many_options)) = isolated_pool(name).await else {
             return;
         };
-        let lines = vec![
+        let lines = [
             log_line(
                 "steam",
                 "10.0.6.1",
