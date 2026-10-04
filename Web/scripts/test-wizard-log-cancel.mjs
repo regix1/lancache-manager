@@ -557,6 +557,19 @@ test('a pass that handed its work to another run follows that run', async () => 
   wizard.dispose();
 });
 
+test('a promoted run that already ended is shown at the next tick', async () => {
+  const wizard = await startWizard({});
+  wizard.server.processing = false;
+  wizard.server.runs.set('op', { status: 'completed', endedAt: 0, nextOperationId: 'op3' });
+  wizard.server.runs.set('op3', { status: 'completed', endedAt: 0 });
+  await wizard.advanceTo(32);
+  await wizard.advanceTo(38);
+  const view = wizard.view();
+  assert.equal(view.continueButton, true, 'the run that took over already ended');
+  assert.equal(view.spinner, false);
+  wizard.dispose();
+});
+
 test("another tab's pass that starts after this step's pass completed keeps Continue", async () => {
   const wizard = await startWizard({});
   await wizard.emit('LogProcessingComplete', {

@@ -291,8 +291,9 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           const run = pass ? await ApiService.getTrackedOperation(pass) : null;
           if (stale()) return;
           if (run?.nextOperationId) {
-            // A queued pass handed its work to the run that took over; that run is the one to read.
+            // A queued pass handed its work to the run that took over; that run is read at the next tick.
             setActiveOperationId(run.nextOperationId);
+            endingPendingRef.current = true;
             setLastEventAt(Date.now());
             return;
           }
