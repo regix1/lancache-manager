@@ -415,6 +415,7 @@ test('a refused sign-in shows its reason in the dialog and draws no popup of its
     serviceId: 'steam',
     getEventName: (name) => name,
     hasStartedAuthRef: { current: true },
+    loginAttemptRef: { current: null },
     loginEpochRef: { current: 0 },
     retiredChallengeIdsRef: { current: new Set() },
     waitRef: { current: null },
