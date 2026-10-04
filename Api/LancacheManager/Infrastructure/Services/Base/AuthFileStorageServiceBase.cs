@@ -116,6 +116,9 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     private static TAuthData Snapshot(TAuthData data)
         => JsonSerializer.Deserialize<TAuthData>(JsonSerializer.Serialize(data))!;
 
+    /// <summary>How long a sign-in attempt stays open.</summary>
+    internal TimeSpan IntegrationLoginWindow { get; set; } = TimeSpan.FromMinutes(15);
+
     public IntegrationAccess GetIntegrationAccess(IntegrationCaller caller)
     {
         if (!caller.AuthenticationEnabled) caller = new(null, null, false);
@@ -170,7 +173,7 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
                 _version++;
                 return _pendingLogin = new(id, ++_generation,
                     caller.AuthenticationEnabled ? caller.AccountId : null, caller.SessionId,
-                    DateTime.UtcNow.AddMinutes(15), !caller.AuthenticationEnabled, recover);
+                    DateTime.UtcNow.Add(IntegrationLoginWindow), !caller.AuthenticationEnabled, recover);
             }
         }
         finally { _admissionGate.Release(); }

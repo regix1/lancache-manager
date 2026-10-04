@@ -404,12 +404,14 @@ public partial class EpicMappingService
     }
 
     // A code that never reached the server leaves no submit to end its attempt, so the attempt's window end is announced
-    // here: a dialog waiting on it reads once and finds the attempt gone. The added second is past the worst case of a
-    // monotonic timer firing a little before the wall clock reads the window's end (about 16 ms on Windows).
+    // here: a dialog waiting on it reads once and finds the attempt gone. The delay runs on a monotonic timer while the
+    // attempt's window is judged by the wall clock, so a host clock that stepped back meanwhile is waited out: the push
+    // goes only once the wall clock is past the window's end. The added second keeps the loop from waking just short of it.
     private async Task AnnounceLoginWindowEndAsync(IntegrationLogin login)
     {
-        var remaining = login.ExpiresAtUtc - DateTime.UtcNow;
-        await Task.Delay((remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero) + TimeSpan.FromSeconds(1));
+        TimeSpan remaining;
+        while ((remaining = login.ExpiresAtUtc - DateTime.UtcNow) >= TimeSpan.Zero)
+            await Task.Delay(remaining + TimeSpan.FromSeconds(1));
         await NotifyLoginEndedAsync(login);
     }
 

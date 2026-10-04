@@ -382,17 +382,66 @@ public sealed class IntegrationCancellationTests
         using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
         var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        var recorder = (Notifications)(object)notifications;
+        recorder.HeldEvent = SignalREvents.IntegrationLoginEnded;
+        fixture.Epic.IntegrationLoginWindow = TimeSpan.FromSeconds(1);
+        using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
+
+        var start = await service.GetAuthorizationUrl(fixture.Owner);
+        try
+        {
+            await recorder.HeldEntered.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        }
+        finally
+        {
+            recorder.HeldRelease.TrySetResult();
+        }
+
+        Assert.Contains(recorder.Sent, sent =>
+            sent.EventName == SignalREvents.IntegrationLoginEnded
+            && sent.Payload is SignalRNotifications.IntegrationLoginEnded ended && ended.AttemptId == start.AttemptId);
+    }
+
+    /// <summary>
+    /// The window-end delay runs on a monotonic timer while the attempt's window is judged by the wall clock. When the
+    /// host clock stepped back during the delay, the push must wait until the wall clock is past the window's end, or
+    /// the read it triggers finds the attempt still open and nothing announces the end again. The test moves the open
+    /// attempt's expiry 3 seconds later, which is what a clock that stepped back 3 seconds looks like to the service.
+    /// </summary>
+    [Fact]
+    public async Task AnEpicWindowEndIsAnnouncedOnlyOnceTheWallClockAgreesAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        var recorder = (Notifications)(object)notifications;
+        recorder.HeldEvent = SignalREvents.IntegrationLoginEnded;
+        fixture.Epic.IntegrationLoginWindow = TimeSpan.FromSeconds(1);
         using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
         var live = (IntegrationLogin)typeof(EpicMappingService)
             .GetField("_loginAttempt", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(service)!;
-        var announce = typeof(EpicMappingService)
-            .GetMethod("AnnounceLoginWindowEndAsync", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.NotNull(announce);
+        var movedExpiry = live.ExpiresAtUtc + TimeSpan.FromSeconds(3);
+        var expiryField = typeof(IntegrationLogin)
+            .GetField("<ExpiresAtUtc>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(expiryField);
+        expiryField.SetValue(live, movedExpiry);
 
-        await (Task)announce.Invoke(service, [live with { ExpiresAtUtc = DateTime.UtcNow.AddSeconds(-1) }])!;
+        DateTime pushedAt;
+        try
+        {
+            await recorder.HeldEntered.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            pushedAt = DateTime.UtcNow;
+        }
+        finally
+        {
+            recorder.HeldRelease.TrySetResult();
+        }
 
-        Assert.Contains(((Notifications)(object)notifications).Sent, sent =>
+        Assert.True(pushedAt > movedExpiry);
+        Assert.Contains(recorder.Sent, sent =>
             sent.EventName == SignalREvents.IntegrationLoginEnded
             && sent.Payload is SignalRNotifications.IntegrationLoginEnded ended && ended.AttemptId == start.AttemptId);
     }
