@@ -700,8 +700,10 @@ const loseSteamAnswer = async (t, reads) => {
   setup();
   globalThis.hubConnected = true;
   const statusUrls = [];
+  const fetchUrls = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
+    fetchUrls.push(url);
     if (!url.startsWith('/api/steam-auth/status')) throw new TypeError('Failed to fetch');
     statusUrls.push(url);
     const body = reads.shift();
@@ -728,6 +730,7 @@ const loseSteamAnswer = async (t, reads) => {
   return {
     view,
     statusUrls,
+    fetchUrls,
     successes,
     restore: () => {
       view.unmount();
@@ -739,6 +742,7 @@ const loseSteamAnswer = async (t, reads) => {
 test('a lost Steam answer is decided by the pushed ending and never by a timer', async (t) => {
   const { view, statusUrls, restore } = await loseSteamAnswer(t, [
     null,
+    null,
     {
       loginEnding: {
         attemptId: 'attempt-1',
@@ -748,18 +752,22 @@ test('a lost Steam answer is decided by the pushed ending and never by a timer',
     }
   ]);
   try {
-    assert.equal(statusUrls.length, 1, 'one read when the answer was lost');
+    assert.equal(
+      statusUrls.length,
+      2,
+      'one read when the answer was lost, one when the wait starts listening'
+    );
     t.mock.timers.tick(60000);
     await settle();
-    assert.equal(statusUrls.length, 1, 'no timer asks again');
+    assert.equal(statusUrls.length, 2, 'no timer asks again');
 
     globalThis.hubEmit('IntegrationLoginEnded', { attemptId: 'attempt-2' });
     await settle();
-    assert.equal(statusUrls.length, 1, 'another attempt ending is not this dialog');
+    assert.equal(statusUrls.length, 2, 'another attempt ending is not this dialog');
 
     globalThis.hubEmit('IntegrationLoginEnded', { attemptId: 'attempt-1' });
     await settle();
-    assert.equal(statusUrls.length, 2);
+    assert.equal(statusUrls.length, 3);
     assert.equal(view.render().state.error, 'errors.steam.signInCancelled');
   } finally {
     restore();
@@ -768,6 +776,7 @@ test('a lost Steam answer is decided by the pushed ending and never by a timer',
 
 test('a lost Steam answer is read once when the hub connection comes back', async (t) => {
   const { view, statusUrls, successes, restore } = await loseSteamAnswer(t, [
+    null,
     null,
     {
       isAuthenticated: true,
@@ -786,25 +795,110 @@ test('a lost Steam answer is read once when the hub connection comes back', asyn
     view.render();
     await settle();
 
-    assert.equal(statusUrls.length, 2);
+    assert.equal(statusUrls.length, 3);
     assert.deepEqual(successes, ['modals.steamAuth.success.authenticatedAs']);
   } finally {
     restore();
   }
 });
 
-test('a lost Steam answer nothing decided by its deadline ends as ended or expired', async (t) => {
+test("a lost Steam answer waits until the server's own deadline for the attempt", async (t) => {
   const { view, statusUrls, successes, restore } = await loseSteamAnswer(t, [
     null,
-    { attemptId: 'attempt-1' }
+    { attemptId: 'attempt-1', loginExpiresAtUtc: new Date(Date.now() + 60000).toISOString() },
+    {}
   ]);
   try {
-    t.mock.timers.tick(15 * 60 * 1000);
+    await settle();
+    view.render();
+    assert.equal(statusUrls.length, 2, 'the read after the wait starts listening');
+    t.mock.timers.tick(60000);
     await settle();
 
-    assert.equal(statusUrls.length, 2, 'the deadline reads once');
+    assert.equal(statusUrls.length, 3, 'the deadline reads once, at the server deadline');
     assert.equal(view.render().state.error, 'errors.integration.attemptExpired');
     assert.deepEqual(successes, []);
+  } finally {
+    restore();
+  }
+});
+
+test('a second Steam Submit while a lost answer is awaited sends nothing and the first one success shows', async (t) => {
+  const { view, statusUrls, fetchUrls, successes, restore } = await loseSteamAnswer(t, [
+    null,
+    null,
+    {
+      isAuthenticated: true,
+      canManage: true,
+      loginEnding: {
+        attemptId: 'attempt-1',
+        status: 'completed',
+        stageKey: 'modals.steamAuth.success.authenticatedAs'
+      }
+    }
+  ]);
+  try {
+    assert.equal(
+      view.render().state.loading,
+      true,
+      'the form stays busy while the ending is awaited'
+    );
+    const loginRequests = fetchUrls.filter((url) => url === '/login').length;
+    await view.read().actions.handleAuthenticate();
+    assert.equal(fetchUrls.filter((url) => url === '/login').length, loginRequests);
+
+    globalThis.hubEmit('IntegrationLoginEnded', { attemptId: 'attempt-1' });
+    await settle();
+    assert.equal(statusUrls.length, 3);
+    assert.deepEqual(successes, ['modals.steamAuth.success.authenticatedAs']);
+  } finally {
+    restore();
+  }
+});
+
+test('an ending pushed before the Steam wait starts listening is read without a push', async (t) => {
+  const { view, restore } = await loseSteamAnswer(t, [
+    null,
+    {
+      loginEnding: {
+        attemptId: 'attempt-1',
+        status: 'cancelled',
+        stageKey: 'errors.steam.signInCancelled'
+      }
+    }
+  ]);
+  try {
+    await settle();
+    assert.equal(view.render().state.error, 'errors.steam.signInCancelled');
+  } finally {
+    restore();
+  }
+});
+
+test('a Steam deadline read that still names the attempt keeps waiting', async (t) => {
+  const { view, statusUrls, restore } = await loseSteamAnswer(t, [
+    null,
+    { attemptId: 'attempt-1', loginExpiresAtUtc: new Date(Date.now() + 60000).toISOString() },
+    { attemptId: 'attempt-1' },
+    {
+      loginEnding: {
+        attemptId: 'attempt-1',
+        status: 'cancelled',
+        stageKey: 'errors.steam.signInCancelled'
+      }
+    }
+  ]);
+  try {
+    await settle();
+    view.render();
+    t.mock.timers.tick(15 * 60 * 1000);
+    await settle();
+    assert.equal(statusUrls.length, 3, 'the deadline read happened');
+    assert.equal(view.render().state.error, null);
+
+    globalThis.hubEmit('IntegrationLoginEnded', { attemptId: 'attempt-1' });
+    await settle();
+    assert.equal(view.render().state.error, 'errors.steam.signInCancelled');
   } finally {
     restore();
   }
@@ -1239,7 +1333,7 @@ test('persistent card renders checking, unavailable and optional available-accou
       getScheduledPrefillStatusFact: (status) => ({ busy: false, tone: null, label: status }),
       isPersistentLoginIntegrationReuse: () => false,
       formatTimeRemaining: (seconds) => `${seconds}s`,
-      usePersistentLoginStoreState: () => ({ error: null, sessionUnavailableState: null }),
+      usePersistentLoginStoreState: () => ({ error: null }),
       getPersistentLoginFailure: (state) => state.error,
       usePersistentLoginCanceling: () => false
     }

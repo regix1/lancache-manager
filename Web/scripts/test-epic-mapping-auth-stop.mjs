@@ -96,6 +96,7 @@ export default {
     const body = {
       canManage: globalThis.__server.canManage,
       ownershipReason: globalThis.__server.ownershipReason,
+      attemptId: globalThis.__server.pendingAttempt,
       canSignIn: true,
       isAuthenticated: globalThis.__server.isAuthenticated,
       loginEnding: attemptId ? globalThis.__server.endings[attemptId] : null
@@ -110,6 +111,7 @@ export default {
     expiresAtUtc: globalThis.__server.expiresAtUtc
   }),
   completeEpicMappingAuth: async () => {
+    globalThis.__server.codeChecks += 1;
     if (globalThis.__server.checkGate) {
       await globalThis.__server.checkGate;
     }
@@ -223,6 +225,9 @@ const startServer = () => {
     isAuthenticated: false,
     canManage: true,
     ownershipReason: null,
+    // The attempt the server still runs for this caller; the status answer names it until it ends.
+    pendingAttempt: null,
+    codeChecks: 0,
     // The server's 5 minute window for the pasted code, as the start answer reports it.
     expiresAtUtc: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
     endings: {},
@@ -386,10 +391,14 @@ test('a failed read of a stopped sign-in keeps the form until the server announc
     true,
     'the form stays while nothing is decided'
   );
-  assert.equal(waiting.state.loading, false);
+  assert.equal(waiting.state.loading, true, 'the form stays busy while the ending is awaited');
   assert.equal(waiting.state.error, null);
   assert.equal(epic.failed.count, 0);
-  assert.equal(asked(server), 1);
+  assert.equal(
+    asked(server),
+    2,
+    'one read when the answer was lost, one when the wait starts listening'
+  );
   assert.equal(heldTimers.retries.length, 0, 'no timer reads again');
 
   server.statusFailing = false;
@@ -400,13 +409,13 @@ test('a failed read of a stopped sign-in keeps the form until the server announc
   };
   globalThis.__emit('IntegrationLoginEnded', { attemptId: 'someone-else' });
   await settle();
-  assert.equal(asked(server), 1, 'another attempt ending is not this dialog');
+  assert.equal(asked(server), 2, 'another attempt ending is not this dialog');
 
   globalThis.__emit('IntegrationLoginEnded', { attemptId: 'attempt-a' });
   await settle();
   const ended = epic.render();
 
-  assert.equal(asked(server), 2);
+  assert.equal(asked(server), 3);
   assert.equal(epic.failed.message, 'errors.integration.attemptExpired');
   assert.equal(ended.state.needsAuthorizationCode, false);
   assert.equal(ended.state.error, 'errors.integration.attemptExpired');
@@ -429,7 +438,7 @@ test('a sign-in whose ending was missed is read once when the hub connection com
   epic.render();
   await settle();
 
-  assert.equal(asked(server), 2);
+  assert.equal(asked(server), 3);
   assert.equal(epic.succeeded.count, 1);
 });
 
@@ -447,9 +456,85 @@ test('a sign-in nothing decided by its deadline ends as ended or expired', async
   await settle();
   const ended = epic.render();
 
-  assert.equal(asked(server), 2, 'the deadline reads once');
+  assert.equal(asked(server), 3, 'the deadline reads once');
   assert.equal(epic.failed.message, 'errors.integration.attemptExpired');
   assert.equal(ended.state.needsAuthorizationCode, false);
+});
+
+test('a second Epic Submit while a lost answer is awaited sends nothing and the first one success shows', async () => {
+  const server = startServer();
+  const epic = await mount();
+  await reachCodeForm(epic);
+  server.statusFailing = true;
+  await epic.read().actions.handleAuthenticate();
+  epic.render();
+  assert.equal(epic.read().state.loading, true);
+  assert.equal(server.codeChecks, 1);
+
+  const accepted = await epic.read().actions.handleAuthenticate();
+  assert.equal(accepted, false);
+  assert.equal(server.codeChecks, 1, 'no second code check is sent');
+
+  server.statusFailing = false;
+  server.isAuthenticated = true;
+  server.endings['attempt-a'] = completedEnding;
+  globalThis.__emit('IntegrationLoginEnded', { attemptId: 'attempt-a' });
+  await settle();
+
+  assert.equal(epic.succeeded.count, 1);
+  assert.equal(epic.failed.count, 0);
+});
+
+test('a sign-in ending pushed before the wait starts listening is read without a push', async () => {
+  const server = startServer();
+  const epic = await mount();
+  await reachCodeForm(epic);
+  server.statusFailing = true;
+  await epic.read().actions.handleAuthenticate();
+  server.statusFailing = false;
+  server.endings['attempt-a'] = {
+    attemptId: 'attempt-a',
+    status: 'cancelled',
+    stageKey: 'errors.integration.attemptExpired'
+  };
+
+  epic.render();
+  await settle();
+  const ended = epic.render();
+
+  assert.equal(epic.failed.message, 'errors.integration.attemptExpired');
+  assert.equal(ended.state.needsAuthorizationCode, false);
+});
+
+test('a deadline read that still names the attempt keeps the Epic dialog waiting', async () => {
+  const server = startServer();
+  const epic = await mount();
+  await reachCodeForm(epic);
+  server.statusFailing = true;
+  await epic.read().actions.handleAuthenticate();
+  epic.render();
+  server.statusFailing = false;
+  server.pendingAttempt = 'attempt-a';
+
+  const deadlines = liveDeadlines();
+  assert.equal(deadlines.length, 1, 'one deadline timer for the waiting attempt');
+  deadlines[0].callback();
+  await settle();
+  const waiting = epic.render();
+
+  assert.equal(epic.failed.count, 0);
+  assert.equal(waiting.state.needsAuthorizationCode, true);
+  assert.equal(waiting.state.error, null);
+
+  server.pendingAttempt = null;
+  server.endings['attempt-a'] = {
+    attemptId: 'attempt-a',
+    status: 'cancelled',
+    stageKey: 'errors.integration.attemptExpired'
+  };
+  globalThis.__emit('IntegrationLoginEnded', { attemptId: 'attempt-a' });
+  await settle();
+  assert.equal(epic.failed.message, 'errors.integration.attemptExpired');
 });
 
 test('a saved sign-in that was signed out before the read shows the sign-in failed text', async () => {

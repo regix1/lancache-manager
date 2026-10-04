@@ -793,6 +793,23 @@ test('reads that keep failing past the device code deadline end the sign-in as e
   assert.equal(xbox.render(true).state.needsDeviceCode, false);
 });
 
+test('a deadline read that still names the attempt keeps the device code on screen', async () => {
+  const server = startServer(false);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+
+  const deadlines = liveDeadlines();
+  assert.equal(deadlines.length, 1, 'one deadline timer is armed for the device code');
+  deadlines[0].callback();
+  await settle();
+  xbox.render(true);
+
+  assert.equal(server.requests, 1, 'the deadline reads once');
+  assert.equal(xbox.failed.count, 0);
+  assert.equal(xbox.render(true).state.needsDeviceCode, true);
+  assert.equal(xbox.render(true).state.error, null);
+});
+
 test('a sign-in saved and then signed out shows the sign-in failed text', async () => {
   const server = startServer(false);
   const xbox = await mount(true);

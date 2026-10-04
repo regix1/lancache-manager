@@ -251,7 +251,9 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       // With no ending and another attempt (or none) running, the server no longer knows this one.
       if (next.attemptId !== askedAttempt)
         return endWithError(t('errors.integration.attemptExpired'));
-      return final ? endWithError(t('errors.integration.attemptExpired')) : null;
+      // Still this caller's pending sign-in: the server's own window ends it and announces that, so a deadline read on a
+      // clock that runs ahead waits too.
+      return null;
     },
     [identity, onSuccess, onError, t]
   );
@@ -264,7 +266,13 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   });
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
-    if (identityRef.current !== identity || !canAuthenticate || busyRef.current) return false;
+    if (
+      identityRef.current !== identity ||
+      !canAuthenticate ||
+      busyRef.current ||
+      endingWait !== null
+    )
+      return false;
     // The prompt's Continue button and the code box's Submit button share this handler, so the step
     // the modal is on decides what it means. Until the authorization URL comes back there is no
     // code to send, and asking Epic for that URL is the only thing left to do - which is also the
@@ -338,7 +346,8 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     refreshStatus,
     canAuthenticate,
     readLoginEnding,
-    loginDeadline
+    loginDeadline,
+    endingWait
   ]);
 
   const state: EpicAuthState = {
@@ -347,7 +356,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     accessUnavailable,
     ownershipReason: authStatus?.ownershipReason,
     recovering: authStatus?.canRecover === true,
-    loading: formCurrent && loading,
+    loading: formCurrent && (loading || endingWait !== null),
     needsAuthorizationCode: formCurrent && needsAuthorizationCode,
     authorizationUrl: formCurrent ? authorizationUrl : '',
     authorizationCode: formCurrent ? authorizationCode : '',

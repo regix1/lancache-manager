@@ -188,7 +188,8 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     }
   }, [authStatus, needsDeviceCode, finishLogin, failLogin, t]);
 
-  // At the device code's deadline the dialog reads once; a read that brings no ending for this attempt ends it.
+  // At the device code's deadline the dialog reads once; a read that failed or no longer names this attempt as the
+  // caller's pending one ends it.
   useEffect(() => {
     const waitingAttempt = attemptRef.current;
     if (!waitingAttempt || !needsDeviceCode || loginDeadline === null) return;
@@ -198,7 +199,9 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
           if (
             attemptRef.current === waitingAttempt &&
             loginInProgressRef.current &&
-            next?.loginEnding?.attemptId !== waitingAttempt
+            next?.loginEnding?.attemptId !== waitingAttempt &&
+            // Still this caller's pending sign-in: its own window ends it and the server announces that.
+            next?.attemptId !== waitingAttempt
           )
             failLogin(t('errors.integration.attemptExpired'));
         });

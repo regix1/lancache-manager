@@ -213,7 +213,16 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       setLoading(false);
       return false;
     }
-    return final ? endWithError(t('errors.integration.attemptExpired')) : null;
+    // Still this caller's pending sign-in: wait until the server's own window for it ends, which the server announces.
+    if (status.loginExpiresAtUtc) {
+      const deadline = Date.parse(status.loginExpiresAtUtc);
+      setEndingWait((wait) =>
+        wait?.attemptId === askedAttempt && wait.deadline !== deadline
+          ? { ...wait, deadline }
+          : wait
+      );
+    }
+    return null;
   };
 
   useSignInEndingWait(endingWait, (final) => {
@@ -254,7 +263,12 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
   }, [integration?.identity]);
 
   const handleAuthenticate = async (): Promise<boolean> => {
-    if (!canAuthenticate || identityRef.current !== integration?.identity || busyRef.current)
+    if (
+      !canAuthenticate ||
+      identityRef.current !== integration?.identity ||
+      busyRef.current ||
+      endingWait !== null
+    )
       return false;
     const continuation = needsTwoFactor || needsEmailCode || useManualCode;
     if (
@@ -482,7 +496,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
   };
 
   const state = buildSteamOnlyState(
-    formCurrent && loading,
+    formCurrent && (loading || endingWait !== null),
     formCurrent && needsTwoFactor,
     formCurrent && needsEmailCode,
     formCurrent && waitingForMobileConfirmation,

@@ -630,7 +630,9 @@ const liftSteamSignIn = (fetch) => {
     setNeedsTwoFactor: (value) => state.prompts.push(value ? 'twoFactor' : null),
     setNeedsEmailCode: (value) => state.prompts.push(value ? 'email' : null),
     setLoginDeadline: (value) => state.deadlines.push(value),
-    setEndingWait: (value) => state.waits.push(value),
+    // React applies a function argument to the previous state.
+    setEndingWait: (value) =>
+      state.waits.push(typeof value === 'function' ? value(state.waits.at(-1) ?? null) : value),
     fetch,
     ApiService: {
       getJsonFetchOptions: (_body, options) => options,
@@ -646,6 +648,7 @@ const liftSteamSignIn = (fetch) => {
   const handleAuthenticate = bindLifted(liftConstArrow(STEAM_LOGIN_FLOW, 'handleAuthenticate'), {
     ...shared,
     readLoginEnding,
+    endingWait: null,
     canAuthenticate: true,
     createUuid: () => 'attempt-a',
     busyRef: { current: false },
