@@ -2639,7 +2639,7 @@ const mountWizardStep = async () => {
           status: 'processing'
         }),
       resetLogPosition: () => Promise.resolve(),
-      processAllLogs: () => Promise.resolve(),
+      processAllLogs: () => Promise.resolve({ operationId: 'op' }),
       forceKillOperation: (operationId) => {
         forceKills.push(operationId);
         return Promise.resolve();
