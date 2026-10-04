@@ -32,7 +32,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     /// </summary>
     private readonly ConcurrentDictionary<Guid, (OperationStatus Status, DateTime ReapedAtUtc)> _reapedStatuses = new();
 
-    private static readonly TimeSpan _reapedStatusRetention =TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan _reapedStatusRetention = TimeSpan.FromMinutes(5);
 
     /// <summary>
     /// Bound on how far <see cref="ResolveHandoff"/> will follow a chain. A handoff always points at
@@ -872,7 +872,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             reapedAt = DateTime.UtcNow;
             // Written before the row leaves, so a status read never finds neither the row nor its ending. Every id handed
             // off to this run answers its ending too, because the links that led there are removed below.
-            _reapedStatuses[operationId] = (status, reapedAt);
+            // A run that handed off answers its successor's ending; a successor reaped first already wrote it here.
+            if (operation.NextOperationId is null) _reapedStatuses[operationId] = (status, reapedAt);
+            else _reapedStatuses.TryAdd(operationId, (status, reapedAt));
             foreach (var link in stale)
             {
                 _reapedStatuses[link.Key] = (status, reapedAt);

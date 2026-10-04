@@ -252,6 +252,23 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         Assert.Null(status.NextOperationId);
     }
 
+    [Fact]
+    public void AQueuedItemReapedAfterItsSuccessorKeepsTheSuccessorsCanceledEnding()
+    {
+        var tracker = CreateTracker();
+        var controller = CreateController(tracker);
+        var queued = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource(), initialStatus: OperationStatus.Waiting);
+        var successor = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        tracker.RecordHandoff(queued, successor);
+        tracker.CompleteOperation(queued, true);
+        tracker.CompleteOperation(successor, success: false, cancelled: true);
+        Reap(tracker, successor);
+        Reap(tracker, queued);
+        var status = Assert.IsType<OperationStatusResponse>(Assert.IsType<OkObjectResult>(controller.GetOperationStatus(queued).Result).Value);
+        Assert.Equal(OperationStatus.Cancelled, status.Status);
+        Assert.Null(status.NextOperationId);
+    }
+
     internal static void Reap(UnifiedOperationTracker tracker, Guid id)
     {
         typeof(UnifiedOperationTracker).GetMethod("ReapOperation", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(tracker, [id]);
