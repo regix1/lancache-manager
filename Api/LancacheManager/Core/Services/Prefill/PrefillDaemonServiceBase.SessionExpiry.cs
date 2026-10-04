@@ -144,18 +144,26 @@ public abstract partial class PrefillDaemonServiceBase
         // who opens the sign-in and closes the tab leaves the session sitting in LoggingIn with a card on
         // the bar that nothing ever clears. Re-reads _sessions fresh for the same reason the stall phase
         // above does: the phases before this one can remove entries mid-tick.
-        var abandonedLogins = _sessions.Values
-            .Where(s => PrefillSessionExpiryGates.ShouldCancelAbandonedLogin(s, nowUtc))
-            .ToList();
+        // The attempt is read before the gate. A new start moves the deadline before it moves the attempt, so an attempt
+        // read first that passes the gate is the overdue one, and the cancel below never ends a sign-in started after it.
+        var abandonedLogins = new List<(DaemonSession Session, long Attempt)>();
+        foreach (var candidate in _sessions.Values)
+        {
+            long attempt;
+            lock (candidate.PrefillLock) attempt = candidate.LoginAttempt;
+            if (PrefillSessionExpiryGates.ShouldCancelAbandonedLogin(candidate, nowUtc))
+                abandonedLogins.Add((candidate, attempt));
+        }
 
-        async Task ProcessAbandonedLoginAsync(DaemonSession session)
+        async Task ProcessAbandonedLoginAsync((DaemonSession Session, long Attempt) abandoned)
         {
             try
             {
                 _logger.LogInformation(
                     "Login for session {SessionId} went unanswered past its deadline. Cancelling it.",
-                    session.Id);
-                if (await CancelLoginAsync(session.Id, stopReason: "common.notifications.warnings.signInExpired"))
+                    abandoned.Session.Id);
+                if (await CancelLoginAsync(abandoned.Session.Id, loginAttempt: abandoned.Attempt,
+                        stopReason: "common.notifications.warnings.signInExpired"))
                 {
                     Interlocked.Increment(ref abandonedLoginsCancelled);
                 }
@@ -165,7 +173,7 @@ public abstract partial class PrefillDaemonServiceBase
                 // Same per-session isolation as the two phases above. A cancel whose daemon round-trip
                 // failed deliberately leaves the login resumable (see CancelLoginAsync), so the next tick
                 // sees it again and tries once more.
-                _logger.LogWarning(ex, "Error cancelling abandoned login for session {SessionId}", session.Id);
+                _logger.LogWarning(ex, "Error cancelling abandoned login for session {SessionId}", abandoned.Session.Id);
             }
         }
 

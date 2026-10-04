@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -918,6 +919,10 @@ public class PrefillLoginRunTests
         var proxy = (SlowFirstSendNotificationsProxy)(object)notifications;
         var (daemon, session) = CreateSessionWithClient(
             tracker, Guid.NewGuid(), isPersistent: false, notifications: notifications);
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        // A live session is wired this way at SessionLifecycle.cs:1109-1112.
+        client.OnStatusUpdate += status =>
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
         daemon.AddSubscriber(session.Id, "conn-1");
 
         var start = daemon.StartLoginAsync(session.Id);
@@ -934,9 +939,106 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
+    /// A failed send drops its connection even when another tab subscribed while the send waited: only a subscribe
+    /// by the stalled connection itself shows its tab is live, so the next broadcast does not wait on it again. The
+    /// second subscribe is what the hub's SubscribeToSessionAsync does for another tab.
+    /// </summary>
+    [Fact]
+    public async Task AFailedSendDropsItsConnectionWhenAnotherTabSubscribesMeanwhile()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, SlowFirstSendNotificationsProxy>();
+        var proxy = (SlowFirstSendNotificationsProxy)(object)notifications;
+        var (daemon, session) = CreateSessionWithClient(
+            tracker, Guid.NewGuid(), isPersistent: false, notifications: notifications);
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        // A live session is wired this way at SessionLifecycle.cs:1109-1112.
+        client.OnStatusUpdate += status =>
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
+        daemon.AddSubscriber(session.Id, "conn-1");
+
+        var start = daemon.StartLoginAsync(session.Id);
+        await proxy.FirstSendTaken.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        daemon.AddSubscriber(session.Id, "conn-2");
+        proxy.HeldSend.TrySetException(new IOException("Send failed"));
+        await start.WaitAsync(TimeSpan.FromSeconds(20));
+
+        lock (session.PrefillLock)
+        {
+            Assert.DoesNotContain("conn-1", session.SubscribedConnections);
+            Assert.Contains("conn-2", session.SubscribedConnections);
+        }
+    }
+
+    /// <summary>
+    /// A connection that subscribes again while the session already holds its limit keeps every live tab: only a new
+    /// connection makes room by removing the oldest. A tab coming back into view subscribes again this way
+    /// (usePrefillSignalR.ts resubscribes on visibility, and the hub's SubscribeToSessionAsync adds it).
+    /// </summary>
+    [Fact]
+    public void AResubscribeAtTheConnectionLimitKeepsEveryLiveTab()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+
+        daemon.AddSubscriber(session.Id, "conn-1");
+        daemon.AddSubscriber(session.Id, "conn-2");
+        daemon.AddSubscriber(session.Id, "conn-3");
+        daemon.AddSubscriber(session.Id, "conn-3");
+
+        lock (session.PrefillLock)
+        {
+            Assert.Contains("conn-1", session.SubscribedConnections);
+            Assert.Contains("conn-2", session.SubscribedConnections);
+            Assert.Contains("conn-3", session.SubscribedConnections);
+        }
+    }
+
+    /// <summary>
+    /// The abandoned sign-in sweep cancels the attempt it found overdue, so a restart that lands after the sweep's
+    /// check and before its cancel takes the lock is left running. The logger callback stands in for the operating
+    /// system pausing the sweep between its check and the cancel: it does what a start does (Login.cs moves the
+    /// deadline, then the attempt, then the auth state) at the sweep's last log line before the cancel.
+    /// </summary>
+    [Fact]
+    public async Task TheAbandonedSignInSweepLeavesASignInStartedAfterItsCheckAsync()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var logger = new CapturingLogger<SteamDaemonService>();
+        var (daemon, session) = CreateSessionWithClient(
+            tracker, Guid.NewGuid(), isPersistent: false, logger: logger);
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        // A live session is wired this way at SessionLifecycle.cs:1109-1112.
+        client.OnStatusUpdate += status =>
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
+        await daemon.StartLoginAsync(session.Id);
+        session.PendingLoginChallenge = null;
+        session.AuthState = DaemonAuthState.UsernameRequired;
+        var restarted = false;
+        logger.OnLogged = entry =>
+        {
+            if (restarted || !entry.Message.Contains("went unanswered past its deadline")) return;
+            restarted = true;
+            lock (session.PrefillLock)
+            {
+                session.LoginExpiresAtUtc = DateTime.UtcNow.AddMinutes(15);
+                session.LoginAttempt++;
+                session.AuthState = DaemonAuthState.LoggingIn;
+            }
+        };
+
+        var result = await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
+
+        Assert.True(restarted);
+        Assert.Equal(0, result.AbandonedLoginsCancelled);
+        Assert.Equal(0, client.CancelLoginCallCount);
+        Assert.Equal(DaemonAuthState.LoggingIn, session.AuthState);
+    }
+
+    /// <summary>
     /// The subscriber set is changed by the broadcast's catch under the session lock, so a subscribe or an unsubscribe
-    /// takes that lock too. The short wait only gives an unlocked add time to finish; a locked one cannot while the
-    /// lock is held.
+    /// takes that lock too. The wait only gives an unlocked change time to finish; a locked one cannot, whatever the
+    /// wait.
     /// </summary>
     [Fact]
     public async Task SubscribersChangeOnlyUnderTheSessionLockAsync()
@@ -952,8 +1054,8 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
-    /// Holds the session lock on a thread of its own, runs the change, and checks it has not finished while the lock is
-    /// held. The 100 ms only gives an unlocked change time to finish; a locked one cannot, whatever the wait.
+    /// Holds the session lock on a thread of its own, starts the change, and checks it has not finished within a second
+    /// of starting while the lock is held.
     /// </summary>
     private static async Task AssertWaitsForTheSessionLockAsync(DaemonSession session, Action change)
     {
@@ -968,9 +1070,16 @@ public class PrefillLoginRunTests
             }
         });
         entered.Wait();
-        var run = Task.Run(change);
-        await Task.Delay(100);
-        var finishedWhileLocked = run.IsCompleted;
+        using var started = new ManualResetEventSlim();
+        var run = Task.Run(() =>
+        {
+            started.Set();
+            change();
+        });
+        // Waits for the change to start, so a thread pool slow to run it cannot hide an unlocked change. Once started,
+        // an unlocked change finishes in microseconds; a locked one cannot finish while the lock is held.
+        started.Wait();
+        var finishedWhileLocked = await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(1))) == run;
         release.Set();
         await holder;
         await run.WaitAsync(TimeSpan.FromSeconds(10));
@@ -1032,13 +1141,13 @@ public class PrefillLoginRunTests
 
     private static (TestableSteamDaemonService Daemon, DaemonSession Session) CreateSessionWithClient(
         IUnifiedOperationTracker tracker, Guid userId, bool isPersistent, bool isTemporary = false,
-        ISignalRNotificationService? notifications = null)
+        ISignalRNotificationService? notifications = null, ILogger<SteamDaemonService>? logger = null)
     {
         var contexts = new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"prefill_login_{Guid.NewGuid():N}")
             .Options);
         var daemon = new TestableSteamDaemonService(
-            NullLogger<SteamDaemonService>.Instance,
+            logger ?? NullLogger<SteamDaemonService>.Instance,
             notifications ?? DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
             new ConfigurationBuilder().Build(),
             (IPathResolver)DispatchProxy.Create<IPathResolver, NullReturningProxy>(),

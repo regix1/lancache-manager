@@ -223,11 +223,16 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     }
 
     /// <summary>
-    /// Cancels a pending login attempt and resets auth state. Returns false when the sign-in had already finished signed in,
-    /// or when <paramref name="loginAttempt"/> is no longer the session's current attempt.
+    /// Cancels the session's current sign-in and resets auth state. Returns false when the sign-in had already finished
+    /// signed in. Its one argument is what a browser still running an earlier version of the app sends.
     /// </summary>
-    /// <param name="loginAttempt">The attempt a dialog's own timeout ends, so a stale dialog never ends a newer sign-in; null ends the current one.</param>
-    public async Task<bool> CancelLoginAsync(string sessionId, long? loginAttempt)
+    public Task<bool> CancelLoginAsync(string sessionId) => CancelLoginAttemptAsync(sessionId, null);
+
+    /// <summary>
+    /// Cancels the sign-in <paramref name="loginAttempt"/> names, so a stale dialog's timeout never ends a newer sign-in.
+    /// Returns false when that attempt is no longer the session's current one or had already finished signed in.
+    /// </summary>
+    public async Task<bool> CancelLoginAttemptAsync(string sessionId, long? loginAttempt)
     {
         ValidateSessionAccess(sessionId, out _);
 

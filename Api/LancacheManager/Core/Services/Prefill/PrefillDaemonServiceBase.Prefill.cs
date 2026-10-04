@@ -718,18 +718,21 @@ public abstract partial class PrefillDaemonServiceBase
         {
             lock (session.PrefillLock)
             {
-                // If we're at the limit, remove oldest connections to make room
-                // This prevents stale connections from accumulating during page navigations
-                while (session.SubscribedConnections.Count >= MaxConnectionsPerSession)
+                // A connection that subscribes again keeps its place. Only a new one makes room by removing the oldest,
+                // so a tab coming back into view never pushes another live tab out.
+                if (!session.SubscribedConnections.Contains(connectionId))
                 {
-                    var oldest = session.SubscribedConnections.First();
-                    session.SubscribedConnections.Remove(oldest);
-                    _logger.LogDebug("Removed stale subscriber {ConnectionId} from session {SessionId} (limit reached)",
-                        oldest, sessionId);
+                    while (session.SubscribedConnections.Count >= MaxConnectionsPerSession)
+                    {
+                        var oldest = session.SubscribedConnections.First();
+                        session.SubscribedConnections.Remove(oldest);
+                        session.LastSubscribeCounts.Remove(oldest);
+                        _logger.LogDebug("Removed stale subscriber {ConnectionId} from session {SessionId} (limit reached)",
+                            oldest, sessionId);
+                    }
+                    session.SubscribedConnections.Add(connectionId);
                 }
-
-                session.SubscribedConnections.Add(connectionId);
-                session.SubscribeCount++;
+                session.LastSubscribeCounts[connectionId] = ++session.SubscribeCount;
                 _logger.LogDebug("Added subscriber {ConnectionId} to session {SessionId} (total: {Count})",
                     connectionId, sessionId, session.SubscribedConnections.Count);
             }
@@ -793,7 +796,11 @@ public abstract partial class PrefillDaemonServiceBase
     {
         foreach (var session in _sessions.Values)
         {
-            lock (session.PrefillLock) session.SubscribedConnections.Remove(connectionId);
+            lock (session.PrefillLock)
+            {
+                session.SubscribedConnections.Remove(connectionId);
+                session.LastSubscribeCounts.Remove(connectionId);
+            }
         }
     }
 }

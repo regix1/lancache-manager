@@ -429,9 +429,11 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 lock (session.PrefillLock)
                 {
-                    // A tab that subscribed again while this send waited is live again and keeps its subscription.
-                    if (session.SubscribeCount != subscribeCount) return;
+                    // This connection subscribed again after the snapshot, so its tab is live and keeps its subscription.
+                    if (session.LastSubscribeCounts.TryGetValue(connectionId, out var lastSubscribe) && lastSubscribe > subscribeCount)
+                        return;
                     session.SubscribedConnections.Remove(connectionId);
+                    session.LastSubscribeCounts.Remove(connectionId);
                 }
                 _logger.LogWarning(ex, "Failed to notify {EventName} to {ConnectionId}, removing subscription", eventName, connectionId);
             }

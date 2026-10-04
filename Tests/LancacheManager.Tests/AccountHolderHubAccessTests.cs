@@ -371,6 +371,7 @@ public sealed class AccountHolderHubAccessTests
     [InlineData(nameof(SteamDaemonHub.CancelPrefillAsync))]
     [InlineData(nameof(SteamDaemonHub.CancelPrefillRunAsync))]
     [InlineData(nameof(SteamDaemonHub.CancelLoginAsync))]
+    [InlineData(nameof(SteamDaemonHub.CancelLoginAttemptAsync))]
     [InlineData(nameof(SteamDaemonHub.EndSessionAsync))]
     public async Task AGrantedGuestCannotControlAnotherSessionsPrefill(string method)
     {
@@ -412,7 +413,8 @@ public sealed class AccountHolderHubAccessTests
         {
             nameof(SteamDaemonHub.CancelPrefillAsync) => connection.Hub.CancelPrefillAsync,
             nameof(SteamDaemonHub.CancelPrefillRunAsync) => sessionId => connection.Hub.CancelPrefillRunAsync(sessionId, runId),
-            nameof(SteamDaemonHub.CancelLoginAsync) => sessionId => connection.Hub.CancelLoginAsync(sessionId, null),
+            nameof(SteamDaemonHub.CancelLoginAsync) => sessionId => connection.Hub.CancelLoginAsync(sessionId),
+            nameof(SteamDaemonHub.CancelLoginAttemptAsync) => sessionId => connection.Hub.CancelLoginAttemptAsync(sessionId, null),
             nameof(SteamDaemonHub.EndSessionAsync) => connection.Hub.EndSessionAsync,
             _ => throw new ArgumentOutOfRangeException(nameof(method), method, null)
         };
@@ -420,6 +422,81 @@ public sealed class AccountHolderHubAccessTests
         var refused = await Assert.ThrowsAsync<HubException>(() => call("another-sessions-prefill"));
         Assert.Equal("Access denied", refused.Message);
         await call("own-prefill");
+    }
+
+    /// <summary>
+    /// A guest dialog's timeout cancels the attempt it started. The hub passes that attempt to the service, so a cancel
+    /// that names an older attempt leaves the newer sign-in running.
+    /// </summary>
+    [Fact]
+    public async Task AStaleAttemptsCancelThroughTheHubLeavesTheNewerSignInRunningAsync()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        using var scope = host.Application.Services.CreateScope();
+
+        var guestRequest = await SessionCookieAsync(host, scope, SessionType.Guest, GrantSteamPrefill);
+        var guestSession = await scope.ServiceProvider.GetRequiredService<SessionService>()
+            .ValidateSessionAsync(SessionService.TokenFromCookie(guestRequest)!);
+        Assert.NotNull(guestSession);
+
+        var daemon = new TestableSteamDaemonService(
+            NullLogger<SteamDaemonService>.Instance,
+            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+            host.Application.Services.GetRequiredService<IConfiguration>(),
+            host.Application.Services.GetRequiredService<IPathResolver>(),
+            host.Application.Services.GetRequiredService<IStateService>(),
+            scope.ServiceProvider.GetRequiredService<PrefillSessionService>(),
+            scope.ServiceProvider.GetRequiredService<PrefillCacheService>(),
+            host.Application.Services.GetRequiredService<IOptionsMonitor<PrefillNetworkOptions>>());
+        var client = new ScriptedLoginDaemonClient();
+        var session = new DaemonSession
+        {
+            Id = "own-prefill",
+            UserId = guestSession!.Id,
+            IsTemporary = true,
+            Status = DaemonSessionStatus.Active,
+            AuthState = DaemonAuthState.LoggingIn,
+            Client = client
+        };
+        session.LoginAttempt = 5;
+        daemon.InjectSession(session);
+        var connection = await ConnectToSteamDaemonHubAsync(host, scope, guestRequest, daemon);
+
+        Assert.False(await connection.Hub.CancelLoginAttemptAsync("own-prefill", 4));
+
+        Assert.Equal(0, client.CancelLoginCallCount);
+        Assert.Equal(DaemonAuthState.LoggingIn, session.AuthState);
+    }
+
+    /// <summary>
+    /// SignalR binds a hub call by method name and argument count. A browser still running the version before this
+    /// update calls CancelLoginAsync with the session id alone (PrefillPanel.tsx and usePrefillSteamAuth.ts of the
+    /// previous bundle), and that call reaches the hub for as long as the tab stays open.
+    /// </summary>
+    [Fact]
+    public void ABrowserFromBeforeTheUpdateCanStillCancelASignIn()
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(
+            "{\"type\":1,\"invocationId\":\"1\",\"target\":\"CancelLoginAsync\",\"arguments\":[\"session\"]}\u001e");
+        var input = new System.Buffers.ReadOnlySequence<byte>(bytes);
+
+        var parsed = new Microsoft.AspNetCore.SignalR.Protocol.JsonHubProtocol()
+            .TryParseMessage(ref input, new SteamDaemonHubParameterTypes(), out var message);
+
+        Assert.True(parsed);
+        Assert.IsType<Microsoft.AspNetCore.SignalR.Protocol.InvocationMessage>(message);
+    }
+
+    private sealed class SteamDaemonHubParameterTypes : IInvocationBinder
+    {
+        public IReadOnlyList<Type> GetParameterTypes(string methodName) =>
+            typeof(SteamDaemonHub).GetMethod(methodName)!.GetParameters().Select(p => p.ParameterType).ToArray();
+
+        public Type GetReturnType(string invocationId) => throw new NotSupportedException();
+
+        public Type GetStreamItemType(string streamId) => throw new NotSupportedException();
     }
 
     private static void GrantSteamPrefill(UserSession session)

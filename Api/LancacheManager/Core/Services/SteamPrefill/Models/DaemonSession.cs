@@ -329,8 +329,13 @@ public class DaemonSession
     public HashSet<string> SubscribedConnections { get; } = new();
 
     /// <summary>
-    /// Counts subscribes, under <see cref="PrefillLock"/>. A send that failed drops its connection only when no subscribe came
-    /// after that send's snapshot: a tab that subscribed again while the send waited is live.
+    /// Each subscribed connection's <see cref="SubscribeCount"/> at its last subscribe, under <see cref="PrefillLock"/>.
+    /// </summary>
+    public Dictionary<string, long> LastSubscribeCounts { get; } = new();
+
+    /// <summary>
+    /// Counts subscribes, under <see cref="PrefillLock"/>. A send that failed drops its connection unless that connection
+    /// subscribed again after the send's snapshot (<see cref="LastSubscribeCounts"/>): that tab is live.
     /// </summary>
     public long SubscribeCount { get; set; }
     public CancellationTokenSource CancellationTokenSource { get; } = new();
