@@ -128,6 +128,24 @@ public sealed class EpicIntegrationOwnershipTests
     }
 
     [Fact]
+    public async Task AnUnexpectedSignInFailureRecordsTheSignInFailedTextAsync()
+    {
+        using var fixture = new Fixture();
+        // A token answer with no refresh token: the client throws InvalidOperationException, not a refusal with a stage key.
+        fixture.Handler.Body = """{"access_token":"access"}""";
+        var start = await fixture.Service.GetAuthorizationUrl(fixture.Owner);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.OnAuthCodeReceivedAsync(
+            "code", caller: fixture.Owner, attemptId: start.AttemptId));
+
+        var ending = fixture.Service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
+        Assert.NotNull(ending);
+        Assert.Equal(OperationStatus.Failed, ending.Status);
+        Assert.Equal("modals.epicAuth.errors.loginFailed", ending.StageKey);
+        Assert.Null(ending.Context);
+    }
+
+    [Fact]
     public async Task RecoveryMustBeExplicitAndFailureDoesNotClaimLegacyCredentials()
     {
         using var fixture = new Fixture();
@@ -240,6 +258,7 @@ public sealed class EpicIntegrationOwnershipTests
         public int Calls { get; private set; }
         public bool Hold { get; set; }
         public HttpStatusCode Status { get; set; } = HttpStatusCode.OK;
+        public string? Body { get; set; }
         public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -251,11 +270,11 @@ public sealed class EpicIntegrationOwnershipTests
                 Reached.TrySetResult();
                 await Release.Task;
             }
-            var json = request.Method == HttpMethod.Get
+            var json = Body ?? (request.Method == HttpMethod.Get
                 ? """{"code":"minted"}"""
                 : body.Contains("grant_type=exchange_code", StringComparison.Ordinal)
                     ? """{"access_token":"daemon-access","refresh_token":"daemon-refresh","expires_at":"2099-01-01T00:00:00Z","refresh_expires":28800,"expires_in":3600,"displayName":"owner","account_id":"epic"}"""
-                    : """{"access_token":"access","refresh_token":"rotated-refresh","expires_at":"2099-01-01T00:00:00Z","refresh_expires":28800,"expires_in":3600,"displayName":"owner","account_id":"epic"}""";
+                    : """{"access_token":"access","refresh_token":"rotated-refresh","expires_at":"2099-01-01T00:00:00Z","refresh_expires":28800,"expires_in":3600,"displayName":"owner","account_id":"epic"}""");
             return new HttpResponseMessage(Status) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
         }
     }

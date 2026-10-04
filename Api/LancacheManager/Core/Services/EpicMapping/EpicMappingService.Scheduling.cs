@@ -251,6 +251,13 @@ public partial class EpicMappingService
             return Task.FromResult(false);
         }
 
+        // A refresh whose card has not registered yet has no run for the tracker to cancel; its reporter cancels its own
+        // source, and the run it registers next starts canceled.
+        if (reporter.OperationId == Guid.Empty)
+        {
+            return Task.FromResult(reporter.RequestCancellation());
+        }
+
         _logger.LogInformation(
             "Cancelling active Epic catalog refresh (operationId: {OperationId})",
             reporter.OperationId);

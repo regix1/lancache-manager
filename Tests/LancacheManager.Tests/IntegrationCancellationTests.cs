@@ -394,6 +394,29 @@ public sealed class IntegrationCancellationTests
     }
 
     [Fact]
+    public async Task ACancelBeforeTheRefreshRegistersStopsItAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        using var refresh = new CancellationTokenSource();
+        // The state a cancel sees between the refresh publishing its reporter and the reporter registering its card.
+        await using var reporter = new MappingOperationReporter(notifications, tracker, MappingOperations.Epic,
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual), refresh.Token, NullLogger.Instance);
+        typeof(EpicMappingService).GetField("_isProcessingInt", flags)!.SetValue(service, 1);
+        typeof(EpicMappingService).GetField("_currentRefreshCts", flags)!.SetValue(service, refresh);
+        typeof(EpicMappingService).GetField("_currentMappingReporter", flags)!.SetValue(service, reporter);
+
+        Assert.True(await service.CancelRefreshAsync());
+
+        Assert.True(reporter.Token.IsCancellationRequested);
+    }
+
+    [Fact]
     public async Task AnEpicRefreshCancelThatMeetsTheRefreshsEndAnswersAsync()
     {
         using var fixture = new IntegrationFixture();

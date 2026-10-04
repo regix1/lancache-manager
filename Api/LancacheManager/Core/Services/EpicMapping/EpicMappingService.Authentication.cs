@@ -356,8 +356,7 @@ public partial class EpicMappingService
             {
                 _authStorage.RecordIntegrationLoginEnding(login, ex is ApiException { StageKey: { } failureKey } refusal
                     ? new IntegrationLoginEnding(login.AttemptId, OperationStatus.Failed, failureKey, refusal.Context)
-                    : new IntegrationLoginEnding(login.AttemptId, OperationStatus.Failed, "signalr.epicMapping.failed",
-                        new Dictionary<string, object?> { ["errorDetail"] = ex.Message }));
+                    : new IntegrationLoginEnding(login.AttemptId, OperationStatus.Failed, "modals.epicAuth.errors.loginFailed"));
             }
 
             throw;

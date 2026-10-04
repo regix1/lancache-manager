@@ -172,6 +172,9 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     public EpicMappingAuthStatus GetAuthStatus(IntegrationCaller? caller = null, Guid? attemptId = null)
     {
         var access = caller is null ? null : GetIntegrationAccess(caller);
+        // Read before the account flag: a completed ending is recorded after the account is marked signed in, so a read
+        // that finds it also finds the account signed in, unless a sign-out came after.
+        var loginEnding = caller is null || attemptId is null ? null : _authStorage.GetIntegrationLoginEnding(caller, attemptId.Value);
         return new EpicMappingAuthStatus
         {
             IsAuthenticated = _isAuthenticated,
@@ -183,7 +186,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
             OwnershipReason = access?.OwnershipReason,
             AttemptId = access?.AttemptId,
             LoginExpiresAtUtc = access?.LoginExpiresAtUtc,
-            LoginEnding = caller is null || attemptId is null ? null : _authStorage.GetIntegrationLoginEnding(caller, attemptId.Value),
+            LoginEnding = loginEnding,
             DisplayName = caller is null || access!.CanManage ? _displayName : null,
             LastCollectionUtc = _lastCollectionUtc,
             GamesDiscovered = _gamesDiscovered
