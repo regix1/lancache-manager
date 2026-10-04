@@ -343,8 +343,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     const generation = storeRef.current.generation;
     // The hub adds a connection to the admin group inside OnConnectedAsync, which finishes before
     // any hub call is dispatched, so a snapshot sent after this call settles was captured after
-    // the join; a rejected call means the connection dropped, and its reconnect asks again.
-    await invoke('JoinAuthenticatedGroupAsync').catch(() => undefined);
+    // the join; a rejected call means the connection dropped, and its reconnect asks again. Before
+    // the first connect there is nothing to join yet, and that connect asks again.
+    if (isConnectedRef.current) await invoke('JoinAuthenticatedGroupAsync').catch(() => undefined);
     let snapshot: OperationRunsSnapshot | null = null;
     try {
       const response = await fetchWithAuth('/api/operations/runs');

@@ -48,6 +48,8 @@ export function useScheduleDisplayModes(): ScheduleDisplayModes {
   const [defaultMode, setDefaultMode] = useState<NotificationDisplayMode>('full');
   const [ready, setReady] = useState(false);
   const { on, off, invoke, isConnected } = useSignalR();
+  const isConnectedRef = useRef(isConnected);
+  isConnectedRef.current = isConnected;
   const schedulesGeneration = useRef(0);
   const defaultGeneration = useRef(0);
   const resyncPending = useRef({ schedules: false, defaultMode: false });
@@ -66,8 +68,9 @@ export function useScheduleDisplayModes(): ScheduleDisplayModes {
   }, []);
 
   const refresh = useCallback(async (): Promise<void> => {
-    // Joining first closes the connection window in which a GET could miss a settings push.
-    await Promise.allSettled([invoke('JoinAuthenticatedGroupAsync')]);
+    // Joining first closes the connection window in which a GET could miss a settings push. Before the
+    // first connect there is nothing to join yet, and that connect runs this again.
+    if (isConnectedRef.current) await Promise.allSettled([invoke('JoinAuthenticatedGroupAsync')]);
     if (!active.current) return;
 
     const schedulesRequest = schedulesGeneration.current;
