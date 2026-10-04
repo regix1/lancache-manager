@@ -1280,6 +1280,7 @@ public sealed class CorruptionRemovalContractTests
         private readonly List<Task> _runs = [];
         private readonly ServiceProvider _services;
         private readonly OperationStateService _operationStateService;
+        private readonly HostLifetime _lifetime = new();
 
         public RemovalRun(CorruptionDetectionMethod method, bool transport = false, int datasourceCount = 1)
         {
@@ -1390,7 +1391,7 @@ public sealed class CorruptionRemovalContractTests
                 configuration,
                 State,
                 _services.GetRequiredService<IServiceScopeFactory>(),
-                new HostLifetime(),
+                _lifetime,
                 processManager,
                 Tracker);
             _operationStateService = operationStateService;
@@ -1447,7 +1448,9 @@ public sealed class CorruptionRemovalContractTests
                 try { await run.WaitAsync(TimeSpan.FromSeconds(10)); }
                 catch (Exception) when (run.IsCompleted) { /* The test observes the operation outcome; teardown still drains it. */ }
             }
+            _lifetime.StopApplication();
             await _operationStateService.StopAsync(CancellationToken.None);
+            await OperationRepairTests.WaitForRepairTasksAsync(_operationStateService);
             await _services.DisposeAsync();
             if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(_root)),
                     Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.GetTempPath())), StringComparison.OrdinalIgnoreCase))

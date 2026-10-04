@@ -3842,6 +3842,20 @@ public sealed class OperationRepairTests : IDisposable
             parts.SteamAuthStorage);
     }
 
+    // Repairs run on the application's stopping token and StopAsync does not wait for them, so a
+    // fixture waits for the ones still running before it deletes the folder they write into.
+    internal static async Task WaitForRepairTasksAsync(OperationStateService owner)
+    {
+        var running = (System.Collections.Concurrent.ConcurrentDictionary<Guid, Lazy<Task>>)typeof(OperationStateService)
+            .GetField("_repairTasks", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(owner)!;
+        foreach (var repair in running.Values)
+        {
+            try { await repair.Value.WaitAsync(TimeSpan.FromSeconds(10)); }
+            catch (OperationCanceledException) when (repair.Value.IsCanceled) { }
+        }
+    }
+
     internal static FailingStateService CreateFailingStateService(string root)
     {
         var parts = StateParts(root);
@@ -4058,6 +4072,7 @@ public sealed class OperationRepairTests : IDisposable
                 _stopped = true;
                 Lifetime.StopApplication();
                 await Owner.StopAsync(CancellationToken.None);
+                await WaitForRepairTasksAsync(Owner);
             }
             await _services.DisposeAsync();
         }
