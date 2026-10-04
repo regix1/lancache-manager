@@ -62,6 +62,7 @@ public class SteamAuthController : ControllerBase
             AttemptId = access.AttemptId,
             LoginExpiresAtUtc = access.LoginExpiresAtUtc,
             LoginEnding = attemptId is null ? null : _steamKit2Service.GetIntegrationLoginEnding(caller, attemptId.Value),
+            PendingPrompt = attemptId is { } asked && access.AttemptId == asked ? _steamKit2Service.GetPendingLoginPrompt(asked) : null,
             Mode = authModeWire,
             Username = username ?? string.Empty,
             IsAuthenticated = isAuthenticated,

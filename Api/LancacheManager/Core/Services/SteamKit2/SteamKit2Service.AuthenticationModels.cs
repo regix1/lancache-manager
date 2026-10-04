@@ -22,6 +22,11 @@ public partial class SteamKit2Service
         /// itself, which no key can translate.
         /// </summary>
         public string? StageKey { get; set; }
+
+        /// <summary>
+        /// Interpolation values for <see cref="StageKey"/>, such as the Steam result a logon failure names.
+        /// </summary>
+        public Dictionary<string, object?>? Context { get; set; }
         public string? AccountName { get; set; }
         public string? RefreshToken { get; set; }
 

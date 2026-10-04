@@ -31,8 +31,8 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
     private bool _releasing;
     private bool _dispatching;
     private readonly HashSet<Guid> _usedAttempts = [];
-    // Each sign-in's ending by its attempt id, for a browser that missed the ending event. Kept for the process lifetime,
-    // like _usedAttempts: one entry per sign-in a person started, and a restart ends every sign-in it was running.
+    // Each sign-in's ending by its attempt id, for a browser that missed the ending event. Pruned when a new ending is
+    // recorded; a restart ends every sign-in it was running.
     private readonly Dictionary<Guid, (IntegrationLogin Login, IntegrationLoginEnding Ending)> _loginEndings = [];
     private long _releaseVersion;
 
@@ -125,18 +125,23 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
             var owner = GetOwnerAccountId(auth);
             if (caller.AuthenticationEnabled && (caller.AccountId is null || caller.SessionId is null))
                 return new(false, false, false, false, false, "account-required");
+            var pending = _pendingLogin is { } live && live.ExpiresAtUtc > DateTime.UtcNow ? live : null;
+            var mine = pending is not null && pending.AccountId == caller.AccountId && pending.SessionId == caller.SessionId
+                && pending.Shared != caller.AuthenticationEnabled;
             if (caller.AuthenticationEnabled && owner is not null && owner != caller.AccountId)
             {
+                // A recovery keeps answering its own attempt id to the caller that started it, and no second recovery
+                // starts while any sign-in is pending.
                 return caller.OwnsInstallation
-                    ? new(false, false, false, false, true, "reauthentication-required")
+                    ? new(false, false, false, mine, pending is null,
+                        pending is null ? "reauthentication-required" : "login-in-progress",
+                        mine ? pending!.AttemptId : null, mine ? pending!.ExpiresAtUtc : null)
                     : new(false, false, false, false, false, "owned-by-another-account");
             }
             if (_releasing)
                 return new(false, false, false, false, false, "release-in-progress");
-            if (_pendingLogin is { } pending && pending.ExpiresAtUtc > DateTime.UtcNow)
+            if (pending is not null)
             {
-                var mine = pending.AccountId == caller.AccountId && pending.SessionId == caller.SessionId
-                    && pending.Shared != caller.AuthenticationEnabled;
                 return new(mine, false, mine && owner is not null, mine, false, "login-in-progress",
                     mine ? pending.AttemptId : null, mine ? pending.ExpiresAtUtc : null);
             }
@@ -256,7 +261,17 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
 
     public void RecordIntegrationLoginEnding(IntegrationLogin login, IntegrationLoginEnding ending)
     {
-        lock (_lock) _loginEndings[login.AttemptId] = (login, ending);
+        lock (_lock)
+        {
+            // A browser reads an ending at the latest when that sign-in's own window ends; one kept 15 minutes past its
+            // window (the longest window a sign-in gets) is dropped when the next ending is recorded.
+            var cutoff = DateTime.UtcNow - TimeSpan.FromMinutes(15);
+            foreach (var expired in _loginEndings.Where(kept => kept.Value.Login.ExpiresAtUtc < cutoff).Select(kept => kept.Key).ToArray())
+            {
+                _loginEndings.Remove(expired);
+            }
+            _loginEndings[login.AttemptId] = (login, ending);
+        }
     }
 
     public IntegrationLoginEnding? GetIntegrationLoginEnding(IntegrationCaller caller, Guid attemptId)

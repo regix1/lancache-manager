@@ -94,6 +94,7 @@ public static class SteamLoginResponseMapper
 
         var failure = ApiResponse.Error(result.Message);
         failure.StageKey = result.StageKey;
+        failure.Context = result.Context;
         return new BadRequestObjectResult(failure);
     }
 }

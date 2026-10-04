@@ -230,6 +230,42 @@ public sealed class SteamAuthStatusTests
         Assert.Null(Assert.IsType<SteamAuthStatusResponse>(other.Value).LoginEnding);
     }
 
+    [Fact]
+    public void AFailureAnswerCarriesTheValuesItsStageKeyReads()
+    {
+        var mapped = SteamLoginResponseMapper.MapChallengeOrFailure(new SteamKit2Service.AuthenticationResult
+        {
+            Message = "Logon failed",
+            StageKey = "signalr.steamSession.disconnected",
+            Context = new Dictionary<string, object?> { ["result"] = "InvalidPassword" }
+        });
+
+        var body = Assert.IsType<ErrorResponse>(Assert.IsType<BadRequestObjectResult>(mapped).Value);
+        Assert.Equal("InvalidPassword", body.Context?["result"]);
+    }
+
+    [Fact]
+    public async Task GetStatus_AnswersTheCodeTheCallersOwnSignInWaitsFor()
+    {
+        using var fixture = new SteamFixture();
+        var storage = fixture.NewStorage();
+        var state = fixture.NewState(storage);
+        using var steamKit = fixture.NewSteamKit(state, storage);
+        var controller = fixture.NewController(steamKit, state);
+        var login = await storage.BeginIntegrationLoginAsync(new IntegrationCaller(null, null, false));
+        typeof(SteamKit2Service).GetField("_loginAttempt", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(steamKit, login);
+        typeof(SteamKit2Service).GetField("_pendingLoginPrompt", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(steamKit, "email");
+
+        var asked = Assert.IsType<OkObjectResult>((await controller.GetStatus(login.AttemptId)).Result);
+        var other = Assert.IsType<OkObjectResult>((await controller.GetStatus(Guid.NewGuid())).Result);
+
+        Assert.Equal("email", Assert.IsType<SteamAuthStatusResponse>(asked.Value).PendingPrompt);
+        Assert.Null(Assert.IsType<SteamAuthStatusResponse>(other.Value).PendingPrompt);
+        Assert.Null((await ReadStatus(controller)).PendingPrompt);
+    }
+
     private static async Task<SteamAuthStatusResponse> ReadStatus(SteamAuthController controller)
     {
         var response = await controller.GetStatus();

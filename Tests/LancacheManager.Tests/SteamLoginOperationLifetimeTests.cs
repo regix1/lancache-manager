@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamKit2;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -91,6 +92,88 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         Assert.Equal(OperationStatus.Cancelled, ending.Status);
         Assert.Equal("errors.steam.signInCancelled", ending.StageKey);
     }
+
+    /// <summary>
+    /// A cancel from another tab reads as a cancel from the moment the sign-in stops counting as running, not only once
+    /// the cancelled sign-in has unwound. The sign-in is parked in its own cancel log line, so the read lands in between.
+    /// </summary>
+    [Fact]
+    public async Task ACancelIsReadableBeforeTheCancelledSignInHasUnwoundAsync()
+    {
+        var service = CreateService(CreateTracker(), new SemaphoreSlim(0, 1));
+        var inCancelArm = new ManualResetEventSlim();
+        var unwind = new ManualResetEventSlim();
+        SetPrivateField(service, "_logger", new CapturingLogger<SteamKit2Service>
+        {
+            OnLogged = entry =>
+            {
+                if (entry.Message != "Steam sign-in cancelled") return;
+                inCancelArm.Set();
+                unwind.Wait(TimeSpan.FromSeconds(10));
+            }
+        });
+        var caller = new IntegrationCaller(null, null, false);
+        var signIn = service.AuthenticateAsync("account", "password");
+        await WaitForActiveSignInAsync(service);
+        var attemptId = GetPrivateField<IntegrationLogin>(service, "_loginAttempt").AttemptId;
+
+        service.CancelLogin(caller, attemptId);
+        Assert.True(inCancelArm.Wait(TimeSpan.FromSeconds(10)));
+        var ending = service.GetIntegrationLoginEnding(caller, attemptId);
+        unwind.Set();
+        await signIn.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.NotNull(ending);
+        Assert.Equal(OperationStatus.Cancelled, ending.Status);
+        Assert.Equal("errors.steam.signInCancelled", ending.StageKey);
+    }
+
+    [Fact]
+    public async Task ALogonFailureRecordsAndAnswersTheValuesItsStageKeyReadsAsync()
+    {
+        var service = CreateService(CreateTracker());
+        var caller = new IntegrationCaller(null, null, false);
+        var storage = GetPrivateField<SteamAuthStorageService>(service, "_steamAuthRepository");
+        var login = await storage.BeginIntegrationLoginAsync(caller);
+        var context = new Dictionary<string, object?> { ["result"] = "InvalidPassword" };
+        var endLogin = typeof(SteamKit2Service).GetMethod("EndLoginAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(endLogin);
+
+        var result = await (Task<SteamKit2Service.AuthenticationResult>)endLogin.Invoke(service,
+        [
+            login, OperationStatus.Failed, "signalr.steamSession.disconnected",
+            new SteamKit2Service.AuthenticationResult { Success = false, Message = "Logon failed" }, context
+        ])!;
+
+        var ending = service.GetIntegrationLoginEnding(caller, login.AttemptId);
+        Assert.NotNull(ending);
+        Assert.Equal("InvalidPassword", ending.Context?["result"]);
+        Assert.Equal("InvalidPassword", result.Context?["result"]);
+    }
+
+    [Fact]
+    public async Task AFailedAndACancelledSignInEachAnnounceTheirEndingAsync()
+    {
+        var failing = CreateService(CreateTracker());
+        var failed = await failing.AuthenticateAsync("account", "password");
+
+        var held = CreateService(CreateTracker(), new SemaphoreSlim(0, 1));
+        var cancelledSignIn = held.AuthenticateAsync("account", "password");
+        await WaitForActiveSignInAsync(held);
+        held.CancelLogin();
+        var cancelled = await cancelledSignIn.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(
+            new SignalRNotifications.IntegrationLoginEnded(Assert.IsType<Guid>(failed.AttemptId)),
+            Assert.Single(SentEndings(failing)).Payload);
+        Assert.Equal(
+            new SignalRNotifications.IntegrationLoginEnded(Assert.IsType<Guid>(cancelled.AttemptId)),
+            Assert.Single(SentEndings(held)).Payload);
+    }
+
+    private static IEnumerable<CapturedEvent> SentEndings(SteamKit2Service service) =>
+        ((RecordingNotifications)(object)GetPrivateField<ISignalRNotificationService>(service, "_notifications"))
+            .Events.Where(sent => sent.EventName == SignalREvents.IntegrationLoginEnded);
 
     /// <summary>
     /// A close arriving after the sign-in already ended must do nothing at all - the modal cannot

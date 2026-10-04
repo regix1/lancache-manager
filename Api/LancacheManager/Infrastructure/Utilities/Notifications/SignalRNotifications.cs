@@ -496,6 +496,12 @@ public static class SignalRNotifications
     );
 
     /// <summary>
+    /// An integration sign-in ended. Only the attempt id goes out: the browser that started it reads the ending by that id,
+    /// which only its own caller can read.
+    /// </summary>
+    public record IntegrationLoginEnded(Guid AttemptId);
+
+    /// <summary>
     /// Compatibility DTO for Epic catalog mapping completion payloads. The canonical mapping
     /// lifecycle emits its terminal payload on the dedicated <c>EpicMappingComplete</c> event.
     /// </summary>

@@ -19,6 +19,11 @@ public class SteamAuthStatusResponse
     /// sign-in's answer reads how its own sign-in ended here.
     /// </summary>
     public IntegrationLoginEnding? LoginEnding { get; set; }
+
+    /// <summary>
+    /// The code the caller's own running sign-in waits for ("twoFactor" or "email"), when its answer asked for one.
+    /// </summary>
+    public string? PendingPrompt { get; set; }
     public string Mode { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public bool IsAuthenticated { get; set; }

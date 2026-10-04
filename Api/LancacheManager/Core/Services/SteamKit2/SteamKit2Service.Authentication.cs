@@ -1,7 +1,9 @@
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using SteamKit2;
 using SteamKit2.Authentication;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Core.Services.SteamKit2;
 
@@ -10,6 +12,7 @@ public partial class SteamKit2Service
     private readonly object _loginOwnerLock = new();
     private bool _hasPendingLoginOwner;
     private string? _pendingLoginUsername;
+    private string? _pendingLoginPrompt;
     private IntegrationLogin? _loginAttempt;
 
     /// <summary>
@@ -64,6 +67,7 @@ public partial class SteamKit2Service
                         IntegrationLease.Refuse("attempt-expired");
                     _hasPendingLoginOwner = true;
                     _pendingLoginUsername = username;
+                    _pendingLoginPrompt = null;
                     _loginAttempt = login;
                     Interlocked.Exchange(ref _loginActive, 1);
                     // Never started: the reporter is only the sign-in's cancellation handle, so the
@@ -96,6 +100,8 @@ public partial class SteamKit2Service
                 keepPendingLoginOwner = pollResult.Result.RequiresTwoFactor
                     || pollResult.Result.RequiresEmailCode
                     || pollResult.Result.RequiresMobileConfirmation;
+                if (pollResult.Result.RequiresTwoFactor || pollResult.Result.RequiresEmailCode)
+                    lock (_loginOwnerLock) _pendingLoginPrompt = pollResult.Result.RequiresEmailCode ? "email" : "twoFactor";
                 // A code prompt keeps the attempt for the code. The only other unsuccessful poll is Steam's
                 // phone-approval window running out, which ends it.
                 return keepPendingLoginOwner
@@ -191,7 +197,7 @@ public partial class SteamKit2Service
             return await EndLoginAsync(login, OperationStatus.Failed, ex.StageKey, new AuthenticationResult
             {
                 Success = false, Message = ex.Message
-            });
+            }, new Dictionary<string, object?> { ["result"] = ex.Result });
         }
         catch (Exception ex)
         {
@@ -203,6 +209,7 @@ public partial class SteamKit2Service
         }
         finally
         {
+            var ended = admitted && !keepPendingLoginOwner;
             lock (_loginOwnerLock)
             {
                 if (admitted && ReferenceEquals(_loginReporter, reporter))
@@ -214,12 +221,25 @@ public partial class SteamKit2Service
                         _steamAuthRepository.FinishIntegrationLogin(login);
                         _hasPendingLoginOwner = false;
                         _pendingLoginUsername = null;
+                        _pendingLoginPrompt = null;
                         _loginAttempt = null;
                         ReportSteamIntegrationAuthenticated();
                     }
                 }
             }
             if (reporter is not null) await reporter.DisposeAsync();
+            // A browser that lost this sign-in's answer reads its ending when this arrives.
+            if (ended)
+            {
+                try
+                {
+                    await _notifications.NotifyAllAsync(SignalREvents.IntegrationLoginEnded, new IntegrationLoginEnded(login.AttemptId));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to send the Steam sign-in ending for {AttemptId}", login.AttemptId);
+                }
+            }
         }
     }
 
@@ -229,9 +249,15 @@ public partial class SteamKit2Service
         lock (_loginOwnerLock)
         {
             if (_loginAttempt is { } login)
+            {
+                // Recorded before the attempt stops counting as running, so a status read in between reads the cancel.
+                _steamAuthRepository.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
+                    login.AttemptId, OperationStatus.Cancelled, "errors.steam.signInCancelled"));
                 _steamAuthRepository.FinishIntegrationLogin(login);
+            }
             _hasPendingLoginOwner = false;
             _pendingLoginUsername = null;
+            _pendingLoginPrompt = null;
             _loginAttempt = null;
             var reporter = _loginReporter;
             _loginReporter = null;
@@ -244,6 +270,15 @@ public partial class SteamKit2Service
     {
         lock (_loginOwnerLock)
             _steamAuthRepository.CancelIntegrationLogin(caller, attemptId, CancelLogin);
+    }
+
+    /// <summary>
+    /// The code an attempt waits for after its answer said so: "twoFactor" or "email". Null while it runs or once it ended.
+    /// </summary>
+    public string? GetPendingLoginPrompt(Guid attemptId)
+    {
+        lock (_loginOwnerLock)
+            return _loginAttempt?.AttemptId == attemptId ? _pendingLoginPrompt : null;
     }
 
     /// <summary>
@@ -265,10 +300,12 @@ public partial class SteamKit2Service
     /// the ending; the outcome is then stamped as <see cref="CompleteLoginAsync"/> does.
     /// </summary>
     private Task<AuthenticationResult> EndLoginAsync(
-        IntegrationLogin login, OperationStatus status, string stageKey, AuthenticationResult result)
+        IntegrationLogin login, OperationStatus status, string stageKey, AuthenticationResult result,
+        Dictionary<string, object?>? context = null)
     {
         result.StageKey = stageKey;
-        _steamAuthRepository.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(login.AttemptId, status, stageKey));
+        result.Context = context;
+        _steamAuthRepository.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(login.AttemptId, status, stageKey, context));
         return CompleteLoginAsync(login, result);
     }
 

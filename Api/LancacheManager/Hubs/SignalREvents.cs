@@ -247,6 +247,9 @@ public static class SignalREvents
     public const string XboxMappingComplete = "XboxMappingComplete";
     public const string XboxMappingAuthStateChanged = "XboxMappingAuthStateChanged";
 
+    // A Steam or Epic integration sign-in ended; carries only its attempt id.
+    public const string IntegrationLoginEnded = "IntegrationLoginEnded";
+
     // Battle.net Game Mapping
     public const string BattleNetMappingStarted = "BattleNetMappingStarted";
     public const string BattleNetMappingProgress = "BattleNetMappingProgress";

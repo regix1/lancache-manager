@@ -335,6 +335,57 @@ public sealed class IntegrationOwnershipTests
         Assert.True(fixture.Storage.GetIntegrationAccess(fixture.Owner).CanSignIn);
     }
 
+    [Fact]
+    public async Task ARecoveringCallerReadsItsOwnPendingAttempt()
+    {
+        using var fixture = new IntegrationFixture();
+        fixture.Seed();
+        var login = await fixture.Storage.BeginIntegrationLoginAsync(fixture.Other, recover: true);
+
+        var own = fixture.Storage.GetIntegrationAccess(fixture.Other);
+        var anotherSession = fixture.Storage.GetIntegrationAccess(fixture.Other with { SessionId = Guid.NewGuid() });
+
+        Assert.Equal(login.AttemptId, own.AttemptId);
+        Assert.Equal(login.ExpiresAtUtc, own.LoginExpiresAtUtc);
+        Assert.True(own.CanCancel);
+        Assert.Equal("login-in-progress", own.OwnershipReason);
+        Assert.Null(anotherSession.AttemptId);
+        Assert.False(anotherSession.CanCancel);
+    }
+
+    [Fact]
+    public async Task NoSecondRecoveryStartsWhileAnySignInIsPending()
+    {
+        using var fixture = new IntegrationFixture();
+        fixture.Seed();
+        var second = fixture.Other with { SessionId = Guid.NewGuid() };
+        await fixture.Storage.BeginIntegrationLoginAsync(fixture.Other, recover: true);
+
+        var access = fixture.Storage.GetIntegrationAccess(second);
+
+        Assert.False(access.CanRecover);
+        Assert.Equal("login-in-progress", access.OwnershipReason);
+        await Assert.ThrowsAsync<ConflictException>(() => fixture.Storage.BeginIntegrationLoginAsync(second, recover: true));
+    }
+
+    [Fact]
+    public void AnEndingKeptPastTheLongestSignInWindowIsDroppedWhenTheNextOneIsRecorded()
+    {
+        using var fixture = new IntegrationFixture();
+        var old = new IntegrationLogin(Guid.NewGuid(), 1, fixture.Owner.AccountId, fixture.Owner.SessionId,
+            DateTime.UtcNow.AddMinutes(-16), false, false);
+        var recent = old with { AttemptId = Guid.NewGuid(), ExpiresAtUtc = DateTime.UtcNow.AddMinutes(1) };
+        fixture.Storage.RecordIntegrationLoginEnding(old, new IntegrationLoginEnding(
+            old.AttemptId, OperationStatus.Failed, "errors.integration.attemptExpired"));
+        Assert.NotNull(fixture.Storage.GetIntegrationLoginEnding(fixture.Owner, old.AttemptId));
+
+        fixture.Storage.RecordIntegrationLoginEnding(recent, new IntegrationLoginEnding(
+            recent.AttemptId, OperationStatus.Failed, "errors.integration.attemptExpired"));
+
+        Assert.Null(fixture.Storage.GetIntegrationLoginEnding(fixture.Owner, old.AttemptId));
+        Assert.NotNull(fixture.Storage.GetIntegrationLoginEnding(fixture.Owner, recent.AttemptId));
+    }
+
     private sealed class ProbeClients : HttpMessageHandler, IHttpClientFactory
     {
         public int Calls { get; private set; }
