@@ -246,6 +246,27 @@ public sealed class SteamSessionPolicyTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ensure);
     }
 
+    [Fact]
+    public async Task AKeptSignInWhoseWindowEndsDuringAConnectStillLogsOnAsync()
+    {
+        using var fixture = new Fixture();
+        var login = await fixture.Storage.BeginIntegrationLoginAsync(new IntegrationCaller(fixture.Owner, Guid.NewGuid(), true));
+        // A kept sign-in: the attempt is set and no sign-in is running, as after the sign-in's finally block.
+        Set(fixture.Service, "_loginAttempt", login);
+        Set(fixture.Service, "_hasPendingLoginOwner", true);
+        Assert.Equal(true, Invoke(fixture.Service, "HasCurrentSteamSession"));
+        // The wait a connect holds under the session gate.
+        var loggedOn = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Set(fixture.Service, "_isLoggedOn", false);
+        Set(fixture.Service, "_loggedOnTcs", loggedOn);
+        fixture.Storage.SetIntegrationLoginExpiry(login, DateTime.UtcNow.AddSeconds(-1));
+
+        fixture.LoggedOn(EResult.OK);
+
+        Assert.True(loggedOn.Task.IsCompletedSuccessfully);
+        Assert.True(Get<bool>(fixture.Service, "_isLoggedOn"));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
