@@ -549,6 +549,8 @@ test('a lost Epic answer reports the wait so the setup wizard can leave it', asy
 
   assert.equal(waiting.state.loading, true);
   assert.equal(waiting.state.awaitingEnding, true);
+  // A network drop during Submit fails the status read too, so the step cannot rely on a readable status.
+  assert.equal(waiting.state.canAuthenticate, false);
 
   const stepSource = readFileSync(
     new URL('../src/components/initialization/steps/EpicAuthStep.tsx', import.meta.url),
@@ -556,7 +558,64 @@ test('a lost Epic answer reports the wait so the setup wizard can leave it', asy
   );
   const back = /onClick=\{handleRetry\}\s+disabled=\{([^}]*)\}/.exec(stepSource);
   assert.ok(back, 'the Back button is found by its handler');
-  assert.match(back[1], /state\.awaitingEnding/);
+  assert.equal(
+    new Function('state', `return (${back[1]});`)(waiting.state),
+    false,
+    'Back is usable during the wait'
+  );
+});
+
+test('the Epic status is read again when the hub connection comes back', async () => {
+  const server = startServer();
+  server.statusFailing = true;
+  const epic = await mount();
+  assert.equal(epic.read().state.canAuthenticate, false);
+
+  server.statusFailing = false;
+  globalThis.__socketLive = false;
+  epic.render();
+  globalThis.__socketLive = true;
+  epic.render();
+  await settle();
+  const after = epic.render();
+
+  assert.equal(after.state.canAuthenticate, true);
+});
+
+test('a failed read after the server announces the ending ends the wait', async () => {
+  const server = startServer();
+  const epic = await mount();
+  await reachCodeForm(epic);
+  server.statusFailing = true;
+  await epic.read().actions.handleAuthenticate();
+  assert.equal(epic.render().state.loading, true);
+
+  globalThis.__emit('IntegrationLoginEnded', { attemptId: 'attempt-a' });
+  await settle();
+  const ended = epic.render();
+
+  assert.equal(epic.failed.message, 'errors.integration.attemptExpired');
+  assert.equal(ended.state.loading, false);
+  assert.equal(heldTimers.retries.length, 0);
+});
+
+test('the Epic status is read again when a wait ends', async () => {
+  const server = startServer();
+  const epic = await mount();
+  await reachCodeForm(epic);
+  server.statusFailing = true;
+  await epic.read().actions.handleAuthenticate();
+  epic.render();
+  assert.equal(epic.read().state.canAuthenticate, false);
+
+  server.statusFailing = false;
+  server.pendingAttempt = null;
+  globalThis.__emit('IntegrationLoginEnded', { attemptId: 'attempt-a' });
+  await settle();
+  await settle();
+  const ended = epic.render();
+
+  assert.equal(ended.state.canAuthenticate, true);
 });
 
 test('a saved sign-in that was signed out before the read shows the sign-in failed text', async () => {

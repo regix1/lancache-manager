@@ -173,7 +173,7 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
           <Button
             variant="default"
             onClick={handleRetry}
-            disabled={state.canAuthenticate === false || (state.loading && !state.awaitingEnding)}
+            disabled={!state.awaitingEnding && (state.canAuthenticate === false || state.loading)}
             className="flex-1"
           >
             {t('initialization.epicAuth.back')}

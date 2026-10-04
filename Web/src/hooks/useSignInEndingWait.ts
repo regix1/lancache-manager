@@ -11,11 +11,13 @@ interface SignInEndingWait {
  * Waits for the ending of a sign-in whose answer this page lost, without asking the server on a timer: `read` runs when
  * the server announces that attempt's ending, once right after it starts listening, when the hub connection comes back,
  * and once at the attempt's own deadline
- * with `final` set, where a read that still decides nothing ends the attempt.
+ * with `final` set, where a read that still decides nothing ends the attempt. `finalOnPush` makes the read after the
+ * server's announcement final, for a sign-in the server announces only once it has ended.
  */
 export function useSignInEndingWait(
   wait: SignInEndingWait | null,
-  read: (final: boolean) => void
+  read: (final: boolean) => void,
+  finalOnPush = false
 ): void {
   const { on, off, isConnected } = useSignalR();
   const readRef = useRef(read);
@@ -27,13 +29,13 @@ export function useSignInEndingWait(
   useEffect(() => {
     if (!attemptId) return;
     const handleEnded = ({ attemptId: ended }: { attemptId: string }) => {
-      if (ended === attemptId) readRef.current(false);
+      if (ended === attemptId) readRef.current(finalOnPush);
     };
     on('IntegrationLoginEnded', handleEnded);
     // An ending pushed before this subscription existed is read here, once.
     readRef.current(false);
     return () => off('IntegrationLoginEnded', handleEnded);
-  }, [attemptId, on, off]);
+  }, [attemptId, on, off, finalOnPush]);
 
   const deadline = wait?.deadline;
   useEffect(() => {

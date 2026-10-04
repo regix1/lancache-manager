@@ -5,7 +5,6 @@ import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import EpicGameMappings from './EpicGameMappings';
 import DaemonStatusCard from '../daemon-status/DaemonStatusCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
@@ -20,7 +19,7 @@ interface EpicDaemonStatusProps {
 
 const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, onSuccess }) => {
   const { t } = useTranslation();
-  const { on, off, isConnected } = useSignalR();
+  const { on, off } = useSignalR();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -65,9 +64,6 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, 
       off('EpicMappingComplete', handleUpdate);
     };
   }, [on, off, loadStatus]);
-
-  // Refresh data when SignalR reconnects (catches events missed during disconnect)
-  useReconnectRefetch(isConnected, loadStatus);
 
   const handleLoginClick = async () => {
     if (

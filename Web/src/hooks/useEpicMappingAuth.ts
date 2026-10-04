@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/useAuth';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { createUuid } from '@utils/uuid';
 import { ApiError } from '@services/apiError';
 import { getIntegrationReasonKey, type EpicMappingAuthStatus } from '../types';
+import { useReconnectRefetch } from './useReconnectRefetch';
 import { useSignInEndingWait } from './useSignInEndingWait';
 
 interface UseEpicMappingAuthOptions {
@@ -260,12 +262,24 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     [identity, onSuccess, onError, t]
   );
 
-  useSignInEndingWait(endingWait, (final) => {
-    if (endingWait)
-      void readLoginEnding(endingWait.attemptId, final).then((decided) => {
-        if (decided !== null) setEndingWait(null);
-      });
-  });
+  // Epic announces an attempt only once it has ended, so the read after that announcement decides even when it fails.
+  useSignInEndingWait(
+    endingWait,
+    (final) => {
+      if (endingWait)
+        void readLoginEnding(endingWait.attemptId, final).then((decided) => {
+          if (decided === null) return;
+          setEndingWait(null);
+          // A wait that ended because the status read failed leaves no status behind, so the controls read it again.
+          void refreshStatus();
+        });
+    },
+    true
+  );
+
+  // A status read that failed while the connection was down is read again when it comes back.
+  const { isConnected } = useSignalR();
+  useReconnectRefetch(isConnected, refreshStatus);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
     if (
