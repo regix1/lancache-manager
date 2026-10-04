@@ -219,6 +219,7 @@ async function startWizard(overrides) {
     // One entry per run id: `{ status, endedAt, nextOperationId? }`, as the tracker keeps each run by its own id.
     runs: new Map([['op', { status: 'running', endedAt: 0 }]]),
     asked: [],
+    killed: [],
     runGone: false,
     endingOnForceStop: 'cancelled',
     operationId: 'op',
@@ -271,7 +272,8 @@ async function startWizard(overrides) {
             };
         return runGate ? runGate.then(() => body) : Promise.resolve(body);
       },
-      forceKillOperation: () => {
+      forceKillOperation: (id) => {
+        server.killed.push(id);
         if (server.runGone) {
           return Promise.reject(new ApiError(404, 'Operation not found or already completed'));
         }
@@ -284,8 +286,10 @@ async function startWizard(overrides) {
         return Promise.resolve({ message: 'Operation force killed' });
       },
       resetLogPosition: () => Promise.resolve(),
-      // The start endpoints answer the new pass's id (OperationResponse.operationId).
-      processAllLogs: () => Promise.resolve({ operationId: server.operationId }),
+      // The start endpoints answer the new pass's id (OperationResponse.operationId); a queued start answers the queued
+      // run's id with `queued: true` (QueuedOperationResponse.cs), and the processing status still names the run in front.
+      processAllLogs: () =>
+        Promise.resolve(server.startAnswer ?? { operationId: server.operationId }),
       getLogPositions: () => Promise.resolve([])
     },
     getErrorMessage: (error) => error.message,
@@ -522,6 +526,22 @@ test("a pass queued behind another tab's pass keeps its running view", async () 
   const view = wizard.view();
   assert.equal(view.spinner, true);
   assert.equal(view.continueButton, false);
+  wizard.dispose();
+});
+
+test('a queued pass is force-stopped by its own id', async () => {
+  const wizard = await startWizard({ processing: false });
+  wizard.server.processing = true;
+  wizard.server.operationId = 'saving-a';
+  wizard.server.startAnswer = {
+    operationId: 'queued-b',
+    queued: true,
+    alreadyRunning: false,
+    status: 'waiting'
+  };
+  await wizard.processAll();
+  await wizard.forceStop();
+  assert.deepEqual(wizard.server.killed, ['queued-b'], 'the run in front is left alone');
   wizard.dispose();
 });
 
