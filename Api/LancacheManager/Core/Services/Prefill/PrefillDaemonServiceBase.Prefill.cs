@@ -718,13 +718,14 @@ public abstract partial class PrefillDaemonServiceBase
         {
             lock (session.PrefillLock)
             {
-                // A connection that subscribes again keeps its place. Only a new one makes room by removing the oldest,
-                // so a tab coming back into view never pushes another live tab out.
+                // A connection that subscribes again keeps its place. Only a new one makes room, by removing the connection
+                // whose last subscribe is oldest (a live tab subscribes again when it comes back into view; set order says
+                // nothing once a slot is reused), so a tab coming back into view never pushes another live tab out.
                 if (!session.SubscribedConnections.Contains(connectionId))
                 {
                     while (session.SubscribedConnections.Count >= MaxConnectionsPerSession)
                     {
-                        var oldest = session.SubscribedConnections.First();
+                        var oldest = session.SubscribedConnections.MinBy(id => session.LastSubscribeCounts.GetValueOrDefault(id))!;
                         session.SubscribedConnections.Remove(oldest);
                         session.LastSubscribeCounts.Remove(oldest);
                         _logger.LogDebug("Removed stale subscriber {ConnectionId} from session {SessionId} (limit reached)",

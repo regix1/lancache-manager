@@ -995,6 +995,32 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
+    /// A new connection at the limit removes the connection whose last subscribe is oldest. After a reload frees a slot,
+    /// the set's enumeration order puts the newest connection first, so the order of the set says nothing about age.
+    /// </summary>
+    [Fact]
+    public void ANewTabAtTheConnectionLimitRemovesTheTabThatSubscribedLongestAgo()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+
+        daemon.AddSubscriber(session.Id, "conn-1");
+        daemon.AddSubscriber(session.Id, "conn-2");
+        daemon.AddSubscriber(session.Id, "conn-3");
+        daemon.RemoveSubscriber("conn-1");
+        daemon.AddSubscriber(session.Id, "conn-4");
+        daemon.AddSubscriber(session.Id, "conn-5");
+
+        lock (session.PrefillLock)
+        {
+            Assert.Contains("conn-3", session.SubscribedConnections);
+            Assert.Contains("conn-4", session.SubscribedConnections);
+            Assert.Contains("conn-5", session.SubscribedConnections);
+            Assert.DoesNotContain("conn-2", session.SubscribedConnections);
+        }
+    }
+
+    /// <summary>
     /// The abandoned sign-in sweep cancels the attempt it found overdue, so a restart that lands after the sweep's
     /// check and before its cancel takes the lock is left running. The logger callback stands in for the operating
     /// system pausing the sweep between its check and the cancel: it does what a start does (Login.cs moves the
