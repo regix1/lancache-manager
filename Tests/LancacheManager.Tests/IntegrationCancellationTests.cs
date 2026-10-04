@@ -5,6 +5,7 @@ using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
@@ -265,30 +266,97 @@ public sealed class IntegrationCancellationTests
     }
 
     [Fact]
+    public async Task AnEpicSubmitCanceledWhileItWaitsForTheSessionLockEndsCanceledAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
+        var start = await service.GetAuthorizationUrl(fixture.Owner);
+        var sessionLock = (SemaphoreSlim)typeof(EpicMappingService)
+            .GetField("_sessionLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(service)!;
+        await sessionLock.WaitAsync();
+
+        var submit = service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
+        await service.CancelRefreshAsync(fixture.Owner, start.AttemptId);
+        sessionLock.Release();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => submit.WaitAsync(TimeSpan.FromSeconds(10)));
+        var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
+        Assert.NotNull(ending);
+        Assert.Equal(OperationStatus.Cancelled, ending.Status);
+        Assert.Equal("errors.integration.attemptExpired", ending.StageKey);
+        Assert.Contains(((Notifications)(object)notifications).Sent, sent =>
+            sent.EventName == SignalREvents.IntegrationLoginEnded
+            && sent.Payload is SignalRNotifications.IntegrationLoginEnded ended && ended.AttemptId == start.AttemptId);
+    }
+
+    [Fact]
+    public async Task AnEpicSignInThatSavedTheAccountRecordsItsEndingAndSendsItAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
+        var start = await service.GetAuthorizationUrl(fixture.Owner);
+
+        await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
+
+        var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
+        Assert.NotNull(ending);
+        Assert.Equal(OperationStatus.Completed, ending.Status);
+        Assert.Equal("signalr.epicMapping.completed", ending.StageKey);
+        Assert.Contains(((Notifications)(object)notifications).Sent, sent =>
+            sent.EventName == SignalREvents.IntegrationLoginEnded
+            && sent.Payload is SignalRNotifications.IntegrationLoginEnded ended && ended.AttemptId == start.AttemptId);
+    }
+
+    [Fact]
+    public async Task AnEpicRefreshCancelStopsTheRefreshsOwnCardAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        using var refresh = new CancellationTokenSource();
+        await using var reporter = new MappingOperationReporter(notifications, tracker, MappingOperations.Epic,
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual), refresh.Token, NullLogger.Instance);
+        await reporter.StartAsync();
+        typeof(EpicMappingService).GetField("_isProcessingInt", flags)!.SetValue(service, 1);
+        typeof(EpicMappingService).GetField("_currentRefreshCts", flags)!.SetValue(service, refresh);
+        typeof(EpicMappingService).GetField("_currentMappingReporter", flags)!.SetValue(service, reporter);
+
+        Assert.True(await service.CancelRefreshAsync());
+
+        Assert.True(reporter.Token.IsCancellationRequested);
+    }
+
+    [Fact]
     public async Task AnEpicRefreshCancelThatMeetsTheRefreshsEndAnswersAsync()
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
         using var services = new ServiceCollection().BuildServiceProvider();
-        var logger = new RefreshEndingLogger();
-        using var service = new EpicMappingService(
-            logger,
-            new EpicApiDirectClient(http, NullLogger<EpicApiDirectClient>.Instance), fixture.Epic,
-            DispatchProxy.Create<ISignalRNotificationService, Notifications>(),
-            new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
-                .UseInMemoryDatabase($"epic_cancel_{Guid.NewGuid():N}").Options), NewTracker(),
-            services.GetRequiredService<IServiceScopeFactory>(), DispatchProxy.Create<IStateService, NullReturningProxy>());
+        var tracker = NewTracker();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
-        var field = typeof(EpicMappingService).GetField("_currentRefreshCts", flags)!;
-        var refresh = new CancellationTokenSource();
+        using var refresh = new CancellationTokenSource();
+        await using var reporter = new MappingOperationReporter(notifications, tracker, MappingOperations.Epic,
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual), refresh.Token, NullLogger.Instance);
+        await reporter.StartAsync();
+        await reporter.CompleteAsync(success: true);
+        // The state a cancel sees between the refresh's completion and its cleanup of these fields.
         typeof(EpicMappingService).GetField("_isProcessingInt", flags)!.SetValue(service, 1);
-        field.SetValue(service, refresh);
-        // The refresh's finally runs while the cancel logs: it disposes its source, then clears the field.
-        logger.OnCancelling = () =>
-        {
-            refresh.Dispose();
-            field.SetValue(service, null);
-        };
+        typeof(EpicMappingService).GetField("_currentRefreshCts", flags)!.SetValue(service, refresh);
+        typeof(EpicMappingService).GetField("_currentMappingReporter", flags)!.SetValue(service, reporter);
 
         Assert.False(await service.CancelRefreshAsync());
     }
@@ -312,24 +380,28 @@ public sealed class IntegrationCancellationTests
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
         var cts = typeof(EpicMappingService).GetField("_currentRefreshCts", flags)!;
         var reporterField = typeof(EpicMappingService).GetField("_currentMappingReporter", flags)!;
-        var refresh = new CancellationTokenSource();
+        using var refresh = new CancellationTokenSource();
         using var nextRefresh = new CancellationTokenSource();
-        var next = new MappingOperationReporter(notifications, tracker, MappingOperations.Epic,
+        await using var current = new MappingOperationReporter(notifications, tracker, MappingOperations.Epic,
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual), refresh.Token, NullLogger.Instance);
+        await current.StartAsync();
+        await using var next = new MappingOperationReporter(notifications, tracker, MappingOperations.Epic,
             new RunNotice(NotificationMode.Manual, RunTrigger.Manual), nextRefresh.Token, NullLogger.Instance);
+        await next.StartAsync();
         typeof(EpicMappingService).GetField("_isProcessingInt", flags)!.SetValue(service, 1);
         cts.SetValue(service, refresh);
-        // The refresh ends and the next one starts while the cancel logs, between its read of the source and its cancels.
+        reporterField.SetValue(service, current);
+        // The refresh ends and the next one starts while the cancel logs, between its read of the pair and its cancel.
         logger.OnCancelling = () =>
         {
-            refresh.Dispose();
             cts.SetValue(service, nextRefresh);
             reporterField.SetValue(service, next);
         };
 
-        Assert.False(await service.CancelRefreshAsync());
+        Assert.True(await service.CancelRefreshAsync());
 
+        Assert.True(current.Token.IsCancellationRequested);
         Assert.False(next.Token.IsCancellationRequested);
-        await next.DisposeAsync();
     }
 
     [Fact]
@@ -391,10 +463,10 @@ public sealed class IntegrationCancellationTests
 
     private static EpicMappingService NewEpicService(
         IntegrationFixture fixture, HttpClient http, ServiceProvider services, UnifiedOperationTracker tracker,
-        IStateService? state = null) => new(
+        IStateService? state = null, ISignalRNotificationService? notifications = null) => new(
         NullLogger<EpicMappingService>.Instance,
         new EpicApiDirectClient(http, NullLogger<EpicApiDirectClient>.Instance), fixture.Epic,
-        DispatchProxy.Create<ISignalRNotificationService, Notifications>(),
+        notifications ?? DispatchProxy.Create<ISignalRNotificationService, Notifications>(),
         new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"epic_sign_in_{Guid.NewGuid():N}").Options), tracker,
         services.GetRequiredService<IServiceScopeFactory>(), state ?? DispatchProxy.Create<IStateService, NullReturningProxy>());
@@ -417,9 +489,14 @@ public sealed class IntegrationCancellationTests
     private class Notifications : DispatchProxy
     {
         public Action? OnSend { get; set; }
+        public List<(string EventName, object? Payload)> Sent { get; } = [];
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             OnSend?.Invoke();
+            if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
+            {
+                lock (Sent) Sent.Add(((string)args![0]!, args[1]));
+            }
             return targetMethod?.ReturnType == typeof(Task) ? Task.CompletedTask : null;
         }
     }

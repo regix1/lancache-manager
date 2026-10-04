@@ -112,6 +112,22 @@ public sealed class EpicIntegrationOwnershipTests
     }
 
     [Fact]
+    public async Task ARejectedCodeRecordsItsFailureForTheAttempt()
+    {
+        using var fixture = new Fixture();
+        fixture.Handler.Status = HttpStatusCode.BadRequest;
+        var start = await fixture.Service.GetAuthorizationUrl(fixture.Owner);
+
+        await Assert.ThrowsAsync<ValidationException>(() => fixture.Service.OnAuthCodeReceivedAsync(
+            "rejected", caller: fixture.Owner, attemptId: start.AttemptId));
+
+        var ending = fixture.Service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
+        Assert.NotNull(ending);
+        Assert.Equal(OperationStatus.Failed, ending.Status);
+        Assert.Equal("errors.epic.oauthFailed", ending.StageKey);
+    }
+
+    [Fact]
     public async Task RecoveryMustBeExplicitAndFailureDoesNotClaimLegacyCredentials()
     {
         using var fixture = new Fixture();

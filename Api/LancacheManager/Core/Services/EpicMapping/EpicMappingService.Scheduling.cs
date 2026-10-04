@@ -242,27 +242,22 @@ public partial class EpicMappingService
             });
             return Task.FromResult(true);
         }
-        // The refresh's own cleanup disposes and clears this field, so it is read once.
+        // The source and the card's reporter are read as one pair. A pair whose source is no longer the current refresh
+        // belongs to a refresh that ended, and a successor started since is never touched.
         var refresh = _currentRefreshCts;
-        if (_isProcessingInt == 0 || refresh is null)
+        var reporter = _currentMappingReporter;
+        if (_isProcessingInt == 0 || refresh is null || reporter is null || !ReferenceEquals(_currentRefreshCts, refresh))
         {
             return Task.FromResult(false);
         }
 
         _logger.LogInformation(
             "Cancelling active Epic catalog refresh (operationId: {OperationId})",
-            _currentOperationId);
-        // A refresh that ended while this logged may already have a successor in these fields; its card is not this one.
-        if (ReferenceEquals(_currentRefreshCts, refresh)) _currentMappingReporter?.RequestCancellation();
-        try
-        {
-            refresh.Cancel();
-            return Task.FromResult(true);
-        }
-        catch (ObjectDisposedException)
-        {
-            return Task.FromResult(false);
-        }
+            reporter.OperationId);
+        // The tracker answers whether the run was still going, so a refresh that completed during this call is not
+        // reported canceled.
+        return Task.FromResult(_operationTracker.CancelOperation(reporter.OperationId)
+            is not (OperationCancelResult.NotFound or OperationCancelResult.AlreadyFinished));
     }
 
     private async Task RefreshCatalogAsync(

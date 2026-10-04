@@ -3,6 +3,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
+using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Core.Services.EpicMapping;
 
@@ -146,6 +147,10 @@ public partial class EpicMappingService
             authCts.Dispose();
             _sessionLock.Release();
             Interlocked.Exchange(ref _isProcessingInt, 0);
+            // A cancel or the window's end that came while this submit waited for the session lock ends the sign-in here.
+            _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
+                login.AttemptId, OperationStatus.Cancelled, "errors.integration.attemptExpired"));
+            await NotifyLoginEndedAsync(login);
             throw new OperationCanceledException();
         }
         // Every step before the save waits on this token (through steps once the card exists), so the window ends them;
@@ -256,6 +261,10 @@ public partial class EpicMappingService
                 _lastCollectionUtc = DateTime.UtcNow;
                 _lastRefreshTime = DateTime.UtcNow;
                 _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
+                // Recorded with the save, under the store's lock, so no status read finds the attempt over without
+                // it and a later cancel of the banner pass cannot replace it.
+                _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
+                    login.AttemptId, OperationStatus.Completed, "signalr.epicMapping.completed"));
             })) throw new OperationCanceledException();
             saved = true;
 
@@ -328,6 +337,8 @@ public partial class EpicMappingService
                     stageKey: "errors.integration.attemptExpired",
                     context: CreateEpicContext());
             }
+            _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
+                login.AttemptId, OperationStatus.Failed, "errors.integration.attemptExpired"));
             // The sign-in dialog shows this refusal; a rethrown cancel would reach it as a silent aborted request.
             IntegrationLease.Refuse("attempt-expired");
         }
@@ -339,6 +350,14 @@ public partial class EpicMappingService
                     success: false,
                     error: ex.Message,
                     context: CreateEpicContext(ex.Message));
+            }
+
+            if (!saved)
+            {
+                _authStorage.RecordIntegrationLoginEnding(login, ex is ApiException { StageKey: { } failureKey } refusal
+                    ? new IntegrationLoginEnding(login.AttemptId, OperationStatus.Failed, failureKey, refusal.Context)
+                    : new IntegrationLoginEnding(login.AttemptId, OperationStatus.Failed, "signalr.epicMapping.failed",
+                        new Dictionary<string, object?> { ["errorDetail"] = ex.Message }));
             }
 
             throw;
@@ -367,6 +386,20 @@ public partial class EpicMappingService
             if (_processingLogin == login) _processingLogin = null;
             _sessionLock.Release();
             Interlocked.Exchange(ref _isProcessingInt, 0);
+            await NotifyLoginEndedAsync(login);
+        }
+    }
+
+    // A browser that lost this sign-in's answer reads its ending when this arrives.
+    private async Task NotifyLoginEndedAsync(IntegrationLogin login)
+    {
+        try
+        {
+            await _notifications.NotifyAllAsync(SignalREvents.IntegrationLoginEnded, new IntegrationLoginEnded(login.AttemptId));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to send the Epic sign-in ending for {AttemptId}", login.AttemptId);
         }
     }
 
