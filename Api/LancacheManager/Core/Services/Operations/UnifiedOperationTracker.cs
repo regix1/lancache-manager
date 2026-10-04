@@ -27,10 +27,12 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     /// <summary>
     /// How a dropped run ended, for a browser that missed its ending event and asks after the drop. The setup wizard's
     /// watchdog reads a run up to 35 s after it ended (30 s with no event, then its next 5 s tick); each entry stays at
-    /// least 5 minutes, which also covers that read failing while the network is out. Older entries are pruned at a later
-    /// drop.
+    /// 5 minutes, which also covers that read failing while the network is out. An older entry is no longer answered and is
+    /// pruned at a later drop.
     /// </summary>
     private readonly ConcurrentDictionary<Guid, (OperationStatus Status, DateTime ReapedAtUtc)> _reapedStatuses = new();
+
+    private static readonly TimeSpan _reapedStatusRetention =TimeSpan.FromMinutes(5);
 
     /// <summary>
     /// Bound on how far <see cref="ResolveHandoff"/> will follow a chain. A handoff always points at
@@ -462,7 +464,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     }
 
     public OperationStatus? GetReapedStatus(Guid operationId)
-        => _reapedStatuses.TryGetValue(operationId, out var reaped) ? reaped.Status : null;
+        => _reapedStatuses.TryGetValue(operationId, out var reaped) && DateTime.UtcNow - reaped.ReapedAtUtc <= _reapedStatusRetention
+            ? reaped.Status
+            : null;
 
     public IEnumerable<OperationInfo> GetActiveOperations(OperationType? filterType = null)
     {
@@ -856,6 +860,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         var links = _handoffs.ToArray();
         var stale = links.Where(link => ResolveHandoff(link.Key) == operationId).ToArray();
         OperationStatus status;
+        DateTime reapedAt;
         lock (operation)
         {
             // A repairing row stays until EndRepair, which schedules the reaper again. A row kept until
@@ -864,13 +869,19 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             if (operation.CompletedFlag == 0 || !operation.Status.IsTerminal() || operation.Repairing
                 || (KeepsUntilClosed(operation) && !operation.Closed)) return;
             status = operation.Status;
+            reapedAt = DateTime.UtcNow;
+            // Written before the row leaves, so a status read never finds neither the row nor its ending. Every id handed
+            // off to this run answers its ending too, because the links that led there are removed below.
+            _reapedStatuses[operationId] = (status, reapedAt);
+            foreach (var link in stale)
+            {
+                _reapedStatuses[link.Key] = (status, reapedAt);
+            }
             ((ICollection<KeyValuePair<Guid, OperationInfo>>)_operations).Remove(new(operationId, operation));
         }
-        var reapedAt = DateTime.UtcNow;
-        _reapedStatuses[operationId] = (status, reapedAt);
         foreach (var reaped in _reapedStatuses)
         {
-            if (reapedAt - reaped.Value.ReapedAtUtc > TimeSpan.FromMinutes(5)) _reapedStatuses.TryRemove(reaped);
+            if (reapedAt - reaped.Value.ReapedAtUtc > _reapedStatusRetention) _reapedStatuses.TryRemove(reaped);
         }
         foreach (var entry in _entityKeyIndex.Where(entry => entry.Value == operationId).ToArray())
         {

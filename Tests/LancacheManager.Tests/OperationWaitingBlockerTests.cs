@@ -221,6 +221,37 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         Assert.Equal(OperationStatus.Completed, tracker.GetReapedStatus(b));
     }
 
+    [Fact]
+    public void AKeptEndingOlderThanFiveMinutesIsForgottenOnRead()
+    {
+        var tracker = CreateTracker();
+        var id = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        tracker.CompleteOperation(id, success: false, cancelled: true);
+        Reap(tracker, id);
+        Assert.Equal(OperationStatus.Cancelled, tracker.GetReapedStatus(id));
+        var reaped = Assert.IsType<System.Collections.Concurrent.ConcurrentDictionary<Guid, (OperationStatus Status, DateTime ReapedAtUtc)>>(
+            typeof(UnifiedOperationTracker).GetField("_reapedStatuses", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker));
+        reaped[id] = (OperationStatus.Cancelled, DateTime.UtcNow.AddMinutes(-6));
+        Assert.Null(tracker.GetReapedStatus(id));
+    }
+
+    [Fact]
+    public void AQueuedItemAnswersItsSuccessorsCanceledEndingAfterBothDrop()
+    {
+        var tracker = CreateTracker();
+        var controller = CreateController(tracker);
+        var queued = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource(), initialStatus: OperationStatus.Waiting);
+        var successor = tracker.RegisterOperation(OperationType.EvictionScan, "Scan", new CancellationTokenSource());
+        tracker.RecordHandoff(queued, successor);
+        tracker.CompleteOperation(queued, true);
+        Reap(tracker, queued);
+        tracker.CompleteOperation(successor, success: false, cancelled: true);
+        Reap(tracker, successor);
+        var status = Assert.IsType<OperationStatusResponse>(Assert.IsType<OkObjectResult>(controller.GetOperationStatus(queued).Result).Value);
+        Assert.Equal(OperationStatus.Cancelled, status.Status);
+        Assert.Null(status.NextOperationId);
+    }
+
     internal static void Reap(UnifiedOperationTracker tracker, Guid id)
     {
         typeof(UnifiedOperationTracker).GetMethod("ReapOperation", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(tracker, [id]);
