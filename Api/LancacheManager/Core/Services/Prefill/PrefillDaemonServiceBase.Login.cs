@@ -508,20 +508,32 @@ public abstract partial class PrefillDaemonServiceBase
                 ThrowIfLoginRevoked(session, loginId);
             }
             // A sign-in whose prompt was answered but which never ended (its browser's cancel was lost) still runs on the
-            // daemon, and the daemon names no attempt when it refuses one. It is ended here, before this start takes a new
-            // attempt number, so a late refusal ends that sign-in and never the one starting now.
+            // daemon, and the daemon names no attempt when it refuses one. Its owner's new start ends it here, before this
+            // start takes a new attempt number, so a late refusal ends that sign-in and never the one starting now. It ends
+            // without an auth-state push, which every dialog on this session would read as the new start's refusal.
             bool unfinished;
             long unfinishedAttempt;
+            Guid? unfinishedRun;
             lock (session.PrefillLock)
             {
                 unfinished = session.LoginOperationId is not null
                     && session.PendingLoginChallenge is null
                     && session.AuthState is not (DaemonAuthState.Authenticated or DaemonAuthState.NotAuthenticated);
                 unfinishedAttempt = session.LoginAttempt;
+                unfinishedRun = session.LoginOperationId;
             }
             if (unfinished)
             {
-                await CancelLoginAsync(sessionId, cancellationToken, loginAttempt: unfinishedAttempt);
+                // Another person's sign-in on a shared container is theirs to finish or cancel.
+                if (_operationTracker?.GetOperation(unfinishedRun!.Value)?.OwnerSessionId != (ownerSessionId ?? session.UserId))
+                {
+                    throw new ConflictException($"A login attempt is already in progress for session {sessionId}.")
+                    {
+                        StageKey = "errors.prefill.loginInProgress",
+                        Context = new() { ["sessionId"] = sessionId }
+                    };
+                }
+                await CancelLoginAsync(sessionId, cancellationToken, loginAttempt: unfinishedAttempt, announce: false);
             }
             session.PreserveLoginExpiry = false;
             session.LoginSettled = false;
@@ -1428,9 +1440,13 @@ public abstract partial class PrefillDaemonServiceBase
     /// ended sign-in before it answers; cleared when this call fails, never set by a call that joins another cancel,
     /// and ignored (nothing is canceled) when the sign-in already ended.
     /// </param>
+    /// <param name="announce">
+    /// False when a new start ends the sign-in before it: its ending is recorded for its own attempt and its run
+    /// completed, with no auth-state push for a dialog to read as the new start's.
+    /// </param>
     /// <returns>False when nothing was cancelled: <paramref name="loginAttempt"/> names an older attempt, an app-made cancel found the sign-in already ended, or the sign-in finished while the cancel was on its way.</returns>
     public async Task<bool> CancelLoginAsync(string sessionId, CancellationToken cancellationToken = default,
-        long? loginAttempt = null, Guid? loginId = null, string? stopReason = null)
+        long? loginAttempt = null, Guid? loginId = null, string? stopReason = null, bool announce = true)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
@@ -1640,7 +1656,8 @@ public abstract partial class PrefillDaemonServiceBase
                 }
                 if (!signedInMeanwhile)
                 {
-                    await NotifyAuthStateChangeAsync(session);
+                    if (announce) await NotifyAuthStateChangeAsync(session);
+                    else CompleteLoginOperation(session);
                     _logger.LogInformation("Login cancelled for session {SessionId}, ready for new attempt", sessionId);
                 }
             }

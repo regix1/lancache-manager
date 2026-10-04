@@ -169,7 +169,7 @@ public class ProgressEmitGateTests
         };
         daemon.InjectSession(session);
         daemon.AddSubscriber(session.Id, "blocked-client");
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         try
         {
             var first = await daemon.PrefillAsync(session.Id, appIds: ["10"], cancellationToken: timeout.Token);
@@ -179,19 +179,11 @@ public class ProgressEmitGateTests
             Assert.Equal(2, daemon.GetRuns(session.Id).Count);
             var run = daemon.GetRun(session.Id, first.RunId!.Value)!;
             recorder.Set(run, "completed", 100, "success");
-            // A send that outlasts its 5 s bound is abandoned, and the connection stays subscribed.
-            await Task.Delay(TimeSpan.FromSeconds(6), timeout.Token);
-            Assert.Equal(["blocked-client"], session.SubscribedConnections);
-            // Later sends to the stuck connection each wait out their own bound, so release it here; a refresh that
-            // lands while an earlier one still holds the recovery work returns without reconciling, so retry.
-            blocked.ReleaseSend.TrySetResult();
-            while (!run.Completion.Task.IsCompleted)
-            {
-                await daemon.RefreshRunsAsync(session.Id, timeout.Token);
-                await Task.Delay(100, timeout.Token);
-            }
+            await session.RecoveryWork.WaitAsync(timeout.Token);
+            session.RecoveryWork.Release();
+            await daemon.RefreshRunsAsync(session.Id, timeout.Token);
             Assert.Equal("completed", (await run.Completion.Task.WaitAsync(timeout.Token)).Snapshot.State);
-            Assert.Equal(["blocked-client"], session.SubscribedConnections);
+            Assert.Empty(session.SubscribedConnections);
             Assert.False(daemon.GetRun(session.Id, second.RunId!.Value)!.Completion.Task.IsCompleted);
         }
         finally { blocked.ReleaseSend.TrySetResult(); }

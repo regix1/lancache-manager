@@ -407,8 +407,8 @@ public abstract partial class PrefillDaemonServiceBase
 
     /// <summary>
     /// Broadcasts a payload to all subscribed connections for a session. A send that fails or outlasts its 5-second bound
-    /// keeps the subscription: a connection that is gone leaves through the hub's disconnect, and one that is only slow
-    /// still gets the sign-in ending that follows.
+    /// removes that connection from the session's subscriptions: a browser that is slow or gone would otherwise hold every
+    /// later update and the run's ending behind it. Its dialog reads how the sign-in ended when it subscribes again.
     /// </summary>
     private async Task BroadcastToSubscribersAsync(DaemonSession session, string eventName, object payload)
     {
@@ -422,7 +422,8 @@ public abstract partial class PrefillDaemonServiceBase
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to notify {EventName} to {ConnectionId}", eventName, connectionId);
+                _logger.LogWarning(ex, "Failed to notify {EventName} to {ConnectionId}, removing subscription", eventName, connectionId);
+                lock (session.PrefillLock) session.SubscribedConnections.Remove(connectionId);
             }
         }));
     }

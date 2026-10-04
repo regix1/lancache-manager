@@ -6,6 +6,7 @@ using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -707,33 +708,140 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
-    /// One guest update whose write does not finish within the send bound must not unsubscribe a connection that
-    /// is still open: the sign-in ending that follows still has to reach that dialog.
+    /// One guest update whose send to a browser fails drops that browser's subscription, so it cannot hold the
+    /// updates and endings that follow. The browser reads how its sign-in ended when it subscribes again, the way
+    /// the hub's SubscribeToSessionAsync answers it.
     /// </summary>
     [Fact]
-    public async Task ASlowSendKeepsTheConnectionForTheSignInEnding()
+    public async Task ADroppedBrowserReadsTheSignInEndingWhenItSubscribesAgain()
     {
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, SlowFirstSendNotificationsProxy>();
-        var slowSend = (SlowFirstSendNotificationsProxy)(object)notifications;
+        var proxy = (SlowFirstSendNotificationsProxy)(object)notifications;
         var (daemon, session) = CreateSessionWithClient(
             tracker, Guid.NewGuid(), isPersistent: false, notifications: notifications);
         daemon.AddSubscriber(session.Id, "conn-1");
 
-        // The first guest event goes to conn-1 and its write is held, as a congested socket's flush is.
+        // The first guest event goes to conn-1 and its write fails at once, as a broken socket's write does.
+        proxy.HeldSend.TrySetException(new IOException("Send failed"));
         await daemon.StartLoginAsync(session.Id).WaitAsync(TimeSpan.FromSeconds(20));
-        slowSend.HeldSend.TrySetResult();
-        session.AuthState = DaemonAuthState.PasswordRequired;
-        slowSend.ClearSends();
-
-        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
-
-        Assert.Contains(("conn-1", SignalREvents.AuthStateChanged), slowSend.Sends());
         lock (session.PrefillLock)
         {
-            Assert.Contains("conn-1", session.SubscribedConnections);
+            Assert.DoesNotContain("conn-1", session.SubscribedConnections);
         }
+
+        proxy.ClearSends();
+        session.AuthState = DaemonAuthState.PasswordRequired;
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
+        Assert.DoesNotContain(proxy.Sends(), send => send.ConnectionId == "conn-1");
+
+        daemon.AddSubscriber(session.Id, "conn-1");
+        var ending = Assert.IsType<PrefillLoginEnding>(DaemonSessionDto.FromSession(session).LoginEnding);
+        Assert.Equal(session.LoginAttempt, ending.LoginAttempt);
+        Assert.Equal(OperationStatus.Failed, ending.Status);
+        Assert.Equal("prefill.auth.signInRefused", ending.StageKey);
+    }
+
+    /// <summary>
+    /// A new start ends the unfinished sign-in without the auth-state push: every dialog on the session would read
+    /// that push as the new start's own refusal.
+    /// </summary>
+    [Fact]
+    public async Task ANewStartEndsTheUnfinishedSignInWithoutAnnouncingARefusal()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, SlowFirstSendNotificationsProxy>();
+        var proxy = (SlowFirstSendNotificationsProxy)(object)notifications;
+        proxy.HeldSend.TrySetResult();
+        var (daemon, session) = CreateSessionWithClient(
+            tracker, Guid.NewGuid(), isPersistent: false, notifications: notifications);
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        client.OnCredentialChallenge += _ =>
+        {
+            session.AuthState = DaemonAuthState.UsernameRequired;
+            return Task.CompletedTask;
+        };
+        daemon.AddSubscriber(session.Id, "conn-1");
+
+        await daemon.StartLoginAsync(session.Id);
+        var firstAttempt = session.LoginAttempt;
+        // The state ProvideCredentialAsync and the daemon's acknowledgement leave: prompt consumed, sign-in still running.
+        session.PendingLoginChallenge = null;
+        session.AuthState = DaemonAuthState.LoggingIn;
+        proxy.ClearSends();
+
+        await daemon.StartLoginAsync(session.Id);
+
+        Assert.DoesNotContain(proxy.Sends(), send =>
+            send.ConnectionId == "conn-1"
+            && send.EventName == SignalREvents.AuthStateChanged
+            && (string?)send.Payload!.GetType().GetProperty("authState")!.GetValue(send.Payload)
+                == nameof(DaemonAuthState.NotAuthenticated));
+        var firstEnding = Assert.IsType<PrefillLoginEnding>(daemon.GetLoginEnding(session, firstAttempt));
+        Assert.Equal(OperationStatus.Cancelled, firstEnding.Status);
+        Assert.Equal("errors.integration.attemptExpired", firstEnding.StageKey);
+        Assert.Equal(1, client.CancelLoginCallCount);
+    }
+
+    /// <summary>
+    /// On a shared persistent container another holder's start is refused while the first holder's sign-in runs:
+    /// that sign-in is theirs to finish or cancel.
+    /// </summary>
+    [Fact]
+    public async Task AnotherHoldersStartIsRefusedWhileTheirSignInRuns()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: true);
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        client.OnCredentialChallenge += _ =>
+        {
+            session.AuthState = DaemonAuthState.UsernameRequired;
+            return Task.CompletedTask;
+        };
+        var holderA = Guid.NewGuid();
+        var holderB = Guid.NewGuid();
+
+        await daemon.StartLoginForEditAsync(session.Id, null, () => { }, holderA);
+        var firstAttempt = session.LoginAttempt;
+        var firstRunId = Assert.IsType<Guid>(session.LoginOperationId);
+        session.PendingLoginChallenge = null;
+        session.AuthState = DaemonAuthState.LoggingIn;
+
+        var refused = await Assert.ThrowsAsync<ConflictException>(
+            () => daemon.StartLoginForEditAsync(session.Id, null, () => { }, holderB));
+
+        Assert.Equal("errors.prefill.loginInProgress", refused.StageKey);
+        Assert.Equal(0, client.CancelLoginCallCount);
+        Assert.Equal(firstRunId, session.LoginOperationId);
+        Assert.Null(daemon.GetLoginEnding(session, firstAttempt));
+    }
+
+    /// <summary>
+    /// The holder who started the unfinished sign-in ends it themselves with their next start.
+    /// </summary>
+    [Fact]
+    public async Task TheSameHoldersStartEndsTheirOwnUnfinishedSignIn()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: true);
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        client.OnCredentialChallenge += _ =>
+        {
+            session.AuthState = DaemonAuthState.UsernameRequired;
+            return Task.CompletedTask;
+        };
+        var holder = Guid.NewGuid();
+
+        await daemon.StartLoginForEditAsync(session.Id, null, () => { }, holder);
+        var firstRunId = Assert.IsType<Guid>(session.LoginOperationId);
+        session.PendingLoginChallenge = null;
+        session.AuthState = DaemonAuthState.LoggingIn;
+
+        await daemon.StartLoginForEditAsync(session.Id, null, () => { }, holder);
+
+        Assert.Equal(1, client.CancelLoginCallCount);
+        Assert.NotEqual(firstRunId, session.LoginOperationId);
     }
 
     private static PersistentPrefillController CreateController(TestableSteamDaemonService daemon, Guid callerSessionId)
@@ -798,13 +906,12 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
-    /// Records every per-connection send, and answers the first one with a task that completes only when the test
-    /// releases it.
+    /// Records every per-connection send, and answers the first one with a task the test completes or faults.
     /// </summary>
     private class SlowFirstSendNotificationsProxy : NullReturningProxy
     {
         private readonly object _gate = new();
-        private readonly List<(string ConnectionId, string EventName)> _sends = new();
+        private readonly List<(string ConnectionId, string EventName, object? Payload)> _sends = new();
         private bool _firstSendTaken;
 
         public TaskCompletionSource HeldSend { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -814,7 +921,7 @@ public class PrefillLoginRunTests
             lock (_gate) _sends.Clear();
         }
 
-        public (string ConnectionId, string EventName)[] Sends()
+        public (string ConnectionId, string EventName, object? Payload)[] Sends()
         {
             lock (_gate) return _sends.ToArray();
         }
@@ -825,7 +932,7 @@ public class PrefillLoginRunTests
             {
                 lock (_gate)
                 {
-                    _sends.Add(((string)args[0]!, (string)args[1]!));
+                    _sends.Add(((string)args[0]!, (string)args[1]!, args.Length >= 3 ? args[2] : null));
                     if (!_firstSendTaken)
                     {
                         _firstSendTaken = true;
