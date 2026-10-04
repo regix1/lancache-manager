@@ -16,7 +16,6 @@ public partial class SteamKit2Service
     protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
 
     /// <summary>Terminal stage keys for a scheduled run that stopped before doing any depot work.</summary>
-    private const string SetupIncompleteSkipStageKey = "signalr.depotMapping.skippedSetupIncomplete";
     private const string SteamUnreachableSkipStageKey = "signalr.depotMapping.skippedSteamUnreachable";
     private const string FullScanRequiredSkipStageKey = "signalr.depotMapping.scan.skippedFullRequired";
 
@@ -53,8 +52,8 @@ public partial class SteamKit2Service
     }
 
     /// <summary>
-    /// Reports a run that could not start because something it needs is missing (setup not finished, Steam
-    /// not reachable). Red, named by its key; a run with nothing to do still reports skipped. The stage key
+    /// Reports a run that could not start because something it needs is missing (Steam not reachable).
+    /// Red, named by its key; a run with nothing to do still reports skipped. The stage key
     /// rides as the error too, so the run row, another browser and Schedule History keep the reason in the
     /// reader's language.
     /// </summary>
@@ -92,10 +91,10 @@ public partial class SteamKit2Service
             return;
         }
 
-        // Skip if setup hasn't been completed yet (fresh install)
+        // A fresh install's setup wizard runs the first depot mapping itself, so a tick before setup is
+        // finished waits without a card.
         if (!_stateService.GetSetupCompleted())
         {
-            await ReportRunNotStartedAsync(SetupIncompleteSkipStageKey, stoppingToken);
             return;
         }
 

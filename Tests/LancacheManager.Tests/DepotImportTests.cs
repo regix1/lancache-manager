@@ -159,7 +159,7 @@ public sealed class DepotImportTests
         fixture.Service.SelectRunNotice(admitted);
 
         await (Task)Invoke(fixture.Service, "ReportRunSkippedAsync",
-            "signalr.depotMapping.skippedSetupIncomplete", CancellationToken.None)!;
+            "signalr.depotMapping.scan.skippedFullRequired", CancellationToken.None)!;
 
         Assert.Equal("skipped", Assert.Single(fixture.Tracker.GetRuns().Runs).Status);
         Assert.Same(admitted, SingleRunNotice(fixture));
@@ -198,6 +198,22 @@ public sealed class DepotImportTests
             snapshot.Content.ValueKind == JsonValueKind.Object
             && snapshot.Content.TryGetProperty("StageKey", out var stageKey)
             && stageKey.GetString() == "signalr.depotMapping.skippedSteamUnreachable");
+    }
+
+    // The setup wizard runs the first depot mapping itself, so an automatic tick before setup is
+    // finished waits without a card instead of reporting a run that could not start.
+    [Fact]
+    public async Task AScheduledTickBeforeSetupIsFinishedMakesNoRunAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.State.UpdateState(state => state.SetupCompleted = false);
+        Set(fixture.Service, "_initialized", true);
+        Set(fixture.Service, "_isRunning", true);
+
+        await (Task)Invoke(fixture.Service, "ExecuteWorkAsync", CancellationToken.None)!;
+
+        Assert.Empty(fixture.Tracker.GetRuns().Runs);
     }
 
     [Fact]
