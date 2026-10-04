@@ -310,11 +310,14 @@ public partial class SteamKit2Service
     private bool UseAnonymousSession(bool? daemonActive) =>
         daemonActive != false || _sessionReplaced || _hasPendingLoginOwner || !IsSteamAuthenticated;
 
-    // A sign-in kept for a code holds the session until EnsureSessionAsync releases it under the session gate, which a
-    // connect holds too, so the kept sign-in's window ending in the middle of a connect never drops that connect's callbacks.
-    private bool HasCurrentSteamSession() => _loginAttempt is { } login
-        ? _loginReporter is null || _steamAuthRepository.IsIntegrationLoginCurrent(login)
-        : _steamAuthRepository.IsIntegrationCurrent(_sessionAuthVersion);
+    // A connect or logon still waiting under the session gate owns the callbacks that answer it: a sign-in that starts,
+    // ends or is kept while it waits never changes which session that connect is for, and the next EnsureSessionAsync
+    // catches the session up to the sign-in state.
+    private bool HasCurrentSteamSession() =>
+        _connectedTcs is { Task.IsCompleted: false } || _loggedOnTcs is { Task.IsCompleted: false }
+        || (_loginAttempt is { } login
+            ? _steamAuthRepository.IsIntegrationLoginCurrent(login)
+            : _steamAuthRepository.IsIntegrationCurrent(_sessionAuthVersion));
 
     private bool HasSessionMode(bool anonymous) =>
         _steamClient?.SteamID?.AccountType == (anonymous ? EAccountType.AnonUser : EAccountType.Individual);

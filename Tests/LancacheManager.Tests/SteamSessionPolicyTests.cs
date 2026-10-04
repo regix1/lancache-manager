@@ -267,6 +267,33 @@ public sealed class SteamSessionPolicyTests
         Assert.True(Get<bool>(fixture.Service, "_isLoggedOn"));
     }
 
+    /// <summary>
+    /// A connect is waiting for its logon (the wait <c>LogonLockedAsync</c> holds) when a running sign-in ends: a refusal,
+    /// a cancel or the window running out all clear the attempt, as <c>CancelLogin</c> does here. The connect's logon
+    /// callback still belongs to that connect and completes its wait.
+    /// </summary>
+    [Fact]
+    public async Task ASignInThatEndsDuringAConnectLeavesThatConnectLoggedOnAsync()
+    {
+        using var fixture = new Fixture();
+        Set(fixture.Service, "_sessionAuthVersion", fixture.Storage.GetIntegrationSnapshot().Version);
+        var login = await fixture.Storage.BeginIntegrationLoginAsync(new IntegrationCaller(fixture.Owner, Guid.NewGuid(), true));
+        // A running sign-in: the attempt is set and its owner is pending.
+        Set(fixture.Service, "_loginAttempt", login);
+        Set(fixture.Service, "_hasPendingLoginOwner", true);
+        // The wait a connect holds under the session gate.
+        var loggedOn = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Set(fixture.Service, "_isLoggedOn", false);
+        Set(fixture.Service, "_loggedOnTcs", loggedOn);
+
+        fixture.Service.CancelLogin();
+        Assert.Null(Get<IntegrationLogin?>(fixture.Service, "_loginAttempt"));
+        fixture.LoggedOn(EResult.OK);
+
+        Assert.True(loggedOn.Task.IsCompletedSuccessfully);
+        Assert.True(Get<bool>(fixture.Service, "_isLoggedOn"));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
