@@ -213,6 +213,9 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       setLoading(false);
       return false;
     }
+    // A final read (at the attempt's deadline) decides even while the server still names the attempt: a browser clock
+    // that runs ahead must not leave the dialog waiting with nothing left to come.
+    if (final) return endWithError(t('errors.integration.attemptExpired'));
     // Still this caller's pending sign-in: wait until the server's own window for it ends, which the server announces.
     if (status.loginExpiresAtUtc) {
       const deadline = Date.parse(status.loginExpiresAtUtc);
@@ -226,10 +229,15 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
   };
 
   useSignInEndingWait(endingWait, (final) => {
-    if (endingWait)
-      void readLoginEnding(endingWait.attemptId, endingWait.username, final).then((decided) => {
-        if (decided !== null) setEndingWait(null);
-      });
+    if (!endingWait) return;
+    const waited = endingWait.attemptId;
+    void readLoginEnding(waited, endingWait.username, final).then((decided) => {
+      if (decided === null) return;
+      // A slow read for an attempt the form already left must not end the wait of a newer one.
+      setEndingWait((wait) => (wait?.attemptId === waited ? null : wait));
+      // The access read while the answer was lost still names this attempt as running, so read it again now it ended.
+      void integration?.refresh();
+    });
   });
 
   const cancelLogin = () => {

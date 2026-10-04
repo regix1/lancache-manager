@@ -7,6 +7,7 @@ import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import FormField from '@components/ui/FormField';
 import { StepHeader } from '@components/initialization/StepHeader';
+import { SignInReason } from '@components/initialization/SignInReason';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import { getIntegrationReasonKey } from '../../../types';
@@ -34,7 +35,7 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
     setError(message);
   };
 
-  const { state, actions, startLogin, authStatus, identity } = useEpicMappingAuth({
+  const { state, actions, startLogin, authStatus, identity, refreshStatus } = useEpicMappingAuth({
     onSuccess: handleSuccess,
     onError: handleError
   });
@@ -162,9 +163,10 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
 
         {/* Error Display */}
         {reason && (
-          <p className="text-sm text-themed-muted" role="status">
-            {reason}
-          </p>
+          <SignInReason
+            reason={reason}
+            onRetry={state.canAuthenticate === false ? () => void refreshStatus() : undefined}
+          />
         )}
         {error && <Alert color="error">{error}</Alert>}
 
@@ -173,7 +175,7 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
           <Button
             variant="default"
             onClick={handleRetry}
-            disabled={!state.awaitingEnding && (state.canAuthenticate === false || state.loading)}
+            disabled={state.loading && !state.awaitingEnding}
             className="flex-1"
           >
             {t('initialization.epicAuth.back')}
@@ -219,9 +221,10 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
 
       {/* Error Display */}
       {reason && (
-        <p className="text-sm text-themed-muted" role="status">
-          {reason}
-        </p>
+        <SignInReason
+          reason={reason}
+          onRetry={state.canAuthenticate === false ? () => void refreshStatus() : undefined}
+        />
       )}
       {error && <Alert color="error">{error}</Alert>}
 

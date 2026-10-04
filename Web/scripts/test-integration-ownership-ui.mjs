@@ -254,6 +254,15 @@ const renderBindings = {
   copyText: noop,
   cancelAuthModalLogin: noop
 };
+renderBindings.SignInReason = make(
+  'src/components/initialization/SignInReason.tsx',
+  'SignInReason',
+  {
+    React,
+    useTranslation: renderBindings.useTranslation,
+    Button: renderBindings.Button
+  }
+);
 
 test('status ingress distinguishes login permissions from management and rejects malformed reasons', async () => {
   const allowed = {
@@ -428,6 +437,134 @@ for (const [platform, hook] of [
     }
   });
 }
+
+/**
+ * A Button and a SignInReason built on it that keep the click handler of every Retry button, so a test can press it.
+ * The step value copies what the Epic and Xbox hooks answer when their status read failed: canAuthenticate false with
+ * accessUnavailable true (useEpicMappingAuth, useXboxMappingAuth).
+ */
+const retryBindings = () => {
+  const retries = [];
+  const Button = (props) => {
+    if (props.children === 'common.retry') retries.push(props.onClick);
+    return renderBindings.Button(props);
+  };
+  const SignInReason = make('src/components/initialization/SignInReason.tsx', 'SignInReason', {
+    React,
+    useTranslation: renderBindings.useTranslation,
+    Button
+  });
+  return { retries, bindings: { ...renderBindings, Button, SignInReason } };
+};
+const mappingStepValue = (state, refreshStatus) => ({
+  state: {
+    canAuthenticate: false,
+    accessUnavailable: true,
+    loading: false,
+    awaitingEnding: false,
+    needsAuthorizationCode: false,
+    needsDeviceCode: false,
+    authorizationUrl: '',
+    authorizationCode: '',
+    deviceUserCode: '',
+    deviceVerificationUri: '',
+    error: null,
+    ...state
+  },
+  actions: {},
+  startLogin: noop,
+  cancelLogin: noop,
+  authStatus: null,
+  identity: 'a',
+  refreshStatus
+});
+
+for (const platform of ['Epic', 'Xbox']) {
+  test(`${platform} setup step whose status read failed offers Retry, which reads the status again`, () => {
+    const render = (state) => {
+      let reads = 0;
+      const { retries, bindings } = retryBindings();
+      const Step = make(
+        `src/components/initialization/steps/${platform}AuthStep.tsx`,
+        `${platform}AuthStep`,
+        {
+          ...bindings,
+          [`use${platform}MappingAuth`]: () =>
+            mappingStepValue(state, () => {
+              reads += 1;
+            })
+        }
+      );
+      renderToStaticMarkup(React.createElement(Step, { onComplete: noop, onSkip: noop }));
+      return { retries, reads: () => reads };
+    };
+
+    const failed = render({});
+    assert.equal(failed.retries.length, 1);
+    failed.retries[0]();
+    assert.equal(failed.reads(), 1);
+
+    assert.equal(render({ canAuthenticate: true, accessUnavailable: false }).retries.length, 0);
+  });
+}
+
+test('the Steam setup step offers Retry when its status could not be read', () => {
+  let reads = 0;
+  const { retries, bindings } = retryBindings();
+  const Step = make(
+    'src/components/initialization/steps/SteamPicsAuthStep.tsx',
+    'SteamPicsAuthStep',
+    {
+      ...bindings,
+      Users: () => null,
+      User: () => null,
+      SelectableCard: () => null,
+      SteamAuthModal: () => null,
+      ApiService: {},
+      ApiError: class ApiError extends Error {},
+      useSteamAuthentication: () => ({
+        state: { canAuthenticate: false },
+        actions: {},
+        loginDeadline: null
+      }),
+      useSteamAuth: () => ({
+        access: null,
+        refreshSteamAuth: async () => {
+          reads += 1;
+        }
+      }),
+      useAuth: () => ({
+        authenticationEnabled: true,
+        authMode: 'authenticated',
+        accountId: 'a',
+        sessionId: 's'
+      })
+    }
+  );
+  const markup = renderToStaticMarkup(React.createElement(Step, { onComplete: noop }));
+  assert.match(markup, /errors.integration.statusUnavailable/);
+  assert.equal(retries.length, 1);
+  retries[0]();
+  assert.equal(reads, 1);
+});
+
+test('the Epic code form keeps Back usable while the status cannot be read', () => {
+  const back = (state) => {
+    const Step = make('src/components/initialization/steps/EpicAuthStep.tsx', 'EpicAuthStep', {
+      ...renderBindings,
+      useEpicMappingAuth: () =>
+        mappingStepValue({ needsAuthorizationCode: true, authorizationUrl: 'u', ...state }, noop)
+    });
+    const markup = renderToStaticMarkup(
+      React.createElement(Step, { onComplete: noop, onSkip: noop })
+    );
+    const button = markup.match(/<button([^>]*)>initialization\.epicAuth\.back<\/button>/);
+    assert.ok(button, 'the Back button renders');
+    return button[1];
+  };
+  assert.doesNotMatch(back({}), /disabled/);
+  assert.match(back({ loading: true }), /disabled/);
+});
 
 test('Steam integration loading and changed identity render without a refusal reason', async () => {
   setup();
@@ -694,19 +831,25 @@ const { useSteamLoginFlow: useWaitingSteamLoginFlow } = await import(
   await compileToUrl('../src/hooks/useSteamLoginFlow.ts', waitingAliases)
 );
 
-/** A Steam dialog whose sign-in answer was lost; `reads` are the status answers in the order they are asked. */
+/**
+ * A Steam dialog whose sign-in answer was lost; `reads` are the status answers in the order they are asked (a function
+ * entry is a read that is held until that function's promise settles). `refreshes()` counts the sign-in status reads the
+ * dialog asks of its owner.
+ */
 const loseSteamAnswer = async (t, reads) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   setup();
   globalThis.hubConnected = true;
   const statusUrls = [];
   const fetchUrls = [];
+  let refreshCount = 0;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
     fetchUrls.push(url);
     if (!url.startsWith('/api/steam-auth/status')) throw new TypeError('Failed to fetch');
     statusUrls.push(url);
     const body = reads.shift();
+    if (typeof body === 'function') return body();
     if (body === null) throw new TypeError('Failed to fetch');
     return new Response(JSON.stringify(body));
   };
@@ -718,7 +861,9 @@ const loseSteamAnswer = async (t, reads) => {
       integration: {
         identity: 'a',
         access: { canManage: true, canSignIn: true },
-        refresh: async () => undefined
+        refresh: async () => {
+          refreshCount += 1;
+        }
       }
     })
   );
@@ -732,6 +877,7 @@ const loseSteamAnswer = async (t, reads) => {
     statusUrls,
     fetchUrls,
     successes,
+    refreshes: () => refreshCount,
     restore: () => {
       view.unmount();
       globalThis.fetch = originalFetch;
@@ -875,11 +1021,62 @@ test('an ending pushed before the Steam wait starts listening is read without a 
   }
 });
 
-test('a Steam deadline read that still names the attempt keeps waiting', async (t) => {
+test('a Steam deadline read that still names the attempt ends the wait', async (t) => {
+  // The status answers copy AuthFileStorageServiceBase.GetIntegrationAccess: a caller's own pending attempt names its
+  // attempt id and its window end until the server ends it.
   const { view, statusUrls, restore } = await loseSteamAnswer(t, [
     null,
     { attemptId: 'attempt-1', loginExpiresAtUtc: new Date(Date.now() + 60000).toISOString() },
-    { attemptId: 'attempt-1' },
+    { attemptId: 'attempt-1' }
+  ]);
+  try {
+    await settle();
+    view.render();
+    t.mock.timers.tick(60000);
+    await settle();
+    assert.equal(statusUrls.length, 3, 'the deadline read happened');
+    const state = view.render().state;
+    assert.equal(state.error, 'errors.integration.attemptExpired');
+    assert.equal(state.loading, false);
+  } finally {
+    restore();
+  }
+});
+
+test("an older Steam attempt's late read leaves the newer attempt waiting", async (t) => {
+  // The held read copies a status request that is still in flight when the person goes Back and signs in again.
+  let rejectHeld;
+  const held = () =>
+    new Promise((_resolve, reject) => {
+      rejectHeld = reject;
+    });
+  const { view, restore } = await loseSteamAnswer(t, [null, held, null, null]);
+  try {
+    assert.equal(view.render().state.attemptId, 'attempt-1');
+    view.read().actions.resetAuthForm();
+    view.render();
+    view.read().actions.setPassword('password');
+    view.render();
+    await view.read().actions.handleAuthenticate();
+    view.render();
+    assert.equal(view.read().state.attemptId, 'attempt-2');
+    assert.equal(view.read().state.loading, true, 'the newer attempt waits');
+
+    rejectHeld(new TypeError('Failed to fetch'));
+    await settle();
+    const state = view.render().state;
+    assert.equal(state.attemptId, 'attempt-2');
+    assert.equal(state.loading, true, 'the older attempt read does not end the newer wait');
+  } finally {
+    restore();
+  }
+});
+
+test('a lost Steam answer reads the sign-in status again when its wait ends', async (t) => {
+  // The ending push comes after the server ended the attempt, as SteamKit2Service.Authentication announces it.
+  const { view, refreshes, restore } = await loseSteamAnswer(t, [
+    null,
+    null,
     {
       loginEnding: {
         attemptId: 'attempt-1',
@@ -889,16 +1086,11 @@ test('a Steam deadline read that still names the attempt keeps waiting', async (
     }
   ]);
   try {
-    await settle();
-    view.render();
-    t.mock.timers.tick(15 * 60 * 1000);
-    await settle();
-    assert.equal(statusUrls.length, 3, 'the deadline read happened');
-    assert.equal(view.render().state.error, null);
-
+    const before = refreshes();
     globalThis.hubEmit('IntegrationLoginEnded', { attemptId: 'attempt-1' });
     await settle();
     assert.equal(view.render().state.error, 'errors.steam.signInCancelled');
+    assert.equal(refreshes(), before + 1, 'the access read names no attempt once the wait ended');
   } finally {
     restore();
   }

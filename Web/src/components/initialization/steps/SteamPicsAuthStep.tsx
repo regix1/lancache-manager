@@ -5,6 +5,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { SelectableCard } from '@components/ui/SelectableCard';
 import { StepHeader } from '@components/initialization/StepHeader';
+import { SignInReason } from '@components/initialization/SignInReason';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import ApiService from '@services/api.service';
@@ -100,11 +101,14 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
     <>
       <div className="space-y-5">
         {(!access || access.ownershipReason) && (
-          <p className="text-sm text-themed-muted" role="status">
-            {access
-              ? t(getIntegrationReasonKey(access.ownershipReason))
-              : t('errors.integration.statusUnavailable')}
-          </p>
+          <SignInReason
+            reason={
+              access
+                ? t(getIntegrationReasonKey(access.ownershipReason))
+                : t('errors.integration.statusUnavailable')
+            }
+            onRetry={() => void refreshSteamAuth()}
+          />
         )}
         <StepHeader
           icon={<Shield className="w-7 h-7 icon-info" />}

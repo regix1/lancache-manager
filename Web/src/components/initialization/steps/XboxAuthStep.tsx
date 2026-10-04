@@ -5,6 +5,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { StepHeader } from '@components/initialization/StepHeader';
+import { SignInReason } from '@components/initialization/SignInReason';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useXboxMappingAuth } from '@hooks/useXboxMappingAuth';
 import { getIntegrationReasonKey } from '../../../types';
@@ -32,10 +33,11 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
     setError(message);
   };
 
-  const { state, actions, startLogin, cancelLogin, authStatus, identity } = useXboxMappingAuth({
-    onSuccess: handleSuccess,
-    onError: handleError
-  });
+  const { state, actions, startLogin, cancelLogin, authStatus, identity, refreshStatus } =
+    useXboxMappingAuth({
+      onSuccess: handleSuccess,
+      onError: handleError
+    });
 
   const succeededForCaller =
     succeeded === identity || (authStatus?.canManage === true && authStatus.isAuthenticated);
@@ -157,9 +159,10 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
         </a>
 
         {reason && (
-          <p className="text-sm text-themed-muted" role="status">
-            {reason}
-          </p>
+          <SignInReason
+            reason={reason}
+            onRetry={state.canAuthenticate === false ? () => void refreshStatus() : undefined}
+          />
         )}
 
         {/* Waiting for approval */}
@@ -198,9 +201,10 @@ export const XboxAuthStep: React.FC<XboxAuthStepProps> = ({
 
       {/* Error Display */}
       {reason && (
-        <p className="text-sm text-themed-muted" role="status">
-          {reason}
-        </p>
+        <SignInReason
+          reason={reason}
+          onRetry={state.canAuthenticate === false ? () => void refreshStatus() : undefined}
+        />
       )}
       {error && <Alert color="error">{error}</Alert>}
 
