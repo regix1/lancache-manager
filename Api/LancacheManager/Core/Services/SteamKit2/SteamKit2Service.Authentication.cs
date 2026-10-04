@@ -97,17 +97,13 @@ public partial class SteamKit2Service
 
             if (!pollResult.Success)
             {
-                keepPendingLoginOwner = pollResult.Result.RequiresTwoFactor
-                    || pollResult.Result.RequiresEmailCode
-                    || pollResult.Result.RequiresMobileConfirmation;
-                if (pollResult.Result.RequiresTwoFactor || pollResult.Result.RequiresEmailCode)
+                // Every unsuccessful poll keeps the attempt: a code prompt, a mobile confirmation, or Steam's
+                // phone-approval window running out, whose answer opens the code box. The code that follows
+                // starts a new Steam session on this attempt.
+                keepPendingLoginOwner = true;
+                if (pollResult.Result.RequiresTwoFactor || pollResult.Result.RequiresEmailCode || pollResult.Result.SessionExpired)
                     lock (_loginOwnerLock) _pendingLoginPrompt = pollResult.Result.RequiresEmailCode ? "email" : "twoFactor";
-                // A code prompt keeps the attempt for the code. The only other unsuccessful poll is Steam's
-                // phone-approval window running out, which ends it.
-                return keepPendingLoginOwner
-                    ? await CompleteLoginAsync(login, pollResult.Result)
-                    : await EndLoginAsync(login, OperationStatus.Failed,
-                        "modals.steamAuth.errors.mobileConfirmationTimedOut", pollResult.Result);
+                return await CompleteLoginAsync(login, pollResult.Result);
             }
 
             await _sessionGate.WaitAsync(lifetime.Token);
@@ -424,7 +420,7 @@ public partial class SteamKit2Service
         finally { _sessionGate.Release(); }
     }
 
-    private sealed class CredentialsAuthPollOutcome
+    internal sealed class CredentialsAuthPollOutcome
     {
         public bool Success { get; init; }
         public AuthenticationResult Result { get; init; } = new();
@@ -432,7 +428,8 @@ public partial class SteamKit2Service
         public string? RefreshToken { get; init; }
     }
 
-    private async Task<CredentialsAuthPollOutcome> PollCredentialsAuthAsync(
+    // Virtual so a test can make Steam's poll answer without a live Steam client.
+    internal virtual async Task<CredentialsAuthPollOutcome> PollCredentialsAuthAsync(
         string username,
         string password,
         string? twoFactorCode,

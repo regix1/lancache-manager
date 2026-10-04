@@ -236,6 +236,38 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         Assert.Equal("errors.integration.attemptExpired", result.StageKey);
     }
 
+    /// <summary>
+    /// Steam's phone-approval window running out is answered as a code prompt (the web opens its code box and sends the
+    /// attempt id back with the code), so the attempt has to stay alive for that code.
+    /// </summary>
+    [Fact]
+    public async Task APhoneApprovalThatRanOutKeepsTheAttemptForACodeAsync()
+    {
+        var service = CreateService(CreateTracker(), serviceType: typeof(ExpiredPhoneApprovalService));
+
+        var result = await service.AuthenticateAsync("account", "password");
+
+        var attemptId = Assert.IsType<Guid>(result.AttemptId);
+        Assert.True(result.SessionExpired);
+        Assert.Equal("twoFactor", service.GetPendingLoginPrompt(attemptId));
+        Assert.Null(service.GetIntegrationLoginEnding(new IntegrationCaller(null, null, false), attemptId));
+        Assert.Empty(SentEndings(service));
+    }
+
+    /// <summary>Never constructed: the sign-in harness builds the service uninitialized, so the base arguments are unused.</summary>
+    private sealed class ExpiredPhoneApprovalService()
+        : SteamKit2Service(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!)
+    {
+        internal override Task<CredentialsAuthPollOutcome> PollCredentialsAuthAsync(
+            string username, string password, string? twoFactorCode, string? emailCode,
+            bool allowMobileConfirmation, CancellationToken ct) =>
+            Task.FromResult(new CredentialsAuthPollOutcome
+            {
+                Success = false,
+                Result = new SteamKit2Service.AuthenticationResult { Success = false, SessionExpired = true, Message = "Authentication session expired." }
+            });
+    }
+
     [Fact]
     public async Task ActiveOwnerRefusalCreatesNoOperationAndDoesNotChangeCredentials()
     {
@@ -280,7 +312,8 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
 
     private SteamKit2Service CreateService(
         IUnifiedOperationTracker tracker,
-        SemaphoreSlim? sessionGate = null)
+        SemaphoreSlim? sessionGate = null,
+        Type? serviceType = null)
     {
         Directory.CreateDirectory(_root);
 
@@ -302,7 +335,7 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         // The real service takes a dozen collaborators the sign-in never touches, so build it
         // uninitialized and fill in only what the sign-in path reads. This is how
         // SteamMappingConcurrencyTests reaches the same class.
-        var service = (SteamKit2Service)RuntimeHelpers.GetUninitializedObject(typeof(SteamKit2Service));
+        var service = (SteamKit2Service)RuntimeHelpers.GetUninitializedObject(serviceType ?? typeof(SteamKit2Service));
         SetPrivateField(service, "_logger", NullLogger.Instance);
         SetPrivateField(service, "_notifications",
             DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>());
