@@ -264,6 +264,7 @@
     "resultsFromPreviousScan": "Results from previous scan",
     "remove": "Remove",
     "retry": "Retry",
+    "pressRetry": "Press Retry to try again.",
     "failedToLoad": "Failed to load",
     "evicted": "Evicted",
     "partiallyEvicted": "Partially Evicted",

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -67,6 +68,16 @@ export function ScheduledPrefillPersistentCard({
     authenticating,
     loginError: isAnonymous ? null : getPersistentLoginFailure(loginState)
   });
+  // A new attempt clears the previous error the moment it starts. Holding that error on screen until
+  // the attempt ends keeps the dialog from shrinking and growing back when the retry fails too.
+  const [heldLoginError, setHeldLoginError] = useState(loginError);
+  const attemptRunning = status.account === 'loggingIn';
+  if (
+    loginError !== null ? loginError !== heldLoginError : !attemptRunning && heldLoginError !== null
+  ) {
+    setHeldLoginError(loginError);
+  }
+  const shownLoginError = loginError ?? (attemptRunning ? heldLoginError : null);
   const containerFact = getScheduledPrefillStatusFact(status.container, container, t);
   // While a cancel is still ending the old attempt, Log in waits; the status line says why [96].
   const accountFact = loginCanceling
@@ -181,7 +192,7 @@ export function ScheduledPrefillPersistentCard({
               {t(`${baseKey}.summaryError`, { error: integrationLoginError })}
             </Alert>
           )}
-          {loginError &&
+          {shownLoginError &&
             (loginState.endReason === 'timedOut' ? (
               <Alert color="red" title={t('prefill.persistent.loginTimedOutTitle')}>
                 {t('prefill.persistent.loginTimedOutBody', {
@@ -190,7 +201,7 @@ export function ScheduledPrefillPersistentCard({
               </Alert>
             ) : (
               <Alert color="red" title={t('common.errors.signInFailed', { platform: serviceName })}>
-                {loginError}
+                {shownLoginError}
               </Alert>
             ))}
           {justLoggedIn && status.account === 'loggedIn' && (
@@ -212,15 +223,13 @@ export function ScheduledPrefillPersistentCard({
             )}
             <span className="scheduled-prefill-persistent-card__status-text">{accountLabel}</span>
           </span>
-          {savedLoginInProgress && (
-            <p className="scheduled-prefill-persistent-card__hint">
-              {t(`${baseKey}.account.savedLoginWait`)}
-            </p>
-          )}
-
+          {/* One line whose text changes while a saved login runs, rather than a second line that
+              comes and goes and moves the dialog. */}
           {(needsLogin || status.account === 'checkedAfterStart') && (
             <p className="scheduled-prefill-persistent-card__hint">
-              {t(`${baseKey}.account.loginHelp`, { service: serviceName })}
+              {savedLoginInProgress
+                ? t(`${baseKey}.account.savedLoginWait`)
+                : t(`${baseKey}.account.loginHelp`, { service: serviceName })}
             </p>
           )}
           {needsLogin && (

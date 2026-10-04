@@ -66,7 +66,7 @@ const loadStore = async (nonce, context) => {
 
 const loadHost = async (storeUrl, nonce) => {
   const reactUrl = moduleUrl(
-    `// ${nonce}\nexport const useCallback = (callback) => callback; export const useEffect = (callback) => callback(); export const useRef = (value) => ({ current: value });`
+    `// ${nonce}\nexport const useCallback = (callback) => callback; export const useEffect = (callback) => callback(); export const useRef = (value) => ({ current: value }); export const useState = (value) => [value, () => undefined];`
   );
   const i18nUrl = moduleUrl(
     `// ${nonce}\nexport const useTranslation = () => ({ t: (key) => key });`
@@ -76,6 +76,9 @@ const loadHost = async (storeUrl, nonce) => {
     {
       react: reactUrl,
       'react-i18next': i18nUrl,
+      '@hooks/useHeldValue': await compileToUrl('../src/hooks/useHeldValue.ts', {
+        react: reactUrl
+      }),
       '../persistentLoginStore': storeUrl
     }
   );
@@ -131,12 +134,19 @@ test('a pending reuse hides manual prompting, then rejection permits a manual re
     assert.equal(
       host.usePersistentLoginHost({
         service,
-        state: { authenticated: false, dismissed: false, hasChallenge: false, loading: true },
+        state: {
+          authenticated: false,
+          dismissed: false,
+          hasChallenge: false,
+          loading: true,
+          error: null
+        },
         startLogin: () => undefined,
         resumeModal: () => undefined,
+        open: true,
         isRunning: true,
         isAuthenticated: false
-      }),
+      }).opened,
       false,
       `${service} reuse waits on the card instead of opening the shared credential form`
     );
@@ -214,21 +224,28 @@ test('an explicit same-session request resumes pending state without a duplicate
   let resumes = 0;
   const options = {
     service: 'Epic',
-    state: { authenticated: false, dismissed: false, hasChallenge: true, loading: false },
+    state: {
+      authenticated: false,
+      dismissed: false,
+      hasChallenge: true,
+      loading: false,
+      error: null
+    },
     startLogin: () => {
       starts += 1;
     },
     resumeModal: () => {
       resumes += 1;
     },
+    open: true,
     isRunning: true,
     isAuthenticated: false,
     onAuthenticated: () => undefined,
     autoStart: true
   };
 
-  assert.equal(host.usePersistentLoginHost(options), true);
-  assert.equal(host.usePersistentLoginHost(options), true);
+  assert.equal(host.usePersistentLoginHost(options).opened, true);
+  assert.equal(host.usePersistentLoginHost(options).opened, true);
   assert.equal(store.usePersistentLoginRequestNonce('Epic'), nonce);
   assert.equal(store.getPersistentLoginState('Epic').loginDeadline, deadline);
   assert.equal(store.getPersistentLoginState('Epic').dismissed, false);

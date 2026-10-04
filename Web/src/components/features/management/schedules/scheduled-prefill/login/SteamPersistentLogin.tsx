@@ -4,19 +4,26 @@ import { usePersistentLoginHost, type PersistentLoginHostProps } from './usePers
 import { usePersistentLoginStoreState } from '../persistentLoginStore';
 
 export function SteamPersistentLogin({
+  open,
   isRunning,
   isAuthenticated,
   onAuthenticated,
   autoStart = false,
-  onDismiss
+  onDismiss,
+  onRetry
 }: PersistentLoginHostProps) {
   const { state, actions, resumeModal } = usePersistentSteamAuth();
   const { loginDeadline } = usePersistentLoginStoreState('Steam');
-  const authModalOpened = usePersistentLoginHost({
+  const {
+    opened: authModalOpened,
+    retrying,
+    error
+  } = usePersistentLoginHost({
     service: 'Steam',
     state,
     startLogin: actions.start,
     resumeModal,
+    open,
     isRunning,
     isAuthenticated,
     onAuthenticated,
@@ -30,14 +37,15 @@ export function SteamPersistentLogin({
     <SteamAuthModal
       opened={authModalOpened}
       onClose={onDismiss}
-      state={state}
+      onRetry={retrying ? onRetry : undefined}
+      state={{ ...state, error }}
       actions={actions}
       isPrefillMode={true}
       dismissBehavior="keep-pending"
       disableAutoLogoutClose
       awaitingChallenge={state.loading && !state.hasChallenge}
       onCancelLogin={onDismiss}
-      loginDeadline={loginDeadline}
+      loginDeadline={retrying ? null : loginDeadline}
     />
   );
 }

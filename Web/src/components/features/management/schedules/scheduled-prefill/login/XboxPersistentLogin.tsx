@@ -4,19 +4,26 @@ import { usePersistentLoginHost, type PersistentLoginHostProps } from './usePers
 import { usePersistentLoginStoreState } from '../persistentLoginStore';
 
 export function XboxPersistentLogin({
+  open,
   isRunning,
   isAuthenticated,
   onAuthenticated,
   autoStart = false,
-  onDismiss
+  onDismiss,
+  onRetry
 }: PersistentLoginHostProps) {
   const { state, actions, startLogin, resumeModal } = usePersistentXboxAuth();
   const { loginDeadline } = usePersistentLoginStoreState('Xbox');
-  const authModalOpened = usePersistentLoginHost({
+  const {
+    opened: authModalOpened,
+    retrying,
+    error
+  } = usePersistentLoginHost({
     service: 'Xbox',
     state,
     startLogin,
     resumeModal,
+    open,
     isRunning,
     isAuthenticated,
     onAuthenticated,
@@ -30,11 +37,12 @@ export function XboxPersistentLogin({
     <XboxAuthModal
       opened={authModalOpened}
       onClose={onDismiss}
-      state={state}
+      onRetry={retrying ? onRetry : undefined}
+      state={{ ...state, error }}
       actions={actions}
       dismissBehavior="keep-pending"
       onCancelLogin={onDismiss}
-      loginDeadline={loginDeadline}
+      loginDeadline={retrying ? null : loginDeadline}
     />
   );
 }

@@ -13,10 +13,13 @@ import type { ScheduledPrefillServiceKey } from './types';
 
 interface PersistentLoginHostProps {
   serviceKey: ScheduledPrefillServiceKey;
+  /** False while the parent is closing this host: the prompt plays its close before it unmounts. */
+  open: boolean;
   isRunning: boolean;
   isAuthenticated: boolean;
   onAuthenticated: (sessionId: string | null) => void;
   onDismiss: () => void;
+  onRetry: () => void;
 }
 
 /**
@@ -25,10 +28,12 @@ interface PersistentLoginHostProps {
  */
 export function PersistentLoginHost({
   serviceKey,
+  open,
   isRunning,
   isAuthenticated,
   onAuthenticated,
-  onDismiss
+  onDismiss,
+  onRetry
 }: PersistentLoginHostProps) {
   const serviceId = getPersistentServiceId(serviceKey);
   const loginState = usePersistentLoginStoreState(serviceId);
@@ -76,11 +81,11 @@ export function PersistentLoginHost({
   }, [isRunning]);
 
   useEffect(() => {
-    if (isAuthenticated && !dismissedRef.current) {
+    if (open && isAuthenticated && !dismissedRef.current) {
       dismissedRef.current = true;
       onDismiss();
     }
-  }, [isAuthenticated, onDismiss]);
+  }, [open, isAuthenticated, onDismiss]);
 
   const handleAuthenticated = () => {
     dismissedRef.current = true;
@@ -93,18 +98,20 @@ export function PersistentLoginHost({
     onDismiss();
   };
 
-  if (!stableRunning || isAuthenticated) {
-    return null;
-  }
+  // A stopped container or a finished sign-in closes the prompt through `open`, so it fades out
+  // instead of vanishing the moment the login component would unmount.
+  const promptOpen = open && stableRunning && !isAuthenticated;
 
   if (serviceKey === 'steam') {
     return (
       <SteamPersistentLogin
+        open={promptOpen}
         isRunning={stableRunning}
         isAuthenticated={isAuthenticated}
         onAuthenticated={handleAuthenticated}
         autoStart={autoStart}
         onDismiss={handleDismiss}
+        onRetry={onRetry}
       />
     );
   }
@@ -112,11 +119,13 @@ export function PersistentLoginHost({
   if (serviceKey === 'epic') {
     return (
       <EpicPersistentLogin
+        open={promptOpen}
         isRunning={stableRunning}
         isAuthenticated={isAuthenticated}
         onAuthenticated={handleAuthenticated}
         autoStart={autoStart}
         onDismiss={handleDismiss}
+        onRetry={onRetry}
       />
     );
   }
@@ -124,11 +133,13 @@ export function PersistentLoginHost({
   if (serviceKey === 'xbox') {
     return (
       <XboxPersistentLogin
+        open={promptOpen}
         isRunning={stableRunning}
         isAuthenticated={isAuthenticated}
         onAuthenticated={handleAuthenticated}
         autoStart={autoStart}
         onDismiss={handleDismiss}
+        onRetry={onRetry}
       />
     );
   }

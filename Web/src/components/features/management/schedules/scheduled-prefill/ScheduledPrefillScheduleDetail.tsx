@@ -26,6 +26,8 @@ import { formatIntervalLabel, formatLastRun } from '../scheduleFormatting';
 import type { CustomSchedule } from '../custom-schedule/types';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { MODAL_EXIT_MS, useExitPresence } from '@hooks/useExitPresence';
+import { useHeldValue } from '@hooks/useHeldValue';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { ScheduledPrefillConfigModal } from './ScheduledPrefillConfigModal';
@@ -513,6 +515,11 @@ export function ScheduledPrefillScheduleDetail({
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
   const addTriggerRef = useRef<HTMLButtonElement | null>(null);
   const containers = useScheduledPrefillContainers(containerService);
+  const loginTarget = containers.persistentLoginTarget;
+  // The sign-in prompt's host stays mounted through the prompt's close, so a cancel or a finished
+  // sign-in fades the prompt out instead of removing it mid-frame.
+  const loginHost = useExitPresence(loginTarget !== null, MODAL_EXIT_MS);
+  const shownLoginTarget = useHeldValue(loginTarget);
   const revision = useRef(0);
   const request = useRef<{
     again: boolean;
@@ -931,7 +938,6 @@ export function ScheduledPrefillScheduleDetail({
     actionsRef.current?.focus();
     action();
   };
-  const loginTarget = containers.persistentLoginTarget;
   return (
     <>
       <div className="scheduled-prefill-card-summary">
@@ -1250,27 +1256,29 @@ export function ScheduledPrefillScheduleDetail({
         containers={containers}
         onClose={() => setSettingsOpen(false)}
       />
-      {loginTarget && (
+      {loginHost.present && shownLoginTarget && (
         <PersistentLoginHost
-          serviceKey={loginTarget}
-          isRunning={containers.containersByServiceKey.get(loginTarget)?.isRunning === true}
+          serviceKey={shownLoginTarget}
+          open={loginTarget !== null}
+          isRunning={containers.containersByServiceKey.get(shownLoginTarget)?.isRunning === true}
           isAuthenticated={
-            containers.containersByServiceKey.get(loginTarget)?.isAuthenticated === true
+            containers.containersByServiceKey.get(shownLoginTarget)?.isAuthenticated === true
           }
           onAuthenticated={() => {
-            setLoggedInService(loginTarget);
+            setLoggedInService(shownLoginTarget);
             void containers.loadPersistentContainers();
           }}
           onDismiss={() => {
             // The host also dismisses when the container list reports the login before the
             // prompt does; onAuthenticated never runs on that path.
             if (
-              containers.containersByServiceKey.get(loginTarget)?.isAuthenticated === true ||
-              getPersistentLoginState(getPersistentServiceId(loginTarget)).authenticated
+              containers.containersByServiceKey.get(shownLoginTarget)?.isAuthenticated === true ||
+              getPersistentLoginState(getPersistentServiceId(shownLoginTarget)).authenticated
             )
-              setLoggedInService(loginTarget);
+              setLoggedInService(shownLoginTarget);
             containers.handleDismissPersistentLogin();
           }}
+          onRetry={() => void containers.handlePersistentLogin(shownLoginTarget, false)}
         />
       )}
       <ConfirmationModal

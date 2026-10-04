@@ -42,6 +42,14 @@ const progressCardSource = parseSource(
 );
 const actionMenuSource = parseSource('src/components/ui/ActionMenu.tsx', ts.ScriptKind.TSX);
 const modalSource = parseSource('src/components/ui/Modal.tsx', ts.ScriptKind.TSX);
+const exitPresenceSource = parseSource('src/hooks/useExitPresence.ts', ts.ScriptKind.TS);
+const heldValueSource = parseSource('src/hooks/useHeldValue.ts', ts.ScriptKind.TS);
+// Modal imports its close duration; the harness binds the value the hook file declares.
+const MODAL_EXIT_MS = Number(
+  /export const MODAL_EXIT_MS = (\d+);/.exec(
+    readFileSync(new URL('../src/hooks/useExitPresence.ts', import.meta.url), 'utf8')
+  )[1]
+);
 const schedulesCss = readFileSync(
   new URL('../src/components/features/management/schedules/SchedulesSection.css', import.meta.url),
   'utf8'
@@ -2507,6 +2515,7 @@ function createModalHarness(document, onClose = () => undefined) {
     X: 'X',
     CustomScrollbar: 'CustomScrollbar',
     getFocusable: (node) => node.focusables,
+    MODAL_EXIT_MS,
     document,
     Node: ModalNode,
     modalStack: [],
@@ -3961,6 +3970,9 @@ test('feature owner keeps actual container and challenge subscriptions balanced 
     ScheduledPrefillSharedSettingsModal: 'Settings',
     ConfirmationModal: 'ConfirmationModal',
     PersistentLoginHost: 'Login',
+    useExitPresence: component(exitPresenceSource, 'useExitPresence', common),
+    useHeldValue: component(heldValueSource, 'useHeldValue', common),
+    MODAL_EXIT_MS,
     ErrorBlock: 'ErrorBlock',
     useErrorHandler: () => ({ notifyError: () => undefined }),
     getErrorMessage: (error) => error.message,

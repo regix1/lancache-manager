@@ -50,6 +50,9 @@ interface XboxAuthModalProps {
    *  no countdown, which is the honest answer where nothing client-side is counting - the
    *  manager-side mapping login is polled by the backend and has no timer here. */
   loginDeadline?: number | null;
+  /** Persistent-container flow only: set when the attempt ended before Microsoft sent a device
+   *  code. The prompt keeps its error on screen and offers a new attempt in place of Continue. */
+  onRetry?: () => void;
 }
 
 /**
@@ -67,7 +70,8 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
   actions,
   onCancelLogin,
   dismissBehavior = 'cancel',
-  loginDeadline = null
+  loginDeadline = null,
+  onRetry
 }) => {
   const { t } = useTranslation();
   const isKeepPending = dismissBehavior === 'keep-pending';
@@ -195,7 +199,9 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
                   ? t('modals.xboxAuth.connectingSubtitle')
                   : needsDeviceCode
                     ? t('modals.xboxAuth.waitingMessage')
-                    : ''
+                    : onRetry
+                      ? t('common.pressRetry')
+                      : ''
               }
               busy={isConnecting || needsDeviceCode}
               deadline={loginDeadline}
@@ -206,8 +212,9 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
             />
 
             {/* Sign-in prompt, and the connect that follows it: the same box either way, so pressing
-              Continue changes the line in the strip and moves the panel no pixels. */}
-            {!needsDeviceCode && (
+              Continue changes the line in the strip and moves the panel no pixels. A failed attempt
+              swaps it for the error, so the prompt keeps about the same height. */}
+            {!needsDeviceCode && !onRetry && (
               <div>
                 <h3 className="text-base font-semibold text-themed-primary">
                   {t('modals.xboxAuth.signInTitle')}
@@ -283,17 +290,29 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
           >
             {t('common.cancel')}
           </Button>
-          {!needsDeviceCode && (
-            <Button
-              variant="filled"
-              color="primary"
-              onClick={handleSubmit}
-              disabled={state.canAuthenticate === false || loading || isSubmitting}
-              className="min-h-[44px] sm:min-h-10"
-            >
-              {t('modals.xboxAuth.actions.continue')}
-            </Button>
-          )}
+          {!needsDeviceCode &&
+            (onRetry ? (
+              <Button
+                variant="filled"
+                color="primary"
+                onClick={onRetry}
+                loading={loading}
+                stableWidth
+                className="min-h-[44px] sm:min-h-10"
+              >
+                {t('common.retry')}
+              </Button>
+            ) : (
+              <Button
+                variant="filled"
+                color="primary"
+                onClick={handleSubmit}
+                disabled={state.canAuthenticate === false || loading || isSubmitting}
+                className="min-h-[44px] sm:min-h-10"
+              >
+                {t('modals.xboxAuth.actions.continue')}
+              </Button>
+            ))}
         </div>
       </div>
     </Modal>

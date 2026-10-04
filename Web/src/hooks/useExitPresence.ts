@@ -8,6 +8,9 @@ import { useEffect, useRef, useState } from 'react';
  */
 export const DROPDOWN_EXIT_MS = 150;
 
+/** Duration (ms) of Modal's close fade; a host that unmounts a modal waits this long first. */
+export const MODAL_EXIT_MS = 250;
+
 interface ExitPresence {
   /** True while the element should stay mounted (including its exit animation). */
   present: boolean;

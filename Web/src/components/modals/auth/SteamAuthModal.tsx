@@ -39,6 +39,10 @@ interface SteamAuthModalProps {
    *  phone-approval wait. `null`/unset renders no countdown, which is the honest answer for a step
    *  that waits on the person instead of on a clock. */
   loginDeadline?: number | null;
+  /** Persistent-container flow only: set when the attempt ended before Steam asked for anything.
+   *  The prompt keeps its error on screen and offers a new attempt instead of a form that has no
+   *  attempt to answer. */
+  onRetry?: () => void;
 }
 
 export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
@@ -51,7 +55,8 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   dismissBehavior = 'cancel',
   disableAutoLogoutClose = false,
   awaitingChallenge = false,
-  loginDeadline = null
+  loginDeadline = null,
+  onRetry
 }) => {
   const { t } = useTranslation();
   const { on, off } = useSignalR();
@@ -264,7 +269,9 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                     ? t('modals.steamAuth.connectingSubtitle')
                     : needsTwoFactor || needsEmailCode
                       ? t('common.waitingForCode')
-                      : t('modals.steamAuth.status.credentials')
+                      : onRetry
+                        ? t('common.pressRetry')
+                        : t('modals.steamAuth.status.credentials')
               }
               busy={isPhoneStage || awaitingChallenge || loading || isSubmitting}
               deadline={loginDeadline}
@@ -274,43 +281,48 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
               })}
             />
 
-            <div>
-              <h3 className="text-base font-semibold text-themed-primary">
-                {needsEmailCode
-                  ? t('modals.steamAuth.emailVerification.title')
-                  : needsTwoFactor
-                    ? t('modals.steamAuth.twoFactor.title')
-                    : isPhoneStage
-                      ? t('modals.steamAuth.mobileConfirmation.title')
-                      : t('modals.steamAuth.signInTitle')}
-              </h3>
-              {needsEmailCode ? (
-                <p className="mt-1 text-sm text-themed-muted">
-                  {t('modals.steamAuth.emailVerification.help')}
-                </p>
-              ) : needsTwoFactor ? (
-                <p className="mt-1 text-sm text-themed-muted">
-                  {t('modals.steamAuth.twoFactor.help')}
-                  {!useManualCode && <> {t('modals.steamAuth.twoFactor.leaveEmptyHint')}</>}
-                </p>
-              ) : isPhoneStage ? (
-                <p className="mt-1 text-sm text-themed-muted">
-                  {showManualCodeButton
-                    ? t('modals.steamAuth.mobileConfirmation.phoneOrCode')
-                    : t('modals.steamAuth.mobileConfirmation.phoneOnly')}
-                </p>
-              ) : awaitingChallenge ? (
-                <p className="mt-1 text-sm text-themed-muted">
-                  {t('modals.steamAuth.connectingHelp')}
-                </p>
-              ) : null}
-            </div>
+            {/* A retry has nothing to fill in: the status row above carries its error and the
+                footer its Retry, so no heading is left standing over an empty step. */}
+            {!onRetry && (
+              <div>
+                <h3 className="text-base font-semibold text-themed-primary">
+                  {needsEmailCode
+                    ? t('modals.steamAuth.emailVerification.title')
+                    : needsTwoFactor
+                      ? t('modals.steamAuth.twoFactor.title')
+                      : isPhoneStage
+                        ? t('modals.steamAuth.mobileConfirmation.title')
+                        : t('modals.steamAuth.signInTitle')}
+                </h3>
+                {needsEmailCode ? (
+                  <p className="mt-1 text-sm text-themed-muted">
+                    {t('modals.steamAuth.emailVerification.help')}
+                  </p>
+                ) : needsTwoFactor ? (
+                  <p className="mt-1 text-sm text-themed-muted">
+                    {t('modals.steamAuth.twoFactor.help')}
+                    {!useManualCode && <> {t('modals.steamAuth.twoFactor.leaveEmptyHint')}</>}
+                  </p>
+                ) : isPhoneStage ? (
+                  <p className="mt-1 text-sm text-themed-muted">
+                    {showManualCodeButton
+                      ? t('modals.steamAuth.mobileConfirmation.phoneOrCode')
+                      : t('modals.steamAuth.mobileConfirmation.phoneOnly')}
+                  </p>
+                ) : awaitingChallenge ? (
+                  <p className="mt-1 text-sm text-themed-muted">
+                    {t('modals.steamAuth.connectingHelp')}
+                  </p>
+                ) : null}
+              </div>
+            )}
 
             <div className="login-task">
               {!needsTwoFactor &&
                 !needsEmailCode &&
                 !waitingForMobileConfirmation &&
-                !awaitingChallenge && (
+                !awaitingChallenge &&
+                !onRetry && (
                   <>
                     <div>
                       <FormField label={t('modals.steamAuth.labels.username')}>
@@ -435,27 +447,40 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
           >
             {t('common.cancel')}
           </Button>
-          {!waitingForMobileConfirmation && (
+          {onRetry ? (
             <Button
               variant="filled"
               color="primary"
-              onClick={handleSubmit}
-              disabled={
-                awaitingChallenge ||
-                state.canAuthenticate === false ||
-                loading ||
-                isSubmitting ||
-                (!needsTwoFactor && !needsEmailCode && (!username.trim() || !password.trim())) ||
-                (useManualCode && !twoFactorCode.trim())
-              }
+              onClick={onRetry}
+              loading={loading}
+              stableWidth
               className="min-h-[44px] sm:min-h-10"
             >
-              {needsEmailCode
-                ? t('modals.steamAuth.actions.verify')
-                : needsTwoFactor
-                  ? t('modals.steamAuth.actions.confirm')
-                  : t('modals.steamAuth.actions.login')}
+              {t('common.retry')}
             </Button>
+          ) : (
+            !waitingForMobileConfirmation && (
+              <Button
+                variant="filled"
+                color="primary"
+                onClick={handleSubmit}
+                disabled={
+                  awaitingChallenge ||
+                  state.canAuthenticate === false ||
+                  loading ||
+                  isSubmitting ||
+                  (!needsTwoFactor && !needsEmailCode && (!username.trim() || !password.trim())) ||
+                  (useManualCode && !twoFactorCode.trim())
+                }
+                className="min-h-[44px] sm:min-h-10"
+              >
+                {needsEmailCode
+                  ? t('modals.steamAuth.actions.verify')
+                  : needsTwoFactor
+                    ? t('modals.steamAuth.actions.confirm')
+                    : t('modals.steamAuth.actions.login')}
+              </Button>
+            )
           )}
         </div>
       </div>

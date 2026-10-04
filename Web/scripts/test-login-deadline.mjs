@@ -178,6 +178,9 @@ async function persistent(storage, service = 'Steam', rearm = false) {
       {
         react: reactUrl,
         'react-i18next': aliases['react-i18next'],
+        '@hooks/useHeldValue': await compileToUrl('../src/hooks/useHeldValue.ts', {
+          react: reactUrl
+        }),
         '../persistentLoginStore': storeUrl
       }
     )
@@ -252,8 +255,9 @@ async function persistent(storage, service = 'Steam', rearm = false) {
         })
       );
     },
-    reveal() {
+    view() {
       const state = render().state;
+      // PersistentLoginHost passes open while its container runs and is not signed in.
       return hostInstance.render(() =>
         host.usePersistentLoginHost({
           service,
@@ -264,12 +268,16 @@ async function persistent(storage, service = 'Steam', rearm = false) {
           resumeModal: () => {
             calls.push(['resume']);
           },
+          open: true,
           isRunning: true,
           isAuthenticated: false,
           onAuthenticated: () => undefined,
           autoStart: true
         })
       );
+    },
+    reveal() {
+      return this.view().opened;
     },
     get reply() {
       return reply;
@@ -1846,6 +1854,85 @@ test('a later explicit nonce resumes a pending same-session start without extend
     release(flow.reply);
     await pending;
     assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, deadline);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('a sign-in the person asked for keeps its prompt open when it fails before any challenge', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    flow.store.requestPersistentLoginAttempt('Steam');
+    flow.reveal();
+    flow.startReply = async () => {
+      throw new Error('daemon unreachable');
+    };
+    await flow.start();
+
+    const failed = flow.store.getPersistentLoginState('Steam');
+    assert.equal(failed.error, 'daemon unreachable');
+    assert.equal(failed.loading, false);
+    assert.equal(failed.pendingChallenge, null);
+    assert.equal(flow.reveal(), true, 'the failure shows in the open prompt instead of closing it');
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('a retry keeps the failed attempt error and its Retry until the service asks for something', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    flow.store.requestPersistentLoginAttempt('Steam');
+    flow.reveal();
+    flow.startReply = async () => {
+      throw new Error('daemon unreachable');
+    };
+    await flow.start();
+    assert.deepEqual(flow.view(), { opened: true, retrying: true, error: 'daemon unreachable' });
+
+    // Retry resets the attempt before the new one starts, the way the card's Log in does.
+    flow.store.resetPersistentLoginState('Steam');
+    assert.deepEqual(flow.view(), { opened: true, retrying: true, error: 'daemon unreachable' });
+
+    let release;
+    flow.startReply = () =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+    const pending = flow.start();
+    assert.equal(flow.store.getPersistentLoginState('Steam').loading, true);
+    assert.deepEqual(flow.view(), { opened: true, retrying: true, error: 'daemon unreachable' });
+
+    release(flow.reply);
+    await pending;
+    assert.deepEqual(flow.view(), { opened: true, retrying: false, error: null });
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('a saved-login attempt that fails before any challenge keeps its prompt closed', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    flow.store.setPersistentLoginStartSessionId('Steam', 'session', undefined, undefined, true);
+    flow.store.requestPersistentLoginAttempt('Steam');
+    assert.equal(flow.reveal(), false);
+    flow.startReply = async () => {
+      throw new Error('saved login rejected');
+    };
+    await flow.render().actions.start();
+
+    assert.equal(flow.store.getPersistentLoginState('Steam').error, 'saved login rejected');
+    assert.equal(flow.reveal(), false, 'a saved login reports on the card, not in a prompt');
   } finally {
     flow?.close();
     time.restore();

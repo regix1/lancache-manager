@@ -28,6 +28,9 @@ interface EpicAuthModalProps {
    *  persistent-container store has one. `null`/unset renders no countdown, which is the honest
    *  answer for the other Epic mounts: nothing client-side is counting there. */
   loginDeadline?: number | null;
+  /** Persistent-container flow only: set when the attempt ended before Epic asked for anything.
+   *  The prompt keeps its error on screen and offers a new attempt in place of Continue. */
+  onRetry?: () => void;
 }
 
 export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
@@ -37,7 +40,8 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
   actions,
   onCancelLogin,
   dismissBehavior = 'cancel',
-  loginDeadline = null
+  loginDeadline = null,
+  onRetry
 }) => {
   const { t } = useTranslation();
   const isKeepPending = dismissBehavior === 'keep-pending';
@@ -165,7 +169,9 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                     ? t('modals.epicAuth.authenticatingMessage')
                     : needsAuthorizationCode
                       ? t('common.waitingForCode')
-                      : ''
+                      : onRetry
+                        ? t('common.pressRetry')
+                        : ''
               }
               busy={loading || isSubmitting}
               deadline={loginDeadline}
@@ -176,8 +182,9 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
             />
 
             {/* Sign-in prompt, and the connect that follows it: the same box either way, so pressing
-              Continue changes the line in the strip and moves the panel no pixels. */}
-            {!needsAuthorizationCode && (
+              Continue changes the line in the strip and moves the panel no pixels. A failed attempt
+              swaps it for the error, so the prompt keeps about the same height. */}
+            {!needsAuthorizationCode && !onRetry && (
               <div>
                 <h3 className="text-base font-semibold text-themed-primary">
                   {t('modals.epicAuth.signInTitle')}
@@ -263,6 +270,17 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
               className="min-h-[44px] sm:min-h-10"
             >
               {t('modals.epicAuth.actions.submitCode')}
+            </Button>
+          ) : onRetry ? (
+            <Button
+              variant="filled"
+              color="primary"
+              onClick={onRetry}
+              loading={loading}
+              stableWidth
+              className="min-h-[44px] sm:min-h-10"
+            >
+              {t('common.retry')}
             </Button>
           ) : (
             <Button

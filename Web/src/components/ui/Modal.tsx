@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { getFocusable } from '@utils/focus';
+import { MODAL_EXIT_MS } from '@hooks/useExitPresence';
 import { CustomScrollbar } from './CustomScrollbar';
 
 // Global modal tracking for nested modal support
@@ -189,7 +190,7 @@ export const Modal: React.FC<ModalProps> = ({
     setIsAnimating(false);
     closeTimerRef.current = setTimeout(() => {
       setIsVisible(false);
-    }, 250); // Match transition duration
+    }, MODAL_EXIT_MS);
 
     return () => {
       if (closeTimerRef.current) {

@@ -264,6 +264,7 @@
     "resultsFromPreviousScan": "历史扫描结果",
     "remove": "移除",
     "retry": "重试",
+    "pressRetry": "点击“重试”再试一次。",
     "failedToLoad": "加载失败",
     "evicted": "已淘汰",
     "partiallyEvicted": "部分已淘汰",
