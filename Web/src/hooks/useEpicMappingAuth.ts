@@ -255,9 +255,10 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       // With no ending and another attempt (or none) running, the server no longer knows this one.
       if (next.attemptId !== askedAttempt)
         return endWithError(t('errors.integration.attemptExpired'));
-      // Still this caller's pending sign-in: the server's own window ends it and announces that, so a deadline read on a
-      // clock that runs ahead waits too.
-      return null;
+      // Still this caller's pending sign-in. A final read (at the attempt's deadline, or after the server announced its
+      // end) decides anyway: a browser clock that runs ahead or a host clock that stepped back must not leave the dialog
+      // waiting with nothing left to come. A sign-in that still saves shows on the next status read.
+      return final ? endWithError(t('errors.integration.attemptExpired')) : null;
     },
     [identity, onSuccess, onError, t]
   );
@@ -266,20 +267,32 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   useSignInEndingWait(
     endingWait,
     (final) => {
-      if (endingWait)
-        void readLoginEnding(endingWait.attemptId, final).then((decided) => {
-          if (decided === null) return;
-          setEndingWait(null);
-          // A wait that ended because the status read failed leaves no status behind, so the controls read it again.
-          void refreshStatus();
-        });
+      if (!endingWait) return;
+      const waited = endingWait.attemptId;
+      void readLoginEnding(waited, final).then((decided) => {
+        if (decided === null) return;
+        // A slow read for an attempt the form already left must not end the wait of a newer one.
+        setEndingWait((wait) => (wait?.attemptId === waited ? null : wait));
+        // A wait that ended because the status read failed leaves no status behind, so the controls read it again.
+        void refreshStatus();
+      });
     },
     true
   );
 
   // A status read that failed while the connection was down is read again when it comes back.
-  const { isConnected } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   useReconnectRefetch(isConnected, refreshStatus);
+
+  // Any sign-in's end can free Epic for this caller, an attempt this dialog gave up on included: a cancel that never
+  // reached the server leaves that attempt running until its window ends, and the server announces that end.
+  useEffect(() => {
+    const handleEnded = () => {
+      void refreshStatus();
+    };
+    on('IntegrationLoginEnded', handleEnded);
+    return () => off('IntegrationLoginEnded', handleEnded);
+  }, [on, off, refreshStatus]);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
     if (
