@@ -7,20 +7,27 @@ import type {
   PersistentPrefillServiceId
 } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import ApiService from '@services/api.service';
+import type { PrefillLoginEnding } from '@/types';
 import { SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS } from './constants';
 import { getPersistentServiceId } from './scheduledPrefillPlatformUi';
 import {
   getPersistentPrefillAuthStateChangedEvent,
-  getPersistentPrefillCredentialChallengeEvent
+  getPersistentPrefillCredentialChallengeEvent,
+  getPersistentPrefillSessionUpdatedEvent
 } from './persistentPrefillSignalREvents';
 import {
   applyPersistentLoginChallenge,
   getPersistentLoginEditAction,
   getPersistentLoginSessionId,
   getPersistentLoginStartRequest,
+  getPersistentLoginState,
   hasPersistentLoginIntent,
-  markPersistentLoginAuthenticated
+  isPersistentLoginAuthenticatedResponse,
+  isPersistentLoginCredentialChallenge,
+  markPersistentLoginAuthenticated,
+  resetPersistentLoginSessionReplaced
 } from './persistentLoginStore';
 
 const LOGIN_REQUIRED_SERVICE_IDS: readonly PersistentPrefillServiceId[] =
@@ -30,6 +37,19 @@ const LOGIN_REQUIRED_SERVICE_IDS: readonly PersistentPrefillServiceId[] =
 // scope so a listener re-registration (containersByService change) cannot re-send it.
 const acknowledgedDeviceConfirmationIds = new Set<string>();
 
+// A sign-in ending, pushed with the session or read after a reconnect, ends the dialog only when it belongs to the attempt
+// the dialog waits on: success closes it signed in, any other ending clears the prompt and shows its reason.
+function endPersistentLoginOnEnding(
+  serviceId: PersistentPrefillServiceId,
+  ending: PrefillLoginEnding,
+  reason: string
+): void {
+  if (getPersistentLoginState(serviceId).pendingChallenge?.loginAttempt !== ending.loginAttempt)
+    return;
+  if (ending.status === 'completed') markPersistentLoginAuthenticated(serviceId);
+  else resetPersistentLoginSessionReplaced(serviceId, reason);
+}
+
 interface CredentialChallengePayload {
   sessionId: string;
   challenge: CredentialChallenge;
@@ -38,6 +58,11 @@ interface CredentialChallengePayload {
 interface AuthStateChangedPayload {
   sessionId: string;
   authState: string;
+}
+
+interface UpdatedSession {
+  id: string;
+  loginEnding?: PrefillLoginEnding;
 }
 
 interface UsePersistentLoginChallengeSignalROptions {
@@ -51,9 +76,9 @@ interface UsePersistentLoginChallengeSignalROptions {
  * Delivers daemon credential challenges (username/2FA/device-code/etc.) into the persistent login
  * store the instant the daemon emits them, via the same CredentialChallenge event family the
  * mapping-flow live login already listens for - PrefillDaemonServiceBase.Notifications.cs now
- * mirrors it to this hub too, alongside AuthStateChanged/SessionUpdated. The REST challenge poll
- * (usePersistentPrefillAuth's getPersistentChallenge) stays wired as the fallback for when SignalR
- * is disconnected; this hook only ever writes into the store the same way that poll already does.
+ * mirrors it to this hub too, alongside AuthStateChanged/SessionUpdated. The REST challenge read
+ * (getPersistentChallenge) is no longer a poll: it runs once when the connection comes back, to pick up
+ * whatever was pushed while the socket was down.
  *
  * Filters by sessionId against the currently known persistent container for the service, so a
  * concurrent guest login for the same platform (a different session, same event family) can never
@@ -71,7 +96,7 @@ export function usePersistentLoginChallengeSignalR({
   enabled,
   containersByService
 }: UsePersistentLoginChallengeSignalROptions): void {
-  const { on, off } = useSignalR();
+  const { on, off, isConnected } = useSignalR();
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -157,11 +182,20 @@ export function usePersistentLoginChallengeSignalR({
         markPersistentLoginAuthenticated(serviceId);
       };
 
+      const sessionUpdatedEvent = getPersistentPrefillSessionUpdatedEvent(serviceId);
+      const sessionUpdatedHandler: EventHandler = (message) => {
+        const session = message as UpdatedSession;
+        if (!session.loginEnding || !sessionMatches(serviceId, session.id)) return;
+        endPersistentLoginOnEnding(serviceId, session.loginEnding, t(session.loginEnding.stageKey));
+      };
+
       on(challengeEvent, challengeHandler);
       on(authEvent, authHandler);
+      on(sessionUpdatedEvent, sessionUpdatedHandler);
       return [
         { eventName: challengeEvent, handler: challengeHandler },
-        { eventName: authEvent, handler: authHandler }
+        { eventName: authEvent, handler: authHandler },
+        { eventName: sessionUpdatedEvent, handler: sessionUpdatedHandler }
       ];
     });
 
@@ -171,4 +205,35 @@ export function usePersistentLoginChallengeSignalR({
       }
     };
   }, [enabled, on, off, containersByService, t]);
+
+  // The pushes above are the only way a waiting sign-in moves; after a reconnect, whatever was pushed while the socket was
+  // down is read once. A failed read leaves the dialog to the next push or its own deadline.
+  useReconnectRefetch(isConnected, () => {
+    if (!enabled) return;
+    const messages = {
+      noResult: t('prefill.persistent.errors.noResult'),
+      timedOut: t('prefill.persistent.loginTimedOut')
+    };
+    for (const serviceId of LOGIN_REQUIRED_SERVICE_IDS) {
+      const sessionId = getPersistentLoginSessionId(serviceId);
+      const challenge = getPersistentLoginState(serviceId).pendingChallenge;
+      if (!sessionId || !challenge) continue;
+      void ApiService.getPersistentChallenge(serviceId, sessionId, challenge.loginAttempt).then(
+        (response) => {
+          if (getPersistentLoginSessionId(serviceId) !== sessionId) return;
+          if (isPersistentLoginAuthenticatedResponse(response))
+            markPersistentLoginAuthenticated(serviceId);
+          else if (isPersistentLoginCredentialChallenge(response))
+            applyPersistentLoginChallenge(serviceId, response, messages, sessionId);
+          else if (typeof response === 'object' && 'loginEnding' in response)
+            endPersistentLoginOnEnding(
+              serviceId,
+              response.loginEnding,
+              t(response.loginEnding.stageKey)
+            );
+        },
+        () => undefined
+      );
+    }
+  });
 }

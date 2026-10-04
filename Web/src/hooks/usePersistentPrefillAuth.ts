@@ -1,14 +1,10 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import ApiService, {
-  type PersistentSessionConflictInfo,
-  type PersistentSessionNotFoundInfo
-} from '@services/api.service';
+import ApiService, { type PersistentSessionConflictInfo } from '@services/api.service';
 import { ApiError } from '@services/apiError';
 import { getErrorMessage } from '@utils/error';
 import { createUuid } from '@utils/uuid';
 import type { PersistentPrefillServiceId } from '@components/features/prefill/persistentPrefillTypes';
-import type { PrefillLoginEnding } from '../types';
 import type { CredentialChallenge } from './usePrefillSteamAuth';
 import { loginAttemptTimeoutMs } from './loginAttemptTimeout';
 import { getAuthStage } from './authStage';
@@ -38,39 +34,15 @@ import {
   resetPersistentLoginState,
   setPersistentLoginCancelled,
   setPersistentLoginStartPromise,
-  terminatePersistentLoginSessionUnavailable,
   updatePersistentLoginState,
-  usePersistentLoginStoreState
+  usePersistentLoginStoreState,
+  waitForPersistentLoginChange
 } from '@components/features/management/schedules/scheduled-prefill/persistentLoginStore';
 
-// The challenge GET 404s when its daemon session is gone entirely (socket dropped, container
-// stopped, etc. - diagnostic ADDENDUM). getPersistentChallenge (api.service.ts) parses
-// ResolveRunningPersistentSession's typed 404 body itself and attaches { status, state } as
-// `.cause` on the thrown error - that's the structural signal checked below. The `ApiError` branch
-// is kept only as a defensive fallback (e.g. a proxy/CDN 404 that bypasses getPersistentChallenge's
-// own 404 handling and instead falls through to `handleResponse`, which throws a typed `ApiError`
-// with `status`) - never by sniffing the message text.
-function isPersistentChallengeNotFoundError(
-  error: unknown
-): error is Error & { cause?: PersistentSessionNotFoundInfo } {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  const cause = (error as Error & { cause?: unknown }).cause;
-  if (
-    typeof cause === 'object' &&
-    cause !== null &&
-    (cause as { status?: unknown }).status === 404
-  ) {
-    return true;
-  }
-  return error instanceof ApiError && error.status === 404;
-}
-
-// RC3 fix: the challenge GET and provide-credential 409
-// structurally when the pinned sessionId no longer matches the active session, or (provide-
-// credential only) when the daemon reported it dropped the credential (RC4 manager leg). Detected
-// via `.cause`, mirroring isPersistentChallengeNotFoundError above - never by message-sniffing.
+// RC3 fix: the provide-credential 409
+// structurally when the pinned sessionId no longer matches the active session, or
+// when the daemon reported it dropped the credential (RC4 manager leg). Detected
+// via `.cause` - never by message-sniffing.
 function isPersistentSessionConflictError(
   error: unknown
 ): error is Error & { cause: PersistentSessionConflictInfo } {
@@ -102,30 +74,8 @@ function isPersistentLoginBusyError(error: unknown): error is ApiError {
   return reason !== 'session_replaced' && reason !== 'credential_rejected';
 }
 
-/**
- * Thrown by pollForResult instead of ever calling the challenge-GET REST endpoint when the store
- * has no pinned sessionId for this service anymore. This is a normal, already-ended flow, not a
- * failure: something else (a successful SignalR auth, a container-list retire on a stop, the
- * overall login timeout) already reset the store, but a free-standing poll loop that isn't wired
- * to observe that reset (see usePersistentXboxAuth's own guard, which is the primary fix) can still
- * fire one more iteration. Sending an empty sessionId would always 400 with a scary-looking
- * "sessionId is required" - recognized and swallowed everywhere it can surface (poll/submit/
- * handleAuthenticate below) instead of being treated like a real failure.
- */
-class PersistentLoginNoPinnedSessionError extends Error {
-  constructor(service: string) {
-    super(`No pinned session for ${service} - the login flow already ended`);
-    this.name = 'PersistentLoginNoPinnedSessionError';
-  }
-}
-
-function isNoPinnedSessionError(error: unknown): error is PersistentLoginNoPinnedSessionError {
-  return error instanceof PersistentLoginNoPinnedSessionError;
-}
-
 interface UsePersistentPrefillAuthOptions {
   service?: PersistentPrefillServiceId;
-  timeoutSeconds?: number;
   onSuccess?: () => void;
   onError?: (message: string) => void;
 }
@@ -142,7 +92,6 @@ interface PersistentPrefillAuthState extends SteamLoginFlowState {
 export interface PersistentPrefillAuthActions extends SteamAuthActions {
   start: () => Promise<CredentialChallenge | null>;
   submit: (credential: string) => Promise<boolean>;
-  poll: () => Promise<PollResult>;
   cancel: () => Promise<void>;
   /** Hides the auth modal without cancelling the daemon login (default close behavior). */
   dismissModal: () => void;
@@ -155,27 +104,17 @@ interface PersistentPrefillAuthResult {
   actions: PersistentPrefillAuthActions;
 }
 
-export type PollResult =
+type PollResult =
   | { status: 'authenticated' }
   | { status: 'challenge'; challenge: CredentialChallenge }
-  | { status: 'ended'; ending: PrefillLoginEnding }
   | { status: 'pending' };
 
-// SignalR now pushes challenges the instant the daemon emits them (see
-// usePersistentLoginChallengeSignalR); this GET long-poll is only the fallback for when SignalR is
-// disconnected, so it can afford a slow interval ("SignalR is primary, this is the safety net").
-const DEFAULT_TIMEOUT_SECONDS = 60;
 const DEVICE_CONFIRMATION_CREDENTIAL = 'confirm';
 
 export function usePersistentPrefillAuth(
   options: UsePersistentPrefillAuthOptions = {}
 ): PersistentPrefillAuthResult {
-  const {
-    service = 'Steam',
-    timeoutSeconds = DEFAULT_TIMEOUT_SECONDS,
-    onSuccess,
-    onError
-  } = options;
+  const { service = 'Steam', onSuccess, onError } = options;
 
   const { t } = useTranslation();
   const messages = useMemo(
@@ -252,76 +191,6 @@ export function usePersistentPrefillAuth(
     [service, onError]
   );
 
-  const pollForResult = useCallback(async (): Promise<PollResult> => {
-    if (isPersistentLoginSuspended()) throw new Error(messages.noResult);
-    if (!ensurePersistentLoginTimeout(service, messages)) {
-      throw new Error(getPersistentLoginState(service).error!);
-    }
-    // Captured before the long-poll opens. A 409 that arrives after the store has moved on belongs
-    // to an attempt that already ended, and handleSessionConflict resets unconditionally - so
-    // without this snapshot a late conflict wipes whatever attempt is live now.
-    const attemptEpoch = getPersistentLoginEpoch(service);
-    const actionId = getPersistentLoginState(service).step?.actionId ?? null;
-    // Read the session id LIVE (not the `stored` snapshot closed over when this callback was
-    // created) - Xbox's device-code flow calls this from a poll loop that starts synchronously
-    // right after start() resolves, in the same render pass that just wrote the real sessionId
-    // into the store. That write only schedules a re-render; reading `stored.sessionId` here
-    // would still see the pre-login `null` until the next render. getPersistentLoginSessionId
-    // reads the module store directly, so it always sees the value as of THIS call.
-    const sessionId = getPersistentLoginSessionId(service);
-    if (!sessionId) {
-      // Nothing pinned anymore - the flow already ended elsewhere (successful auth, a container
-      // retire, the overall timeout). Never send an empty sessionId; the backend always 400s on
-      // one ("sessionId is required"), which looks like a real failure but isn't. See
-      // PersistentLoginNoPinnedSessionError's doc comment.
-      throw new PersistentLoginNoPinnedSessionError(service);
-    }
-
-    try {
-      const response = await ApiService.getPersistentChallenge(
-        service,
-        timeoutSeconds,
-        sessionId,
-        getPersistentLoginState(service).loginId
-      );
-      if (isPersistentLoginSuspended()) throw new Error(messages.noResult);
-      if (isPersistentLoginAuthenticatedResponse(response)) {
-        return { status: 'authenticated' };
-      }
-      if (isPersistentLoginCredentialChallenge(response)) {
-        return { status: 'challenge', challenge: response };
-      }
-      // The server keeps how this login's sign-in ended; a refused or stopped one sends no further challenge.
-      if (typeof response === 'object' && 'loginEnding' in response) {
-        return { status: 'ended', ending: response.loginEnding };
-      }
-      // Empty/204: the long-poll timed out with no new challenge yet (e.g. waiting
-      // for the user to confirm a device code). Keep polling instead of erroring.
-      return { status: 'pending' };
-    } catch (err) {
-      if (
-        isPersistentSessionConflictError(err) &&
-        !isPersistentLoginSuspended() &&
-        getPersistentLoginEpoch(service) === attemptEpoch &&
-        (getPersistentLoginState(service).step?.actionId ?? null) === actionId
-      ) {
-        handleSessionConflict(err);
-      }
-      if (
-        isPersistentLoginSuspended() ||
-        isPersistentSessionConflictError(err) ||
-        isPersistentChallengeNotFoundError(err)
-      ) {
-        // The caller's loop still has to end, whether or not this attempt owned the store.
-        throw err;
-      }
-      // One failed read says nothing about the sign-in, which may still finish. Read again after 5 s (the Xbox
-      // sign-in dialog's retry); the attempt's deadline, checked at the top of every read, still ends the wait.
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-      return { status: 'pending' };
-    }
-  }, [handleSessionConflict, messages, service, timeoutSeconds]);
-
   const submitChallenge = useCallback(
     async (
       challenge: CredentialChallenge,
@@ -349,8 +218,8 @@ export function usePersistentPrefillAuth(
         return { status: 'pending' };
       }
       const ownsStep = () => getPersistentLoginState(service).step?.actionId === submitted.actionId;
-      // Captured before the first await and re-checked after the long-poll settles. An ending that
-      // lands while that poll is open (the modal's X/Cancel, Logout, the overall timeout) resets
+      // Captured before the first await and re-checked each time the wait below wakes. An ending that
+      // lands while the wait is open (the modal's X/Cancel, Logout, the overall timeout) resets
       // the store, and that reset CLEARS the cancel flag - so the flag alone stops being a usable
       // "this attempt is over" signal by the time the response arrives. The epoch survives it, the
       // same way start() fences its own settlement.
@@ -379,65 +248,32 @@ export function usePersistentPrefillAuth(
       }
 
       if (!ownsStep()) return { status: 'pending' };
-
-      let result: PollResult;
-      try {
-        result = await pollForResult();
-        while (
-          result.status === 'pending' &&
-          !isPersistentLoginCancelled(service) &&
-          getPersistentLoginEpoch(service) === attemptEpoch &&
-          ownsStep()
-        ) {
-          result = await pollForResult();
-        }
-      } catch (err) {
-        if (!ownsStep()) return { status: 'pending' };
-        throw err;
-      }
-      if (isPersistentLoginSuspended() || getPersistentLoginEpoch(service) !== attemptEpoch) {
-        // The store no longer belongs to this attempt. Write NOTHING - not the result, not even
-        // the spinner - or a challenge that arrives after the user ended the login reopens the
-        // modal and puts the card back into "Authenticating..." for a daemon session that has
-        // already been cancelled. Same reasoning as start()'s stale-epoch branch.
-        //
-        // The neutral 'pending' matters as much as the missing write: reporting 'authenticated'
-        // here makes submit() return true, and the caller answers a true by closing its modal -
-        // which dismisses whatever attempt is live now, not this dead one.
-        return { status: 'pending' };
-      }
-      if (!ownsStep()) return { status: 'pending' };
-      if (isPersistentLoginCancelled(service)) {
-        finishPersistentLoginStep(service, submitted.actionId);
-        return result;
-      }
-      if (result.status === 'ended') {
-        fail(t(result.ending.stageKey));
-        return result;
-      }
-
-      if (result.status === 'authenticated') {
-        finishAuthenticated();
-        return result;
-      }
-
-      if (result.status === 'challenge') {
-        if (!applyChallenge(result.challenge, extractPersistentSessionId(result.challenge))) {
+      const loginId = getPersistentLoginState(service).loginId;
+      // The next challenge, the sign-in's success and its ending are pushed over SignalR into the store (and read once when
+      // the connection comes back), so this waits for the store to move instead of asking the server again.
+      for (;;) {
+        const state = getPersistentLoginState(service);
+        if (state.authenticated && state.loginId === loginId) return { status: 'authenticated' };
+        // The store no longer belongs to this attempt: write nothing, and report 'pending' so a caller never reads a
+        // dead attempt as a success that closes whatever attempt is live now.
+        if (isPersistentLoginSuspended() || getPersistentLoginEpoch(service) !== attemptEpoch) {
           return { status: 'pending' };
         }
+        if (isPersistentLoginCancelled(service)) {
+          finishPersistentLoginStep(service, submitted.actionId);
+          return { status: 'pending' };
+        }
+        if (
+          state.pendingChallenge &&
+          state.pendingChallenge.challengeId !== challenge.challengeId
+        ) {
+          return { status: 'challenge', challenge: state.pendingChallenge };
+        }
+        if (!ownsStep()) return { status: 'pending' };
+        await waitForPersistentLoginChange(service);
       }
-      return result;
     },
-    [
-      applyChallenge,
-      fail,
-      finishAuthenticated,
-      handleSessionConflict,
-      messages,
-      pollForResult,
-      service,
-      t
-    ]
+    [handleSessionConflict, messages, service]
   );
 
   const submit = useCallback(
@@ -459,11 +295,9 @@ export function usePersistentPrefillAuth(
           getPersistentLoginState(service).loginDeadline === null
         )
           return false;
-        if (isNoPinnedSessionError(err) || isPersistentSessionConflictError(err)) {
-          // Not real failures - see PersistentLoginNoPinnedSessionError's doc comment and the
-          // session-conflict handling above; a generic fail() here would stomp whatever the
-          // originating catch already did (or, for the no-pinned-session case, write a scary error
-          // over a flow that already ended cleanly elsewhere).
+        if (isPersistentSessionConflictError(err)) {
+          // Not a real failure - see the session-conflict handling above; a generic fail() here
+          // would stomp whatever the originating catch already did.
           return false;
         }
         const message = getErrorMessage(err);
@@ -473,80 +307,6 @@ export function usePersistentPrefillAuth(
     },
     [fail, messages, service, stored.pendingChallenge, submitChallenge, t]
   );
-
-  const poll = useCallback(async (): Promise<PollResult> => {
-    if (isPersistentLoginSuspended()) throw new Error(messages.noResult);
-    if (!ensurePersistentLoginTimeout(service, messages)) {
-      throw new Error(getPersistentLoginState(service).error!);
-    }
-    // See submitChallenge's matching capture: an ending that lands while this long-poll is open
-    // resets the store and clears the cancel flag with it, so the epoch is the only signal left
-    // that still says "this attempt is over" once the response arrives.
-    const attemptEpoch = getPersistentLoginEpoch(service);
-    const actionId = getPersistentLoginState(service).step?.actionId ?? null;
-    try {
-      const result = await pollForResult();
-      if (isPersistentLoginSuspended() || getPersistentLoginEpoch(service) !== attemptEpoch) {
-        // Store belongs to whatever came after the reset - discard this result rather than
-        // resurrecting a login the user already ended. See start()'s stale-epoch branch.
-        return result;
-      }
-      if ((getPersistentLoginState(service).step?.actionId ?? null) !== actionId) {
-        return result;
-      }
-      if (isPersistentLoginCancelled(service)) {
-        return result;
-      }
-      if (result.status === 'ended') {
-        fail(t(result.ending.stageKey));
-        return result;
-      }
-
-      if (result.status === 'authenticated') {
-        finishAuthenticated();
-        return result;
-      }
-
-      if (result.status === 'challenge') {
-        if (!applyChallenge(result.challenge, extractPersistentSessionId(result.challenge))) {
-          return Promise.reject(new Error(messages.noResult));
-        }
-      }
-      return result;
-    } catch (err) {
-      if (isNoPinnedSessionError(err)) {
-        // Not a real failure - see PersistentLoginNoPinnedSessionError's doc comment. Just let the
-        // exception propagate so the caller's poll loop (usePersistentXboxAuth's
-        // pollUntilAuthenticated) stops, without ever writing an error into the store.
-        throw err;
-      }
-      if (isPersistentLoginSuspended() || getPersistentLoginEpoch(service) !== attemptEpoch) {
-        // Same rule as the success path above: this attempt's failure is not the current store's
-        // failure. Still rethrow so the caller's loop ends, but write nothing.
-        throw err;
-      }
-      if ((getPersistentLoginState(service).step?.actionId ?? null) !== actionId) {
-        throw err;
-      }
-      if (isPersistentChallengeNotFoundError(err)) {
-        // Terminal, not a transient failure: the daemon session behind this poll is gone, so
-        // continuing to poll it is pointless. Reset to a friendly idle state instead of leaving
-        // the raw HTTP 404 in state.error, then let the exception propagate - poll()'s only
-        // caller (usePersistentXboxAuth's pollUntilAuthenticated) relies on the throw to end its
-        // while loop.
-        terminatePersistentLoginSessionUnavailable(service, err.cause?.state ?? 'notStarted');
-        throw err;
-      }
-      if (isPersistentSessionConflictError(err)) {
-        // Already reset (with its own translated message) inside pollForResult's own catch - avoid
-        // a second, unrelated fail() write here.
-        throw err;
-      }
-      const message = getErrorMessage(err);
-      fail(message);
-      throw err;
-    }
-  }, [applyChallenge, fail, finishAuthenticated, messages, pollForResult, service, t]);
 
   const start = useCallback(async (): Promise<CredentialChallenge | null> => {
     if (isPersistentLoginSuspended()) return null;
@@ -827,9 +587,9 @@ export function usePersistentPrefillAuth(
 
       return stored.authenticated;
     } catch (err) {
-      if (isNoPinnedSessionError(err) || isPersistentSessionConflictError(err)) {
-        // Not real failures - see PersistentLoginNoPinnedSessionError's doc comment and the
-        // session-conflict handling above; avoid a second, unrelated fail() write here.
+      if (isPersistentSessionConflictError(err)) {
+        // Not a real failure - see the session-conflict handling above; avoid a second, unrelated
+        // fail() write here.
         return false;
       }
       if (
@@ -888,7 +648,6 @@ export function usePersistentPrefillAuth(
     cancelPendingRequest,
     start,
     submit,
-    poll,
     cancel,
     dismissModal,
     resumeModal

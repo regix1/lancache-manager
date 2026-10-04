@@ -320,6 +320,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         // Note: PrefillPanel's handleAuthStateChanged handles the log entry,
         // so we don't add a notification here to avoid duplicates
         hasStartedAuthRef.current = false;
+        loginAttemptRef.current = null;
         onSuccess?.();
       } else if (authState === 'NotAuthenticated') {
         loginEpochRef.current += 1;
@@ -358,11 +359,13 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           onError?.('Authentication failed');
         }
         hasStartedAuthRef.current = false;
+        loginAttemptRef.current = null;
       }
     };
 
     // A reconnect gap or a hidden tab can miss that event. Every resubscribe answers with the session, which keeps how
-    // its last sign-in ended, so a sign-in still waiting here ends on its own attempt's ending the same way.
+    // its last sign-in ended, so a sign-in still waiting here ends on its own attempt's ending the same way. A wait this
+    // dialog's own deadline ended is replaced only by that same attempt's success.
     const handleSessionSubscribed = ({
       id,
       loginEnding
@@ -370,12 +373,19 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       id: string;
       loginEnding?: PrefillLoginEnding;
     }) => {
-      if (id !== sessionId || !hasStartedAuthRef.current || !loginEnding) return;
-      if (loginEnding.loginAttempt !== loginAttemptRef.current) return;
+      if (id !== sessionId || !loginEnding || loginEnding.loginAttempt !== loginAttemptRef.current)
+        return;
+      if (!hasStartedAuthRef.current) {
+        if (loginEnding.status !== 'completed') return;
+        hasStartedAuthRef.current = true;
+        setError(null);
+      }
       handleAuthStateChanged({
         sessionId: id,
         authState: loginEnding.status === 'completed' ? 'Authenticated' : 'NotAuthenticated'
       });
+      // An ending other than a refusal (the app stopped it, a timeout, a lost daemon) shows its own reason.
+      if (loginEnding.status !== 'completed') setError(t(loginEnding.stageKey));
     };
 
     const eventName = getEventName('AuthStateChanged', serviceId);
@@ -654,6 +664,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     waitRef.current = null;
     setLoginDeadline(null);
     hasStartedAuthRef.current = false;
+    loginAttemptRef.current = null;
     setLoading(false);
     setWaitingForMobileConfirmation(false);
     setNeedsAuthorizationCode(false);
@@ -676,6 +687,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     waitRef.current = null;
     setLoginDeadline(null);
     hasStartedAuthRef.current = false;
+    loginAttemptRef.current = null;
     setError(null);
     // The account name survives, the same as it does on the other two login surfaces and in the
     // approval-timeout handler above. Every path that lands here, a refused password, a timeout, a
@@ -898,6 +910,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       const step = beginAuthStep('start');
       if (!step) return false;
       hasStartedAuthRef.current = true;
+      // A new sign-in has no attempt number until its first challenge, so an older attempt's ending on the session never ends it.
+      loginAttemptRef.current = null;
 
       try {
         const challenge = await hubConnection.invoke<CredentialChallenge | null>(
@@ -962,6 +976,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       const step = beginAuthStep('start');
       if (!step) return false;
       hasStartedAuthRef.current = true;
+      loginAttemptRef.current = null;
 
       try {
         const challenge = await hubConnection.invoke<CredentialChallenge | null>(
@@ -1033,6 +1048,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     const step = beginAuthStep('credentials');
     if (!step) return false;
     hasStartedAuthRef.current = true;
+    loginAttemptRef.current = null;
 
     try {
       // Start login to get initial challenge (username)

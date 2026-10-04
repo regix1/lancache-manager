@@ -3893,7 +3893,8 @@ test('feature owner keeps actual container and challenge subscriptions balanced 
     ...common,
     LOGIN_REQUIRED_SERVICE_IDS: ['Steam', 'Epic', 'Xbox'],
     getPersistentPrefillCredentialChallengeEvent: (service) => service + 'CredentialChallenge',
-    getPersistentPrefillAuthStateChangedEvent: (service) => service + 'AuthStateChanged'
+    getPersistentPrefillAuthStateChangedEvent: (service) => service + 'AuthStateChanged',
+    getPersistentPrefillSessionUpdatedEvent: (service) => service + 'LoginSessionUpdated'
   });
   const bulkCalls = [];
   const ApiService = {
@@ -3982,7 +3983,7 @@ test('feature owner keeps actual container and challenge subscriptions balanced 
   let tree = draw();
   const snapshot = () => [...listeners].map(([event, handlers]) => [event, handlers.size]);
   const baseline = snapshot();
-  assert.equal(baseline.length, 14);
+  assert.equal(baseline.length, 17);
   assert.ok(baseline.every(([, count]) => count === 1));
   const registrations = changes.length;
 

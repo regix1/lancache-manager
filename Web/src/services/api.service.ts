@@ -3853,16 +3853,12 @@ class ApiService {
 
   static async getPersistentChallenge(
     service: PersistentPrefillServiceId,
-    timeoutSeconds: number | undefined,
     sessionId: string,
-    loginId?: string | null
+    loginAttempt?: number | null
   ): Promise<PersistentChallengeResponse> {
     try {
       const params = new URLSearchParams({ service, sessionId });
-      if (timeoutSeconds !== undefined) {
-        params.set('timeoutSeconds', timeoutSeconds.toString());
-      }
-      if (loginId) params.set('loginId', loginId);
+      if (typeof loginAttempt === 'number') params.set('loginAttempt', loginAttempt.toString());
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/challenge?${params.toString()}`,
         this.getFetchOptions()
@@ -3870,9 +3866,8 @@ class ApiService {
       if (res.status === 404) {
         // Handled here, not by the generic handleResponse below: ResolveRunningPersistentSession's
         // typed NotFound body has an `error` field, so handleResponse's structured-error branch
-        // would throw that message with no "HTTP 404" prefix, breaking the poller's terminal-404
-        // detection (usePersistentPrefillAuth's isPersistentChallengeNotFoundError). Parse the
-        // typed body ourselves and attach status+state as `.cause` so detection is structural.
+        // would throw that message with no "HTTP 404" prefix. Parse the typed body ourselves and
+        // attach status+state as `.cause` so detection is structural.
         const bodyText = await res.text().catch(() => '');
         let state: PersistentSessionNotFoundState = 'notStarted';
         let message = 'HTTP 404: persistent session not found';

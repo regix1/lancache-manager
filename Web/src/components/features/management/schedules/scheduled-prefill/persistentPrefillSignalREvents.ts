@@ -32,6 +32,11 @@ export const getPersistentPrefillAuthStateChangedEvent = (
   serviceId: PersistentPrefillServiceId
 ): string => getEventName('AuthStateChanged', persistentPrefillServiceToEventKey(serviceId));
 
+/** Resolves the platform-specific DaemonSessionUpdated event name; its session carries how the last sign-in ended. */
+export const getPersistentPrefillSessionUpdatedEvent = (
+  serviceId: PersistentPrefillServiceId
+): string => getEventName('DaemonSessionUpdated', persistentPrefillServiceToEventKey(serviceId));
+
 /** All SignalR events that should trigger a persistent-container list refresh. */
 export const PERSISTENT_PREFILL_CONTAINER_SIGNALR_EVENTS = PERSISTENT_PREFILL_SERVICES.flatMap(
   ({ service }) =>

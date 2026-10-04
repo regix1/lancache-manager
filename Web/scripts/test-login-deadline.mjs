@@ -158,19 +158,18 @@ async function persistent(storage, service = 'Steam', rearm = false) {
     storeUrl = `${moduleUrl(output)}#${id}`;
   }
   const store = await import(storeUrl);
-  const hooks = await import(
-    await compileToUrl(hookPath, {
-      react: reactUrl,
-      'react-i18next': aliases['react-i18next'],
-      '@services/api.service': apiUrl,
-      '@services/apiError': moduleUrl('export class ApiError extends Error {}'),
-      '@utils/error': aliases['@utils/error'],
-      '@utils/uuid': await compileToUrl('../src/utils/uuid.ts'),
-      './loginAttemptTimeout': timeoutUrl,
-      './authStage': authStageUrl,
-      '@components/features/management/schedules/scheduled-prefill/persistentLoginStore': storeUrl
-    })
-  );
+  const hooksUrl = await compileToUrl(hookPath, {
+    react: reactUrl,
+    'react-i18next': aliases['react-i18next'],
+    '@services/api.service': apiUrl,
+    '@services/apiError': moduleUrl('export class ApiError extends Error {}'),
+    '@utils/error': aliases['@utils/error'],
+    '@utils/uuid': await compileToUrl('../src/utils/uuid.ts'),
+    './loginAttemptTimeout': timeoutUrl,
+    './authStage': authStageUrl,
+    '@components/features/management/schedules/scheduled-prefill/persistentLoginStore': storeUrl
+  });
+  const hooks = await import(hooksUrl);
   const instance = createComponent();
   const render = () => instance.render(() => hooks.usePersistentPrefillAuth({ service }));
   const host = await import(
@@ -202,12 +201,16 @@ async function persistent(storage, service = 'Steam', rearm = false) {
         'export const getPersistentServiceId=value=>value[0].toUpperCase()+value.slice(1);'
       ),
       './persistentPrefillSignalREvents': moduleUrl(
-        "export const getPersistentPrefillCredentialChallengeEvent=service=>'challenge:'+service;export const getPersistentPrefillAuthStateChangedEvent=service=>'auth:'+service;"
+        "export const getPersistentPrefillCredentialChallengeEvent=service=>'challenge:'+service;export const getPersistentPrefillAuthStateChangedEvent=service=>'auth:'+service;export const getPersistentPrefillSessionUpdatedEvent=service=>'session:'+service;"
+      ),
+      '@hooks/useReconnectRefetch': moduleUrl(
+        'export const useReconnectRefetch=(_connected,read)=>{globalThis.loginTest.reconnect=read;};'
       )
     }
   );
   const signal = await import(signalUrl);
   globalThis.loginTest.signal = {
+    isConnected: true,
     on(name, handler) {
       handlers.set(name, handler);
     },
@@ -236,6 +239,19 @@ async function persistent(storage, service = 'Steam', rearm = false) {
     render,
     calls,
     handlers,
+    // The one read the push hook makes when the socket comes back.
+    reconnect: () => globalThis.loginTest.reconnect(),
+    async xboxHook() {
+      return import(
+        await compileToUrl('../src/hooks/usePersistentXboxAuth.ts', {
+          react: reactUrl,
+          './usePersistentPrefillAuth': hooksUrl,
+          './useErrorHandler': aliases['./useErrorHandler'],
+          '@components/features/management/schedules/scheduled-prefill/persistentLoginStore':
+            storeUrl
+        })
+      );
+    },
     reveal() {
       const state = render().state;
       return hostInstance.render(() =>
@@ -974,19 +990,111 @@ test('an ending of another attempt or before any sign-in leaves the dialog as it
   }
 });
 
-test('a refused persistent sign-in ends with its refusal, not the deadline', async () => {
+test('a retry forgets the refused attempt, so its refusal on the resubscribe cannot end the new one', async () => {
+  const flow = guest();
+  try {
+    flow.reply = { ...challenge('first'), loginAttempt: 4 };
+    await flow.start();
+    flow.socket.handlers.get('AuthStateChanged')({
+      sessionId: 'session',
+      authState: 'NotAuthenticated'
+    });
+    assert.equal(flow.render().state.error, 'prefill.auth.signInRefused');
+    assert.equal(flow.outcomes.errors.length, 1);
+
+    const second = deferred();
+    flow.reply = second.promise;
+    let auth = flow.render();
+    auth.actions.setPassword('password');
+    auth = flow.render();
+    const retry = auth.actions.handleAuthenticate();
+    await Promise.resolve();
+    flow.reconnect();
+    flow.socket.handlers.get('SessionSubscribed')(subscribedSession(refusedEnding(4)));
+    assert.equal(flow.outcomes.errors.length, 1);
+
+    second.resolve({ ...challenge('second'), loginAttempt: 5 });
+    await retry;
+    assert.equal(flow.render().state.waitingForMobileConfirmation, true);
+    assert.equal(flow.outcomes.errors.length, 1);
+  } finally {
+    flow.unmount();
+  }
+});
+
+test('an approval that lands after the dialog timed out replaces the timeout text with success', async () => {
+  const time = clock();
+  const flow = guest();
+  try {
+    flow.reply = { ...challenge('first'), loginAttempt: 7 };
+    flow.cancel = async () => {
+      throw new Error('connection lost');
+    };
+    await flow.start();
+    await time.advance(120000);
+    assert.equal(flow.render().state.error, 'prefill.auth.approvalTimedOut');
+    flow.reconnect();
+    flow.socket.handlers.get('SessionSubscribed')(subscribedSession(signedInEnding(7)));
+    assert.equal(flow.outcomes.success, 1);
+    assert.equal(flow.render().state.error, null);
+  } finally {
+    flow.unmount();
+    time.restore();
+  }
+});
+
+test('a guest sign-in the app stopped shows the ending text, not the refusal', async () => {
+  const flow = guest();
+  try {
+    flow.reply = { ...challenge('first'), loginAttempt: 4 };
+    await flow.start();
+    flow.reconnect();
+    flow.socket.handlers.get('SessionSubscribed')(
+      subscribedSession({
+        loginAttempt: 4,
+        status: 'cancelled',
+        stageKey: 'errors.integration.attemptExpired'
+      })
+    );
+    assert.equal(flow.render().state.error, 'errors.integration.attemptExpired');
+  } finally {
+    flow.unmount();
+  }
+});
+
+test('a refusal after the dialog timed out keeps the timeout text', async () => {
+  const time = clock();
+  const flow = guest();
+  try {
+    flow.reply = { ...challenge('first'), loginAttempt: 7 };
+    await flow.start();
+    await time.advance(120000);
+    assert.equal(flow.render().state.error, 'prefill.auth.approvalTimedOut');
+    const errorsAfterTimeout = flow.outcomes.errors.length;
+    flow.reconnect();
+    flow.socket.handlers.get('SessionSubscribed')(subscribedSession(refusedEnding(7)));
+    assert.equal(flow.render().state.error, 'prefill.auth.approvalTimedOut');
+    assert.equal(flow.outcomes.errors.length, errorsAfterTimeout);
+  } finally {
+    flow.unmount();
+    time.restore();
+  }
+});
+
+// What PrefillDaemonServiceBase pushes as DaemonSessionUpdated once a sign-in ended: the session snapshot, which carries
+// loginEnding only after a sign-in ended (the hub serializer drops null fields).
+const endedSession = (loginEnding) => ({ id: 'session', loginEnding });
+
+test('a refused persistent sign-in ends a waiting submit with its refusal, not the deadline', async () => {
   const time = clock();
   let flow;
   try {
     flow = await persistent(new MemoryStorage());
     await flow.start();
-    // What GetChallengeAsync answers once the login's own sign-in ended other than signed in.
-    const answers = [
-      { status: 'ended', sessionId: 'session', loginEnding: refusedEnding(1) },
-      { status: 'logged-in', sessionId: 'session' }
-    ];
-    flow.poll = async () => answers.shift();
-    assert.equal(await flow.render().actions.submit('password'), false);
+    const submitted = flow.render().actions.submit('password');
+    await new Promise((resolve) => setImmediate(resolve));
+    flow.handlers.get('session:Steam')(endedSession(refusedEnding(7)));
+    assert.equal(await submitted, false);
     assert.equal(flow.store.getPersistentLoginState('Steam').error, 'prefill.auth.signInRefused');
   } finally {
     flow?.close();
@@ -994,76 +1102,149 @@ test('a refused persistent sign-in ends with its refusal, not the deadline', asy
   }
 });
 
-test('one failed challenge read is read again after 5 seconds', async () => {
+test('a pushed refusal resets the persistent sign-in and a retry starts a new one', async () => {
   const time = clock();
   let flow;
   try {
     flow = await persistent(new MemoryStorage());
     await flow.start();
-    const answers = [
-      () => Promise.reject(new TypeError('Failed to fetch')),
-      () => Promise.resolve({ status: 'logged-in', sessionId: 'session' })
-    ];
-    flow.poll = () => answers.shift()();
+    assert.equal(flow.store.getPersistentLoginState('Steam').pendingChallenge.loginAttempt, 7);
+    flow.handlers.get('session:Steam')(endedSession(refusedEnding(7)));
+    const state = flow.store.getPersistentLoginState('Steam');
+    assert.equal(state.pendingChallenge, null);
+    assert.equal(state.loginDeadline, null);
+    assert.equal(state.error, 'prefill.auth.signInRefused');
+    await flow.render().actions.start();
+    assert.equal(flow.calls.filter(([name]) => name === 'start').length, 2);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('a pushed refusal ends a persistent sign-in restored after a page reload', async () => {
+  const time = clock();
+  const storage = new MemoryStorage();
+  let flow;
+  try {
+    storage.setItem(
+      'persistent-login-deadline:Steam',
+      JSON.stringify({
+        version: 1,
+        deadline: time.now + 120000,
+        sessionId: 'session',
+        operationId: 'operation',
+        challengeId: 'first'
+      })
+    );
+    flow = await persistent(storage);
+    assert.equal(await flow.restore(), 'challenge');
+    assert.equal(flow.store.getPersistentLoginState('Steam').loginId, null);
+    flow.handlers.get('session:Steam')(endedSession(refusedEnding(7)));
+    const state = flow.store.getPersistentLoginState('Steam');
+    assert.equal(state.pendingChallenge, null);
+    assert.equal(state.error, 'prefill.auth.signInRefused');
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('a pushed ending of another attempt leaves the persistent sign-in as it is', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    await flow.start();
+    flow.handlers.get('session:Steam')(endedSession(refusedEnding(8)));
+    const state = flow.store.getPersistentLoginState('Steam');
+    assert.equal(state.pendingChallenge.loginAttempt, 7);
+    assert.equal(state.error, null);
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('a persistent sign-in reads its challenge once when the socket comes back', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    await flow.start();
+    flow.poll = async () => ({
+      status: 'ended',
+      sessionId: 'session',
+      loginEnding: refusedEnding(7)
+    });
+    flow.reconnect();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(
+      flow.calls.filter(([name]) => name === 'poll'),
+      [['poll', 'Steam', 'session', 7]]
+    );
+    const state = flow.store.getPersistentLoginState('Steam');
+    assert.equal(state.pendingChallenge, null);
+    assert.equal(state.error, 'prefill.auth.signInRefused');
+  } finally {
+    flow?.close();
+    time.restore();
+  }
+});
+
+test('a submitted credential waits for the pushed challenge and asks the server nothing', async () => {
+  const time = clock();
+  let flow;
+  try {
+    flow = await persistent(new MemoryStorage());
+    await flow.start();
     const submitted = flow.render().actions.submit('password');
     await new Promise((resolve) => setImmediate(resolve));
-    await time.advance(5000);
-    assert.equal(await submitted, true);
-    assert.equal(flow.store.getPersistentLoginState('Steam').error, null);
+    assert.equal(flow.calls.filter(([name]) => name === 'poll').length, 0);
+    flow.handlers.get('challenge:Steam')({
+      sessionId: 'session',
+      challenge: challenge('two-factor-next', '2fa', time.now + 120000)
+    });
+    assert.equal(await submitted, false);
+    assert.equal(
+      flow.store.getPersistentLoginState('Steam').pendingChallenge.challengeId,
+      'two-factor-next'
+    );
+    assert.equal(flow.calls.filter(([name]) => name === 'poll').length, 0);
   } finally {
     flow?.close();
     time.restore();
   }
 });
 
-test('each challenge read names its login', async () => {
-  const time = clock();
-  let flow;
-  try {
-    flow = await persistent(new MemoryStorage());
-    await flow.start();
-    const { loginId } = flow.store.getPersistentLoginState('Steam');
-    assert.notEqual(loginId, null);
-    flow.poll = async () => ({ status: 'logged-in', sessionId: 'session' });
-    await flow.render().actions.poll();
-    const read = flow.calls.find(([name]) => name === 'poll');
-    assert.equal(read[4], loginId);
-  } finally {
-    flow?.close();
-    time.restore();
-  }
-});
-
-test('an Xbox poll that reads an ended sign-in stops with its reason', async () => {
+test('an Xbox device-code start asks the server for no further challenge', async () => {
   const time = clock();
   let flow;
   try {
     flow = await persistent(new MemoryStorage(), 'Xbox');
     flow.reply = { ...challenge('first', 'device-code'), sessionId: 'session' };
-    await flow.start();
-    flow.poll = async () => ({
-      status: 'ended',
-      sessionId: 'session',
-      loginEnding: refusedEnding(1)
-    });
-    const result = await flow.render().actions.poll();
-    assert.equal(result.status, 'ended');
-    assert.equal(flow.store.getPersistentLoginState('Xbox').error, 'prefill.auth.signInRefused');
+    const xbox = await flow.xboxHook();
+    const instance = createComponent();
+    const challengeBack = await instance.render(() => xbox.usePersistentXboxAuth()).startLogin();
+    assert.equal(challengeBack.credentialType, 'device-code');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(flow.calls.filter(([name]) => name === 'poll').length, 0);
+    instance.unmount();
   } finally {
     flow?.close();
     time.restore();
   }
 });
 
-test('persistent same-stage poll and SignalR delivery retain the accepted step and deadline', async () => {
+test('persistent same-stage SignalR delivery retains the accepted step and deadline', async () => {
   const time = clock();
   let flow;
   try {
     flow = await persistent(new MemoryStorage());
     await flow.start();
     const deadline = flow.store.getPersistentLoginState('Steam').loginDeadline;
-    flow.poll = async () => flow.reply;
-    await flow.render().actions.submit('credential');
+    const submitted = flow.render().actions.submit('credential');
+    await new Promise((resolve) => setImmediate(resolve));
     assert.equal(flow.store.getPersistentLoginState('Steam').loading, true);
 
     flow.handlers.get('challenge:Steam')({
@@ -1073,6 +1254,7 @@ test('persistent same-stage poll and SignalR delivery retain the accepted step a
     const retained = flow.store.getPersistentLoginState('Steam');
     assert.equal(retained.loading, true);
     assert.equal(retained.loginDeadline, deadline);
+    await submitted;
     flow.render().actions.dismissModal();
     flow.render().actions.resumeModal();
     await flow.render().actions.submit('credential');
@@ -1101,7 +1283,6 @@ test('persistent next-stage action fences an older credential failure and retire
     let auth = flow.render();
     auth.actions.setTwoFactorCode('12345');
     auth = flow.render();
-    flow.poll = async () => next;
     const second = auth.actions.handleAuthenticate();
     await Promise.resolve();
     assert.equal(flow.store.getPersistentLoginState('Steam').loading, true);
@@ -1119,10 +1300,13 @@ test('persistent next-stage action fences an older credential failure and retire
     assert.equal(state.loading, true);
 
     current.resolve();
-    await second;
+    await new Promise((resolve) => setImmediate(resolve));
     state = flow.store.getPersistentLoginState('Steam');
     assert.equal(state.loading, true);
     assert.equal(submissions, 2);
+    // The second submit now waits for the next push; closing the flow resets the store and ends that wait.
+    flow.close();
+    await second;
   } finally {
     flow?.close();
     time.restore();
@@ -1139,8 +1323,9 @@ test('persistent same-stage replacements shorten but never extend accepted expir
     const shorter = challenge('password-shorter', 'password', time.now + 90000);
     const later = challenge('password-later', 'password', time.now + 180000);
     const pending = flow.render().actions.submit('password');
-    await pending;
+    await new Promise((resolve) => setImmediate(resolve));
     flow.store.applyPersistentLoginChallenge('Steam', shorter, messages, 'session');
+    await pending;
     const shortened = flow.store.getPersistentLoginState('Steam');
     assert.equal(shortened.loading, true);
     assert.ok(shortened.loginDeadline < original);
@@ -1250,7 +1435,6 @@ for (const record of [
       assert.equal(flow.calls.filter(([name]) => name === 'host-start').length, 0);
       assert.equal(flow.calls.filter(([name]) => name === 'resume').length, 1);
       assert.equal(await flow.render().actions.submit('credential'), false);
-      await assert.rejects(flow.render().actions.poll(), { message: messages.noResult });
       flow.handlers.get('challenge:Steam')({
         sessionId: 'session',
         challenge: { ...flow.reply, credentialType: 'device-confirmation' }
@@ -1484,7 +1668,7 @@ test('explicit cancellation resets locally before held poll and backend cancella
       new Promise((resolve) => {
         releaseCancel = resolve;
       });
-    const polling = flow.render().actions.poll();
+    const polling = flow.restore();
     const ending = flow.render().actions.cancel();
 
     const reset = flow.store.getPersistentLoginState('Steam');
@@ -1495,7 +1679,7 @@ test('explicit cancellation resets locally before held poll and backend cancella
     assert.equal(flow.store.getPersistentLoginState('Steam').pendingChallenge, null);
 
     releasePoll({ ...flow.reply, challengeId: 'late-poll' });
-    await polling;
+    assert.equal(await polling, 'none');
     assert.equal(flow.store.getPersistentLoginState('Steam').pendingChallenge, null);
     releaseCancel(true);
     await ending;
@@ -2116,7 +2300,6 @@ for (const mode of ['recovered', 'blocked', 'continuous'])
         assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, null);
         assert.equal(backing.getItem('persistent-login-deadline:Steam'), null);
         assert.equal(await flow.render().actions.submit('credential'), false);
-        await assert.rejects(flow.render().actions.poll());
         flow.handlers.get('challenge:Steam')({
           sessionId: 'session',
           challenge: { ...flow.reply, credentialType: 'device-confirmation' }
@@ -2215,7 +2398,7 @@ for (const mode of ['resume', 'elapsed', 'remove-failed'])
         new Promise((resolve) => {
           release = resolve;
         });
-      const pending = flow.render().actions.poll();
+      const pending = flow.restore();
       flow.hide();
       const saved = backing.getItem(key);
       assert.equal(JSON.parse(saved).deadline, original);
@@ -2229,10 +2412,9 @@ for (const mode of ['resume', 'elapsed', 'remove-failed'])
         }
       });
       release({ authenticated: true, sessionId: 'session' });
-      await assert.rejects(pending);
+      assert.equal(await pending, 'none');
       assert.equal(await flow.render().actions.submit('credential'), false);
       assert.equal(await flow.render().actions.start(), null);
-      await assert.rejects(flow.render().actions.poll());
       assert.equal(await flow.restore(), 'none');
       assert.deepEqual(
         flow.calls.map(([name]) => name),
@@ -2269,7 +2451,6 @@ for (const mode of ['resume', 'elapsed', 'remove-failed'])
         assert.equal(flow.store.getPersistentLoginState('Steam').error, messages.noResult);
         assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, null);
         assert.equal(await flow.render().actions.submit('credential'), false);
-        await assert.rejects(flow.render().actions.poll());
         assert.equal(backing.getItem(key), saved);
         assert.deepEqual(
           flow.calls.map(([name]) => name),

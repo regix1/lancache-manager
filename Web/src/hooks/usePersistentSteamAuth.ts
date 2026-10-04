@@ -17,7 +17,6 @@ interface PersistentSteamAuthActions extends SteamAuthActions {
 }
 
 interface UsePersistentSteamAuthOptions {
-  timeoutSeconds?: number;
   onSuccess?: () => void;
   onError?: (message: string) => void;
 }

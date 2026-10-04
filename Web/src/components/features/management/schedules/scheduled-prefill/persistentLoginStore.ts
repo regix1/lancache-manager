@@ -35,7 +35,7 @@ interface PersistentLoginStoreState {
    */
   dismissed: boolean;
   /**
-   * Non-null after a challenge poll came back 404 (the daemon session backing this login is gone -
+   * Non-null after a challenge read came back 404 (the daemon session backing this login is gone -
    * socket dropped, container stopped, etc. - see diagnostic ADDENDUM). Carries the backend's
    * errored-vs-never-started discriminator so the card can show distinct copy for each, instead of
    * the raw HTTP error that triggered the reset. Cleared by the next `resetPersistentLoginState`
@@ -45,7 +45,7 @@ interface PersistentLoginStoreState {
   /**
    * RC3 fix: the `DaemonSession.Id` this login flow is
    * currently pinned to, taken from the `sessionId` every persistent-login REST response now
-   * carries. Every follow-up call (challenge poll, provide-credential, cancel-login) sends this
+   * carries. Every follow-up call (challenge read, provide-credential, cancel-login) sends this
    * back so the server can reject a request that has been superseded by a newer session instead of
    * silently substituting it (the pre-fix cross-session leak). `null` when no login is pinned yet.
    */
@@ -711,26 +711,7 @@ export function resetPersistentLoginState(service: PersistentPrefillServiceId): 
 }
 
 /**
- * Terminal reset for a challenge poll that came back 404 (see diagnostic ADDENDUM): the daemon
- * session backing this login is gone entirely (socket dropped, container stopped, etc.), so
- * continuing to poll it is pointless. Resets the flow to idle like `resetPersistentLoginState`,
- * but sets `sessionUnavailableState` so the card can show a friendly "not running - press Start"
- * (or, for an errored session, "session errored - press Start to restart") message instead of
- * leaving the raw HTTP 404 that triggered this in `error`.
- */
-export function terminatePersistentLoginSessionUnavailable(
-  service: PersistentPrefillServiceId,
-  state: PersistentSessionNotFoundState = 'notStarted'
-): void {
-  clearPersistentLoginClock(service);
-  clearPersistentLoginTimeout(service);
-  invalidateInFlightLogin(service);
-  states.set(service, { ...INITIAL_PERSISTENT_LOGIN_STATE, sessionUnavailableState: state });
-  notify(service);
-}
-
-/**
- * Terminal reset for a REST call (challenge poll or credential submit) that came back 409 because
+ * Terminal reset for a REST call (challenge read or credential submit) that came back 409 because
  * the pinned session was superseded by a newer one (RC3 fix):
  * the daemon session this login flow was pinned to is no longer the active one for this service
  * (the user stopped it and a fresh container started, or a scheduled run replaced it). Continuing
@@ -751,9 +732,9 @@ export function resetPersistentLoginSessionReplaced(
 }
 
 /**
- * Applies a challenge to the store - from either delivery path (the REST resume/poll response, or
+ * Applies a challenge to the store - from either delivery path (the REST read, or
  * the SignalR CredentialChallenge push). The two can race and deliver the SAME challenge twice
- * (e.g. the poll's in-flight response lands right after SignalR already applied it): when the
+ * (e.g. the read's in-flight response lands right after SignalR already applied it): when the
  * incoming challenge's id matches what's already stored, this is a re-delivery, not a new
  * challenge, so `dismissed` is left untouched instead of being force-reset to false - otherwise a
  * modal the user deliberately dismissed would silently reopen itself.
@@ -769,7 +750,7 @@ export function resetPersistentLoginSessionReplaced(
  * Called from the SignalR `AuthStateChanged: Authenticated` push (see usePersistentLoginChallengeSignalR),
  * which is the RELIABLE, event-driven signal that the daemon logged in - e.g. the moment the user
  * approves a Steam mobile device-confirmation on their phone. Without this the persistent flow had no
- * event path to completion and relied solely on the REST challenge poll, which can miss the login
+ * event path to completion and relied solely on a REST challenge read, which can miss the login
  * transition (the mapping/guest flow has always completed via AuthStateChanged; this gives the
  * persistent flow parity). Setting `authenticated: true` drives the login component's own
  * `onAuthenticated` effect, closing the modal.
@@ -881,6 +862,16 @@ function subscribePersistentLoginState(
   return () => {
     set.delete(listener);
   };
+}
+
+/** Resolves at the next write to this service's login state, so a submit waits on the pushes instead of asking again. */
+export function waitForPersistentLoginChange(service: PersistentPrefillServiceId): Promise<void> {
+  return new Promise((resolve) => {
+    const stop = subscribePersistentLoginState(service, () => {
+      stop();
+      resolve();
+    });
+  });
 }
 
 export function usePersistentLoginStoreState(
@@ -1083,8 +1074,6 @@ export function setPersistentLoginStartPromise(
   }
 }
 
-const RESUME_PROBE_TIMEOUT_SECONDS = 1;
-
 type PersistentLoginReconcileResult = 'authenticated' | 'challenge' | 'none' | 'unavailable';
 
 /**
@@ -1108,11 +1097,7 @@ export async function reconcilePersistentLoginFromServer(
   if (suspended) return 'none';
   const epoch = getPersistentLoginEpoch(service);
   try {
-    const response = await ApiService.getPersistentChallenge(
-      service,
-      RESUME_PROBE_TIMEOUT_SECONDS,
-      sessionId
-    );
+    const response = await ApiService.getPersistentChallenge(service, sessionId);
     if (suspended || getPersistentLoginEpoch(service) !== epoch) return 'none';
     const responseSession = extractPersistentSessionId(response);
     if (responseSession !== null && responseSession !== sessionId) return 'none';

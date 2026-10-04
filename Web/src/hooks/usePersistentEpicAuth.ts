@@ -17,7 +17,6 @@ interface PersistentEpicAuthState extends EpicAuthState {
 }
 
 interface UsePersistentEpicAuthOptions {
-  timeoutSeconds?: number;
   onSuccess?: () => void;
   onError?: (message: string) => void;
 }
