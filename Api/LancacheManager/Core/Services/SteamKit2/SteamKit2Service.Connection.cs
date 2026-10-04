@@ -44,6 +44,10 @@ public partial class SteamKit2Service
         {
             lock (_loginOwnerLock)
             {
+                // A sign-in kept for a code that nobody sent stops holding the session once its window ends, as an
+                // ended sign-in does, so the session reconnects on the saved login.
+                if (_loginAttempt is { } kept && _loginReporter is null && !_steamAuthRepository.IsIntegrationLoginCurrent(kept))
+                    ReleaseLoginOwner(kept);
                 if (_loginAttempt is null && !_steamAuthRepository.IsIntegrationCurrent(_sessionAuthVersion))
                 {
                     var snapshot = _steamAuthRepository.GetIntegrationSnapshot();

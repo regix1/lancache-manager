@@ -95,10 +95,10 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
 
     /// <summary>
     /// A cancel from another tab reads as a cancel from the moment the sign-in stops counting as running, not only once
-    /// the cancelled sign-in has unwound. The sign-in is parked in its own cancel log line, so the read lands in between.
+    /// the canceled sign-in has unwound. The sign-in is parked in its own cancel log line, so the read lands in between.
     /// </summary>
     [Fact]
-    public async Task ACancelIsReadableBeforeTheCancelledSignInHasUnwoundAsync()
+    public async Task ACancelIsReadableBeforeTheCanceledSignInHasUnwoundAsync()
     {
         var service = CreateService(CreateTracker(), new SemaphoreSlim(0, 1));
         var inCancelArm = new ManualResetEventSlim();
@@ -152,7 +152,7 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
     }
 
     [Fact]
-    public async Task AFailedAndACancelledSignInEachAnnounceTheirEndingAsync()
+    public async Task AFailedAndACanceledSignInEachAnnounceTheirEndingAsync()
     {
         var failing = CreateService(CreateTracker());
         var failed = await failing.AuthenticateAsync("account", "password");
@@ -251,7 +251,32 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         Assert.True(result.SessionExpired);
         Assert.Equal("twoFactor", service.GetPendingLoginPrompt(attemptId));
         Assert.Null(service.GetIntegrationLoginEnding(new IntegrationCaller(null, null, false), attemptId));
-        Assert.Empty(SentEndings(service));
+        Assert.Equal(new SignalRNotifications.IntegrationLoginEnded(attemptId), Assert.Single(SentEndings(service)).Payload);
+    }
+
+    /// <summary>
+    /// The window callback and a trusted logout call <c>CancelLogin()</c> while the attempt still names a sign-in that was
+    /// just saved; the save's ending stays.
+    /// </summary>
+    [Fact]
+    public async Task ACancelAfterTheSaveKeepsTheSignInCompletedAsync()
+    {
+        var service = CreateService(CreateTracker());
+        var caller = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+        var storage = GetPrivateField<SteamAuthStorageService>(service, "_steamAuthRepository");
+        var login = await storage.BeginIntegrationLoginAsync(caller);
+        SetPrivateField(service, "_loginAttempt", login);
+
+        Assert.True(storage.CompleteIntegrationLogin(
+            login,
+            new SteamAuthData { Mode = "authenticated", Username = "steam-user", RefreshToken = "token", OwnerAccountId = login.AccountId },
+            () => storage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
+                login.AttemptId, OperationStatus.Completed, "modals.steamAuth.success.authenticatedAs"))));
+        service.CancelLogin();
+
+        var ending = service.GetIntegrationLoginEnding(caller, login.AttemptId);
+        Assert.NotNull(ending);
+        Assert.Equal(OperationStatus.Completed, ending.Status);
     }
 
     /// <summary>Never constructed: the sign-in harness builds the service uninitialized, so the base arguments are unused.</summary>

@@ -102,7 +102,8 @@ public partial class SteamKit2Service
                 // starts a new Steam session on this attempt.
                 keepPendingLoginOwner = true;
                 if (pollResult.Result.RequiresTwoFactor || pollResult.Result.RequiresEmailCode || pollResult.Result.SessionExpired)
-                    lock (_loginOwnerLock) _pendingLoginPrompt = pollResult.Result.RequiresEmailCode ? "email" : "twoFactor";
+                    lock (_loginOwnerLock)
+                        if (_loginAttempt == login) _pendingLoginPrompt = pollResult.Result.RequiresEmailCode ? "email" : "twoFactor";
                 return await CompleteLoginAsync(login, pollResult.Result);
             }
 
@@ -205,27 +206,18 @@ public partial class SteamKit2Service
         }
         finally
         {
-            var ended = admitted && !keepPendingLoginOwner;
             lock (_loginOwnerLock)
             {
                 if (admitted && ReferenceEquals(_loginReporter, reporter))
                 {
                     _loginReporter = null;
                     Interlocked.Exchange(ref _loginActive, 0);
-                    if (!keepPendingLoginOwner)
-                    {
-                        _steamAuthRepository.FinishIntegrationLogin(login);
-                        _hasPendingLoginOwner = false;
-                        _pendingLoginUsername = null;
-                        _pendingLoginPrompt = null;
-                        _loginAttempt = null;
-                        ReportSteamIntegrationAuthenticated();
-                    }
+                    if (!keepPendingLoginOwner) ReleaseLoginOwner(login);
                 }
             }
             if (reporter is not null) await reporter.DisposeAsync();
-            // A browser that lost this sign-in's answer reads its ending when this arrives.
-            if (ended)
+            // A browser that lost this sign-in's answer reads how it ended, or the code prompt it was kept for, when this arrives.
+            if (admitted)
             {
                 try
                 {
@@ -266,6 +258,20 @@ public partial class SteamKit2Service
     {
         lock (_loginOwnerLock)
             _steamAuthRepository.CancelIntegrationLogin(caller, attemptId, CancelLogin);
+    }
+
+    /// <summary>
+    /// Ends <paramref name="login"/>'s hold on the Steam session: the attempt stops counting as pending and the session
+    /// stops waiting for its owner. The caller holds <c>_loginOwnerLock</c>.
+    /// </summary>
+    private void ReleaseLoginOwner(IntegrationLogin login)
+    {
+        _steamAuthRepository.FinishIntegrationLogin(login);
+        _hasPendingLoginOwner = false;
+        _pendingLoginUsername = null;
+        _pendingLoginPrompt = null;
+        _loginAttempt = null;
+        ReportSteamIntegrationAuthenticated();
     }
 
     /// <summary>

@@ -227,6 +227,25 @@ public sealed class SteamSessionPolicyTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => recovery);
     }
 
+    [Fact]
+    public async Task AKeptSignInWhoseWindowEndedStopsHoldingTheSessionAsync()
+    {
+        using var fixture = new Fixture();
+        var login = await fixture.Storage.BeginIntegrationLoginAsync(new IntegrationCaller(fixture.Owner, Guid.NewGuid(), true));
+        login = fixture.Storage.SetIntegrationLoginExpiry(login, DateTime.UtcNow.AddSeconds(-1));
+        Set(fixture.Service, "_loginAttempt", login);
+        Set(fixture.Service, "_hasPendingLoginOwner", true);
+        using var cancel = new CancellationTokenSource();
+
+        var ensure = (Task)Invoke(fixture.Service, "EnsureSessionAsync", cancel.Token, false, null)!;
+
+        Assert.Null(Get<IntegrationLogin?>(fixture.Service, "_loginAttempt"));
+        Assert.False(Get<bool>(fixture.Service, "_hasPendingLoginOwner"));
+        Assert.Equal(true, Invoke(fixture.Service, "HasCurrentSteamSession"));
+        await cancel.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ensure);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

@@ -270,6 +270,8 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
             {
                 _loginEndings.Remove(expired);
             }
+            // A saved sign-in stays saved: a cancel or a window that ends right after the save never replaces its ending.
+            if (_loginEndings.TryGetValue(login.AttemptId, out var kept) && kept.Ending.Status == OperationStatus.Completed) return;
             _loginEndings[login.AttemptId] = (login, ending);
         }
     }

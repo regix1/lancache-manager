@@ -45,6 +45,9 @@ public class SteamAuthController : ControllerBase
     {
         var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
         var access = _steamKit2Service.GetIntegrationAccess(caller);
+        // Read before the account flag: a completed ending is recorded after the account is marked signed in, so a read
+        // that finds it also finds the account signed in, unless a sign-out came after.
+        var loginEnding = attemptId is null ? null : _steamKit2Service.GetIntegrationLoginEnding(caller, attemptId.Value);
         var isAuthenticated = _steamKit2Service.IsSteamAuthenticated;
         var authMode = isAuthenticated ? SteamAuthMode.Authenticated : SteamAuthMode.Anonymous;
         var username = isAuthenticated && access.CanManage ? _stateService.GetSteamUsername() : null;
@@ -61,7 +64,7 @@ public class SteamAuthController : ControllerBase
             OwnershipReason = access.OwnershipReason,
             AttemptId = access.AttemptId,
             LoginExpiresAtUtc = access.LoginExpiresAtUtc,
-            LoginEnding = attemptId is null ? null : _steamKit2Service.GetIntegrationLoginEnding(caller, attemptId.Value),
+            LoginEnding = loginEnding,
             PendingPrompt = attemptId is { } asked && access.AttemptId == asked ? _steamKit2Service.GetPendingLoginPrompt(asked) : null,
             Mode = authModeWire,
             Username = username ?? string.Empty,
