@@ -61,9 +61,9 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
     protected override bool SupportsNotifications => true;
 
-    // Routine background chore: scheduled runs stay quiet by default; manually triggered runs
-    // still notify.
-    protected override NotificationMode DefaultNotificationMode => NotificationMode.Manual;
+    // Routine background chore: it draws nothing by default, and the user can pick another mode
+    // on the Schedules page.
+    protected override NotificationMode DefaultNotificationMode => NotificationMode.Hidden;
 
     public override string ServiceKey => "gameImageFetch";
 
