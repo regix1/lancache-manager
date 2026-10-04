@@ -219,6 +219,7 @@ async function startWizard(overrides) {
     // One entry per run id: `{ status, endedAt, nextOperationId? }`, as the tracker keeps each run by its own id.
     runs: new Map([['op', { status: 'running', endedAt: 0 }]]),
     asked: [],
+    statusReads: 0,
     killed: [],
     runGone: false,
     endingOnForceStop: 'cancelled',
@@ -241,8 +242,9 @@ async function startWizard(overrides) {
     useSelectionSet: () => ({ selected: new Set(), toggle: () => undefined }),
     ApiError,
     ApiService: {
-      getProcessingStatus: () =>
-        Promise.resolve(
+      getProcessingStatus: () => {
+        server.statusReads += 1;
+        return Promise.resolve(
           server.processing
             ? {
                 isProcessing: true,
@@ -251,7 +253,8 @@ async function startWizard(overrides) {
                 status: 'processing'
               }
             : { isProcessing: false, operationId: null, status: 'idle' }
-        ),
+        );
+      },
       getTrackedOperation: (id) => {
         server.asked.push(id);
         const run = server.runs.get(id);
@@ -568,6 +571,41 @@ test('a promoted run that already ended is shown at the next tick', async () => 
   assert.equal(view.continueButton, true, 'the run that took over already ended');
   assert.equal(view.spinner, false);
   wizard.dispose();
+});
+
+test('after following a hand-off to a run still processing the step reads every 30 seconds again', async () => {
+  // The processing status names op3 as the run in front, as the server does while op3 processes.
+  const handedOff = { status: 'completed', endedAt: 0, nextOperationId: 'op3' };
+
+  // The hand-off is found on the first read.
+  const first = await startWizard({});
+  first.server.operationId = 'op3';
+  first.server.runs.set('op', handedOff);
+  first.server.runs.set('op3', { status: 'running', endedAt: 0 });
+  await first.advanceTo(30);
+  const firstBaseline = first.server.statusReads;
+  await first.advanceTo(90);
+  assert.ok(
+    first.server.statusReads - firstBaseline <= 3,
+    `${first.server.statusReads - firstBaseline} status reads in the 60 seconds after the hand-off`
+  );
+  first.dispose();
+
+  // The pass reads as waiting in the queue first, then hands off.
+  const queued = await startWizard({});
+  queued.server.operationId = 'op3';
+  queued.server.runs.set('op', { status: 'waiting', endedAt: 0 });
+  queued.server.runs.set('op3', { status: 'running', endedAt: 0 });
+  await queued.advanceTo(30);
+  queued.server.runs.set('op', handedOff);
+  await queued.advanceTo(35);
+  const queuedBaseline = queued.server.statusReads;
+  await queued.advanceTo(95);
+  assert.ok(
+    queued.server.statusReads - queuedBaseline <= 3,
+    `${queued.server.statusReads - queuedBaseline} status reads in the 60 seconds after the hand-off`
+  );
+  queued.dispose();
 });
 
 test("another tab's pass that starts after this step's pass completed keeps Continue", async () => {

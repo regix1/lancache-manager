@@ -291,10 +291,11 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           const run = pass ? await ApiService.getTrackedOperation(pass) : null;
           if (stale()) return;
           if (run?.nextOperationId) {
-            // A queued pass handed its work to the run that took over; that run is read at the next tick.
+            // A queued pass handed its work to the run that took over. The quiet is counted as 26 seconds, so the next
+            // 5 second tick reads that run once, and a run still processing then goes back to the 30 second wait.
             setActiveOperationId(run.nextOperationId);
-            endingPendingRef.current = true;
-            setLastEventAt(Date.now());
+            endingPendingRef.current = false;
+            setLastEventAt(Date.now() - 26000);
             return;
           }
           if (
