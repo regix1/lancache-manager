@@ -216,8 +216,9 @@ class ApiError extends Error {
 async function startWizard(overrides) {
   const server = {
     processing: true,
-    runStatus: 'running',
-    endedAt: 0,
+    // One entry per run id: `{ status, endedAt, nextOperationId? }`, as the tracker keeps each run by its own id.
+    runs: new Map([['op', { status: 'running', endedAt: 0 }]]),
+    asked: [],
     runGone: false,
     endingOnForceStop: 'cancelled',
     operationId: 'op',
@@ -251,17 +252,22 @@ async function startWizard(overrides) {
             : { isProcessing: false, operationId: null, status: 'idle' }
         ),
       getTrackedOperation: (id) => {
+        server.asked.push(id);
+        const run = server.runs.get(id);
+        // A dropped run is kept for 5 minutes after the 10 second drop, then the id answers 200 with no status.
         const forgotten =
-          (server.runStatus === 'completed' || server.runStatus === 'cancelled') &&
-          ref.runner.now - server.endedAt >= 310000;
+          !run ||
+          ((run.status === 'completed' || run.status === 'cancelled') &&
+            ref.runner.now - run.endedAt >= 310000);
         // The REST answer omits null fields, so a run without an error has no `error` key.
         const body = forgotten
           ? { id, active: false, percentComplete: 100 }
           : {
               id,
               active: false,
-              status: server.runStatus,
-              ...(server.runStatus === 'failed' ? { error: 'Database unavailable' } : {})
+              status: run.status,
+              ...(run.nextOperationId ? { nextOperationId: run.nextOperationId } : {}),
+              ...(run.status === 'failed' ? { error: 'Database unavailable' } : {})
             };
         return runGate ? runGate.then(() => body) : Promise.resolve(body);
       },
@@ -270,14 +276,16 @@ async function startWizard(overrides) {
           return Promise.reject(new ApiError(404, 'Operation not found or already completed'));
         }
         server.processing = false;
-        server.runStatus = server.endingOnForceStop;
-        if (server.runStatus === 'completed' || server.runStatus === 'cancelled') {
-          server.endedAt = ref.runner.now;
-        }
+        const status = server.endingOnForceStop;
+        server.runs.set(server.operationId, {
+          status,
+          endedAt: status === 'completed' || status === 'cancelled' ? ref.runner.now : 0
+        });
         return Promise.resolve({ message: 'Operation force killed' });
       },
       resetLogPosition: () => Promise.resolve(),
-      processAllLogs: () => Promise.resolve(),
+      // The start endpoints answer the new pass's id (OperationResponse.operationId).
+      processAllLogs: () => Promise.resolve({ operationId: server.operationId }),
       getLogPositions: () => Promise.resolve([])
     },
     getErrorMessage: (error) => error.message,
@@ -397,8 +405,7 @@ test('a pass still saving its outcome is read again until it ends', async () => 
   const wizard = await startWizard({ endingOnForceStop: 'running' });
   await wizard.forceStop();
   await wizard.advanceTo(7);
-  wizard.server.runStatus = 'completed';
-  wizard.server.endedAt = 7000;
+  wizard.server.runs.set('op', { status: 'completed', endedAt: 7000 });
   await wizard.advanceTo(40);
   assert.equal(wizard.view().continueButton, true);
   wizard.dispose();
@@ -407,7 +414,7 @@ test('a pass still saving its outcome is read again until it ends', async () => 
 test('a lost completion event of a failed pass shows the failure notice', async () => {
   const wizard = await startWizard({});
   wizard.server.processing = false;
-  wizard.server.runStatus = 'failed';
+  wizard.server.runs.set('op', { status: 'failed', endedAt: 0 });
   await wizard.advanceTo(40);
   assert.ok(wizard.view().texts.includes('initialization.logProcessing.failedToProcess'));
   wizard.dispose();
@@ -416,8 +423,7 @@ test('a lost completion event of a failed pass shows the failure notice', async 
 test('a cancel that finds the run already gone shows no error', async () => {
   const wizard = await startWizard({ runGone: true });
   wizard.server.processing = false;
-  wizard.server.runStatus = 'cancelled';
-  wizard.server.endedAt = -60000;
+  wizard.server.runs.set('op', { status: 'cancelled', endedAt: -60000 });
   await wizard.forceStop();
   assert.ok(
     !wizard.view().texts.includes('Operation not found or already completed'),
@@ -432,8 +438,7 @@ test('a lost completion event with no force stop shows Continue', async () => {
   const wizard = await startWizard({});
   await wizard.advanceTo(3);
   wizard.server.processing = false;
-  wizard.server.runStatus = 'completed';
-  wizard.server.endedAt = 3000;
+  wizard.server.runs.set('op', { status: 'completed', endedAt: 3000 });
   await wizard.advanceTo(45);
   assert.equal(wizard.view().continueButton, true);
   wizard.dispose();
@@ -443,8 +448,7 @@ test('a stale tick leaves a new pass running', async () => {
   const wizard = await startWizard({});
   const release = wizard.holdRunReads();
   wizard.server.processing = false;
-  wizard.server.runStatus = 'cancelled';
-  wizard.server.endedAt = 0;
+  wizard.server.runs.set('op', { status: 'cancelled', endedAt: 0 });
   // The tick at 30 seconds reads the idle status, and its run read stays out.
   await wizard.advanceTo(30);
   await wizard.emit('LogProcessingComplete', {
@@ -467,7 +471,7 @@ test("a stale tick keeps the completion event's failure message", async () => {
   const wizard = await startWizard({});
   const release = wizard.holdRunReads();
   wizard.server.processing = false;
-  wizard.server.runStatus = 'failed';
+  wizard.server.runs.set('op', { status: 'failed', endedAt: 0 });
   await wizard.advanceTo(30);
   await wizard.emit('LogProcessingComplete', {
     operationId: 'op',
@@ -478,5 +482,57 @@ test("a stale tick keeps the completion event's failure message", async () => {
   const view = wizard.view();
   assert.ok(view.texts.includes('Database unavailable'));
   assert.ok(!view.texts.includes('initialization.logProcessing.failedToProcess'));
+  wizard.dispose();
+});
+
+test("another tab's pass does not replace the pass this step started", async () => {
+  const wizard = await startWizard({});
+  // This step's pass saved and its completion event was lost; another tab then started op2 and canceled it.
+  wizard.server.runs.set('op', { status: 'completed', endedAt: 0 });
+  wizard.server.runs.set('op2', { status: 'running', endedAt: 0 });
+  wizard.server.operationId = 'op2';
+  await wizard.advanceTo(30);
+  wizard.server.processing = false;
+  wizard.server.runs.set('op2', { status: 'cancelled', endedAt: 30000 });
+  await wizard.advanceTo(70);
+  const view = wizard.view();
+  assert.deepEqual(wizard.server.asked, ['op'], 'only the pass this step started is read');
+  assert.equal(view.continueButton, true);
+  assert.ok(!view.texts.includes('initialization.logProcessing.cancelled'));
+  wizard.dispose();
+});
+
+test("a pass that ended before the start answer returned is read by the start answer's id", async () => {
+  const wizard = await startWizard({ processing: false });
+  wizard.server.operationId = 'op2';
+  wizard.server.runs.set('op2', { status: 'completed', endedAt: 0 });
+  await wizard.processAll();
+  await wizard.advanceTo(40);
+  assert.deepEqual(wizard.server.asked, ['op2']);
+  assert.equal(wizard.view().continueButton, true);
+  wizard.dispose();
+});
+
+test("a pass queued behind another tab's pass keeps its running view", async () => {
+  const wizard = await startWizard({});
+  wizard.server.runs.set('op', { status: 'waiting', endedAt: 0 });
+  wizard.server.runs.set('op2', { status: 'running', endedAt: 0 });
+  wizard.server.operationId = 'op2';
+  await wizard.advanceTo(40);
+  const view = wizard.view();
+  assert.equal(view.spinner, true);
+  assert.equal(view.continueButton, false);
+  wizard.dispose();
+});
+
+test('a pass that handed its work to another run follows that run', async () => {
+  const wizard = await startWizard({});
+  wizard.server.processing = false;
+  wizard.server.runs.set('op', { status: 'completed', endedAt: 0, nextOperationId: 'op3' });
+  wizard.server.runs.set('op3', { status: 'running', endedAt: 0 });
+  await wizard.advanceTo(32);
+  const view = wizard.view();
+  assert.equal(view.spinner, true, 'the run that took over is still running');
+  assert.equal(view.continueButton, false);
   wizard.dispose();
 });

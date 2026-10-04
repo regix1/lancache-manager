@@ -280,12 +280,25 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       try {
         const status = await ApiService.getProcessingStatus();
         if (stale()) return;
-        if (!status.isProcessing) {
+        // Another tab's pass names itself in the processing status; this step still reads only the pass it started.
+        const otherPass =
+          pass !== null && Boolean(status.operationId) && status.operationId !== pass;
+        if (!status.isProcessing || otherPass) {
           // Once no pass runs the processing status only says idle, so the pass's own run says how it ended; the
           // server keeps a dropped run's ending readable for 5 minutes, past this watchdog's longest wait.
           const run = pass ? await ApiService.getTrackedOperation(pass) : null;
           if (stale()) return;
-          if (run?.status === 'running' || run?.status === 'cancelling') {
+          if (run?.nextOperationId) {
+            // A queued pass handed its work to the run that took over; that run is the one to read.
+            setActiveOperationId(run.nextOperationId);
+            setLastEventAt(Date.now());
+            return;
+          }
+          if (
+            run?.status === 'running' ||
+            run?.status === 'cancelling' ||
+            run?.status === 'waiting'
+          ) {
             // The pass is still saving its outcome; its run is read again at the next tick.
             endingPendingRef.current = true;
             setLastEventAt(Date.now());
@@ -309,7 +322,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           }
         } else {
           setLastEventAt(Date.now());
-          if (status.operationId) {
+          if (status.operationId && !pass) {
             setActiveOperationId(status.operationId);
           }
         }
@@ -371,10 +384,12 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     try {
       // Always start from the beginning for initialization
       await ApiService.resetLogPosition('top');
-      await ApiService.processAllLogs();
-      const status = await ApiService.getProcessingStatus();
-      if (status.operationId) {
-        setActiveOperationId(status.operationId);
+      // The start answer names the pass, so a pass whose events are lost is still read by its own id.
+      const started = await ApiService.processAllLogs();
+      const operationId =
+        started.operationId ?? (await ApiService.getProcessingStatus()).operationId;
+      if (operationId) {
+        setActiveOperationId(operationId);
       }
     } catch (err: unknown) {
       setNotice({
@@ -405,10 +420,12 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     try {
       // Always start from the beginning for initialization
       await ApiService.resetDatasourceLogPosition(datasourceName, 'top');
-      await ApiService.processDatasourceLogs(datasourceName);
-      const status = await ApiService.getProcessingStatus();
-      if (status.operationId) {
-        setActiveOperationId(status.operationId);
+      // The start answer names the pass, so a pass whose events are lost is still read by its own id.
+      const started = await ApiService.processDatasourceLogs(datasourceName);
+      const operationId =
+        started.operationId ?? (await ApiService.getProcessingStatus()).operationId;
+      if (operationId) {
+        setActiveOperationId(operationId);
       }
     } catch (err: unknown) {
       setNotice({
