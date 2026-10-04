@@ -25,6 +25,7 @@ import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import { getErrorMessage } from '@utils/error';
 import { API_BASE } from '@utils/constants';
+import { useHeldValue } from '@hooks/useHeldValue';
 import WipeAccountsButton from './WipeAccountsButton';
 import type { AccountConfirmation, AccountEditor, UserAccount } from './types';
 
@@ -65,6 +66,9 @@ const UserAccounts: React.FC = () => {
   const [busyAccountId, setBusyAccountId] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<AccountConfirmation | null>(null);
   const [editor, setEditor] = useState<AccountEditor | null>(null);
+  // Both dialogs keep drawing their account while they fade out after it is cleared.
+  const shownConfirmation = useHeldValue(confirmation);
+  const shownEditor = useHeldValue(editor);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -440,20 +444,20 @@ const UserAccounts: React.FC = () => {
         )}
       </AccordionSection>
 
-      {editor && (
-        <Modal
-          opened
-          onClose={() => {
-            if (!saving) {
-              setEditor(null);
-            }
-          }}
-          title={
-            editor.account
-              ? t('user.accounts.form.editTitle', { username: editor.account.username })
-              : t('user.accounts.form.createTitle')
+      <Modal
+        opened={editor !== null}
+        onClose={() => {
+          if (!saving) {
+            setEditor(null);
           }
-        >
+        }}
+        title={
+          shownEditor?.account
+            ? t('user.accounts.form.editTitle', { username: shownEditor.account.username })
+            : t('user.accounts.form.createTitle')
+        }
+      >
+        {shownEditor && (
           <div className="space-y-4">
             <div>
               <FormField label={t('user.accounts.form.username')}>
@@ -463,9 +467,9 @@ const UserAccounts: React.FC = () => {
                     type="text"
                     autoComplete="username"
                     className="w-full px-3 py-2.5 themed-input"
-                    value={editor.username}
+                    value={shownEditor.username}
                     onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                      setEditor({ ...editor, username: event.target.value })
+                      setEditor({ ...shownEditor, username: event.target.value })
                     }
                   />
                 )}
@@ -475,11 +479,11 @@ const UserAccounts: React.FC = () => {
             <div>
               <FormField
                 label={
-                  editor.account
+                  shownEditor.account
                     ? t('user.accounts.form.newPassword')
                     : t('user.accounts.form.password')
                 }
-                hint={editor.account ? t('user.accounts.form.passwordHint') : undefined}
+                hint={shownEditor.account ? t('user.accounts.form.passwordHint') : undefined}
               >
                 {(field) => (
                   <input
@@ -487,9 +491,9 @@ const UserAccounts: React.FC = () => {
                     type="password"
                     autoComplete="new-password"
                     className="w-full px-3 py-2.5 themed-input"
-                    value={editor.password}
+                    value={shownEditor.password}
                     onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                      setEditor({ ...editor, password: event.target.value })
+                      setEditor({ ...shownEditor, password: event.target.value })
                     }
                   />
                 )}
@@ -507,33 +511,35 @@ const UserAccounts: React.FC = () => {
                 color="primary"
                 loading={saving}
                 disabled={
-                  editor.username.trim().length === 0 ||
-                  (editor.account === null && editor.password.length === 0)
+                  shownEditor.username.trim().length === 0 ||
+                  (shownEditor.account === null && shownEditor.password.length === 0)
                 }
-                onClick={() => submitEditor(editor)}
+                onClick={() => submitEditor(shownEditor)}
               >
-                {editor.account ? t('common.save') : t('user.accounts.actions.create')}
+                {shownEditor.account ? t('common.save') : t('user.accounts.actions.create')}
               </Button>
             </div>
           </div>
-        </Modal>
-      )}
+        )}
+      </Modal>
 
-      {confirmation && (
-        <ConfirmationModal
-          opened
-          onClose={() => setConfirmation(null)}
-          onConfirm={() => runConfirmation(confirmation)}
-          loading={busyAccountId === confirmation.account.id}
-          title={t('user.accounts.confirm.deleteTitle')}
-          confirmLabel={t('common.delete')}
-          confirmColor="red"
-        >
+      <ConfirmationModal
+        opened={confirmation !== null}
+        onClose={() => setConfirmation(null)}
+        onConfirm={() => shownConfirmation && runConfirmation(shownConfirmation)}
+        loading={busyAccountId === shownConfirmation?.account.id}
+        title={t('user.accounts.confirm.deleteTitle')}
+        confirmLabel={t('common.delete')}
+        confirmColor="red"
+      >
+        {shownConfirmation && (
           <p className="text-sm text-themed-secondary">
-            {t('user.accounts.confirm.deleteBody', { username: confirmation.account.username })}
+            {t('user.accounts.confirm.deleteBody', {
+              username: shownConfirmation.account.username
+            })}
           </p>
-        </ConfirmationModal>
-      )}
+        )}
+      </ConfirmationModal>
     </>
   );
 };

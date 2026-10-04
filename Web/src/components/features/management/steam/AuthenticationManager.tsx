@@ -18,6 +18,7 @@ import { useGuestConfig } from '@contexts/useGuestConfig';
 import { useAuth } from '@contexts/useAuth';
 import { formatSessionTimeRemaining } from '@utils/timeFormatters';
 import { getErrorMessage } from '@utils/error';
+import { useHeldValue } from '@hooks/useHeldValue';
 
 interface AuthenticationManagerProps {
   onError?: (message: string, error?: unknown) => void;
@@ -57,6 +58,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   // Held from the rotation's own answer. There is no second chance to read it: the request that
   // produced it ended this session, so everything after it is answered 401.
   const [rotatedKey, setRotatedKey] = useState<string | null>(null);
+  const shownRotatedKey = useHeldValue(rotatedKey);
 
   useEffect(() => {
     if (authMode !== 'guest' || !sessionExpiresAt) {
@@ -574,9 +576,12 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
         )}
       </ConfirmationModal>
 
-      {rotatedKey !== null && (
-        <ApiKeyRotatedModal opened apiKey={rotatedKey} onClose={handleRotatedKeyDismissed} />
-      )}
+      {/* Rendered before any key exists so it can fade out after one; it is never visible then. */}
+      <ApiKeyRotatedModal
+        opened={rotatedKey !== null}
+        apiKey={shownRotatedKey ?? ''}
+        onClose={handleRotatedKeyDismissed}
+      />
     </>
   );
 };

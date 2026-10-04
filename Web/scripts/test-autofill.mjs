@@ -8,7 +8,7 @@ const credentialFields = new Map([
   ['components/initialization/AccessSetup.tsx', ['localUsername']],
   ['components/initialization/steps/AdminAccountStep.tsx', ['form.username']],
   ['components/initialization/steps/DatabaseSetupStep.tsx', ['form.username']],
-  ['components/features/user/UserAccounts.tsx', ['editor.username', 'editor.password']],
+  ['components/features/user/UserAccounts.tsx', ['shownEditor.username', 'shownEditor.password']],
   ['components/modals/auth/SteamAuthModal.tsx', ['username', 'password']],
   ['components/ui/CredentialFields.tsx', ['username', 'password']],
   ['components/ui/PostgresConnectionFields.tsx', ['values.username', 'values.password']],

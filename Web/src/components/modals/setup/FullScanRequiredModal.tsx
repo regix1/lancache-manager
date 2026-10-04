@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { formatCount } from '@utils/formatters';
 
 interface FullScanRequiredModalProps {
+  opened: boolean;
   changeGap?: number;
   estimatedApps?: number;
   onConfirm?: () => void;
@@ -19,6 +20,7 @@ interface FullScanRequiredModalProps {
 }
 
 export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
+  opened,
   changeGap,
   estimatedApps,
   onConfirm,
@@ -39,7 +41,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
 
   return (
     <Modal
-      opened={true}
+      opened={opened}
       onClose={onCancel}
       title={
         <div className="flex items-center gap-3">

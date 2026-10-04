@@ -21,20 +21,25 @@ const EventsTab: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('calendar');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+  // The editor stays mounted so it can fade out; each open gets a fresh instance, because the
+  // editor reads its form values from `event` only when it mounts.
+  const [editorKey, setEditorKey] = useState(0);
 
   const handleCreateEvent = useCallback(() => {
     setEditingEvent(null);
+    setEditorKey((key) => key + 1);
     setShowCreateModal(true);
   }, []);
 
   const handleEditEvent = useCallback((event: Event) => {
     setEditingEvent(event);
+    setEditorKey((key) => key + 1);
     setShowCreateModal(true);
   }, []);
 
+  // The event stays set while the editor fades out, so its title does not switch to "create".
   const handleCloseModal = useCallback(() => {
     setShowCreateModal(false);
-    setEditingEvent(null);
   }, []);
 
   const handleEventSaved = useCallback(() => {
@@ -136,10 +141,7 @@ const EventsTab: React.FC = () => {
             <EventCalendar
               events={events}
               onEventClick={handleEditEvent}
-              onDayClick={() => {
-                setEditingEvent(null);
-                setShowCreateModal(true);
-              }}
+              onDayClick={handleCreateEvent}
             />
           ) : (
             <EventList events={events} onEventClick={handleEditEvent} />
@@ -148,9 +150,13 @@ const EventsTab: React.FC = () => {
       )}
 
       {/* Create/Edit Modal */}
-      {showCreateModal && (
-        <EventModal event={editingEvent} onClose={handleCloseModal} onSave={handleEventSaved} />
-      )}
+      <EventModal
+        key={editorKey}
+        opened={showCreateModal}
+        event={editingEvent}
+        onClose={handleCloseModal}
+        onSave={handleEventSaved}
+      />
     </div>
   );
 };

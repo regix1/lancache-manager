@@ -18,6 +18,7 @@ import type { Event, CreateEventRequest, UpdateEventRequest } from '../../../typ
 import { APP_EVENTS } from '@utils/constants';
 
 interface EventModalProps {
+  opened: boolean;
   event: Event | null; // null for create, Event for edit
   onClose: () => void;
   onSave: () => void;
@@ -26,7 +27,7 @@ interface EventModalProps {
 // Color indexes 1-8 for event colors
 const COLOR_INDEXES = [1, 2, 3, 4, 5, 6, 7, 8];
 
-const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
+const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave }) => {
   const { t } = useTranslation();
   const { createEvent, updateEvent, deleteEvent } = useEvents();
   const clock = useReaderClock();
@@ -189,7 +190,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
   return (
     <>
       <Modal
-        opened={true}
+        opened={opened}
         onClose={onClose}
         title={
           <div className="flex items-center gap-2">

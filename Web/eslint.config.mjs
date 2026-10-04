@@ -7,6 +7,38 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import prettierConfig from 'eslint-config-prettier';
 import prettierPlugin from 'eslint-plugin-prettier';
 
+// A dialog opens from a click and closes only when the person closes it or its task succeeds.
+// Shared by every block that declares no-restricted-syntax, since a block's list replaces the
+// general one instead of merging with it.
+const DIALOG_MOUNT_MESSAGE =
+  'Do not open a dialog by mounting it. Render it every time with opened={...} and close it with opened={false}, so it plays its close animation instead of vanishing, and a reopen does not replay its entrance.';
+// A dialog with no opened={...} of its own is open whenever it is mounted. A condition around a
+// dialog that has one (a feature that is present or not) is fine.
+const MOUNT_OPENED_DIALOG =
+  "JSXElement[openingElement.name.name=/Modal$/]:not(:has(JSXAttribute[name.name='opened'][value.type='JSXExpressionContainer']))";
+const DIALOG_RULES = [
+  {
+    selector:
+      "JSXAttribute[name.name='opened'] Identifier[name=/[Ll]oading|[Ss]ubmitting|[Bb]usy|[Ss]aving/]",
+    message:
+      'Do not open or close a dialog from loading, submitting, busy or saving state: the dialog opens when a request starts and closes when it fails, which reads as the whole dialog fading out and back in. Open it from the click, and show progress and failures inside the open dialog.'
+  },
+  {
+    selector: `LogicalExpression[operator='&&'] > ${MOUNT_OPENED_DIALOG}`,
+    message: DIALOG_MOUNT_MESSAGE
+  },
+  // A ternary that picks one of two dialogs keeps a dialog mounted; one that picks a dialog or
+  // nothing mounts it conditionally.
+  {
+    selector: `ConditionalExpression[alternate.type=/^(Literal|Identifier)$/] > ${MOUNT_OPENED_DIALOG}.consequent`,
+    message: DIALOG_MOUNT_MESSAGE
+  },
+  {
+    selector: `ConditionalExpression[consequent.type=/^(Literal|Identifier)$/] > ${MOUNT_OPENED_DIALOG}.alternate`,
+    message: DIALOG_MOUNT_MESSAGE
+  }
+];
+
 export default tseslint.config(
   // Ignore patterns
   {
@@ -116,7 +148,8 @@ export default tseslint.config(
             'VariableDeclarator[id.name=/^(wasDisconnected|prevConnectionState|everConnected|hasConnected|wasConnected)Ref$/]',
           message:
             'Do not hand-roll a reconnect latch. useReconnectRefetch(isConnected, callback) from @hooks/useReconnectRefetch already tracks the drop-and-return transition and is covered by scripts/test-reconnect-refetch.mjs.'
-        }
+        },
+        ...DIALOG_RULES
       ]
     }
   },
@@ -163,7 +196,8 @@ export default tseslint.config(
             'VariableDeclarator[id.name=/^(wasDisconnected|prevConnectionState|everConnected|hasConnected|wasConnected)Ref$/]',
           message:
             'Do not hand-roll a reconnect latch. useReconnectRefetch(isConnected, callback) from @hooks/useReconnectRefetch already tracks the drop-and-return transition and is covered by scripts/test-reconnect-refetch.mjs.'
-        }
+        },
+        ...DIALOG_RULES
       ]
     }
   },

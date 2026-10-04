@@ -662,18 +662,17 @@ const AppContent: React.FC = () => {
       {authMode === 'authenticated' && <ScheduledPrefillEditSessionCleanupRecovery />}
 
       {/* Full Scan Required Modal - Shows globally on all pages */}
-      {showFullScanRequiredModal && authMode === 'authenticated' && (
-        <FullScanRequiredModal
-          onCancel={handleFullScanModalDismiss}
-          onConfirm={handleRunFullScan}
-          onDownloadFromGitHub={handleDownloadFromGitHub}
-          showDownloadOption={true}
-          isSteamWebApiAvailable={steamApiStatus?.isFullyOperational ?? false}
-          title={t('app.fullScanRequired.title')}
-          changeGap={fullScanModalChangeGap}
-          estimatedApps={fullScanModalEstimatedApps}
-        />
-      )}
+      <FullScanRequiredModal
+        opened={showFullScanRequiredModal && authMode === 'authenticated'}
+        onCancel={handleFullScanModalDismiss}
+        onConfirm={handleRunFullScan}
+        onDownloadFromGitHub={handleDownloadFromGitHub}
+        showDownloadOption={true}
+        isSteamWebApiAvailable={steamApiStatus?.isFullyOperational ?? false}
+        title={t('app.fullScanRequired.title')}
+        changeGap={fullScanModalChangeGap}
+        estimatedApps={fullScanModalEstimatedApps}
+      />
 
       <div className="flex flex-col min-h-screen bg-themed-primary text-themed-primary">
         <Header />
