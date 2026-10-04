@@ -716,19 +716,23 @@ public abstract partial class PrefillDaemonServiceBase
     {
         if (_sessions.TryGetValue(sessionId, out var session))
         {
-            // If we're at the limit, remove oldest connections to make room
-            // This prevents stale connections from accumulating during page navigations
-            while (session.SubscribedConnections.Count >= MaxConnectionsPerSession)
+            lock (session.PrefillLock)
             {
-                var oldest = session.SubscribedConnections.First();
-                session.SubscribedConnections.Remove(oldest);
-                _logger.LogDebug("Removed stale subscriber {ConnectionId} from session {SessionId} (limit reached)",
-                    oldest, sessionId);
-            }
+                // If we're at the limit, remove oldest connections to make room
+                // This prevents stale connections from accumulating during page navigations
+                while (session.SubscribedConnections.Count >= MaxConnectionsPerSession)
+                {
+                    var oldest = session.SubscribedConnections.First();
+                    session.SubscribedConnections.Remove(oldest);
+                    _logger.LogDebug("Removed stale subscriber {ConnectionId} from session {SessionId} (limit reached)",
+                        oldest, sessionId);
+                }
 
-            session.SubscribedConnections.Add(connectionId);
-            _logger.LogDebug("Added subscriber {ConnectionId} to session {SessionId} (total: {Count})",
-                connectionId, sessionId, session.SubscribedConnections.Count);
+                session.SubscribedConnections.Add(connectionId);
+                session.SubscribeCount++;
+                _logger.LogDebug("Added subscriber {ConnectionId} to session {SessionId} (total: {Count})",
+                    connectionId, sessionId, session.SubscribedConnections.Count);
+            }
         }
     }
 
@@ -789,7 +793,7 @@ public abstract partial class PrefillDaemonServiceBase
     {
         foreach (var session in _sessions.Values)
         {
-            session.SubscribedConnections.Remove(connectionId);
+            lock (session.PrefillLock) session.SubscribedConnections.Remove(connectionId);
         }
     }
 }

@@ -413,7 +413,12 @@ public abstract partial class PrefillDaemonServiceBase
     private async Task BroadcastToSubscribersAsync(DaemonSession session, string eventName, object payload)
     {
         string[] connections;
-        lock (session.PrefillLock) connections = session.SubscribedConnections.ToArray();
+        long subscribeCount;
+        lock (session.PrefillLock)
+        {
+            connections = session.SubscribedConnections.ToArray();
+            subscribeCount = session.SubscribeCount;
+        }
         await Task.WhenAll(connections.Select(async connectionId =>
         {
             try
@@ -422,8 +427,13 @@ public abstract partial class PrefillDaemonServiceBase
             }
             catch (Exception ex)
             {
+                lock (session.PrefillLock)
+                {
+                    // A tab that subscribed again while this send waited is live again and keeps its subscription.
+                    if (session.SubscribeCount != subscribeCount) return;
+                    session.SubscribedConnections.Remove(connectionId);
+                }
                 _logger.LogWarning(ex, "Failed to notify {EventName} to {ConnectionId}, removing subscription", eventName, connectionId);
-                lock (session.PrefillLock) session.SubscribedConnections.Remove(connectionId);
             }
         }));
     }
@@ -436,6 +446,8 @@ public abstract partial class PrefillDaemonServiceBase
         }
 
         var authState = session.AuthState;
+        // Read with the state, before any await: the attempt this state belongs to, which a new start may move on.
+        var loginAttempt = session.LoginAttempt;
         // Every ending of a login comes through here - the daemon's own success broadcast, a fail-fast,
         // the user cancelling, a logout, a login command that never reached the daemon, and the headless
         // abandon - so this is the single place a login's card gets closed. LoggingIn is the one state
@@ -476,7 +488,7 @@ public abstract partial class PrefillDaemonServiceBase
         if (!IsSessionLive(session) || session.AuthState != authState)
             return;
 
-        var payload = new { sessionId = session.Id, authState = authState.ToString() };
+        var payload = new { sessionId = session.Id, authState = authState.ToString(), loginAttempt };
         await BroadcastToSubscribersAsync(session, EventAuthStateChanged, payload);
 
         // Liveness fence: the subscriber fan-out above can outlast a teardown that won the bounded drain;

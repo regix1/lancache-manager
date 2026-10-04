@@ -33,6 +33,9 @@ public class DaemonSessionDto
     /// </summary>
     public PrefillLoginEnding? LoginEnding { get; set; }
 
+    /// <summary>The session's current sign-in attempt number, so a dialog that starts a new sign-in knows which ending it replaces.</summary>
+    public long LoginAttempt { get; set; }
+
     public bool IsPrefilling { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
@@ -155,6 +158,7 @@ public class DaemonSessionDto
             ErrorMessage = session.ErrorMessage,
             AuthState = session.AuthState.ToString(),
             LoginEnding = session.LastLoginEnding,
+            LoginAttempt = session.LoginAttempt,
             IsPrefilling = session.IsPrefilling,
             CreatedAt = session.CreatedAt,
             ExpiresAt = session.ExpiresAt,

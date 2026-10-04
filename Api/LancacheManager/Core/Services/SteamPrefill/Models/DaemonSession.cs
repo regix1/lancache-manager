@@ -120,7 +120,7 @@ public class DaemonSession
     /// Counts the fresh daemon logins started on this session; a resumed challenge keeps the current value.
     /// Stamped onto every challenge handed to the browser as <see cref="CredentialChallenge.LoginAttempt"/>, so a
     /// cancel names the attempt it belongs to and a late cancel never ends a newer attempt. Incremented under
-    /// <see cref="PrefillLock"/>. Transient - not persisted, not part of <see cref="DaemonSessionDto"/>.
+    /// <see cref="PrefillLock"/>. Transient - not persisted.
     /// </summary>
     public long LoginAttempt { get; set; }
 
@@ -327,6 +327,12 @@ public class DaemonSession
     /// </summary>
     public string? SocketPath { get; set; }
     public HashSet<string> SubscribedConnections { get; } = new();
+
+    /// <summary>
+    /// Counts subscribes, under <see cref="PrefillLock"/>. A send that failed drops its connection only when no subscribe came
+    /// after that send's snapshot: a tab that subscribed again while the send waited is live.
+    /// </summary>
+    public long SubscribeCount { get; set; }
     public CancellationTokenSource CancellationTokenSource { get; } = new();
 
     public sealed class LoginRequest

@@ -195,7 +195,9 @@ public abstract partial class PrefillDaemonServiceBase
             }
             if (termination.ImageChange is null && !termination.OwnerSent)
             {
-                foreach (var connection in session.SubscribedConnections.ToArray())
+                string[] subscribers;
+                lock (session.PrefillLock) subscribers = session.SubscribedConnections.ToArray();
+                foreach (var connection in subscribers)
                 {
                     if (termination.SentConnections.Contains(connection))
                         continue;

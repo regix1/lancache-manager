@@ -412,7 +412,7 @@ public sealed class AccountHolderHubAccessTests
         {
             nameof(SteamDaemonHub.CancelPrefillAsync) => connection.Hub.CancelPrefillAsync,
             nameof(SteamDaemonHub.CancelPrefillRunAsync) => sessionId => connection.Hub.CancelPrefillRunAsync(sessionId, runId),
-            nameof(SteamDaemonHub.CancelLoginAsync) => connection.Hub.CancelLoginAsync,
+            nameof(SteamDaemonHub.CancelLoginAsync) => sessionId => connection.Hub.CancelLoginAsync(sessionId, null),
             nameof(SteamDaemonHub.EndSessionAsync) => connection.Hub.EndSessionAsync,
             _ => throw new ArgumentOutOfRangeException(nameof(method), method, null)
         };

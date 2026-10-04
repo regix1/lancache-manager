@@ -483,7 +483,9 @@ public abstract partial class PrefillDaemonServiceBase
             await _notifications.NotifyAdminAsync(
                 EventSessionTerminated,
                 new { sessionId = change.Session.Id, reason = "Persistent container image updated" });
-            foreach (var connection in change.Session.SubscribedConnections.ToArray())
+            string[] subscribers;
+            lock (change.Session.PrefillLock) subscribers = change.Session.SubscribedConnections.ToArray();
+            foreach (var connection in subscribers)
             {
                 await SendToClientAsync(
                     connection,

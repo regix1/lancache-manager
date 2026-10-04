@@ -744,11 +744,16 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
-    /// A new start ends the unfinished sign-in without the auth-state push: every dialog on the session would read
-    /// that push as the new start's own refusal.
+    /// A new start ends the unfinished sign-in with the same auth-state push as any other cancel, and the push names
+    /// the ended sign-in's own attempt, so the dialog that is starting reads it as the ending of what it replaced and
+    /// not as its own refusal. The fake daemon copies the real one (steam-prefill-daemon SocketCommandInterface.cs:
+    /// 329-351): it announces "awaiting-login" before it answers an acknowledged cancel, and a service is wired to
+    /// that announcement as SessionLifecycle.cs:1109-1112 does.
     /// </summary>
-    [Fact]
-    public async Task ANewStartEndsTheUnfinishedSignInWithoutAnnouncingARefusal()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ANewStartAnnouncesTheEndedSignInUnderItsOwnAttempt(bool acknowledged)
     {
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, SlowFirstSendNotificationsProxy>();
@@ -757,6 +762,10 @@ public class PrefillLoginRunTests
         var (daemon, session) = CreateSessionWithClient(
             tracker, Guid.NewGuid(), isPersistent: false, notifications: notifications);
         var client = (ScriptedLoginDaemonClient)session.Client;
+        client.CancelAcknowledged = acknowledged;
+        // A live session is wired this way at SessionLifecycle.cs:1109-1112.
+        client.OnStatusUpdate += status =>
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
         client.OnCredentialChallenge += _ =>
         {
             session.AuthState = DaemonAuthState.UsernameRequired;
@@ -771,17 +780,27 @@ public class PrefillLoginRunTests
         session.AuthState = DaemonAuthState.LoggingIn;
         proxy.ClearSends();
 
-        await daemon.StartLoginAsync(session.Id);
+        var second = await daemon.StartLoginAsync(session.Id);
 
-        Assert.DoesNotContain(proxy.Sends(), send =>
-            send.ConnectionId == "conn-1"
-            && send.EventName == SignalREvents.AuthStateChanged
-            && (string?)send.Payload!.GetType().GetProperty("authState")!.GetValue(send.Payload)
-                == nameof(DaemonAuthState.NotAuthenticated));
+        var endings = proxy.Sends().Where(send =>
+                send.ConnectionId == "conn-1"
+                && send.EventName == SignalREvents.AuthStateChanged
+                && (string?)send.Payload!.GetType().GetProperty("authState")!.GetValue(send.Payload)
+                    == nameof(DaemonAuthState.NotAuthenticated))
+            .ToArray();
+        Assert.NotEmpty(endings);
+        Assert.All(endings, send =>
+        {
+            var attempt = Assert.IsType<long>(send.Payload!.GetType().GetProperty("loginAttempt")!.GetValue(send.Payload));
+            Assert.Equal(firstAttempt, attempt);
+        });
+        Assert.Contains(proxy.Sends(), send =>
+            send.ConnectionId == "conn-1" && send.EventName == SignalREvents.DaemonSessionUpdated);
         var firstEnding = Assert.IsType<PrefillLoginEnding>(daemon.GetLoginEnding(session, firstAttempt));
         Assert.Equal(OperationStatus.Cancelled, firstEnding.Status);
         Assert.Equal("errors.integration.attemptExpired", firstEnding.StageKey);
         Assert.Equal(1, client.CancelLoginCallCount);
+        Assert.Equal(firstAttempt + 1, Assert.IsType<CredentialChallenge>(second).LoginAttempt);
     }
 
     /// <summary>
@@ -842,6 +861,154 @@ public class PrefillLoginRunTests
 
         Assert.Equal(1, client.CancelLoginCallCount);
         Assert.NotEqual(firstRunId, session.LoginOperationId);
+    }
+
+    /// <summary>
+    /// A force-stopped sign-in run is reaped from the tracker after a short wait (what OperationCancellationService.cs:129
+    /// and the tracker's reap do), and the session still names it. Its owner's next start finds no run and ends the
+    /// unfinished sign-in; only a run that is found with another owner is refused.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TheOwnersStartAfterAForceStopEndsTheirUnfinishedSignIn(bool isPersistent)
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var holder = Guid.NewGuid();
+        var (daemon, session) = CreateSessionWithClient(tracker, holder, isPersistent);
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        // A live session is wired this way at SessionLifecycle.cs:1109-1112.
+        client.OnStatusUpdate += status =>
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
+        client.OnCredentialChallenge += _ =>
+        {
+            session.AuthState = DaemonAuthState.UsernameRequired;
+            return Task.CompletedTask;
+        };
+
+        async Task StartAsync() =>
+            _ = isPersistent
+                ? await daemon.StartLoginForEditAsync(session.Id, null, () => { }, holder)
+                : await daemon.StartLoginAsync(session.Id);
+
+        await StartAsync();
+        var firstRunId = Assert.IsType<Guid>(session.LoginOperationId);
+        session.PendingLoginChallenge = null;
+        session.AuthState = DaemonAuthState.LoggingIn;
+        tracker.CompleteOperation(firstRunId, success: false, error: "Force killed by user", cancelled: true);
+        OperationWaitingBlockerTests.Reap(tracker, firstRunId);
+        Assert.Null(tracker.GetOperation(firstRunId));
+        Assert.Equal(firstRunId, session.LoginOperationId);
+
+        await StartAsync();
+
+        Assert.Equal(1, client.CancelLoginCallCount);
+        Assert.NotEqual(firstRunId, session.LoginOperationId);
+    }
+
+    /// <summary>
+    /// A subscribe that arrives while a send to the same connection is waiting keeps the connection when that send
+    /// fails: the tab subscribed again after the send's snapshot, so it is live.
+    /// </summary>
+    [Fact]
+    public async Task AResubscribeDuringAStalledSendKeepsTheConnection()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, SlowFirstSendNotificationsProxy>();
+        var proxy = (SlowFirstSendNotificationsProxy)(object)notifications;
+        var (daemon, session) = CreateSessionWithClient(
+            tracker, Guid.NewGuid(), isPersistent: false, notifications: notifications);
+        daemon.AddSubscriber(session.Id, "conn-1");
+
+        var start = daemon.StartLoginAsync(session.Id);
+        await proxy.FirstSendTaken.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        // What the hub's SubscribeToSessionAsync does when the tab comes back.
+        daemon.AddSubscriber(session.Id, "conn-1");
+        proxy.HeldSend.TrySetException(new IOException("Send failed"));
+        await start.WaitAsync(TimeSpan.FromSeconds(20));
+
+        lock (session.PrefillLock)
+        {
+            Assert.Contains("conn-1", session.SubscribedConnections);
+        }
+    }
+
+    /// <summary>
+    /// The subscriber set is changed by the broadcast's catch under the session lock, so a subscribe or an unsubscribe
+    /// takes that lock too. The short wait only gives an unlocked add time to finish; a locked one cannot while the
+    /// lock is held.
+    /// </summary>
+    [Fact]
+    public async Task SubscribersChangeOnlyUnderTheSessionLockAsync()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+
+        await AssertWaitsForTheSessionLockAsync(session, () => daemon.AddSubscriber(session.Id, "conn-2"));
+        lock (session.PrefillLock) Assert.Contains("conn-2", session.SubscribedConnections);
+
+        await AssertWaitsForTheSessionLockAsync(session, () => daemon.RemoveSubscriber("conn-2"));
+        lock (session.PrefillLock) Assert.DoesNotContain("conn-2", session.SubscribedConnections);
+    }
+
+    /// <summary>
+    /// Holds the session lock on a thread of its own, runs the change, and checks it has not finished while the lock is
+    /// held. The 100 ms only gives an unlocked change time to finish; a locked one cannot, whatever the wait.
+    /// </summary>
+    private static async Task AssertWaitsForTheSessionLockAsync(DaemonSession session, Action change)
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var holder = Task.Run(() =>
+        {
+            lock (session.PrefillLock)
+            {
+                entered.Set();
+                release.Wait();
+            }
+        });
+        entered.Wait();
+        var run = Task.Run(change);
+        await Task.Delay(100);
+        var finishedWhileLocked = run.IsCompleted;
+        release.Set();
+        await holder;
+        await run.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(finishedWhileLocked);
+    }
+
+    /// <summary>
+    /// A cancel that names an older attempt, which is what the hub passes through from a stale dialog's timer, leaves
+    /// the newer sign-in running (Login.cs refuses an older attempt before it reaches the daemon).
+    /// </summary>
+    [Fact]
+    public async Task AStaleAttemptsCancelLeavesTheNewerSignInRunning()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        // A live session is wired this way at SessionLifecycle.cs:1109-1112.
+        client.OnStatusUpdate += status =>
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
+        client.OnCredentialChallenge += _ =>
+        {
+            session.AuthState = DaemonAuthState.UsernameRequired;
+            return Task.CompletedTask;
+        };
+
+        await daemon.StartLoginAsync(session.Id);
+        var firstAttempt = session.LoginAttempt;
+        session.PendingLoginChallenge = null;
+        session.AuthState = DaemonAuthState.LoggingIn;
+        await daemon.StartLoginAsync(session.Id);
+        var secondRunId = Assert.IsType<Guid>(session.LoginOperationId);
+        var cancelCallsBefore = client.CancelLoginCallCount;
+
+        Assert.False(await daemon.CancelLoginAsync(session.Id, CancellationToken.None, loginAttempt: firstAttempt));
+
+        Assert.Equal(secondRunId, session.LoginOperationId);
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(secondRunId)!.Status);
+        Assert.Equal(cancelCallsBefore, client.CancelLoginCallCount);
     }
 
     private static PersistentPrefillController CreateController(TestableSteamDaemonService daemon, Guid callerSessionId)
@@ -916,6 +1083,8 @@ public class PrefillLoginRunTests
 
         public TaskCompletionSource HeldSend { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public TaskCompletionSource FirstSendTaken { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public void ClearSends()
         {
             lock (_gate) _sends.Clear();
@@ -936,6 +1105,7 @@ public class PrefillLoginRunTests
                     if (!_firstSendTaken)
                     {
                         _firstSendTaken = true;
+                        FirstSendTaken.TrySetResult();
                         return HeldSend.Task;
                     }
                 }
