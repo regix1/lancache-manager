@@ -7,30 +7,8 @@ namespace LancacheManager.Core.Services.SteamKit2;
 public partial class SteamKit2Service
 {
     /// <summary>
-    /// Check if the Steam Daemon is currently active/authenticated.
-    /// Used to determine whether to use anonymous mode to avoid session conflicts.
-    /// </summary>
-    /// <returns>
-    /// Null when availability cannot be determined; unknown availability requires anonymous mode.
-    /// </returns>
-    private bool? IsSteamDaemonActive()
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var daemonService = scope.ServiceProvider.GetService<SteamDaemonService>();
-            return daemonService?.IsAnyDaemonAuthenticated();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Could not check Steam daemon status");
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Ensures the shared SteamKit2 session is connected and logged on, using the mode picked by
-    /// Login() (daemon-active anonymous / saved token / anonymous). This is THE entry point for
+    /// Login() (saved token / anonymous). This is THE entry point for
     /// every flow that needs a session: all transitions are serialized by _sessionGate and
     /// transient CM failures are retried on a different server. On final failure the
     /// SteamSessionError toast is emitted here (not in the callbacks) and the exception
@@ -64,7 +42,7 @@ public partial class SteamKit2Service
             // Another caller may finish the handoff while this request waits for the gate.
             if (expectedVersion.HasValue && expectedVersion.Value != Interlocked.Read(ref _sessionVersion))
                 forceReconnect = false;
-            var correctMode = HasSessionMode(UseAnonymousSession(IsSteamDaemonActive()));
+            var correctMode = HasSessionMode(UseAnonymousSession());
             if (!forceReconnect && correctMode && _isLoggedOn && _steamClient?.IsConnected == true)
             {
                 return Interlocked.Read(ref _sessionVersion);
@@ -101,7 +79,7 @@ public partial class SteamKit2Service
     /// A disconnect that lands mid-handshake faults the pending wait with
     /// SteamConnectionLostException, which is just another transient failure here.
     /// </summary>
-    private async Task LogonLockedAsync(SteamUser.LogOnDetails? details, CancellationToken ct, TimeSpan? logonTimeout = null, bool anonymous = false)
+    private async Task LogonLockedAsync(SteamUser.LogOnDetails? details, CancellationToken ct, TimeSpan? logonTimeout = null)
     {
         await RetryOnBusyCmLockedAsync(async () =>
         {
@@ -114,15 +92,7 @@ public partial class SteamKit2Service
             }
 
             _loggedOnTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            if (anonymous)
-            {
-                lock (_loginOwnerLock)
-                {
-                    _sessionCredential = null;
-                }
-                _steamUser!.LogOnAnonymous();
-            }
-            else if (details != null)
+            if (details != null)
             {
                 lock (_loginOwnerLock)
                 {
@@ -270,18 +240,11 @@ public partial class SteamKit2Service
         {
             _sessionCredential = null;
         }
-        if (UseAnonymousSession(IsSteamDaemonActive()))
-        {
-            _logger.LogInformation("Steam daemon is active - using anonymous mode for depot mapping to avoid session conflicts");
-            _steamUser!.LogOnAnonymous();
-            return;
-        }
-
         var snapshot = _steamAuthRepository.GetIntegrationSnapshot();
         var refreshToken = snapshot.Auth.RefreshToken;
         var authMode = snapshot.Auth.Mode;
 
-        if (!string.IsNullOrEmpty(refreshToken) && authMode == SteamAuthMode.Authenticated.ToWireString()
+        if (!UseAnonymousSession() && !string.IsNullOrEmpty(refreshToken) && authMode == SteamAuthMode.Authenticated.ToWireString()
             && _steamAuthRepository.IsIntegrationCurrent(snapshot.Version))
         {
             var username = snapshot.Auth.Username;
@@ -307,8 +270,8 @@ public partial class SteamKit2Service
         _logger.LogInformation("SteamKit2 anonymous login (no LoginID)");
     }
 
-    private bool UseAnonymousSession(bool? daemonActive) =>
-        daemonActive != false || _sessionReplaced || _hasPendingLoginOwner || !IsSteamAuthenticated;
+    private bool UseAnonymousSession() =>
+        _sessionReplaced || _hasPendingLoginOwner || !IsSteamAuthenticated;
 
     // A connect or logon still being waited on under the session gate owns the callbacks that answer it: a sign-in that
     // starts, ends or is kept while it waits never changes which session that connect is for, and the next

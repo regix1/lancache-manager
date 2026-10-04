@@ -111,21 +111,17 @@ public partial class SteamKit2Service
             try
             {
                 if (!_steamAuthRepository.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
-                var anonymous = IsSteamDaemonActive() != false;
-                if (_isLoggedOn && (!anonymous || !HasSessionMode(anonymous: true)))
+                if (_isLoggedOn)
                     await ResetConnectionLockedAsync(lifetime.Token);
                 lifetime.Token.ThrowIfCancellationRequested();
                 if (!_steamAuthRepository.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
-                if (!anonymous || !_isLoggedOn || _steamClient?.IsConnected != true)
+                await LogonLockedAsync(new SteamUser.LogOnDetails
                 {
-                    await LogonLockedAsync(anonymous ? null : new SteamUser.LogOnDetails
-                    {
-                        Username = pollResult.AccountName!,
-                        AccessToken = pollResult.RefreshToken!,
-                        ShouldRememberPassword = true,
-                        LoginID = _steamLoginId
-                    }, lifetime.Token, logonTimeout: TimeSpan.FromMinutes(2), anonymous: anonymous);
-                }
+                    Username = pollResult.AccountName!,
+                    AccessToken = pollResult.RefreshToken!,
+                    ShouldRememberPassword = true,
+                    LoginID = _steamLoginId
+                }, lifetime.Token, logonTimeout: TimeSpan.FromMinutes(2));
 
                 lock (_loginOwnerLock)
                 {
@@ -142,7 +138,7 @@ public partial class SteamKit2Service
                     if (!_steamAuthRepository.CompleteIntegrationLogin(login, auth, () =>
                     {
                         _sessionReplaced = false;
-                        _sessionCredential = anonymous ? null : (login.AccountId, pollResult.RefreshToken!);
+                        _sessionCredential = (login.AccountId, pollResult.RefreshToken!);
                         _sessionAuthVersion = _steamAuthRepository.GetIntegrationSnapshot().Version;
                         // Recorded with the save, under the same lock, so no status read finds the attempt over without it.
                         _steamAuthRepository.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(

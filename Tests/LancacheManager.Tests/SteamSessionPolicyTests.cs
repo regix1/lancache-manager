@@ -116,23 +116,16 @@ public sealed class SteamSessionPolicyTests
         Assert.Equal("api-key", fixture.Storage.GetAuthData().SteamApiKey);
     }
 
-    [Fact]
-    public void UnknownDaemonAvailabilityIsDistinctFromNoDaemon()
-    {
-        using var fixture = new Fixture();
-        Assert.Null(Invoke(fixture.Service, "IsSteamDaemonActive"));
-    }
-
+    // A signed-in prefill daemon does not make the mapping session anonymous: an anonymous session gets
+    // no depot list for apps that need an access token, so those depots could never be mapped.
     [Theory]
-    [InlineData(true, false, true)]
-    [InlineData(null, false, true)]
-    [InlineData(false, false, false)]
-    [InlineData(false, true, true)]
-    public void SessionPolicyUsesAnonymousForActiveUnknownOrReplaced(bool? daemonActive, bool replaced, bool anonymous)
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void SessionPolicyUsesAnonymousOnlyWhenReplaced(bool replaced, bool anonymous)
     {
         using var fixture = new Fixture();
         Set(fixture.Service, "_sessionReplaced", replaced);
-        Assert.Equal(anonymous, Invoke(fixture.Service, "UseAnonymousSession", daemonActive));
+        Assert.Equal(anonymous, Invoke(fixture.Service, "UseAnonymousSession"));
     }
 
     [Theory]
@@ -166,7 +159,7 @@ public sealed class SteamSessionPolicyTests
     public async Task ReplacedSessionIsReusedByPicsRetryAsync()
     {
         using var fixture = new Fixture();
-        fixture.Connect(EAccountType.AnonUser);
+        fixture.Connect(EAccountType.Individual);
         var attempts = 0;
         var result = await RunPicsAsync(fixture.Service, () =>
         {
@@ -187,7 +180,7 @@ public sealed class SteamSessionPolicyTests
     public async Task SessionReplacementIsRecheckedAfterWaitingForGateAsync()
     {
         using var fixture = new Fixture();
-        fixture.Connect(EAccountType.AnonUser);
+        fixture.Connect(EAccountType.Individual);
         var gate = Get<SemaphoreSlim>(fixture.Service, "_sessionGate");
         await gate.WaitAsync();
         var recovery = (Task)Invoke(fixture.Service, "EnsureSessionAsync", CancellationToken.None, true, 0L)!;
@@ -202,7 +195,7 @@ public sealed class SteamSessionPolicyTests
     public async Task PicsRequestWaitsForSessionHandoffAsync()
     {
         using var fixture = new Fixture();
-        fixture.Connect(EAccountType.AnonUser);
+        fixture.Connect(EAccountType.Individual);
         var gate = Get<SemaphoreSlim>(fixture.Service, "_sessionGate");
         await gate.WaitAsync();
         var attempts = 0;
@@ -331,7 +324,7 @@ public sealed class SteamSessionPolicyTests
     public async Task CancelledPicsRequestsDoNotReconnectAsync(bool cancelledBeforeRequest)
     {
         using var fixture = new Fixture();
-        fixture.Connect(EAccountType.AnonUser);
+        fixture.Connect(EAccountType.Individual);
         using var cancel = new CancellationTokenSource();
         if (cancelledBeforeRequest) await cancel.CancelAsync();
         var attempts = 0;
@@ -349,7 +342,7 @@ public sealed class SteamSessionPolicyTests
     public async Task RepeatedSessionChangesStopAfterRetryLimitAsync()
     {
         using var fixture = new Fixture();
-        fixture.Connect(EAccountType.AnonUser);
+        fixture.Connect(EAccountType.Individual);
         var attempts = 0;
         await Assert.ThrowsAsync<SteamConnectionLostException>(() => RunPicsAsync(fixture.Service, () =>
         {
@@ -363,7 +356,7 @@ public sealed class SteamSessionPolicyTests
     public async Task SessionChangesDuringASteamSignInDoNotEndACrawlBatchAsync()
     {
         using var fixture = new Fixture();
-        fixture.Connect(EAccountType.AnonUser);
+        fixture.Connect(EAccountType.Individual);
         Set(fixture.Service, "_loginActive", 1);
         var attempts = 0;
         var result = await RunPicsAsync(fixture.Service, () =>
@@ -413,7 +406,7 @@ public sealed class SteamSessionPolicyTests
         using var fixture = new Fixture();
         fixture.LoggedOn(result);
         Assert.True(fixture.Service.IsSteamAuthenticated);
-        Assert.Equal(true, Invoke(fixture.Service, "UseAnonymousSession", false));
+        Assert.Equal(true, Invoke(fixture.Service, "UseAnonymousSession"));
         Assert.Equal("token", fixture.Storage.GetSavedLogin(fixture.Owner)?.RefreshToken);
     }
 

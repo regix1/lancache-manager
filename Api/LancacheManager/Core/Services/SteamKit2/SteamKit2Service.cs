@@ -113,9 +113,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     // Cache for depot names (from PICS depot "name" field)
     private readonly ConcurrentDictionary<uint, string> _depotNames = new();
 
-    // Reference to the Steam daemon service for event subscription
-    private SteamDaemonService? _steamDaemonService;
-
     // Tune batch sizes to stay friendly
     private const int AppBatchSize = 200; // was 400 - Above 200, token/product calls time out more frequently
 
@@ -271,9 +268,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         // Initialize SteamKit2 - these are in-memory only and should not fail due to DB
         InitializeSteamClient();
 
-        // Subscribe to prefill daemon auth state change events
-        SubscribeToDaemonEvents();
-
         _isRunning = true;
         _initialized = true;
 
@@ -300,9 +294,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         {
             _cancellationTokenSource.Cancel();
         }
-
-        // Unsubscribe from prefill daemon events before disconnecting
-        UnsubscribeFromDaemonEvents();
 
         _intentionalDisconnect = true;
         await DisconnectAsync();
@@ -382,9 +373,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
 
         _disposed = true;
         _isRunning = false;
-
-        // Unsubscribe from prefill daemon events
-        UnsubscribeFromDaemonEvents();
 
         try
         {
@@ -573,87 +561,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             var changes = await WaitForCallbackAsync(job, ct);
             return changes.CurrentChangeNumber;
         }, "PICS change number check", ct);
-    }
-
-    /// <summary>
-    /// Subscribes to OnDaemonAuthenticated and OnAllDaemonsLoggedOut events
-    /// from SteamDaemonService so we know when daemon auth state changes.
-    /// </summary>
-    private void SubscribeToDaemonEvents()
-    {
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            _steamDaemonService = scope.ServiceProvider.GetService<SteamDaemonService>();
-            if (_steamDaemonService != null)
-            {
-                _steamDaemonService.OnDaemonAuthenticated += HandleDaemonAuthenticated;
-                _steamDaemonService.OnAllDaemonsLoggedOut += HandleAllDaemonsLoggedOut;
-                _logger.LogInformation("Subscribed to Steam daemon auth state change events");
-            }
-            else
-            {
-                _logger.LogWarning("SteamDaemonService not available - daemon event subscriptions skipped");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to subscribe to Steam daemon events");
-        }
-    }
-
-    /// <summary>
-    /// Unsubscribes from Steam daemon events to prevent memory leaks.
-    /// </summary>
-    private void UnsubscribeFromDaemonEvents()
-    {
-        if (_steamDaemonService != null)
-        {
-            _steamDaemonService.OnDaemonAuthenticated -= HandleDaemonAuthenticated;
-            _steamDaemonService.OnAllDaemonsLoggedOut -= HandleAllDaemonsLoggedOut;
-            _steamDaemonService = null;
-            _logger.LogDebug("Unsubscribed from Steam daemon auth state change events");
-        }
-    }
-
-    /// <summary>
-    /// Handler for when a Steam daemon becomes authenticated.
-    /// Logs the state change so Connection.cs logic can react accordingly.
-    /// </summary>
-    private Task HandleDaemonAuthenticated()
-    {
-        _logger.LogInformation("Steam daemon authenticated - daemon is now active");
-        if (_steamClient == null)
-        {
-            return Task.CompletedTask;
-        }
-        return TransitionAsync();
-
-        async Task TransitionAsync()
-        {
-            try
-            {
-                await EnsureSessionAsync(_cancellationTokenSource.Token);
-            }
-            catch (OperationCanceledException) when (_cancellationTokenSource.IsCancellationRequested)
-            {
-                _logger.LogInformation("Steam session transition cancelled during shutdown");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Could not change Steam session mode after daemon authentication");
-            }
-        }
-    }
-
-    /// <summary>
-    /// Handler for when all Steam daemons have logged out.
-    /// Logs the state change so Connection.cs logic can react accordingly.
-    /// </summary>
-    private Task HandleAllDaemonsLoggedOut()
-    {
-        _logger.LogInformation("All Steam daemons logged out - no daemons are active");
-        return Task.CompletedTask;
     }
 
     /// <summary>
