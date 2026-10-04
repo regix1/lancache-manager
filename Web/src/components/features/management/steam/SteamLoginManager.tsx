@@ -89,11 +89,10 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({ mockMode, onError
     }
   };
 
+  // Every close the dialog asks for is final: a mapping sign-in's close has already canceled it.
   const handleCloseModal = () => {
-    if (!state.loading) {
-      setShowAuthModal(false);
-      actions.resetAuthForm();
-    }
+    setShowAuthModal(false);
+    actions.resetAuthForm();
   };
 
   // Dismissing the modal is a decision to stop, so tell the server. The credentials poll outlives

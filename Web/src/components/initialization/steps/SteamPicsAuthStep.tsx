@@ -81,12 +81,11 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
     }
   };
 
+  // Every close the dialog asks for is final: a mapping sign-in's close has already canceled it.
   const handleCloseModal = () => {
-    if (!state.loading) {
-      setShowAuthModal(false);
-      actions.resetAuthForm();
-      setSelectedMode('anonymous');
-    }
+    setShowAuthModal(false);
+    actions.resetAuthForm();
+    setSelectedMode('anonymous');
   };
 
   // The wizard runs the same in-process sign-in as the Management tab, so dismissing it has to

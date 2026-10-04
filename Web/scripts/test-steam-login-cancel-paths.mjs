@@ -115,3 +115,30 @@ test('the wizard cancel calls the endpoint the dismiss path already uses', () =>
 
   assert.equal(cancels, 1);
 });
+
+test('closing the Steam dialog while it waits closes it in one click', () => {
+  const parents = [
+    'src/components/features/management/steam/SteamLoginManager.tsx',
+    WIZARD_STEP_PATH
+  ];
+
+  for (const path of parents) {
+    const calls = [];
+    const record =
+      (name) =>
+      (...args) =>
+        calls.push([name, ...args]);
+
+    bindLifted(liftConstArrow(path, 'handleCloseModal'), {
+      state: { loading: true },
+      setShowAuthModal: record('setShowAuthModal'),
+      setSelectedMode: record('setSelectedMode'),
+      actions: { resetAuthForm: record('resetAuthForm') }
+    })();
+
+    assert.ok(
+      calls.some(([name, value]) => name === 'setShowAuthModal' && value === false),
+      `${path} must close the dialog even while a sign-in waits`
+    );
+  }
+});
