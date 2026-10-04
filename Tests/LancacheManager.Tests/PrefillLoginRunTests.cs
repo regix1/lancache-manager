@@ -3,6 +3,7 @@ using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
@@ -705,6 +706,36 @@ public class PrefillLoginRunTests
         Assert.Equal(0, client.CancelLoginCallCount);
     }
 
+    /// <summary>
+    /// One guest update whose write does not finish within the send bound must not unsubscribe a connection that
+    /// is still open: the sign-in ending that follows still has to reach that dialog.
+    /// </summary>
+    [Fact]
+    public async Task ASlowSendKeepsTheConnectionForTheSignInEnding()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, SlowFirstSendNotificationsProxy>();
+        var slowSend = (SlowFirstSendNotificationsProxy)(object)notifications;
+        var (daemon, session) = CreateSessionWithClient(
+            tracker, Guid.NewGuid(), isPersistent: false, notifications: notifications);
+        daemon.AddSubscriber(session.Id, "conn-1");
+
+        // The first guest event goes to conn-1 and its write is held, as a congested socket's flush is.
+        await daemon.StartLoginAsync(session.Id).WaitAsync(TimeSpan.FromSeconds(20));
+        slowSend.HeldSend.TrySetResult();
+        session.AuthState = DaemonAuthState.PasswordRequired;
+        slowSend.ClearSends();
+
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
+
+        Assert.Contains(("conn-1", SignalREvents.AuthStateChanged), slowSend.Sends());
+        lock (session.PrefillLock)
+        {
+            Assert.Contains("conn-1", session.SubscribedConnections);
+        }
+    }
+
     private static PersistentPrefillController CreateController(TestableSteamDaemonService daemon, Guid callerSessionId)
     {
         var contexts = new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
@@ -725,14 +756,15 @@ public class PrefillLoginRunTests
     }
 
     private static (TestableSteamDaemonService Daemon, DaemonSession Session) CreateSessionWithClient(
-        IUnifiedOperationTracker tracker, Guid userId, bool isPersistent, bool isTemporary = false)
+        IUnifiedOperationTracker tracker, Guid userId, bool isPersistent, bool isTemporary = false,
+        ISignalRNotificationService? notifications = null)
     {
         var contexts = new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"prefill_login_{Guid.NewGuid():N}")
             .Options);
         var daemon = new TestableSteamDaemonService(
             NullLogger<SteamDaemonService>.Instance,
-            (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+            notifications ?? DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
             new ConfigurationBuilder().Build(),
             (IPathResolver)DispatchProxy.Create<IPathResolver, NullReturningProxy>(),
             (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>(),
@@ -763,5 +795,46 @@ public class PrefillLoginRunTests
         daemon.InjectSession(session);
 
         return (daemon, session);
+    }
+
+    /// <summary>
+    /// Records every per-connection send, and answers the first one with a task that completes only when the test
+    /// releases it.
+    /// </summary>
+    private class SlowFirstSendNotificationsProxy : NullReturningProxy
+    {
+        private readonly object _gate = new();
+        private readonly List<(string ConnectionId, string EventName)> _sends = new();
+        private bool _firstSendTaken;
+
+        public TaskCompletionSource HeldSend { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void ClearSends()
+        {
+            lock (_gate) _sends.Clear();
+        }
+
+        public (string ConnectionId, string EventName)[] Sends()
+        {
+            lock (_gate) return _sends.ToArray();
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(ISignalRNotificationService.SendToPrefillClientRawAsync) && args is { Length: >= 2 })
+            {
+                lock (_gate)
+                {
+                    _sends.Add(((string)args[0]!, (string)args[1]!));
+                    if (!_firstSendTaken)
+                    {
+                        _firstSendTaken = true;
+                        return HeldSend.Task;
+                    }
+                }
+            }
+
+            return base.Invoke(targetMethod, args);
+        }
     }
 }
