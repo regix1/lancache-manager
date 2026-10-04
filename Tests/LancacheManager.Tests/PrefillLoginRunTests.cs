@@ -602,6 +602,109 @@ public class PrefillLoginRunTests
         Assert.Equal(RunVisibility.Card, row.Visibility);
     }
 
+    /// <summary>
+    /// A refusal the daemon pushes for a prompt nobody answered ends that sign-in, so the next start begins a new
+    /// one instead of resuming the ended attempt's cached prompt.
+    /// </summary>
+    [Fact]
+    public async Task ARefusedSignInIsNotResumedByTheNextStart()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        client.OnCredentialChallenge += _ =>
+        {
+            session.AuthState = DaemonAuthState.UsernameRequired;
+            return Task.CompletedTask;
+        };
+
+        await daemon.StartLoginAsync(session.Id);
+        var firstAttempt = session.LoginAttempt;
+        Assert.NotNull(session.PendingLoginChallenge);
+
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
+        Assert.Null(session.PendingLoginChallenge);
+
+        var second = await daemon.StartLoginAsync(session.Id);
+
+        Assert.Equal(firstAttempt + 1, Assert.IsType<CredentialChallenge>(second).LoginAttempt);
+        Assert.Equal(2, client.StartLoginCallCount);
+    }
+
+    /// <summary>
+    /// A start while the previous sign-in still runs with its prompt answered ends that sign-in first, so the
+    /// daemon's late refusal (it names no attempt) ends the sign-in it belongs to and never the new one.
+    /// </summary>
+    [Fact]
+    public async Task ANewStartEndsTheUnfinishedSignInBeforeItTakesItsAttempt()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        client.OnCredentialChallenge += _ =>
+        {
+            session.AuthState = DaemonAuthState.UsernameRequired;
+            return Task.CompletedTask;
+        };
+
+        await daemon.StartLoginAsync(session.Id);
+        var firstAttempt = session.LoginAttempt;
+        var firstRunId = Assert.IsType<Guid>(session.LoginOperationId);
+        // The state ProvideCredentialAsync and the daemon's acknowledgement leave: prompt consumed, sign-in still running.
+        session.PendingLoginChallenge = null;
+        session.AuthState = DaemonAuthState.LoggingIn;
+        client.HoldCancelLogin = true;
+
+        var start = daemon.StartLoginAsync(session.Id);
+        var winner = await Task.WhenAny(client.CancelLoginEntered.Task, start).WaitAsync(TimeSpan.FromSeconds(10));
+        var cancelEntered = ReferenceEquals(winner, client.CancelLoginEntered.Task);
+        if (!cancelEntered)
+        {
+            await start.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
+        if (cancelEntered)
+        {
+            client.ReleaseCancelLogin.TrySetResult();
+            await start.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        var firstEnding = Assert.IsType<PrefillLoginEnding>(daemon.GetLoginEnding(session, firstAttempt));
+        Assert.Equal(OperationStatus.Failed, firstEnding.Status);
+        Assert.Equal("prefill.auth.signInRefused", firstEnding.StageKey);
+        Assert.Null(daemon.GetLoginEnding(session, firstAttempt + 1));
+        Assert.NotEqual(firstRunId, session.LoginOperationId);
+        Assert.Equal(1, client.CancelLoginCallCount);
+    }
+
+    /// <summary>
+    /// A start while the previous sign-in's prompt is still cached resumes it and cancels nothing.
+    /// </summary>
+    [Fact]
+    public async Task AStartWhileAPromptIsCachedResumesItWithoutACancel()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        client.OnCredentialChallenge += _ =>
+        {
+            session.AuthState = DaemonAuthState.UsernameRequired;
+            return Task.CompletedTask;
+        };
+
+        await daemon.StartLoginAsync(session.Id);
+        var firstAttempt = session.LoginAttempt;
+
+        var resumed = await daemon.StartLoginAsync(session.Id);
+
+        Assert.Equal(firstAttempt, Assert.IsType<CredentialChallenge>(resumed).LoginAttempt);
+        Assert.Equal(firstAttempt, session.LoginAttempt);
+        Assert.Equal(1, client.StartLoginCallCount);
+        Assert.Equal(0, client.CancelLoginCallCount);
+    }
+
     private static PersistentPrefillController CreateController(TestableSteamDaemonService daemon, Guid callerSessionId)
     {
         var contexts = new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()

@@ -125,6 +125,9 @@ public abstract partial class PrefillDaemonServiceBase
                 if (newAuthState == DaemonAuthState.NotAuthenticated && TryGetLoginFailureMessage(status, out var failureMessage))
                 {
                     session.LastLoginFailureMessage = failureMessage;
+                    // A refused sign-in answers no prompt it left open, so the next start begins a new sign-in
+                    // instead of resuming this one.
+                    ClearPendingLoginChallenge(session);
                 }
                 if (newAuthState == DaemonAuthState.Authenticated
                     && session.LoginOperationId is null

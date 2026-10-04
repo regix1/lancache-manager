@@ -507,6 +507,22 @@ public abstract partial class PrefillDaemonServiceBase
                 }
                 ThrowIfLoginRevoked(session, loginId);
             }
+            // A sign-in whose prompt was answered but which never ended (its browser's cancel was lost) still runs on the
+            // daemon, and the daemon names no attempt when it refuses one. It is ended here, before this start takes a new
+            // attempt number, so a late refusal ends that sign-in and never the one starting now.
+            bool unfinished;
+            long unfinishedAttempt;
+            lock (session.PrefillLock)
+            {
+                unfinished = session.LoginOperationId is not null
+                    && session.PendingLoginChallenge is null
+                    && session.AuthState is not (DaemonAuthState.Authenticated or DaemonAuthState.NotAuthenticated);
+                unfinishedAttempt = session.LoginAttempt;
+            }
+            if (unfinished)
+            {
+                await CancelLoginAsync(sessionId, cancellationToken, loginAttempt: unfinishedAttempt);
+            }
             session.PreserveLoginExpiry = false;
             session.LoginSettled = false;
             // A hub session is created for the caller's own auth session, so its UserId names the
