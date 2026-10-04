@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import ts from 'typescript';
-import { bindLifted, compileToUrl, findSoleNode, parseSource } from './transpile-module.mjs';
+import {
+  bindLifted,
+  compileToUrl,
+  findSoleNode,
+  liftHookCallback,
+  loadNotificationModules,
+  nextRunRevision,
+  operationRunRow,
+  parseSource,
+  pushRun
+} from './transpile-module.mjs';
 
 /**
  * Bulk removal items under the operation wait-queue. Each item sends its request, keeps the id the
@@ -544,4 +554,97 @@ test('a log batch item waits on the id its removal request answers with', async 
   harness.end({ operationId: 'log-1', status: 'completed' });
   await settled;
   assert.equal(harness.signalR.listenerCount('LogRemovalProgress'), 0);
+});
+
+const CONTEXT_PATH = 'src/contexts/notifications/NotificationsContext.tsx';
+const modules = await loadNotificationModules();
+
+/**
+ * One item's wait on a run this browser then misses while disconnected. The waiter, the snapshot
+ * apply and the follow-up question are the shipped provider code; the server's answer to that
+ * question is the stub, with no null keys as the REST answers omit them.
+ */
+const createReconnectHarness = (trackedAnswer) => {
+  class ApiError extends Error {}
+  const storeRef = { current: modules.createRunStoreState() };
+  const waitersRef = { current: new Set() };
+  const asked = [];
+  const followWaiter = bindLifted(liftHookCallback(CONTEXT_PATH, 'useMemo', 'probeRun'), {
+    storeRef,
+    locateRun: modules.locateRun,
+    ApiService: {
+      getTrackedOperation: async (operationId) => {
+        asked.push(operationId);
+        return trackedAnswer;
+      }
+    },
+    ApiError,
+    isTerminalNotificationStatus: modules.isTerminalNotificationStatus,
+    endStatus: modules.endStatus
+  })();
+  const commitApply = bindLifted(liftHookCallback(CONTEXT_PATH, 'useCallback', 'result.ended'), {
+    storeRef,
+    waitersRef,
+    followWaiter,
+    settleBulk: () => undefined,
+    fadeLeavingRuns: () => undefined,
+    commit: () => undefined
+  });
+  const waitForRunEnd = bindLifted(liftHookCallback(CONTEXT_PATH, 'useCallback', 'RunWaiter'), {
+    waitersRef,
+    followWaiter
+  });
+  return {
+    asked,
+    /** The item starts waiting on a live run, then a reconnect snapshot no longer lists it. */
+    async waitThenMissIt() {
+      storeRef.current = pushRun(modules, storeRef.current, operationRunRow('run-x'));
+      const waiting = waitForRunEnd('run-x');
+      const snapshot = { runs: [], revision: nextRunRevision() };
+      commitApply(
+        modules.applySnapshot(storeRef.current, snapshot, {
+          keepSuccessVisible: false,
+          localCards: [],
+          requestSeq: 1,
+          issuedSeq: 1,
+          sessionId: null
+        }),
+        true
+      );
+      await flush();
+      return waiting;
+    }
+  };
+};
+
+/** The batch's own settle step for one ended item, counting how often it cancels the batch. */
+const settleItem = (end) => {
+  let cancelCalls = 0;
+  settleBatchItem({
+    end,
+    ctx: {
+      cancelRun: () => {
+        cancelCalls += 1;
+      },
+      wasCancelled: () => false
+    },
+    failedMessage: 'failed',
+    neverStartedMessage: 'never started'
+  });
+  return cancelCalls;
+};
+
+test('a run a reconnect snapshot drops is asked about once and its kept ending cancels the batch', async () => {
+  const harness = createReconnectHarness({ status: 'cancelled' });
+  const end = await harness.waitThenMissIt();
+  assert.deepEqual(harness.asked, ['run-x']);
+  assert.equal(end.status, 'cancelled');
+  assert.equal(settleItem(end), 1);
+});
+
+test('a run a reconnect snapshot drops that the server no longer keeps counts as done', async () => {
+  const harness = createReconnectHarness({});
+  const end = await harness.waitThenMissIt();
+  assert.equal(end.status, 'gone');
+  assert.equal(settleItem(end), 0);
 });

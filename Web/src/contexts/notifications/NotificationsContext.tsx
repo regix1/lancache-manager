@@ -219,13 +219,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   }, [fadeLocal]);
 
   // Follows a waiter to its run's current id and settles it once that run ended. A run this
-  // browser has never heard of is asked about directly, so no waiter depends on elapsed time.
+  // browser has never heard of, or one a reconnect snapshot no longer holds, is asked about
+  // directly, so no waiter depends on elapsed time and a run the server still keeps settles with
+  // its real ending (the server answers none after 5 minutes, and the item then counts as done).
   const followWaiter = useMemo(() => {
     function follow(waiter: RunWaiter, probe: boolean): void {
       const place = locateRun(storeRef.current, waiter.target);
       waiter.target = place.operationId;
-      if (place.terminal) waiter.settle(place.terminal);
-      else if (!place.known && probe) void probeRun(waiter);
+      const dropped = place.terminal?.status === 'gone';
+      if (place.terminal && !(dropped && probe)) waiter.settle(place.terminal);
+      else if ((!place.known || dropped) && probe) void probeRun(waiter);
     }
     async function probeRun(waiter: RunWaiter): Promise<void> {
       const target = waiter.target;
@@ -233,7 +236,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       try {
         const answer = await ApiService.getTrackedOperation(target);
         waiter.probing = false;
-        if (locateRun(storeRef.current, target).known) {
+        const place = locateRun(storeRef.current, target);
+        if (place.known && place.terminal?.status !== 'gone') {
           follow(waiter, false);
         } else if (answer.nextOperationId) {
           waiter.target = answer.nextOperationId;
@@ -263,8 +267,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const waiters = [...waitersRef.current];
       for (const { from, to } of result.merged)
         for (const waiter of waiters) if (waiter.target === from) waiter.target = to;
+      // A run a snapshot no longer holds is asked about instead (followWaiter below).
       for (const end of result.ended)
-        for (const waiter of waiters) if (waiter.target === end.operationId) waiter.settle(end);
+        for (const waiter of waiters)
+          if (waiter.target === end.operationId && !(probe && end.status === 'gone'))
+            waiter.settle(end);
       for (const waiter of waitersRef.current) if (!waiter.probing) followWaiter(waiter, probe);
       settleBulk();
       fadeLeavingRuns();
