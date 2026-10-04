@@ -135,6 +135,21 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
     };
   }, [signalR, isAdmin, fetchSteamAuth]);
 
+  // A sign-in's end changes who may sign in, and a dialog that gave up on its attempt while offline is told nothing else.
+  useEffect(() => {
+    if (!isAdmin) return;
+
+    const handleLoginEnded = () => {
+      void fetchSteamAuth();
+    };
+
+    signalR.on('IntegrationLoginEnded', handleLoginEnded);
+
+    return () => {
+      signalR.off('IntegrationLoginEnded', handleLoginEnded);
+    };
+  }, [signalR, isAdmin, fetchSteamAuth]);
+
   // Initial fetch - only for admin users (guests don't need Steam auth status)
   useEffect(() => {
     requestRef.current += 1;
@@ -155,7 +170,7 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
     };
   }, [authLoading, isAdmin, fetchSteamAuth]);
 
-  // SteamAutoLogout and SteamSessionError are the only things that move this state, and neither is
+  // SteamAutoLogout, SteamSessionError and IntegrationLoginEnded move this state, and none is
   // delivered while the socket is down, so a session dropped server-side would keep offering Steam
   // prefill until the page reloaded. Admin-only, matching the two handlers and the initial fetch:
   // /steam-auth/status is not for guests, and this provider is mounted for every session.

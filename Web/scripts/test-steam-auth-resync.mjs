@@ -137,6 +137,7 @@ export const useSignalR = () => {
   hub.isConnected = globalThis.__socketLive;
   return hub;
 };
+globalThis.__clearSignalR = () => handlers.clear();
 globalThis.__emitSignalR = async (event, value) => {
   const handler = handlers.get(event);
   if (!handler) throw new Error('No SignalR handler for ' + event);
@@ -359,6 +360,38 @@ test('invalidating events publish completed refreshes and ignore unrelated sessi
   value = provider.render(true);
   assert.equal(server.requests, 6, 'non-invalidating session errors do not fetch');
   assert.equal(value.revision, 6, 'no completion is published without a refresh');
+});
+
+test('a sign-in ending announced on the hub reads the Steam status again', async () => {
+  // The hub sends IntegrationLoginEnded to every client once a sign-in's window ends
+  // (SteamKit2Service.Authentication.cs), including to a dialog that gave up its attempt while offline.
+  const server = startServer('authenticated', 'lanadmin');
+  const view = mount('authenticated', true);
+  await settle();
+  assert.equal(view.render(true).revision, 1);
+
+  await globalThis.__emitSignalR('IntegrationLoginEnded', { attemptId: 'x' });
+  await settle();
+
+  const value = view.render(true);
+  assert.equal(server.requests, 2, 'the admin reads the status once for the push');
+  assert.equal(value.revision, 2, 'the read publishes its completion');
+});
+
+test('a guest does not listen for a sign-in ending', async () => {
+  // Earlier admin mounts left their handlers on the shared hub, so start from an empty one.
+  globalThis.__clearSignalR();
+  const server = startServer('authenticated', 'lanadmin');
+  const view = mount('guest', true);
+  await settle();
+  assert.equal(server.requests, 0);
+
+  await assert.rejects(
+    () => globalThis.__emitSignalR('IntegrationLoginEnded', { attemptId: 'x' }),
+    /No SignalR handler for IntegrationLoginEnded/
+  );
+  assert.equal(server.requests, 0, 'the status endpoint is not for guests');
+  assert.equal(view.render(true).revision, 0);
 });
 
 test('authenticated mode requires confirmed credentials and a nonblank username', async () => {
