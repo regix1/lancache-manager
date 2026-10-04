@@ -36,6 +36,9 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     private readonly RunNotice _notice;
     private CancellationTokenRegistration _cancelRegistration;
     private readonly CancellationTokenSource _cts;
+    // Captured once: completing the run (a force stop does) disposes the source, and a token read from a disposed source
+    // throws, while a token captured before still reports the cancel.
+    private readonly CancellationToken _token;
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private readonly ScheduledRunPayloadFactories? _payloadFactories;
     private readonly Action? _onTerminalCleanup;
@@ -90,6 +93,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         _terminalStageKey = completeStageKey;
         _notice = notice;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+        _token = _cts.Token;
         _payloadFactories = payloadFactories;
         _onTerminalCleanup = onTerminalCleanup;
         _logger = logger;
@@ -106,7 +110,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     /// The run's cancellation token. Callers pass this to the work they perform so the tracker can
     /// cancel the run (and so shutdown flows through in one place).
     /// </summary>
-    public CancellationToken Token => _cts.Token;
+    public CancellationToken Token => _token;
 
     /// <summary>
     /// Registers the tracked operation and awaits the run-started broadcast. Call this only once.
@@ -149,7 +153,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             _started = true;
             _lastContext = context;
 
-            _cancelRegistration = _cts.Token.Register(() => _notice.Cancel(_tracker, _operationId));
+            _cancelRegistration = _token.Register(() => _notice.Cancel(_tracker, _operationId));
             _notice.Attach(_tracker, _operationId);
 
             _tracker.UpdateProgress(_operationId, 0, stageKey);
@@ -183,7 +187,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             return;
         }
 
-        await _sendGate.WaitAsync(_cts.Token);
+        await _sendGate.WaitAsync(_token);
         try
         {
             if (Volatile.Read(ref _completed) != 0)

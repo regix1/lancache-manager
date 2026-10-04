@@ -56,6 +56,25 @@ public sealed class IntegrationCancellationTests
         Assert.True(reporter.Token.IsCancellationRequested);
     }
 
+    [Fact]
+    public async Task AReporterWhoseRunWasForceStoppedStillReadsItsCancelAsync()
+    {
+        var tracker = NewTracker();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        await using var reporter = new MappingOperationReporter(notifications, tracker, MappingOperations.Epic,
+            new RunNotice(NotificationMode.All, RunTrigger.Manual), CancellationToken.None, NullLogger.Instance);
+        await reporter.StartAsync();
+        var cancellation = new OperationCancellationService(tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), OperationConflictTestServices.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+
+        Assert.True(await cancellation.ForceKillAsync(reporter.OperationId));
+
+        // Completing the run disposed the source the token came from.
+        Assert.True(reporter.Token.IsCancellationRequested);
+        Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(reporter.OperationId)!.Status);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -263,6 +282,42 @@ public sealed class IntegrationCancellationTests
         Assert.NotNull(ending);
         Assert.Equal(OperationStatus.Completed, ending.Status);
         Assert.Equal("signalr.epicMapping.completed", ending.StageKey);
+    }
+
+    [Fact]
+    public async Task ForceStopWhileTheEpicStartedSendIsHeldKeepsTheCancellationEndingAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        var recorder = (Notifications)(object)notifications;
+        recorder.HeldEvent = SignalREvents.EpicMappingStarted;
+        using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
+        var cancellation = new OperationCancellationService(tracker,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), OperationConflictTestServices.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+        var start = await service.GetAuthorizationUrl(fixture.Owner);
+
+        var submit = service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
+        try
+        {
+            // The run is registered before its Started event goes out, so a second browser can already press X.
+            await recorder.HeldEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.True(await cancellation.ForceKillAsync(Assert.Single(tracker.GetActiveOperations()).Id, fixture.Owner));
+        }
+        finally
+        {
+            recorder.HeldRelease.TrySetResult();
+        }
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => submit.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal("cancelled", Assert.Single(tracker.GetRuns().Runs).Status);
+        var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
+        Assert.NotNull(ending);
+        Assert.Equal(OperationStatus.Cancelled, ending.Status);
+        Assert.Equal("errors.integration.attemptExpired", ending.StageKey);
     }
 
     [Fact]
@@ -490,12 +545,21 @@ public sealed class IntegrationCancellationTests
     {
         public Action? OnSend { get; set; }
         public List<(string EventName, object? Payload)> Sent { get; } = [];
+        // The send of this event does not finish until HeldRelease completes, as a congested client's write does.
+        public string? HeldEvent { get; set; }
+        public TaskCompletionSource HeldEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource HeldRelease { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             OnSend?.Invoke();
             if (targetMethod?.Name == nameof(ISignalRNotificationService.NotifyAllAsync))
             {
                 lock (Sent) Sent.Add(((string)args![0]!, args[1]));
+                if ((string)args![0]! == HeldEvent)
+                {
+                    HeldEntered.TrySetResult();
+                    return HeldRelease.Task;
+                }
             }
             return targetMethod?.ReturnType == typeof(Task) ? Task.CompletedTask : null;
         }

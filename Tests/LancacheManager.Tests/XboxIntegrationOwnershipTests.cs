@@ -1,10 +1,14 @@
 using System.Net;
 using System.Reflection;
 using System.Text;
+using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.Xbox;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
@@ -137,6 +141,50 @@ public partial class XboxScheduledRefreshProgressTests
             var after = harness.Service.GetAuthStatus(owner, start.AttemptId);
             Assert.True(after.IsAuthenticated);
             Assert.Equal(OperationStatus.Completed, after.LoginEnding!.Status);
+        }
+
+        [Fact]
+        public async Task ForceStopWhileTheXboxStartedSendIsHeldEndsAsACancelAsync()
+        {
+            using var auth = new StubDeviceCodeHandler
+            {
+                TokenBody = """{"access_token":"access","refresh_token":"replacement"}""",
+                CompleteHarvest = true
+            };
+            using var harness = new Harness(authHandler: auth);
+            var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+            using var entered = new ManualResetEventSlim();
+            using var release = new ManualResetEventSlim();
+            // The Started send runs on the sign-in's own background thread, so holding it holds only that send, as a
+            // congested client's write does.
+            harness.Notifications.OnNotify = eventName =>
+            {
+                if (eventName != SignalREvents.XboxMappingStarted) return;
+                entered.Set();
+                release.Wait(TimeSpan.FromSeconds(10));
+            };
+            var cancellation = new OperationCancellationService(harness.Tracker,
+                new ProcessManager(NullLogger<ProcessManager>.Instance), OperationConflictTestServices.Owner,
+                NullLogger<OperationCancellationService>.Instance);
+            var start = await harness.Service.StartLoginAsync(null, caller: owner);
+
+            try
+            {
+                Assert.True(entered.Wait(TimeSpan.FromSeconds(15)));
+                var operation = Assert.Single(harness.Tracker.GetActiveOperations(OperationType.XboxMapping));
+                Assert.True(await cancellation.ForceKillAsync(operation.Id, owner));
+            }
+            finally
+            {
+                release.Set();
+            }
+
+            await WaitForAsync(() => harness.Service.GetAuthStatus(owner, start.AttemptId).LoginEnding is not null);
+            var ending = harness.Service.GetAuthStatus(owner, start.AttemptId).LoginEnding;
+            Assert.Equal(OperationStatus.Cancelled, ending!.Status);
+            Assert.Equal("signalr.xbox.mapping.cancelled", ending.StageKey);
+            var terminal = Assert.Single(harness.Notifications.XboxLifecycleEvents(), e => e.IsTerminal);
+            Assert.Equal(OperationStatus.Cancelled, terminal.Status);
         }
 
         private static async Task<XboxDeviceCodeChallenge> StartSignInHeldInBannerPassAsync(
