@@ -77,12 +77,13 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   // The attempt number on this sign-in's challenges, matched against the session's recorded ending.
   const loginAttemptRef = useRef<number | null>(null);
   const startedAfterAttemptRef = useRef<number | null>(null);
-  // Every push names the sign-in attempt it belongs to. A dialog with an attempt of its own reads only that one. While its
-  // start is out it has none yet, and a push for the attempt the session had when that start went out, or an older one,
-  // belongs to the sign-in the start replaced.
+  // Every push and wait answer names the sign-in attempt it belongs to. A dialog with an attempt of its own reads only
+  // that one, so an answer with no attempt (a new start's first prompt, which the server stamps only when that start
+  // answers) is another sign-in's too. While its start is out it has none yet, and an answer for the attempt the session
+  // had when that start went out, or an older one, belongs to the sign-in the start replaced.
   const isOtherAttempt = useCallback((attempt: number | null | undefined): boolean => {
-    if (attempt === undefined || attempt === null) return false;
     if (loginAttemptRef.current !== null) return attempt !== loginAttemptRef.current;
+    if (attempt === undefined || attempt === null) return false;
     return startedAfterAttemptRef.current !== null && attempt <= startedAfterAttemptRef.current;
   }, []);
   const sessionIdRef = useRef(sessionId);
@@ -345,6 +346,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         onSuccess?.();
       } else if (authState === 'NotAuthenticated') {
         if (isOtherAttempt(loginAttempt)) return;
+        // A dialog with no sign-in of its own keeps what the person typed when another tab's sign-in ends.
+        if (!hasStartedAuthRef.current && loginAttemptRef.current === null) return;
         loginEpochRef.current += 1;
         finishAuthStep();
         retiredChallengeIdsRef.current.clear();
@@ -527,7 +530,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           // appeared to end for no reason at all. The modal now stays open holding the reason.
           setError(t('prefill.auth.approvalTimedOut'));
           try {
-            await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId, attempt);
+            await hubConnectionRef.current?.invoke('CancelLoginAttemptAsync', sessionId, attempt);
           } catch (err) {
             // The modal already holds the timeout reason; transport cancellation is best effort.
             notifyError('Failed to cancel login on daemon', err, {
@@ -598,7 +601,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         // closing on a card that is gone five seconds later.
         setError(t('prefill.auth.deviceCodeExpired'));
         try {
-          await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId, attempt);
+          await hubConnectionRef.current?.invoke('CancelLoginAttemptAsync', sessionId, attempt);
         } catch (err) {
           // The modal already holds the timeout reason; transport cancellation is best effort.
           notifyError('Failed to cancel Xbox device-code login on daemon', err, {
@@ -666,7 +669,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         hasStartedAuthRef.current = false;
         setError(t('prefill.auth.errors.noChallenge'));
         try {
-          await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId, attempt);
+          await hubConnectionRef.current?.invoke('CancelLoginAttemptAsync', sessionId, attempt);
         } catch (err) {
           notifyError('Failed to cancel expired login on daemon', err, {
             silent: true,
@@ -799,7 +802,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           !ownsAuthStep(step)
         )
           return false;
-        if (nextChallenge) {
+        // A wait answers with whatever prompt the session holds, which can belong to a sign-in another tab started.
+        if (nextChallenge && !isOtherAttempt(nextChallenge.loginAttempt)) {
           if (!handleChallengeType(nextChallenge)) return false;
         }
         return false;
@@ -860,7 +864,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           !ownsAuthStep(step)
         )
           return false;
-        if (nextChallenge) {
+        if (nextChallenge && !isOtherAttempt(nextChallenge.loginAttempt)) {
           if (!handleChallengeType(nextChallenge)) return false;
         }
         return false;
@@ -973,7 +977,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             !ownsAuthStep(step)
           )
             return false;
-          if (eventChallenge && eventChallenge.credentialType === 'authorization-url') {
+          if (
+            eventChallenge &&
+            eventChallenge.credentialType === 'authorization-url' &&
+            !isOtherAttempt(eventChallenge.loginAttempt)
+          ) {
             handleChallengeType(eventChallenge);
             return false;
           }
@@ -1038,7 +1046,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             !ownsAuthStep(step)
           )
             return false;
-          if (eventChallenge && eventChallenge.credentialType === 'device-code') {
+          if (
+            eventChallenge &&
+            eventChallenge.credentialType === 'device-code' &&
+            !isOtherAttempt(eventChallenge.loginAttempt)
+          ) {
             if (!handleChallengeType(eventChallenge)) return false;
             return false;
           }
@@ -1124,7 +1136,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           !ownsAuthStep(step)
         )
           return false;
-        if (!passChallenge) {
+        if (!passChallenge || isOtherAttempt(passChallenge.loginAttempt)) {
           throw new Error(t('prefill.auth.errors.noPasswordChallenge'));
         }
 
@@ -1154,7 +1166,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             !ownsAuthStep(step)
           )
             return false;
-          if (nextChallenge) {
+          if (nextChallenge && !isOtherAttempt(nextChallenge.loginAttempt)) {
             if (!handleChallengeType(nextChallenge)) return false;
           }
           return false;
@@ -1210,6 +1222,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     onError,
     serviceId,
     handleChallengeType,
+    isOtherAttempt,
     beginAuthStep,
     finishAuthStep,
     ownsAuthStep

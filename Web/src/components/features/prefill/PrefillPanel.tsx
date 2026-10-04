@@ -1015,8 +1015,7 @@ function ServicePrefillPanel({
       // The person's Cancel ends whichever sign-in this session runs, the one this dialog started included before its first prompt.
       const cancelled = await signalR.hubConnection.current.invoke<boolean>(
         'CancelLoginAsync',
-        signalR.session.id,
-        null
+        signalR.session.id
       );
       setShowAuthModal(false);
       authActions.resetAuthForm();

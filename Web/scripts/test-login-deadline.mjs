@@ -403,7 +403,7 @@ function guest(useHook = useGuest, serviceId = 'steam', sessionLoginAttempt = 6)
       async invoke(name, ...args) {
         calls.push([name, ...args]);
         if (name === 'StartLoginAsync') return reply;
-        if (name === 'CancelLoginAsync') return cancel();
+        if (name === 'CancelLoginAsync' || name === 'CancelLoginAttemptAsync') return cancel();
         if (name === 'ProvideCredentialAsync') return provide(...args);
         if (name === 'WaitForChallengeAsync') return waits.shift() ?? null;
         return null;
@@ -482,7 +482,7 @@ for (const [service, duration] of [
       flow.render();
       assert.equal(flow.render().loginDeadline, start + duration);
       await time.advance(duration - 90000);
-      assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 1);
+      assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAttemptAsync').length, 1);
       assert.equal(flow.render().loginDeadline, null);
     } finally {
       flow.unmount();
@@ -502,7 +502,7 @@ test('same-instant guest challenge replacement keeps its terminal armed', async 
     });
     flow.render();
     await time.advance(120000);
-    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 1);
+    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAttemptAsync').length, 1);
   } finally {
     flow.unmount();
     time.restore();
@@ -522,7 +522,7 @@ test('new guest challenge owns a new wait and an earlier raw expiry narrows it',
     flow.render();
     assert.equal(flow.render().loginDeadline, time.now + 10000);
     await time.advance(10000);
-    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 1);
+    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAttemptAsync').length, 1);
   } finally {
     flow.unmount();
     time.restore();
@@ -582,7 +582,7 @@ test('expired guest challenge terminates once and stale deliveries cannot reopen
     flow.reply = challenge('past', 'device-confirmation', time.now - 1);
     await flow.start();
     await time.advance(0);
-    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 1);
+    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAttemptAsync').length, 1);
     const handler = flow.socket.handlers.get('CredentialChallenge');
     void handler({ sessionId: 'session', challenge: challenge('past') });
     flow.render();
@@ -601,7 +601,7 @@ test('guest unmount cancels its timer and an unowned delivery cannot start a wai
     await flow.start();
     flow.unmount();
     await time.advance(120000);
-    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 0);
+    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAttemptAsync').length, 0);
     const remount = guest();
     remount.render();
     void remount.socket.handlers.get('CredentialChallenge')({
@@ -637,7 +637,7 @@ test('duration-based effect rearming extends a Steam wait on translation change'
     flow.render();
     assert.equal(flow.render().loginDeadline, start + 210000);
     await time.advance(30000);
-    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 0);
+    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAttemptAsync').length, 0);
   } finally {
     flow.unmount();
     time.restore();
@@ -855,9 +855,9 @@ test('guest quick stage keeps the shortest accepted expiry and ends once', async
     auth = flow.render();
     assert.equal(auth.state.loading, false);
     assert.equal(auth.state.error, 'prefill.auth.errors.noChallenge');
-    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 1);
+    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAttemptAsync').length, 1);
     await time.advance(20000);
-    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAsync').length, 1);
+    assert.equal(flow.calls.filter(([name]) => name === 'CancelLoginAttemptAsync').length, 1);
   } finally {
     flow.unmount();
     time.restore();
@@ -1085,8 +1085,8 @@ test('a stale tab ignores the newer sign-in and its timer cancels only its own a
 
     await time.advance(120000);
     assert.deepEqual(
-      flow.calls.filter(([name]) => name === 'CancelLoginAsync'),
-      [['CancelLoginAsync', 'session', 4]]
+      flow.calls.filter(([name]) => name === 'CancelLoginAttemptAsync'),
+      [['CancelLoginAttemptAsync', 'session', 4]]
     );
   } finally {
     flow.unmount();
@@ -1108,6 +1108,46 @@ test('an ending of another attempt leaves a waiting dialog waiting', async () =>
     assert.equal(auth.state.waitingForMobileConfirmation, true);
     assert.equal(auth.state.error, null);
     assert.deepEqual(flow.outcomes.errors, []);
+  } finally {
+    flow.unmount();
+  }
+});
+
+// WaitForChallengeAsync serves the session's cached prompt whatever sign-in it belongs to (PrefillDaemonServiceBase.Login.cs).
+// Case one is the stamped prompt of a newer sign-in; case two is a newer start's first prompt before the server stamps it.
+test('a wait answered with another sign-in prompt leaves the dialog on its own attempt', async () => {
+  for (const newerAttempt of [8, undefined]) {
+    const flow = guest();
+    try {
+      flow.reply = { ...challenge('first', 'username'), loginAttempt: 7 };
+      flow.wait({ ...challenge('newer', 'username'), loginAttempt: newerAttempt });
+      const auth = await flow.start();
+
+      assert.equal(auth.state.error, 'prefill.auth.errors.noPasswordChallenge');
+      assert.equal(
+        flow.calls.filter(
+          ([name, , sent]) => name === 'ProvideCredentialAsync' && sent.challengeId === 'newer'
+        ).length,
+        0
+      );
+    } finally {
+      flow.unmount();
+    }
+  }
+});
+
+test("another tab's ended sign-in leaves an idle dialog's typed password", async () => {
+  const flow = guest();
+  try {
+    flow.render().actions.setPassword('typing-a-password');
+    flow.socket.handlers.get('AuthStateChanged')({
+      sessionId: 'session',
+      authState: 'NotAuthenticated',
+      loginAttempt: 7
+    });
+    const auth = flow.render();
+    assert.equal(auth.state.password, 'typing-a-password');
+    assert.equal(auth.state.error, null);
   } finally {
     flow.unmount();
   }
