@@ -20,6 +20,8 @@ export interface EpicAuthState {
   ownershipReason?: string | null;
   recovering?: boolean;
   loading: boolean;
+  /** True while the dialog waits for a lost answer's ending: nothing is being sent, and the attempt can still be canceled. */
+  awaitingEnding?: boolean;
   needsAuthorizationCode: boolean;
   authorizationUrl: string;
   authorizationCode: string;
@@ -357,6 +359,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     ownershipReason: authStatus?.ownershipReason,
     recovering: authStatus?.canRecover === true,
     loading: formCurrent && (loading || endingWait !== null),
+    awaitingEnding: formCurrent && endingWait !== null,
     needsAuthorizationCode: formCurrent && needsAuthorizationCode,
     authorizationUrl: formCurrent ? authorizationUrl : '',
     authorizationCode: formCurrent ? authorizationCode : '',

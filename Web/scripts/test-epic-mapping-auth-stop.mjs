@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { compileToUrl } from './transpile-module.mjs';
 
@@ -526,15 +527,36 @@ test('a deadline read that still names the attempt keeps the Epic dialog waiting
   assert.equal(waiting.state.needsAuthorizationCode, true);
   assert.equal(waiting.state.error, null);
 
+  // The server records no ending for an attempt no code request ran. The push comes from the window-end announcement in
+  // EpicMappingService.Authentication.cs, and by then the status no longer names the attempt, so the read ends it as expired.
   server.pendingAttempt = null;
-  server.endings['attempt-a'] = {
-    attemptId: 'attempt-a',
-    status: 'cancelled',
-    stageKey: 'errors.integration.attemptExpired'
-  };
   globalThis.__emit('IntegrationLoginEnded', { attemptId: 'attempt-a' });
   await settle();
   assert.equal(epic.failed.message, 'errors.integration.attemptExpired');
+});
+
+/**
+ * The wizard's Back cancels the attempt (EpicAuthStep handleRetry), so it stays usable while the dialog only waits for a
+ * lost answer's ending. The hook reports that wait apart from a request in flight; the step reads it for Back.
+ */
+test('a lost Epic answer reports the wait so the setup wizard can leave it', async () => {
+  const server = startServer();
+  const epic = await mount();
+  await reachCodeForm(epic);
+  server.statusFailing = true;
+  await epic.read().actions.handleAuthenticate();
+  const waiting = epic.render();
+
+  assert.equal(waiting.state.loading, true);
+  assert.equal(waiting.state.awaitingEnding, true);
+
+  const stepSource = readFileSync(
+    new URL('../src/components/initialization/steps/EpicAuthStep.tsx', import.meta.url),
+    'utf8'
+  );
+  const back = /onClick=\{handleRetry\}\s+disabled=\{([^}]*)\}/.exec(stepSource);
+  assert.ok(back, 'the Back button is found by its handler');
+  assert.match(back[1], /state\.awaitingEnding/);
 });
 
 test('a saved sign-in that was signed out before the read shows the sign-in failed text', async () => {
