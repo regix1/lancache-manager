@@ -146,6 +146,41 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
     [Fact]
     public void BuildRemovalRepair_RetainsNativeReceiptPath()
     {
+        var (manager, cachePath) = NewCacheManagementService();
+        var operationId = Guid.NewGuid();
+
+        var repair = manager.BuildRemovalRepair(
+            operationId,
+            OperationType.GameRemoval,
+            "Game Removal",
+            new RemovalMetrics { EntityKey = "570" },
+            new CacheRepairTarget { SteamAppId = 570 });
+
+        var source = Assert.Single(repair.Sources);
+        Assert.Equal(
+            Path.Combine(cachePath, $".lancache-repair-{operationId:N}.json"),
+            source.ReceiptPath);
+    }
+
+    // The repair record is checked before a removal starts, so a service removal whose record
+    // fails that check ends at once without removing anything.
+    [Fact]
+    public void ServiceRemovalRepair_PassesTheRepairCheck()
+    {
+        var (manager, _) = NewCacheManagementService();
+
+        var repair = manager.BuildRemovalRepair(
+            Guid.NewGuid(),
+            OperationType.ServiceRemoval,
+            "Service removal: wsus",
+            CacheController.CreateServiceRemovalMetrics("wsus"),
+            new CacheRepairTarget { Service = "wsus" });
+
+        StateService.ValidateOperationRepair(repair);
+    }
+
+    private (CacheManagementService Manager, string CachePath) NewCacheManagementService()
+    {
         var cachePath = Path.Combine(_root, "receipt-cache");
         var logPath = Path.Combine(_root, "receipt-logs");
         Directory.CreateDirectory(cachePath);
@@ -174,19 +209,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         typeof(CacheManagementService)
             .GetField("_capabilityService", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(manager, new DatasourceCapabilityService(datasourceService));
-        var operationId = Guid.NewGuid();
-
-        var repair = manager.BuildRemovalRepair(
-            operationId,
-            OperationType.GameRemoval,
-            "Game Removal",
-            new RemovalMetrics { EntityKey = "570" },
-            new CacheRepairTarget { SteamAppId = 570 });
-
-        var source = Assert.Single(repair.Sources);
-        Assert.Equal(
-            Path.Combine(cachePath, $".lancache-repair-{operationId:N}.json"),
-            source.ReceiptPath);
+        return (manager, cachePath);
     }
 
     // After a reload the recovered removal names its service, so a same-named game on another

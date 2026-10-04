@@ -1189,6 +1189,9 @@ public class CacheController : ControllerBase
             CorruptionScanId = selection.ScanId
         };
 
+    internal static RemovalMetrics CreateServiceRemovalMetrics(string name) =>
+        new() { EntityKey = name.ToLowerInvariant(), EntityName = name, EntityKind = "service" };
+
     private OperationRepair BuildCorruptionRepair(
         Guid operationId,
         DateTime startedAt,
@@ -2083,7 +2086,7 @@ public class CacheController : ControllerBase
 
         _logger.LogInformation("Starting background service removal for: {Service}", name);
 
-        var metadata = new RemovalMetrics { EntityKey = name.ToLowerInvariant(), EntityName = name };
+        var metadata = CreateServiceRemovalMetrics(name);
         return await TrackedRemovalOperationRunner.StartAsync(
             _operationTracker,
             _notifications,
