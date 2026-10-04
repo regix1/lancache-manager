@@ -370,6 +370,33 @@ public sealed class IntegrationCancellationTests
             && sent.Payload is SignalRNotifications.IntegrationLoginEnded ended && ended.AttemptId == start.AttemptId);
     }
 
+    /// <summary>
+    /// An Epic attempt whose code never reached the server has no submit to end it. The service announces the
+    /// attempt's window end itself, so a waiting dialog reads once and finds the attempt gone.
+    /// </summary>
+    [Fact]
+    public async Task AnEpicSignInNobodySentACodeForAnnouncesItsWindowEndAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
+        var start = await service.GetAuthorizationUrl(fixture.Owner);
+        var live = (IntegrationLogin)typeof(EpicMappingService)
+            .GetField("_loginAttempt", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(service)!;
+        var announce = typeof(EpicMappingService)
+            .GetMethod("AnnounceLoginWindowEndAsync", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(announce);
+
+        await (Task)announce.Invoke(service, [live with { ExpiresAtUtc = DateTime.UtcNow.AddSeconds(-1) }])!;
+
+        Assert.Contains(((Notifications)(object)notifications).Sent, sent =>
+            sent.EventName == SignalREvents.IntegrationLoginEnded
+            && sent.Payload is SignalRNotifications.IntegrationLoginEnded ended && ended.AttemptId == start.AttemptId);
+    }
+
     [Fact]
     public async Task AnEpicRefreshCancelStopsTheRefreshsOwnCardAsync()
     {

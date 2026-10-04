@@ -90,6 +90,7 @@ public partial class EpicMappingService
         var login = await _authStorage.BeginIntegrationLoginAsync(caller, attemptId, recover);
         if (!_authStorage.RunIntegrationLogin(login, () => _loginAttempt = login))
             throw new OperationCanceledException();
+        _ = AnnounceLoginWindowEndAsync(login);
         return new EpicLoginUrlResponse
         {
             AuthorizationUrl = _epicApiClient.GetAuthorizationUrl(),
@@ -400,6 +401,16 @@ public partial class EpicMappingService
         {
             _logger.LogDebug(ex, "Failed to send the Epic sign-in ending for {AttemptId}", login.AttemptId);
         }
+    }
+
+    // A code that never reached the server leaves no submit to end its attempt, so the attempt's window end is announced
+    // here: a dialog waiting on it reads once and finds the attempt gone. The added second is past the worst case of a
+    // monotonic timer firing a little before the wall clock reads the window's end (about 16 ms on Windows).
+    private async Task AnnounceLoginWindowEndAsync(IntegrationLogin login)
+    {
+        var remaining = login.ExpiresAtUtc - DateTime.UtcNow;
+        await Task.Delay((remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero) + TimeSpan.FromSeconds(1));
+        await NotifyLoginEndedAsync(login);
     }
 
     public async Task LogoutAsync(IntegrationCaller? caller = null)
