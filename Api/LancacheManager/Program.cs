@@ -1101,8 +1101,29 @@ using (var scope = app.Services.CreateScope())
             // Allow long-running migrations (e.g., column type changes that rewrite large tables)
             dbContext.Database.SetCommandTimeout(TimeSpan.FromMinutes(30));
 
-            // This will create the database if it doesn't exist and apply all pending migrations
-            await dbContext.Database.MigrateAsync();
+            // This will create the database if it doesn't exist and apply all pending migrations.
+            // A database container started alongside this one refuses connections until it is ready,
+            // so startup waits for it instead of exiting with a connection error.
+            var databaseWaitEnds = DateTime.UtcNow.AddMinutes(2);
+            var waitingLogged = false;
+            while (true)
+            {
+                try
+                {
+                    await dbContext.Database.MigrateAsync();
+                    break;
+                }
+                catch (Npgsql.NpgsqlException ex) when (ex.IsTransient && DateTime.UtcNow < databaseWaitEnds)
+                {
+                    if (!waitingLogged)
+                    {
+                        logger.LogInformation("Waiting for the database at {Host}:{Port} to accept connections...",
+                            connBuilder.Host, connBuilder.Port);
+                        waitingLogged = true;
+                    }
+                    await Task.Delay(TimeSpan.FromSeconds(2));
+                }
+            }
             await DatabaseSchemaFixer.ApplyPostMigrationAsync(dbContext, logger);
 
             logger.LogInformation("Database migrations applied successfully");
