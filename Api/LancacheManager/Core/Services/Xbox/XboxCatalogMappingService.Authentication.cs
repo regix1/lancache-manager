@@ -73,6 +73,9 @@ public partial class XboxCatalogMappingService
     public XboxMappingAuthStatus GetAuthStatus(IntegrationCaller? caller = null, Guid? attemptId = null)
     {
         var access = caller is null ? null : _authStorage.GetIntegrationAccess(caller);
+        // Read before the account fields: a completed ending is recorded after the account is marked signed in, so a read
+        // that finds it also finds the account signed in, unless a sign-out came after.
+        var loginEnding = caller is null || attemptId is null ? null : _authStorage.GetIntegrationLoginEnding(caller, attemptId.Value);
         return new XboxMappingAuthStatus
         {
             IsAuthenticated = _isAuthenticated,
@@ -88,7 +91,7 @@ public partial class XboxCatalogMappingService
             LastCollectionUtc = _lastCollectionUtc,
             GamesDiscovered = _gamesDiscovered,
             LoginInProgress = _loginReporter is not null,
-            LoginEnding = caller is null || attemptId is null ? null : _authStorage.GetIntegrationLoginEnding(caller, attemptId.Value),
+            LoginEnding = loginEnding,
             ExpiresAtUtc = _isAuthenticated && _lastCollectionUtc.HasValue
                 ? _lastCollectionUtc.Value.Add(XboxLoginValidity)
                 : null
@@ -291,6 +294,10 @@ public partial class XboxCatalogMappingService
                     _xuid = harvest.Xuid;
                     _gamesDiscovered = harvest.CdnInfos.Count;
                     _lastCollectionUtc = DateTime.UtcNow;
+                    // Recorded with the save, under the store's lock, so no status read finds the attempt over without
+                    // it and a later cancel of the banner pass cannot replace it.
+                    _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
+                        login.AttemptId, OperationStatus.Completed, "signalr.xbox.mapping.completed"));
                 })) throw new OperationCanceledException();
             }
             finally
@@ -412,8 +419,8 @@ public partial class XboxCatalogMappingService
                 signer.Dispose();
                 lifetime.Dispose();
                 window.Dispose();
-                // Recorded before the sign-in stops counting as running, so a status read never finds it over with no ending.
-                if (ending is { } recorded)
+                // An unsaved ending is recorded before the sign-in stops counting as running; a saved one was recorded with the save.
+                if (!saved && ending is { } recorded)
                 {
                     _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
                         login.AttemptId, recorded.Status, recorded.StageKey, recorded.Context));

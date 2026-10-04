@@ -92,6 +92,109 @@ public partial class XboxScheduledRefreshProgressTests
         }
 
         [Fact]
+        public async Task ACancelDuringTheBannerPassAfterTheSaveLeavesTheSignInCompleted()
+        {
+            using var catalog = new HeldSecondCatalogHandler();
+            using var auth = new StubDeviceCodeHandler
+            {
+                TokenBody = """{"access_token":"access","refresh_token":"replacement"}""",
+                CompleteHarvest = true
+            };
+            using var harness = new Harness(catalog, auth);
+            var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+            var start = await StartSignInHeldInBannerPassAsync(harness, catalog, owner);
+
+            // The card's X reaches the sign-in's reporter, which is what this calls.
+            var reporter = typeof(XboxCatalogMappingService)
+                .GetField("_loginReporter", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(harness.Service)!;
+            reporter.GetType().GetMethod("RequestCancellation")!.Invoke(reporter, null);
+            catalog.Release();
+            await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+
+            Assert.Equal(OperationStatus.Completed, harness.Service.GetAuthStatus(owner, start.AttemptId).LoginEnding!.Status);
+        }
+
+        [Fact]
+        public async Task AStatusReadDuringTheBannerPassFindsTheSavedSignInCompleted()
+        {
+            using var catalog = new HeldSecondCatalogHandler();
+            using var auth = new StubDeviceCodeHandler
+            {
+                TokenBody = """{"access_token":"access","refresh_token":"replacement"}""",
+                CompleteHarvest = true
+            };
+            using var harness = new Harness(catalog, auth);
+            var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+            var start = await StartSignInHeldInBannerPassAsync(harness, catalog, owner);
+
+            var status = harness.Service.GetAuthStatus(owner, start.AttemptId);
+            Assert.True(status.IsAuthenticated);
+            Assert.Equal(OperationStatus.Completed, status.LoginEnding!.Status);
+
+            catalog.Release();
+            await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+
+            var after = harness.Service.GetAuthStatus(owner, start.AttemptId);
+            Assert.True(after.IsAuthenticated);
+            Assert.Equal(OperationStatus.Completed, after.LoginEnding!.Status);
+        }
+
+        private static async Task<XboxDeviceCodeChallenge> StartSignInHeldInBannerPassAsync(
+            Harness harness, HeldSecondCatalogHandler catalog, IntegrationCaller owner)
+        {
+            await using (var db = await harness.DbFactory.CreateDbContextAsync())
+            {
+                db.XboxGameMappings.Add(new XboxGameMapping { ProductId = "9NBLGGH4R315", Title = "First", ImageUrl = null });
+                db.XboxGameMappings.Add(new XboxGameMapping { ProductId = "9NBLGGH4R316", Title = "Second", ImageUrl = null });
+                await db.SaveChangesAsync();
+            }
+
+            var start = await harness.Service.StartLoginAsync(null, caller: owner);
+            await catalog.SecondReached.WaitAsync(TimeSpan.FromSeconds(15));
+            return start;
+        }
+
+        /// <summary>
+        /// Answers every banner lookup with art and holds the second one, so the first mapping has its banner stored when
+        /// a cancel lands during the second: the pass then ends in a save that the cancel interrupts.
+        /// </summary>
+        private sealed class HeldSecondCatalogHandler : HttpMessageHandler
+        {
+            private const string Body = """
+                {"Products":[{"ProductId":"9NBLGGH4R315","LocalizedProperties":[{"ProductTitle":"Test Title",
+                "Images":[{"Uri":"//store-images.example/banner.jpg","ImagePurpose":"Poster"}]}]}]}
+                """;
+            private readonly TaskCompletionSource _secondReached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            private int _requests;
+
+            public Task SecondReached => _secondReached.Task;
+
+            public void Release() => _released.TrySetResult();
+
+            protected override async Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                if (Interlocked.Increment(ref _requests) == 2)
+                {
+                    _secondReached.TrySetResult();
+                    await _released.Task.WaitAsync(cancellationToken);
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(Body, Encoding.UTF8, "application/json")
+                };
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                _released.TrySetResult();
+                base.Dispose(disposing);
+            }
+        }
+
+        [Fact]
         public async Task ASharedModeSignInsEndingIsReadableByAnyoneInSharedModeAsync()
         {
             using var auth = new StubDeviceCodeHandler();

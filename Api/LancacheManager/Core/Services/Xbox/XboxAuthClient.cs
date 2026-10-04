@@ -96,28 +96,17 @@ public class XboxAuthClient
 
         while (DateTimeOffset.UtcNow < deadline)
         {
-            XboxMsaTokenResponse token;
-            try
-            {
-                await Task.Delay(interval, ct);
-                if (DateTimeOffset.UtcNow >= deadline) break;
+            await Task.Delay(interval, ct);
+            if (DateTimeOffset.UtcNow >= deadline) break;
 
-                var form = new Dictionary<string, string>
-                {
-                    ["client_id"] = XboxAuthConstants.ClientId,
-                    ["grant_type"] = XboxAuthConstants.DeviceCodeGrantType,
-                    ["device_code"] = deviceCode.DeviceCode
-                };
-
-                token = await PostTokenFormAsync(form, ct);
-            }
-            catch (OperationCanceledException) when (DateTimeOffset.UtcNow >= deadline - TimeSpan.FromSeconds(1))
+            var form = new Dictionary<string, string>
             {
-                // The sign-in's lifetime ends at this same deadline, so its cancel is the code running out, not a person.
-                // Its timer counts whole milliseconds on a monotonic clock and was measured firing up to 0.8 ms before
-                // this wall-clock deadline on Linux, so a cancel within a second of it counts as the code running out.
-                break;
-            }
+                ["client_id"] = XboxAuthConstants.ClientId,
+                ["grant_type"] = XboxAuthConstants.DeviceCodeGrantType,
+                ["device_code"] = deviceCode.DeviceCode
+            };
+
+            var token = await PostTokenFormAsync(form, ct);
 
             if (token.AccessToken != null)
             {

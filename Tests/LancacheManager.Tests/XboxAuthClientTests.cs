@@ -52,19 +52,19 @@ public sealed class XboxAuthClientTests
     }
 
     [Fact]
-    public async Task PollForTokenAsync_ADeviceCodeThatRunsOutWhileThePollWaitsTimesOut()
+    public async Task PollForTokenAsync_ACancelAtTheDeadlineLeavesTheCallAsACancel()
     {
         using var http = new HttpClient(new StubHttpMessageHandler((_, _) =>
             Task.FromResult(JsonResponse("""{ "error": "authorization_pending" }"""))));
         var client = new XboxAuthClient(http, NullLogger<XboxAuthClient>.Instance);
-        var expiresAt = DateTime.UtcNow.AddSeconds(1.5);
-        // The sign-in's lifetime ends at the same instant as the device code, as the service arms it.
-        using var lifetime = new CancellationTokenSource(expiresAt - DateTime.UtcNow);
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
 
-        await Assert.ThrowsAsync<TimeoutException>(() => client.PollForTokenAsync(
+        // Whether the cancel was the person's or the code running out is the service's call, not the client's.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.PollForTokenAsync(
             new XboxDeviceCodeResponse { DeviceCode = "DEV", Interval = 1 },
-            expiresAt,
-            lifetime.Token));
+            DateTime.UtcNow.AddSeconds(0.5),
+            canceled.Token));
     }
 
     [Fact]
