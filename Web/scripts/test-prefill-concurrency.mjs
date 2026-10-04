@@ -429,6 +429,7 @@ test('a refused sign-in shows its reason in the dialog and draws no popup of its
     setNeedsDeviceCode: noop,
     setNeedsTwoFactor: noop,
     setNeedsEmailCode: noop,
+    setNeedsAuthorizationCode: noop,
     setPassword: noop,
     setLoading: noop,
     t: (key) => key,

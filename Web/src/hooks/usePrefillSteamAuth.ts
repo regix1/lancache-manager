@@ -367,6 +367,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setNeedsDeviceCode(false);
         setNeedsTwoFactor(false);
         setNeedsEmailCode(false);
+        setNeedsAuthorizationCode(false);
         // The password the daemon just refused must not stay in the box. This is the commonest way
         // a sign-in ends badly, and leaving the wrong one sitting there invites a second submit of
         // the same thing.
@@ -1281,6 +1282,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     state,
     actions,
     loginDeadline,
+    // The person's Cancel names this attempt once a prompt gave it one.
+    loginAttemptRef,
     trigger2FAPrompt,
     triggerEmailPrompt
   };

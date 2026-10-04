@@ -318,6 +318,7 @@ test('a failed End Session or Cancel Login reaches an admin as one popup and a g
         },
         setShowAuthModal: () => undefined,
         authActions: { resetAuthForm: () => undefined },
+        authLoginAttemptRef: { current: null },
         addLog: (type, message) => logged.push([type, message]),
         getErrorMessage: (error) => error.message,
         notifyError: (...popup) => notified.push(popup),
@@ -348,12 +349,44 @@ test('Cancel Login logs a cancel only when the sign-in was canceled', async () =
       },
       setShowAuthModal: () => undefined,
       authActions: { resetAuthForm: () => undefined },
+      authLoginAttemptRef: { current: null },
       addLog: (type, message) => logged.push([type, message]),
       getErrorMessage: (error) => error.message,
       notifyError: () => undefined,
       t: (text) => text
     })();
     assert.deepEqual(logged, expected, `hub answered ${answer}`);
+  }
+});
+
+test("the person's Cancel names the dialog's own sign-in once it has one", async () => {
+  for (const [attempt, expected] of [
+    [7, [['CancelLoginAttemptAsync', 'session-a', 7]]],
+    [null, [['CancelLoginAsync', 'session-a']]]
+  ]) {
+    const invoked = [];
+    await bindLifted(liftHookCallback(panelPath, 'useCallback', "'CancelLoginAsync'"), {
+      isAdmin: true,
+      signalR: {
+        session: { id: 'session-a' },
+        hubConnection: {
+          current: {
+            invoke: async (...args) => {
+              invoked.push(args);
+              return true;
+            }
+          }
+        }
+      },
+      setShowAuthModal: () => undefined,
+      authActions: { resetAuthForm: () => undefined },
+      authLoginAttemptRef: { current: attempt },
+      addLog: () => undefined,
+      getErrorMessage: (error) => error.message,
+      notifyError: () => undefined,
+      t: (text) => text
+    })();
+    assert.deepEqual(invoked, expected, `attempt ${attempt}`);
   }
 });
 

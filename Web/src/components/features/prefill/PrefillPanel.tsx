@@ -393,6 +393,7 @@ function ServicePrefillPanel({
     state: authState,
     actions: authActions,
     loginDeadline: authLoginDeadline,
+    loginAttemptRef: authLoginAttemptRef,
     trigger2FAPrompt,
     triggerEmailPrompt
   } = usePrefillSteamAuth({
@@ -1012,11 +1013,20 @@ function ServicePrefillPanel({
     if (!signalR.session || !signalR.hubConnection.current) return;
 
     try {
-      // The person's Cancel ends whichever sign-in this session runs, the one this dialog started included before its first prompt.
-      const cancelled = await signalR.hubConnection.current.invoke<boolean>(
-        'CancelLoginAsync',
-        signalR.session.id
-      );
+      // The person's Cancel names this dialog's own sign-in once its first prompt gave it an attempt, so a dialog that a
+      // newer sign-in from another tab replaced never ends that sign-in; before that prompt it ends whichever sign-in runs.
+      const attempt = authLoginAttemptRef.current;
+      const cancelled =
+        attempt === null
+          ? await signalR.hubConnection.current.invoke<boolean>(
+              'CancelLoginAsync',
+              signalR.session.id
+            )
+          : await signalR.hubConnection.current.invoke<boolean>(
+              'CancelLoginAttemptAsync',
+              signalR.session.id,
+              attempt
+            );
       setShowAuthModal(false);
       authActions.resetAuthForm();
       // A sign-in that finished as the cancel reached the daemon stays signed in, and its auth event shows that.
@@ -1027,7 +1037,16 @@ function ServicePrefillPanel({
       if (isAdmin) notifyError(t('prefill.errors.cancelLoginFailed'), err);
       else addLog('error', getErrorMessage(err));
     }
-  }, [signalR.session, signalR.hubConnection, authActions, addLog, t, notifyError, isAdmin]);
+  }, [
+    signalR.session,
+    signalR.hubConnection,
+    authActions,
+    authLoginAttemptRef,
+    addLog,
+    t,
+    notifyError,
+    isAdmin
+  ]);
 
   const handleCancelPrefill = useCallback(() => {
     // Full cancel orchestration (hard-stop animations + reactive "Cancelling..." state + watchdog

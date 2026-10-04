@@ -1136,6 +1136,93 @@ test('a wait answered with another sign-in prompt leaves the dialog on its own a
   }
 });
 
+test('an Epic dialog whose own sign-in ended no longer asks for the code', async () => {
+  const flow = guest(useGuest, 'epic');
+  try {
+    flow.reply = {
+      ...challenge('epic-code', 'authorization-url'),
+      authUrl: 'https://example.test/epic'
+    };
+    await flow.start();
+    assert.equal(flow.render().state.needsAuthorizationCode, true);
+    flow.socket.handlers.get('AuthStateChanged')({
+      sessionId: 'session',
+      authState: 'NotAuthenticated',
+      loginAttempt: 7
+    });
+    const auth = flow.render();
+    assert.equal(auth.state.needsAuthorizationCode, false);
+    assert.equal(auth.state.error, 'prefill.auth.signInRefused');
+  } finally {
+    flow.unmount();
+  }
+});
+
+// Each answer copies what WaitForChallengeAsync serves: the session's cached prompt, whatever sign-in it belongs to.
+test('every wait answered with another sign-in prompt leaves the dialog on its own attempt', async () => {
+  const other = (id, type) => ({ ...challenge(id, type), loginAttempt: 8 });
+  const own = (id, type) => challenge(id, type);
+
+  let flow = guest();
+  try {
+    flow.reply = challenge('first', 'username');
+    flow.wait(own('password', 'password'), other('newer', '2fa'));
+    assert.equal((await flow.start()).state.needsTwoFactor, false);
+  } finally {
+    flow.unmount();
+  }
+
+  flow = guest();
+  try {
+    flow.reply = challenge('first', 'username');
+    flow.wait(own('password', 'password'), own('two-factor', '2fa'), other('newer', 'steamguard'));
+    let auth = await flow.start();
+    assert.equal(auth.state.needsTwoFactor, true);
+    auth.actions.setTwoFactorCode('123456');
+    auth = flow.render();
+    await auth.actions.handleAuthenticate();
+    assert.equal(flow.render().state.needsEmailCode, false);
+  } finally {
+    flow.unmount();
+  }
+
+  flow = guest();
+  try {
+    flow.reply = challenge('first', 'username');
+    flow.wait(own('password', 'password'), own('email', 'steamguard'), other('newer', '2fa'));
+    let auth = await flow.start();
+    assert.equal(auth.state.needsEmailCode, true);
+    auth.actions.setEmailCode('ABCDE');
+    auth = flow.render();
+    await auth.actions.handleAuthenticate();
+    assert.equal(flow.render().state.needsTwoFactor, false);
+  } finally {
+    flow.unmount();
+  }
+
+  flow = guest(useGuest, 'epic');
+  try {
+    flow.reply = null;
+    flow.wait({
+      ...challenge('epic-code', 'authorization-url'),
+      authUrl: 'https://example.test/epic',
+      loginAttempt: 6
+    });
+    assert.equal((await flow.start()).state.needsAuthorizationCode, false);
+  } finally {
+    flow.unmount();
+  }
+
+  flow = guest(useGuest, 'xbox');
+  try {
+    flow.reply = null;
+    flow.wait({ ...challenge('device', 'device-code'), loginAttempt: 6 });
+    assert.equal((await flow.start()).state.needsDeviceCode, false);
+  } finally {
+    flow.unmount();
+  }
+});
+
 test("another tab's ended sign-in leaves an idle dialog's typed password", async () => {
   const flow = guest();
   try {
