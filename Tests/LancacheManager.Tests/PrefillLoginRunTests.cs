@@ -208,25 +208,23 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
-    /// A refused persistent sign-in sends no further challenge, so the poll for the login that started it must
-    /// answer how it ended instead of waiting out its deadline; a poll for another login must not.
+    /// A refused persistent sign-in sends no further challenge, so a read for the attempt that was refused must
+    /// answer how it ended instead of leaving the dialog to its deadline; a read for another attempt must not.
     /// </summary>
     [Fact]
-    public async Task APersistentChallengePollAnswersHowItsLoginsSignInEnded()
+    public async Task APersistentChallengeReadAnswersHowItsAttemptEnded()
     {
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var (daemon, session) = CreateSessionWithClient(
             tracker, ScheduledPrefillConstants.DeriveSystemUserId(), isPersistent: true);
         var controller = CreateController(daemon, Guid.NewGuid());
-        var loginId = Guid.NewGuid();
         await controller.StartLoginAsync(
             new PersistentLoginRequest
             {
                 Service = PrefillPlatform.Steam,
                 SessionId = session.Id,
                 EditSessionId = "edit-session-login",
-                EditActionId = "login",
-                LoginId = loginId
+                EditActionId = "login"
             },
             CancellationToken.None);
         session.AuthState = DaemonAuthState.PasswordRequired;
@@ -234,7 +232,7 @@ public class PrefillLoginRunTests
             new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
 
         var ended = await controller.GetChallengeAsync(
-            PrefillPlatform.Steam, sessionId: session.Id, timeoutSeconds: 1, loginId: loginId);
+            PrefillPlatform.Steam, sessionId: session.Id, loginAttempt: session.LoginAttempt);
 
         var response = Assert.IsType<PersistentLoginStatusResponse>(Assert.IsType<OkObjectResult>(ended.Result).Value);
         Assert.Equal("ended", response.Status);
@@ -242,7 +240,7 @@ public class PrefillLoginRunTests
         Assert.Equal("prefill.auth.signInRefused", response.LoginEnding.StageKey);
 
         var other = await controller.GetChallengeAsync(
-            PrefillPlatform.Steam, sessionId: session.Id, timeoutSeconds: 1, loginId: Guid.NewGuid());
+            PrefillPlatform.Steam, sessionId: session.Id, loginAttempt: session.LoginAttempt + 1);
         Assert.False((other.Result as OkObjectResult)?.Value is PersistentLoginStatusResponse { Status: "ended" });
     }
 
@@ -266,6 +264,33 @@ public class PrefillLoginRunTests
         Assert.Equal(DaemonSessionStatus.Error, session.Status);
         Assert.Equal(OperationStatus.Failed, tracker.GetOperation(operationId)!.Status);
         Assert.Contains(tracker.GetRuns().Runs, row => row.OperationId == operationId && row.Retained);
+        Assert.Equal("errors.prefill.requestFailed", Assert.IsType<PrefillLoginEnding>(session.LastLoginEnding).StageKey);
+    }
+
+    /// <summary>
+    /// A run refused before it takes an attempt number of its own must not replace the ending the session already
+    /// holds for the attempt it still carries.
+    /// </summary>
+    [Fact]
+    public async Task ARunRefusedBeforeItsAttemptKeepsThePreviousEnding()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        await daemon.StartLoginAsync(session.Id);
+        var operationId = Assert.IsType<Guid>(session.LoginOperationId);
+        session.LastLoginEnding = new PrefillLoginEnding(
+            session.LoginAttempt, OperationStatus.Failed, "prefill.auth.signInRefused");
+        session.LoginStopReason = "common.notifications.warnings.signInExpired";
+        session.AuthState = DaemonAuthState.NotAuthenticated;
+
+        typeof(PrefillDaemonServiceBase)
+            .GetMethod("CompleteLoginOperation", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(daemon, [session]);
+
+        var ending = Assert.IsType<PrefillLoginEnding>(session.LastLoginEnding);
+        Assert.Equal(OperationStatus.Failed, ending.Status);
+        Assert.Equal("prefill.auth.signInRefused", ending.StageKey);
+        Assert.Equal(OperationStatus.Failed, tracker.GetOperation(operationId)!.Status);
     }
 
     /// <summary>

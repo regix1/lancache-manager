@@ -405,12 +405,17 @@ public abstract partial class PrefillDaemonServiceBase
         var authenticated = session.AuthState == DaemonAuthState.Authenticated;
         var stoppedByApp = !authenticated && session.LoginStopReason is not null;
         // Kept by attempt for a browser that missed this ending: a guest reads it on its next subscribe, and a
-        // persistent login's challenge poll reads it by the login id bound to this attempt.
+        // persistent login reads it from the session's pushed update or its one read after a reconnect.
         var (endingStatus, endingKey) = authenticated ? (OperationStatus.Completed, "prefill.persistent.status.loggedIn")
             : stoppedByApp ? (OperationStatus.Failed, session.LoginStopReason!)
+            : session.LastLoginFailureKey is { } failureKey ? (OperationStatus.Failed, failureKey)
             : session.LastLoginFailureMessage is not null ? (OperationStatus.Failed, "prefill.auth.signInRefused")
             : (OperationStatus.Cancelled, "errors.integration.attemptExpired");
-        session.LastLoginEnding = new PrefillLoginEnding(session.LoginAttempt, endingStatus, endingKey);
+        // A run refused before it took an attempt number of its own never replaces the ending of the attempt before it.
+        if (session.LastLoginEnding?.LoginAttempt != session.LoginAttempt)
+        {
+            session.LastLoginEnding = new PrefillLoginEnding(session.LoginAttempt, endingStatus, endingKey);
+        }
         if (stoppedByApp)
         {
             _operationTracker.SetWarning(operationId, new RunWarning(session.LoginStopReason!, new Dictionary<string, object?>()));
@@ -580,6 +585,7 @@ public abstract partial class PrefillDaemonServiceBase
         {
             ThrowIfLoginRevoked(session, loginId);
             session.LastLoginFailureMessage = null;
+            session.LastLoginFailureKey = null;
             session.LastConsumedLoginChallengeId = null;
             ClearPendingLoginChallenge(session);
         }
@@ -774,6 +780,7 @@ public abstract partial class PrefillDaemonServiceBase
         catch (OperationCanceledException)
         {
             session.LastLoginFailureMessage = null;
+            session.LastLoginFailureKey = null;
             session.AuthState = DaemonAuthState.NotAuthenticated;
             ClearPendingLoginChallenge(session);
             await NotifyAuthStateChangeAsync(session);
@@ -781,6 +788,7 @@ public abstract partial class PrefillDaemonServiceBase
         }
         catch (TimeoutException)
         {
+            session.LastLoginFailureKey = "prefill.persistent.loginTimedOut";
             await FailLoginFastAsync(session, session.Id, "Saved login timed out before the daemon authenticated.");
             return null;
         }
@@ -899,6 +907,7 @@ public abstract partial class PrefillDaemonServiceBase
             ThrowIfLoginRevoked(session, loginId);
             BindLoginRequest(session, loginId, session.LoginAttempt + 1);
             session.LastLoginFailureMessage = null;
+            session.LastLoginFailureKey = null;
             session.LastConsumedLoginChallengeId = null;
             session.LoginAttempt++;
             loginAttempt = session.LoginAttempt;
@@ -1271,18 +1280,14 @@ public abstract partial class PrefillDaemonServiceBase
     }
 
     /// <summary>
-    /// How the sign-in bound to a persistent login request ended, once it ended. Null while it runs, when the request
-    /// never reached a sign-in, or when a newer sign-in on the session has ended since.
+    /// How the session's sign-in with this attempt number ended, once it ended. Null while it runs, and when a newer
+    /// sign-in on the session has ended since.
     /// </summary>
-    public PrefillLoginEnding? GetLoginEnding(DaemonSession session, Guid loginId)
+    public PrefillLoginEnding? GetLoginEnding(DaemonSession session, long loginAttempt)
     {
         lock (session.PrefillLock)
         {
-            return session.LoginRequests.TryGetValue(loginId, out var request)
-                && request.Attempt is { } attempt
-                && session.LastLoginEnding is { } ending && ending.LoginAttempt == attempt
-                    ? ending
-                    : null;
+            return session.LastLoginEnding is { } ending && ending.LoginAttempt == loginAttempt ? ending : null;
         }
     }
 

@@ -226,12 +226,23 @@ public class PersistentLoginSessionPinningTests
     {
         var (controller, _, activeClient) = CreateControllerWithActiveSession(activeSessionId: "session-B");
 
-        var result = await controller.GetChallengeAsync(PrefillPlatform.Steam, sessionId: "session-A", timeoutSeconds: 1);
+        var result = await controller.GetChallengeAsync(PrefillPlatform.Steam, sessionId: "session-A");
 
         var conflict = Assert.IsType<ConflictObjectResult>(result.Result);
         var body = Assert.IsType<PersistentLoginConflictResponse>(conflict.Value);
         Assert.Equal(PersistentLoginConflictReasons.SessionReplaced, body.Error);
         // The replacement session's daemon client must never be asked for a challenge.
+        Assert.DoesNotContain(nameof(IDaemonClient.WaitForChallengeAsync), activeClient.InvokedMethods);
+    }
+
+    [Fact]
+    public async Task GetChallenge_NeverWaitsOnTheDaemon()
+    {
+        var (controller, _, activeClient) = CreateControllerWithActiveSession(activeSessionId: "session-B");
+
+        var result = await controller.GetChallengeAsync(PrefillPlatform.Steam, sessionId: "session-B");
+
+        Assert.IsType<NoContentResult>(result.Result);
         Assert.DoesNotContain(nameof(IDaemonClient.WaitForChallengeAsync), activeClient.InvokedMethods);
     }
 
@@ -279,7 +290,7 @@ public class PersistentLoginSessionPinningTests
     {
         var (controller, _, _) = CreateControllerWithActiveSession(activeSessionId: "session-B");
 
-        var result = await controller.GetChallengeAsync(PrefillPlatform.Steam, sessionId: null, timeoutSeconds: 1);
+        var result = await controller.GetChallengeAsync(PrefillPlatform.Steam, sessionId: null);
 
         Assert.IsType<BadRequestObjectResult>(result.Result);
     }
@@ -1120,6 +1131,25 @@ public class PersistentLoginSessionPinningTests
         Assert.False(daemon.GetSession("session-B")!.SuppressLoginChallengePublication);
     }
 
+    [Fact]
+    public async Task ReuseSavedLogin_ATimeoutNamesTheLoginTimedOutReasonAsync()
+    {
+        var accountId = Guid.NewGuid();
+        var (controller, daemon, _) = CreateControllerWithActiveSession("session-B", accountId);
+        daemon.SaveLogin(accountId, "saved-account");
+        daemon.ReuseTimesOut = true;
+
+        var result = await controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = "session-B",
+            ReuseIntegration = true
+        }, CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Equal("prefill.persistent.loginTimedOut", daemon.GetSession("session-B")!.LastLoginFailureKey);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -1414,6 +1444,7 @@ public class PersistentLoginSessionPinningTests
         public Guid? ReuseAccountId { get; private set; }
         public bool CompleteLogin { get; set; } = true;
         public bool EmitChallengeDuringReuse { get; set; }
+        public bool ReuseTimesOut { get; set; }
         private string? SharedAccount { get; set; }
         private Dictionary<Guid, string> SavedAccounts { get; } = [];
 
@@ -1445,6 +1476,7 @@ public class PersistentLoginSessionPinningTests
             IntegrationLease? lease = null)
         {
             ReuseAccountId = accountId;
+            if (ReuseTimesOut) throw new TimeoutException();
             onCommandDispatched();
             if (EmitChallengeDuringReuse)
             {

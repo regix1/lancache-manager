@@ -52,6 +52,12 @@ public class DaemonSession
     public string? LastLoginFailureMessage { get; set; }
 
     /// <summary>
+    /// The reason key of a sign-in failure that was not the daemon refusing the details (a saved login that timed out,
+    /// a daemon connection that dropped). Null for a refusal, which reads as one.
+    /// </summary>
+    public string? LastLoginFailureKey { get; set; }
+
+    /// <summary>
     /// The credential challenge most recently handed back to a caller of
     /// <see cref="PrefillDaemonServiceBase.StartLoginAsync(string, TimeSpan?, CancellationToken)"/> for this
     /// session, retained so a SECOND login request arriving while the daemon is still mid-flow (e.g. the

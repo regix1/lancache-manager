@@ -942,25 +942,24 @@ public class PersistentPrefillController : ControllerBase
     }
 
     /// <summary>
-    /// Polls for the next credential challenge or login state.
+    /// Reads the current credential challenge or login state, without waiting.
     /// </summary>
     /// <remarks>
     /// Of the running persistent session. AccountHolder analogue of
-    /// <c>GET {service}/sessions/{id}/challenge</c>. Delegates to
-    /// <see cref="PrefillDaemonServiceBase.WaitForChallengeAsync(string, TimeSpan?, CancellationToken)"/>.
-    /// With <c>loginId</c>, answers how the sign-in that login started ended once it ended other than signed in.
+    /// <c>GET {service}/sessions/{id}/challenge</c>. Every new challenge and every sign-in ending is pushed over SignalR,
+    /// so the browser reads this once after a page reload and once when its hub connection comes back. With
+    /// <c>loginAttempt</c>, answers how that sign-in ended once it ended other than signed in.
     /// </remarks>
     [HttpGet("challenge")]
     [ProducesResponseType(typeof(CredentialChallenge), StatusCodes.Status200OK)]
     public async Task<ActionResult<CredentialChallenge>> GetChallengeAsync(
         [FromQuery] PrefillPlatform service,
         [FromQuery] string? sessionId = null,
-        [FromQuery] int timeoutSeconds = 30,
-        [FromQuery] Guid? loginId = null,
+        [FromQuery] long? loginAttempt = null,
         CancellationToken cancellationToken = default)
     {
         // RC3: sessionId is REQUIRED - no fallback defaults - so a
-        // poller pinned to session A can never be served session B's challenge after a stop/start race.
+        // reader pinned to session A can never be served session B's challenge after a stop/start race.
         if (string.IsNullOrWhiteSpace(sessionId))
         {
             return BadRequest(ApiResponse.Required("sessionId"));
@@ -972,29 +971,23 @@ public class PersistentPrefillController : ControllerBase
             return error;
         }
 
-        // A refused or stopped sign-in sends no further challenge, so the poll for the login that started it answers with
-        // how it ended: before the wait, when it is already over, and after it, when it ended during the wait. A sign-in
-        // that succeeded keeps answering "logged-in" below.
-        PersistentLoginStatusResponse? Ended() =>
-            loginId is { } id && daemon!.GetLoginEnding(session!, id) is { Status: not OperationStatus.Completed } ending
-                ? new PersistentLoginStatusResponse { SessionId = session!.Id, Status = "ended", LoginEnding = ending }
-                : null;
-
-        if (Ended() is { } endedBefore)
+        // A refused or stopped sign-in sends no further challenge, so the reader of that attempt is told how it ended. A
+        // sign-in that succeeded answers "logged-in" below.
+        if (loginAttempt is { } attempt
+            && daemon!.GetLoginEnding(session!, attempt) is { Status: not OperationStatus.Completed } ending)
         {
-            return Ok(endedBefore);
+            return Ok(new PersistentLoginStatusResponse { SessionId = session!.Id, Status = "ended", LoginEnding = ending });
         }
 
-        var challenge = await daemon!.WaitForChallengeAsync(session!.Id, TimeSpan.FromSeconds(timeoutSeconds), cancellationToken);
+        CredentialChallenge? challenge;
+        lock (session!.PrefillLock)
+        {
+            challenge = session.AuthState != DaemonAuthState.Authenticated ? session.PendingLoginChallenge : null;
+        }
 
         if (challenge == null)
         {
-            if (Ended() is { } endedDuring)
-            {
-                return Ok(endedDuring);
-            }
-
-            var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
+            var status = await daemon!.GetSessionStatusAsync(session.Id, cancellationToken);
             if (status?.Status == "logged-in")
             {
                 return Ok(new PersistentLoginStatusResponse { SessionId = session.Id, Status = "logged-in" });

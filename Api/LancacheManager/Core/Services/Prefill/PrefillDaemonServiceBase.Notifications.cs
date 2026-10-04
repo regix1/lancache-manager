@@ -381,6 +381,7 @@ public abstract partial class PrefillDaemonServiceBase
             if (session.LoginOperationId is not null)
             {
                 session.LastLoginFailureMessage = failure.Message;
+                session.LastLoginFailureKey = failure.StageKey;
                 CompleteLoginOperation(session);
             }
             await TransitionToTerminalAsync(session, PrefillState.Failed, runId, failure.Message, failure.StageKey);
