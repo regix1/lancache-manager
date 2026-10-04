@@ -410,8 +410,9 @@ public partial class EpicMappingService
     private async Task AnnounceLoginWindowEndAsync(IntegrationLogin login)
     {
         TimeSpan remaining;
+        // Task.Delay refuses more than about 49.7 days, so a clock stepped back further than that is waited out a day at a time.
         while ((remaining = login.ExpiresAtUtc - DateTime.UtcNow) >= TimeSpan.Zero)
-            await Task.Delay(remaining + TimeSpan.FromSeconds(1));
+            await Task.Delay(TimeSpan.FromTicks(Math.Min((remaining + TimeSpan.FromSeconds(1)).Ticks, TimeSpan.FromDays(1).Ticks)));
         await NotifyLoginEndedAsync(login);
     }
 

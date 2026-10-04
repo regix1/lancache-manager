@@ -446,6 +446,32 @@ public sealed class IntegrationCancellationTests
             && sent.Payload is SignalRNotifications.IntegrationLoginEnded ended && ended.AttemptId == start.AttemptId);
     }
 
+    /// <summary>
+    /// Task.Delay refuses more than about 49.7 days, which is what a host clock stepped back that far looks like to the
+    /// window-end loop. Copies the window that <c>GetAuthorizationUrl</c> hands to the loop, with a window past the limit.
+    /// </summary>
+    [Fact]
+    public async Task AnEpicWindowFarBeyondTheTimerLimitIsWaitedInStepsAsync()
+    {
+        using var fixture = new IntegrationFixture();
+        using var http = new HttpClient(new EpicSignInHandler());
+        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        fixture.Epic.IntegrationLoginWindow = TimeSpan.FromDays(60);
+        using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
+        await service.GetAuthorizationUrl(fixture.Owner);
+        var live = (IntegrationLogin)typeof(EpicMappingService)
+            .GetField("_loginAttempt", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(service)!;
+
+        var announce = (Task)typeof(EpicMappingService)
+            .GetMethod("AnnounceLoginWindowEndAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(service, [live])!;
+
+        Assert.False(announce.IsFaulted);
+        Assert.False(announce.IsCompleted);
+    }
+
     [Fact]
     public async Task AnEpicRefreshCancelStopsTheRefreshsOwnCardAsync()
     {
