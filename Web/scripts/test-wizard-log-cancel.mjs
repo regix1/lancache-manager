@@ -556,3 +556,43 @@ test('a pass that handed its work to another run follows that run', async () => 
   assert.equal(view.continueButton, false);
   wizard.dispose();
 });
+
+test("another tab's pass that starts after this step's pass completed keeps Continue", async () => {
+  const wizard = await startWizard({});
+  await wizard.emit('LogProcessingComplete', {
+    operationId: 'op',
+    success: true,
+    cancelled: false,
+    entriesProcessed: 5,
+    linesProcessed: 5
+  });
+  assert.equal(wizard.view().continueButton, true);
+  await wizard.emit('LogProcessingStarted', { operationId: 'other-tab-pass' });
+  await wizard.emit('LogProcessingProgress', {
+    operationId: 'other-tab-pass',
+    percentComplete: 40,
+    status: 'processing'
+  });
+  await wizard.emit('LogProcessingComplete', {
+    operationId: 'other-tab-pass',
+    success: false,
+    cancelled: false,
+    message: 'Other pass failed'
+  });
+  const view = wizard.view();
+  assert.equal(view.continueButton, true, "the other tab's pass is not this step's pass");
+  assert.ok(!view.texts.includes('Other pass failed'));
+  wizard.dispose();
+});
+
+test('a queued pass the queue could not start says so', async () => {
+  const wizard = await startWizard({});
+  wizard.server.processing = false;
+  wizard.server.runs.set('op', { status: 'skipped', endedAt: 0 });
+  await wizard.advanceTo(40);
+  const view = wizard.view();
+  assert.ok(view.texts.includes('initialization.logProcessing.failedToProcessDatasource'));
+  assert.equal(view.spinner, false);
+  assert.equal(view.continueButton, false);
+  wizard.dispose();
+});

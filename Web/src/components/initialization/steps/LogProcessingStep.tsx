@@ -98,7 +98,9 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       if (!sessionStartedRef.current && !processingRef.current) {
         return;
       }
-      if (started.operationId) {
+      // Only a step with no pass of its own takes a pass from this event; once it has one, another tab's pass that
+      // starts later is not this step's, and a pass that handed off is followed by its run's next id.
+      if (started.operationId && !activeOperationIdRef.current) {
         setActiveOperationId(started.operationId);
       }
       sessionStartedRef.current = true;
@@ -318,6 +320,12 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
             setNotice({
               tone: 'error',
               message: t('initialization.logProcessing.failedToProcess')
+            });
+          } else if (run?.status === 'skipped') {
+            // The queue could not start this pass; the person can start it again.
+            setNotice({
+              tone: 'info',
+              message: t('initialization.logProcessing.failedToProcessDatasource')
             });
           }
         } else {
