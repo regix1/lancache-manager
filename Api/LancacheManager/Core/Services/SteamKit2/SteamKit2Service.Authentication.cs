@@ -448,7 +448,7 @@ public partial class SteamKit2Service
         {
             _connectedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             _steamClient!.Connect();
-            await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), ct);
+            await WaitWithTimeoutAsync(_connectedTcs, TimeSpan.FromSeconds(30), ct);
         }
 
         var authenticator = new WebAuthenticator(twoFactorCode, emailCode, allowMobileConfirmation);

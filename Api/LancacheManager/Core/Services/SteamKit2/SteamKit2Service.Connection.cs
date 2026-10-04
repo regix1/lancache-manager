@@ -110,7 +110,7 @@ public partial class SteamKit2Service
                 _connectedTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 _logger.LogInformation("Connecting to Steam...");
                 _steamClient!.Connect();
-                await WaitWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
+                await WaitWithTimeoutAsync(_connectedTcs, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
             }
 
             _loggedOnTcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -138,7 +138,7 @@ public partial class SteamKit2Service
                 Login();
             }
 
-            await WaitWithTimeoutAsync(_loggedOnTcs.Task, logonTimeout ?? TimeSpan.FromSeconds(60), ct, "Logging into Steam");
+            await WaitWithTimeoutAsync(_loggedOnTcs, logonTimeout ?? TimeSpan.FromSeconds(60), ct, "Logging into Steam");
             Interlocked.Increment(ref _sessionVersion);
             return true;
         }, "Steam logon", ct);
@@ -310,9 +310,9 @@ public partial class SteamKit2Service
     private bool UseAnonymousSession(bool? daemonActive) =>
         daemonActive != false || _sessionReplaced || _hasPendingLoginOwner || !IsSteamAuthenticated;
 
-    // A connect or logon still waiting under the session gate owns the callbacks that answer it: a sign-in that starts,
-    // ends or is kept while it waits never changes which session that connect is for, and the next EnsureSessionAsync
-    // catches the session up to the sign-in state.
+    // A connect or logon still being waited on under the session gate owns the callbacks that answer it: a sign-in that
+    // starts, ends or is kept while it waits never changes which session that connect is for, and the next
+    // EnsureSessionAsync catches the session up. A wait that gave up cancels its source, so it owns nothing after.
     private bool HasCurrentSteamSession() =>
         _connectedTcs is { Task.IsCompleted: false } || _loggedOnTcs is { Task.IsCompleted: false }
         || (_loginAttempt is { } login
@@ -322,15 +322,19 @@ public partial class SteamKit2Service
     private bool HasSessionMode(bool anonymous) =>
         _steamClient?.SteamID?.AccountType == (anonymous ? EAccountType.AnonUser : EAccountType.Individual);
 
-    private async Task WaitWithTimeoutAsync(Task task, TimeSpan timeout, CancellationToken ct, string operationName = "Steam operation")
+    private async Task WaitWithTimeoutAsync(TaskCompletionSource source, TimeSpan timeout, CancellationToken ct, string operationName = "Steam operation")
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
 
-        var completedTask = await Task.WhenAny(task, Task.Delay(Timeout.Infinite, cts.Token));
+        var completedTask = await Task.WhenAny(source.Task, Task.Delay(Timeout.Infinite, cts.Token));
 
-        if (completedTask != task)
+        if (completedTask != source.Task)
         {
+            // A wait given up on cancels its source, so the callbacks that would have answered it stop counting as
+            // a connect's own (HasCurrentSteamSession).
+            source.TrySetCanceled();
+
             // The caller cancelled (request aborted / rebuild cancelled) - report that, not a timeout
             ct.ThrowIfCancellationRequested();
 
@@ -339,7 +343,7 @@ public partial class SteamKit2Service
             throw new TimeoutException(errorMessage);
         }
 
-        await task; // Rethrow if faulted
+        await source.Task; // Rethrow if faulted
     }
 
     private void OnConnected(SteamClient.ConnectedCallback callback)

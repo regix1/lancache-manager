@@ -294,6 +294,37 @@ public sealed class SteamSessionPolicyTests
         Assert.True(Get<bool>(fixture.Service, "_isLoggedOn"));
     }
 
+    /// <summary>
+    /// The wait <c>LogonLockedAsync</c> holds for a logon gives up when its caller cancels or its time runs out. A logon
+    /// callback that arrives after that no longer belongs to the connect, so a sign-in canceled in between is not
+    /// reported as logged on.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AWaitThatGaveUpNoLongerOwnsTheLogonCallbackAsync(bool callerCanceled)
+    {
+        using var fixture = new Fixture();
+        Set(fixture.Service, "_sessionAuthVersion", fixture.Storage.GetIntegrationSnapshot().Version);
+        var login = await fixture.Storage.BeginIntegrationLoginAsync(new IntegrationCaller(fixture.Owner, Guid.NewGuid(), true));
+        Set(fixture.Service, "_loginAttempt", login);
+        Set(fixture.Service, "_hasPendingLoginOwner", true);
+        var loggedOn = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Set(fixture.Service, "_isLoggedOn", false);
+        Set(fixture.Service, "_loggedOnTcs", loggedOn);
+
+        var token = callerCanceled ? new CancellationToken(true) : CancellationToken.None;
+        var timeout = callerCanceled ? TimeSpan.FromSeconds(60) : TimeSpan.FromMilliseconds(1);
+        var wait = (Task)Invoke(fixture.Service, "WaitWithTimeoutAsync", loggedOn, timeout, token, "Logging into Steam")!;
+        await Assert.ThrowsAnyAsync<Exception>(() => wait);
+
+        fixture.Service.CancelLogin();
+        fixture.LoggedOn(EResult.OK);
+
+        Assert.True(loggedOn.Task.IsCanceled);
+        Assert.False(Get<bool>(fixture.Service, "_isLoggedOn"));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
