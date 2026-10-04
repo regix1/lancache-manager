@@ -72,7 +72,7 @@ const { useCountdownTimer } = await import(
 const platformUiPath =
   'src/components/features/management/schedules/scheduled-prefill/scheduledPrefillPlatformUi.ts';
 const isScheduledPrefillAnonymousService = (key) => key === 'battleNet';
-const loginStore = { state: { error: null, sessionUnavailableState: null }, canceling: false };
+const loginStore = { state: { error: null }, canceling: false };
 const bindings = {
   getScheduledPrefillServiceStatus: bindLifted(
     liftConstArrow(platformUiPath, 'getScheduledPrefillServiceStatus'),

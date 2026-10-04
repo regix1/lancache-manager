@@ -59,9 +59,6 @@ export function ScheduledPrefillPersistentCard({
   const loginCanceling = usePersistentLoginCanceling(serviceId);
   const loginError = isAnonymous ? null : loginState.error;
 
-  const sessionUnavailableState = isAnonymous ? null : loginState.sessionUnavailableState;
-  const isSessionUnavailable = sessionUnavailableState !== null;
-
   const status = getScheduledPrefillServiceStatus(serviceKey, {
     container,
     listLoaded,
@@ -184,17 +181,7 @@ export function ScheduledPrefillPersistentCard({
               {t(`${baseKey}.summaryError`, { error: integrationLoginError })}
             </Alert>
           )}
-          {isSessionUnavailable && (
-            <Alert color="yellow">
-              {t(
-                sessionUnavailableState === 'errored'
-                  ? 'prefill.persistent.sessionErrored'
-                  : 'prefill.persistent.sessionUnavailable'
-              )}
-            </Alert>
-          )}
           {loginError &&
-            !isSessionUnavailable &&
             (loginState.endReason === 'timedOut' ? (
               <Alert color="red" title={t('prefill.persistent.loginTimedOutTitle')}>
                 {t('prefill.persistent.loginTimedOutBody', {

@@ -4958,8 +4958,6 @@
       "logOut": "Log out",
       "loginToSelectGames": "Log in to select games",
       "authenticating": "Authenticating...",
-      "sessionUnavailable": "This container's login session is no longer available. Press Start to relaunch it.",
-      "sessionErrored": "This container's session encountered an error (connection lost). Press Start to restart it.",
       "sessionReplaced": "This login session was replaced by a newer one. Please try logging in again.",
       "credentialRejected": "The daemon rejected this credential. Please try logging in again.",
       "loginTimedOut": "Login timed out. Please try again.",

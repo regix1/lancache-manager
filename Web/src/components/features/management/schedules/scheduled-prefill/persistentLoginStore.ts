@@ -1,9 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import ApiService from '@services/api.service';
-import type {
-  PersistentPrefillServiceId,
-  PersistentSessionNotFoundState
-} from '@components/features/prefill/persistentPrefillTypes';
+import type { PersistentPrefillServiceId } from '@components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
 import { getAuthStage, type AuthStage, type AuthStep } from '@hooks/authStage';
 import { sessionStore } from '@utils/storage';
@@ -34,14 +31,6 @@ interface PersistentLoginStoreState {
    * instead of restarting the login.
    */
   dismissed: boolean;
-  /**
-   * Non-null after a challenge read came back 404 (the daemon session backing this login is gone -
-   * socket dropped, container stopped, etc. - see diagnostic ADDENDUM). Carries the backend's
-   * errored-vs-never-started discriminator so the card can show distinct copy for each, instead of
-   * the raw HTTP error that triggered the reset. Cleared by the next `resetPersistentLoginState`
-   * (Start/Stop/Logout all call it).
-   */
-  sessionUnavailableState: PersistentSessionNotFoundState | null;
   /**
    * RC3 fix: the `DaemonSession.Id` this login flow is
    * currently pinned to, taken from the `sessionId` every persistent-login REST response now
@@ -108,7 +97,6 @@ const INITIAL_PERSISTENT_LOGIN_STATE: PersistentLoginStoreState = {
   authenticated: false,
   pendingChallenge: null,
   dismissed: false,
-  sessionUnavailableState: null,
   sessionId: null,
   loginId: null,
   loginDeadline: null,
