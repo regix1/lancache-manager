@@ -416,6 +416,7 @@ test('a refused sign-in shows its reason in the dialog and draws no popup of its
     getEventName: (name) => name,
     hasStartedAuthRef: { current: true },
     loginAttemptRef: { current: null },
+    isOtherAttempt: () => false,
     loginEpochRef: { current: 0 },
     retiredChallengeIdsRef: { current: new Set() },
     waitRef: { current: null },
@@ -437,7 +438,11 @@ test('a refused sign-in shows its reason in the dialog and draws no popup of its
     onSuccess: noop
   })();
 
-  handlers.get('AuthStateChanged')({ sessionId: 'A', authState: 'NotAuthenticated' });
+  handlers.get('AuthStateChanged')({
+    sessionId: 'A',
+    authState: 'NotAuthenticated',
+    loginAttempt: 3
+  });
 
   // The server's run card is the one notice; the dialog keeps its own sentence. [110]
   assert.deepEqual(popups, []);

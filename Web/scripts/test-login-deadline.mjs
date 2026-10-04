@@ -381,7 +381,7 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-function guest(useHook = useGuest, serviceId = 'steam') {
+function guest(useHook = useGuest, serviceId = 'steam', sessionLoginAttempt = 6) {
   globalThis.loginTest = { translate: (key) => key };
   const instance = createComponent();
   const calls = [];
@@ -415,6 +415,7 @@ function guest(useHook = useGuest, serviceId = 'steam') {
     instance.render(() =>
       useHook({
         sessionId: 'session',
+        sessionLoginAttempt,
         hubConnection: socket,
         serviceId,
         onSuccess: () => outcomes.success++,
@@ -719,11 +720,13 @@ test('guest stage changes release one accepted step and authenticated terminal s
 
       flow.socket.handlers.get('AuthStateChanged')({
         sessionId: 'session',
-        authState: 'Authenticated'
+        authState: 'Authenticated',
+        loginAttempt: 7
       });
       flow.socket.handlers.get('AuthStateChanged')({
         sessionId: 'session',
-        authState: 'Authenticated'
+        authState: 'Authenticated',
+        loginAttempt: 7
       });
       assert.equal(flow.outcomes.success, 1);
     } finally {
@@ -997,7 +1000,8 @@ test('a retry forgets the refused attempt, so its refusal on the resubscribe can
     await flow.start();
     flow.socket.handlers.get('AuthStateChanged')({
       sessionId: 'session',
-      authState: 'NotAuthenticated'
+      authState: 'NotAuthenticated',
+      loginAttempt: 4
     });
     assert.equal(flow.render().state.error, 'prefill.auth.signInRefused');
     assert.equal(flow.outcomes.errors.length, 1);
@@ -1017,6 +1021,93 @@ test('a retry forgets the refused attempt, so its refusal on the resubscribe can
     await retry;
     assert.equal(flow.render().state.waitingForMobileConfirmation, true);
     assert.equal(flow.outcomes.errors.length, 1);
+  } finally {
+    flow.unmount();
+  }
+});
+
+// The server names the attempt on every auth-state and challenge push (PrefillDaemonServiceBase.Notifications.cs), and the
+// session it hands the dialog carries its current attempt. This fake sends the same fields.
+test('a new start ignores the ending of the sign-in it replaced', async () => {
+  const flow = guest(useGuest, 'steam', 4);
+  try {
+    const second = deferred();
+    flow.reply = second.promise;
+    let auth = flow.render();
+    auth.actions.setUsername('user');
+    auth.actions.setPassword('password');
+    auth = flow.render();
+    const start = auth.actions.handleAuthenticate();
+    await Promise.resolve();
+
+    flow.socket.handlers.get('AuthStateChanged')({
+      sessionId: 'session',
+      authState: 'NotAuthenticated',
+      loginAttempt: 4
+    });
+    second.resolve({ ...challenge('second'), loginAttempt: 5 });
+    await start;
+
+    auth = flow.render();
+    assert.equal(auth.state.error, null);
+    assert.deepEqual(flow.outcomes.errors, []);
+    assert.equal(auth.state.waitingForMobileConfirmation, true);
+    assert.notEqual(auth.loginDeadline, null);
+
+    flow.socket.handlers.get('AuthStateChanged')({
+      sessionId: 'session',
+      authState: 'NotAuthenticated',
+      loginAttempt: 5
+    });
+    assert.equal(flow.render().state.error, 'prefill.auth.signInRefused');
+  } finally {
+    flow.unmount();
+  }
+});
+
+test('a stale tab ignores the newer sign-in and its timer cancels only its own attempt', async () => {
+  const time = clock();
+  const flow = guest();
+  try {
+    flow.reply = { ...challenge('first'), loginAttempt: 4 };
+    await flow.start();
+    void flow.socket.handlers.get('CredentialChallenge')({
+      sessionId: 'session',
+      challenge: { ...challenge('second'), loginAttempt: 5 }
+    });
+    await time.advance(1000);
+    assert.equal(
+      flow.calls.filter(
+        ([name, , sent]) => name === 'ProvideCredentialAsync' && sent.challengeId === 'second'
+      ).length,
+      0
+    );
+
+    await time.advance(120000);
+    assert.deepEqual(
+      flow.calls.filter(([name]) => name === 'CancelLoginAsync'),
+      [['CancelLoginAsync', 'session', 4]]
+    );
+  } finally {
+    flow.unmount();
+    time.restore();
+  }
+});
+
+test('an ending of another attempt leaves a waiting dialog waiting', async () => {
+  const flow = guest();
+  try {
+    flow.reply = { ...challenge('first'), loginAttempt: 4 };
+    await flow.start();
+    flow.socket.handlers.get('AuthStateChanged')({
+      sessionId: 'session',
+      authState: 'NotAuthenticated',
+      loginAttempt: 5
+    });
+    const auth = flow.render();
+    assert.equal(auth.state.waitingForMobileConfirmation, true);
+    assert.equal(auth.state.error, null);
+    assert.deepEqual(flow.outcomes.errors, []);
   } finally {
     flow.unmount();
   }

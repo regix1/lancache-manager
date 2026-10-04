@@ -37,6 +37,8 @@ export interface PrefillSessionDto {
   createdAt: string;
   expiresAt: string;
   authState: DaemonAuthState;
+  /** The session's current sign-in attempt number. */
+  loginAttempt: number;
   networkDiagnostics?: NetworkDiagnostics;
   /**
    * Server truth: is a prefill currently running on the daemon? Stays true from start-ack

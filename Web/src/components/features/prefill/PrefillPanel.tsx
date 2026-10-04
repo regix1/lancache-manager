@@ -397,6 +397,7 @@ function ServicePrefillPanel({
     triggerEmailPrompt
   } = usePrefillSteamAuth({
     sessionId: signalR.session?.id ?? null,
+    sessionLoginAttempt: signalR.session?.loginAttempt ?? null,
     hubConnection: signalR.hubConnection.current,
     onSuccess: () => setShowAuthModal(false),
     onError: () => {
@@ -1011,9 +1012,11 @@ function ServicePrefillPanel({
     if (!signalR.session || !signalR.hubConnection.current) return;
 
     try {
+      // The person's Cancel ends whichever sign-in this session runs, the one this dialog started included before its first prompt.
       const cancelled = await signalR.hubConnection.current.invoke<boolean>(
         'CancelLoginAsync',
-        signalR.session.id
+        signalR.session.id,
+        null
       );
       setShowAuthModal(false);
       authActions.resetAuthForm();

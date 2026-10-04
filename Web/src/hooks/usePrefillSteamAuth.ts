@@ -31,6 +31,8 @@ export interface CredentialChallenge {
 
 interface UsePrefillSteamAuthOptions {
   sessionId: string | null;
+  /** The session's current sign-in attempt; a new start ignores endings of this attempt and older ones. */
+  sessionLoginAttempt: number | null;
   hubConnection: HubConnection | null;
   onSuccess?: () => void;
   onError?: (message: string) => void;
@@ -42,7 +44,14 @@ interface UsePrefillSteamAuthOptions {
  * Uses SignalR hub methods to handle encrypted credential exchange.
  */
 export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
-  const { sessionId, hubConnection, onSuccess, onError, serviceId = 'steam' } = options;
+  const {
+    sessionId,
+    sessionLoginAttempt,
+    hubConnection,
+    onSuccess,
+    onError,
+    serviceId = 'steam'
+  } = options;
   const { addNotification } = useNotifications();
   const { notifyError } = useErrorHandler();
   const { notifySuccess } = useNotifySuccess();
@@ -67,6 +76,15 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const retiredChallengeIdsRef = useRef<Set<string>>(new Set());
   // The attempt number on this sign-in's challenges, matched against the session's recorded ending.
   const loginAttemptRef = useRef<number | null>(null);
+  const startedAfterAttemptRef = useRef<number | null>(null);
+  // Every push names the sign-in attempt it belongs to. A dialog with an attempt of its own reads only that one. While its
+  // start is out it has none yet, and a push for the attempt the session had when that start went out, or an older one,
+  // belongs to the sign-in the start replaced.
+  const isOtherAttempt = useCallback((attempt: number | null | undefined): boolean => {
+    if (attempt === undefined || attempt === null) return false;
+    if (loginAttemptRef.current !== null) return attempt !== loginAttemptRef.current;
+    return startedAfterAttemptRef.current !== null && attempt <= startedAfterAttemptRef.current;
+  }, []);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
 
@@ -119,6 +137,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     setLoginDeadline(null);
     hasStartedAuthRef.current = false;
     loginAttemptRef.current = null;
+    startedAfterAttemptRef.current = null;
     setLoading(false);
     setNeedsTwoFactor(false);
     setNeedsEmailCode(false);
@@ -292,10 +311,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
     const handleAuthStateChanged = ({
       sessionId: payloadSessionId,
-      authState
+      authState,
+      loginAttempt
     }: {
       sessionId: string;
       authState: string;
+      loginAttempt: number;
     }) => {
       if (payloadSessionId !== sessionId) return;
 
@@ -323,6 +344,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         loginAttemptRef.current = null;
         onSuccess?.();
       } else if (authState === 'NotAuthenticated') {
+        if (isOtherAttempt(loginAttempt)) return;
         loginEpochRef.current += 1;
         finishAuthStep();
         retiredChallengeIdsRef.current.clear();
@@ -382,7 +404,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       }
       handleAuthStateChanged({
         sessionId: id,
-        authState: loginEnding.status === 'completed' ? 'Authenticated' : 'NotAuthenticated'
+        authState: loginEnding.status === 'completed' ? 'Authenticated' : 'NotAuthenticated',
+        loginAttempt: loginEnding.loginAttempt
       });
       // An ending other than a refusal (the app stopped it, a timeout, a lost daemon) shows its own reason.
       if (loginEnding.status !== 'completed') setError(t(loginEnding.stageKey));
@@ -397,7 +420,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       hubConnection.off(eventName, handleAuthStateChanged);
       hubConnection.off(subscribedName, handleSessionSubscribed);
     };
-  }, [hubConnection, sessionId, onSuccess, onError, serviceId, finishAuthStep, t]);
+  }, [hubConnection, sessionId, onSuccess, onError, serviceId, finishAuthStep, isOtherAttempt, t]);
 
   // Listen for credential challenges from the daemon
   useEffect(() => {
@@ -410,7 +433,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       sessionId: string;
       challenge: CredentialChallenge;
     }) => {
-      if (payloadSessionId !== sessionId) return;
+      if (payloadSessionId !== sessionId || isOtherAttempt(challenge.loginAttempt)) return;
 
       if (!handleChallengeType(challenge)) return;
 
@@ -456,6 +479,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     beginAuthStep,
     handleChallengeType,
     hubConnection,
+    isOtherAttempt,
     notifyError,
     ownsAuthStep,
     serviceId,
@@ -475,6 +499,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             waitRef.current?.challengeId !== challengeId
           )
             return;
+          // Names its own attempt, so a dialog another tab's newer sign-in replaced never ends that sign-in.
+          const attempt = loginAttemptRef.current;
           // End the browser attempt before awaiting cancellation so retries cannot be overwritten.
           loginEpochRef.current += 1;
           finishAuthStep();
@@ -501,7 +527,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           // appeared to end for no reason at all. The modal now stays open holding the reason.
           setError(t('prefill.auth.approvalTimedOut'));
           try {
-            await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId);
+            await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId, attempt);
           } catch (err) {
             // The modal already holds the timeout reason; transport cancellation is best effort.
             notifyError('Failed to cancel login on daemon', err, {
@@ -553,6 +579,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           waitRef.current?.challengeId !== challengeId
         )
           return;
+        const attempt = loginAttemptRef.current;
         loginEpochRef.current += 1;
         finishAuthStep();
         retiredChallengeIdsRef.current.clear();
@@ -571,7 +598,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         // closing on a card that is gone five seconds later.
         setError(t('prefill.auth.deviceCodeExpired'));
         try {
-          await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId);
+          await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId, attempt);
         } catch (err) {
           // The modal already holds the timeout reason; transport cancellation is best effort.
           notifyError('Failed to cancel Xbox device-code login on daemon', err, {
@@ -625,6 +652,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           waitRef.current?.deadline !== deadline
         )
           return;
+        const attempt = loginAttemptRef.current;
         loginEpochRef.current += 1;
         finishAuthStep(actionId);
         retiredChallengeIdsRef.current.clear();
@@ -638,7 +666,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         hasStartedAuthRef.current = false;
         setError(t('prefill.auth.errors.noChallenge'));
         try {
-          await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId);
+          await hubConnectionRef.current?.invoke('CancelLoginAsync', sessionId, attempt);
         } catch (err) {
           notifyError('Failed to cancel expired login on daemon', err, {
             silent: true,
@@ -912,6 +940,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       hasStartedAuthRef.current = true;
       // A new sign-in has no attempt number until its first challenge, so an older attempt's ending on the session never ends it.
       loginAttemptRef.current = null;
+      startedAfterAttemptRef.current = sessionLoginAttempt;
 
       try {
         const challenge = await hubConnection.invoke<CredentialChallenge | null>(
@@ -977,6 +1006,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       if (!step) return false;
       hasStartedAuthRef.current = true;
       loginAttemptRef.current = null;
+      startedAfterAttemptRef.current = sessionLoginAttempt;
 
       try {
         const challenge = await hubConnection.invoke<CredentialChallenge | null>(
@@ -1049,6 +1079,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     if (!step) return false;
     hasStartedAuthRef.current = true;
     loginAttemptRef.current = null;
+    startedAfterAttemptRef.current = sessionLoginAttempt;
 
     try {
       // Start login to get initial challenge (username)
@@ -1161,6 +1192,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     sessionId,
+    sessionLoginAttempt,
     hubConnection,
     username,
     password,
