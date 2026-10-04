@@ -5649,6 +5649,9 @@
       "authorizationCodeLabel": "Authorization Code",
       "authorizationCodePlaceholder": "Paste your authorization code here",
       "authenticatingMessage": "Checking your code",
+      "errors": {
+        "loginFailed": "The Epic sign-in did not go through."
+      },
       "actions": {
         "authenticating": "Authenticating...",
         "submitCode": "Submit code",

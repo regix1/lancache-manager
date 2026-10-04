@@ -11,6 +11,7 @@ import {
   type IntegrationLoginEnding
 } from '../types';
 import { STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS } from './loginAttemptTimeout';
+import { useSignInEndingWait } from './useSignInEndingWait';
 import type { SteamAuthActions, SteamLoginFlowState } from './steamAuthTypes';
 
 interface SteamLoginFlowOptions {
@@ -80,6 +81,12 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
   const cancelledAttemptRef = useRef<string | null>(null);
   const busyRef = useRef(false);
   const [attemptId, setAttemptId] = useState<string | null>(null);
+  // The attempt whose answer this page lost and whose ending it is waiting to be told about.
+  const [endingWait, setEndingWait] = useState<{
+    attemptId: string;
+    username: string;
+    deadline: number;
+  } | null>(null);
   const accessUnavailable = Boolean(integration && (!formCurrent || integration.access === null));
   const canAuthenticate =
     formCurrent &&
@@ -145,7 +152,76 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     // The attempt is over, so its countdown is too; a clock left running beside the reason would
     // say the same thing twice.
     setLoginDeadline(null);
+    setEndingWait(null);
   };
+
+  // Reads once how the sign-in with this attempt id ended and acts on it: true when it saved, false when it ended
+  // another way (or the form moved on to another attempt), null while the server still runs it with nothing to show.
+  const readLoginEnding = async (
+    askedAttempt: string,
+    askedUsername: string,
+    final: boolean
+  ): Promise<boolean | null> => {
+    const identity = integration?.identity;
+    const status = await fetch(
+      `/api/steam-auth/status?attemptId=${encodeURIComponent(askedAttempt)}`,
+      ApiService.getFetchOptions()
+    )
+      .then((response) =>
+        ApiService.handleResponse<
+          IntegrationAccess & {
+            loginEnding?: IntegrationLoginEnding;
+            pendingPrompt?: 'twoFactor' | 'email';
+            isAuthenticated?: boolean;
+          }
+        >(response)
+      )
+      .catch(() => null);
+    if (identityRef.current !== identity || attemptRef.current !== askedAttempt) return false;
+    const endWithError = (message: string): false => {
+      resetAuthForm();
+      setError(message);
+      onError?.(message);
+      return false;
+    };
+    if (status === null) return final ? endWithError(t('errors.integration.attemptExpired')) : null;
+    const ending = status.loginEnding?.attemptId === askedAttempt ? status.loginEnding : null;
+    if (ending?.status === 'completed') {
+      if (
+        status.isAuthenticated &&
+        (status.canManage === true || status.ownershipReason === 'login-in-progress')
+      ) {
+        attemptRef.current = null;
+        cancelledAttemptRef.current = null;
+        onSuccess?.(t('modals.steamAuth.success.authenticatedAs', { username: askedUsername }));
+        resetAuthForm();
+        return true;
+      }
+      // Saved, then signed out (a logout from another tab) before this read.
+      return endWithError(t('modals.steamAuth.errors.authenticationFailed'));
+    }
+    if (ending) return endWithError(t(ending.stageKey, ending.context ?? {}));
+    // With no ending and another attempt (or none) running, the server no longer knows this one.
+    if (status.attemptId !== askedAttempt)
+      return endWithError(t('errors.integration.attemptExpired'));
+    if (status.pendingPrompt) {
+      setWaitingForMobileConfirmation(false);
+      if (status.pendingPrompt === 'email') setNeedsEmailCode(true);
+      else setNeedsTwoFactor(true);
+      if (status.loginExpiresAtUtc) setLoginDeadline(Date.parse(status.loginExpiresAtUtc));
+      setEndingWait(null);
+      setLoading(false);
+      return false;
+    }
+    return final ? endWithError(t('errors.integration.attemptExpired')) : null;
+  };
+
+  useSignInEndingWait(endingWait, (final) => {
+    if (endingWait)
+      void readLoginEnding(endingWait.attemptId, endingWait.username, final).then((decided) => {
+        if (decided !== null) setEndingWait(null);
+      });
+  });
 
   const cancelLogin = () => {
     if (!formCurrent || identityRef.current !== integration?.identity) return;
@@ -237,46 +313,21 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     setAttemptId(submittedAttempt);
 
     // The answer was lost (this page's two-minute wait ran out, the connection dropped, or something in between
-    // answered in its own words) while the server can still finish this sign-in. Read how it ended by its attempt id
-    // every 5 s (the Xbox sign-in dialog's retry) until the server has an ending or no longer runs it.
-    const readLoginEnding = async (): Promise<boolean> => {
+    // answered in its own words) while the server can still finish this sign-in. Read how it ended once; when nothing
+    // is decided, wait for the server's ending push, a reconnect, or the attempt's own deadline.
+    const readLostAnswer = async (): Promise<boolean> => {
       setLoginDeadline(null);
       if (!submittedAttempt) return false;
-      while (current()) {
-        const status: (IntegrationAccess & { loginEnding?: IntegrationLoginEnding }) | null =
-          await fetch(
-            `/api/steam-auth/status?attemptId=${encodeURIComponent(submittedAttempt)}`,
-            ApiService.getFetchOptions()
-          )
-            .then((response) =>
-              ApiService.handleResponse<
-                IntegrationAccess & { loginEnding?: IntegrationLoginEnding }
-              >(response)
-            )
-            .catch(() => null);
-        if (!current()) return false;
-        const ending =
-          status?.loginEnding?.attemptId === submittedAttempt ? status.loginEnding : null;
-        if (ending?.status === 'completed') {
-          attemptRef.current = null;
-          cancelledAttemptRef.current = null;
-          onSuccess?.(t('modals.steamAuth.success.authenticatedAs', { username }));
-          resetAuthForm();
-          return true;
-        }
-        if (ending || (status && status.attemptId !== submittedAttempt)) {
-          // With no ending and no sign-in running, a restart ended it.
-          const message = ending
-            ? t(ending.stageKey, ending.context ?? {})
-            : t('errors.integration.attemptExpired');
-          resetAuthForm();
-          setError(message);
-          onError?.(message);
-          return false;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 5000));
+      const decided = await readLoginEnding(submittedAttempt, username, false);
+      if (decided === null && current()) {
+        // The server's attempt window, from the moment the answer was lost.
+        setEndingWait({
+          attemptId: submittedAttempt,
+          username,
+          deadline: Date.now() + 15 * 60 * 1000
+        });
       }
-      return false;
+      return decided === true;
     };
 
     const controller = new AbortController();
@@ -341,7 +392,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         result = await response.json();
         if (!current()) return false;
       } catch (_jsonError) {
-        return await readLoginEnding();
+        return await readLostAnswer();
       }
 
       if (response.ok) {
@@ -415,7 +466,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       // current is this page's own two-minute wait; a dropped connection is the other way here. The server keeps the
       // sign-in going in both.
       if (!(err instanceof Error && err.name === 'AbortError') || timedOut)
-        return await readLoginEnding();
+        return await readLostAnswer();
       return false;
     } finally {
       if (requestTimeout) {

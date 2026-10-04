@@ -225,6 +225,7 @@ export const SIGNALR_EVENTS = [
   'XboxMappingProgress',
   'XboxMappingComplete',
   'XboxMappingAuthStateChanged',
+  'IntegrationLoginEnded',
   'XboxGameMappingsUpdated',
   'BattleNetMappingStarted',
   'BattleNetMappingProgress',

@@ -104,6 +104,10 @@ const aliases = {
     'const refresh=async()=>{};export const useSteamWebApiStatus=()=>({status:globalThis.integrationTest.keyStatus,error:globalThis.integrationTest.keyError,refresh});'
   )
 };
+aliases['./useSignInEndingWait'] = await compileToUrl(
+  '../src/hooks/useSignInEndingWait.ts',
+  aliases
+);
 const { useEpicMappingAuth } = await import(
   await compileToUrl('../src/hooks/useEpicMappingAuth.ts', aliases)
 );
@@ -659,6 +663,150 @@ test('Steam phone confirmation timeout adds a failed card that draws red', async
   } finally {
     view.unmount();
     globalThis.fetch = originalFetch;
+  }
+});
+
+/**
+ * The Steam dialog with the real wait hook: a hub whose events the test emits, and the real reconnect hook, so a lost
+ * sign-in answer is decided by a push, a reconnect or the attempt's own deadline and by nothing that repeats.
+ */
+const hubUrl = moduleUrl(`
+const handlers = new Map();
+const hub = {
+  on(event, handler) { handlers.set(event, [...(handlers.get(event) ?? []), handler]); },
+  off(event, handler) { handlers.set(event, (handlers.get(event) ?? []).filter((entry) => entry !== handler)); }
+};
+globalThis.hubEmit = (event, payload) => (handlers.get(event) ?? []).slice().forEach((handler) => handler(payload));
+export const useSignalR = () => { hub.isConnected = globalThis.hubConnected; return hub; };
+`);
+const waitingAliases = {
+  ...aliases,
+  '@contexts/SignalRContext/useSignalR': hubUrl,
+  './useReconnectRefetch': await compileToUrl('../src/hooks/useReconnectRefetch.ts', {
+    react: reactUrl
+  })
+};
+waitingAliases['./useSignInEndingWait'] = await compileToUrl(
+  '../src/hooks/useSignInEndingWait.ts',
+  waitingAliases
+);
+const { useSteamLoginFlow: useWaitingSteamLoginFlow } = await import(
+  await compileToUrl('../src/hooks/useSteamLoginFlow.ts', waitingAliases)
+);
+
+/** A Steam dialog whose sign-in answer was lost; `reads` are the status answers in the order they are asked. */
+const loseSteamAnswer = async (t, reads) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  setup();
+  globalThis.hubConnected = true;
+  const statusUrls = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (!url.startsWith('/api/steam-auth/status')) throw new TypeError('Failed to fetch');
+    statusUrls.push(url);
+    const body = reads.shift();
+    if (body === null) throw new TypeError('Failed to fetch');
+    return new Response(JSON.stringify(body));
+  };
+  const successes = [];
+  const view = await mount(() =>
+    useWaitingSteamLoginFlow({
+      loginUrl: '/login',
+      onSuccess: (message) => successes.push(message),
+      integration: {
+        identity: 'a',
+        access: { canManage: true, canSignIn: true },
+        refresh: async () => undefined
+      }
+    })
+  );
+  view.read().actions.setUsername('steam');
+  view.read().actions.setPassword('password');
+  view.render();
+  await view.read().actions.handleAuthenticate();
+  view.render();
+  return {
+    view,
+    statusUrls,
+    successes,
+    restore: () => {
+      view.unmount();
+      globalThis.fetch = originalFetch;
+    }
+  };
+};
+
+test('a lost Steam answer is decided by the pushed ending and never by a timer', async (t) => {
+  const { view, statusUrls, restore } = await loseSteamAnswer(t, [
+    null,
+    {
+      loginEnding: {
+        attemptId: 'attempt-1',
+        status: 'cancelled',
+        stageKey: 'errors.steam.signInCancelled'
+      }
+    }
+  ]);
+  try {
+    assert.equal(statusUrls.length, 1, 'one read when the answer was lost');
+    t.mock.timers.tick(60000);
+    await settle();
+    assert.equal(statusUrls.length, 1, 'no timer asks again');
+
+    globalThis.hubEmit('IntegrationLoginEnded', { attemptId: 'attempt-2' });
+    await settle();
+    assert.equal(statusUrls.length, 1, 'another attempt ending is not this dialog');
+
+    globalThis.hubEmit('IntegrationLoginEnded', { attemptId: 'attempt-1' });
+    await settle();
+    assert.equal(statusUrls.length, 2);
+    assert.equal(view.render().state.error, 'errors.steam.signInCancelled');
+  } finally {
+    restore();
+  }
+});
+
+test('a lost Steam answer is read once when the hub connection comes back', async (t) => {
+  const { view, statusUrls, successes, restore } = await loseSteamAnswer(t, [
+    null,
+    {
+      isAuthenticated: true,
+      canManage: true,
+      loginEnding: {
+        attemptId: 'attempt-1',
+        status: 'completed',
+        stageKey: 'modals.steamAuth.success.authenticatedAs'
+      }
+    }
+  ]);
+  try {
+    globalThis.hubConnected = false;
+    view.render();
+    globalThis.hubConnected = true;
+    view.render();
+    await settle();
+
+    assert.equal(statusUrls.length, 2);
+    assert.deepEqual(successes, ['modals.steamAuth.success.authenticatedAs']);
+  } finally {
+    restore();
+  }
+});
+
+test('a lost Steam answer nothing decided by its deadline ends as ended or expired', async (t) => {
+  const { view, statusUrls, successes, restore } = await loseSteamAnswer(t, [
+    null,
+    { attemptId: 'attempt-1' }
+  ]);
+  try {
+    t.mock.timers.tick(15 * 60 * 1000);
+    await settle();
+
+    assert.equal(statusUrls.length, 2, 'the deadline reads once');
+    assert.equal(view.render().state.error, 'errors.integration.attemptExpired');
+    assert.deepEqual(successes, []);
+  } finally {
+    restore();
   }
 });
 

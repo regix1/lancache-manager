@@ -104,7 +104,8 @@ export default {
       isAuthenticated: globalThis.__server.isAuthenticated,
       lastCollectionUtc: globalThis.__server.lastCollectionUtc,
       loginInProgress: globalThis.__server.loginInProgress,
-      canManage: true,
+      canManage: globalThis.__server.canManage,
+      ownershipReason: globalThis.__server.ownershipReason,
       canSignIn: !globalThis.__server.attemptId,
       canCancel: Boolean(globalThis.__server.attemptId && globalThis.__server.loginInProgress),
       attemptId: globalThis.__server.loginInProgress ? globalThis.__server.attemptId : null,
@@ -122,7 +123,7 @@ export default {
       throw new Error('502');
     }
     globalThis.__server.attemptId = request.attemptId;
-    return { userCode: 'ABC-123', verificationUri: 'https://aka.ms/link', attemptId: request.attemptId, expiresAtUtc: '2030-01-01T00:00:00Z' };
+    return { userCode: 'ABC-123', verificationUri: 'https://aka.ms/link', attemptId: request.attemptId, expiresAtUtc: globalThis.__server.expiresAtUtc };
   },
   cancelXboxMappingLogin: async () => {}
 };
@@ -206,6 +207,10 @@ const startServer = (isAuthenticated) => {
     isAuthenticated,
     lastCollectionUtc: isAuthenticated ? '2030-01-01T00:00:00Z' : null,
     loginInProgress: true,
+    canManage: true,
+    ownershipReason: null,
+    // The server's 15 minute device code window, as the start answer reports it.
+    expiresAtUtc: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
     endings: {},
     failing: false,
     gate: null,
@@ -213,6 +218,8 @@ const startServer = (isAuthenticated) => {
     loginFailing: false
   };
   globalThis.__reported = [];
+  heldTimers.retries.length = 0;
+  heldTimers.deadlines.length = 0;
   return globalThis.__server;
 };
 
@@ -228,19 +235,31 @@ const endAttempt = (server, status, stageKey, attemptId = 'attempt-a') => {
   server.loginInProgress = false;
 };
 
-/** Captures the hook's 5 second status retry, so a test runs it when it chooses instead of waiting. */
-const captureRetries = () => {
-  const realSetTimeout = globalThis.setTimeout;
-  const retries = [];
-  globalThis.setTimeout = (callback, delay, ...args) =>
-    delay === 5000 ? (retries.push(callback), 0) : realSetTimeout(callback, delay, ...args);
-  return {
-    retries,
-    restore: () => {
-      globalThis.setTimeout = realSetTimeout;
-    }
-  };
+/**
+ * Holds the two kinds of timer a sign-in could arm. A 5 second timer is the status retry loop this hook no longer
+ * has, so a test asserts none is armed. A timer of a minute or more is the device code's own deadline: it is held so
+ * a test runs it when it chooses and none keeps the process alive.
+ */
+const heldTimers = { retries: [], deadlines: [] };
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+globalThis.setTimeout = (callback, delay, ...args) => {
+  if (delay === 5000) {
+    heldTimers.retries.push(callback);
+    return 0;
+  }
+  if (delay >= 60000) {
+    const held = { callback, delay, cleared: false };
+    heldTimers.deadlines.push(held);
+    return held;
+  }
+  return realSetTimeout(callback, delay, ...args);
 };
+globalThis.clearTimeout = (timer) => {
+  if (timer && typeof timer === 'object' && 'cleared' in timer) timer.cleared = true;
+  else realClearTimeout(timer);
+};
+const liveDeadlines = () => heldTimers.deadlines.filter((held) => !held.cleared);
 
 /** Holds every auth-status answer until the returned function is called. */
 const holdAnswers = (server) => {
@@ -508,36 +527,35 @@ test('two recoveries with the ask still out complete the login once', async () =
 });
 
 test('a status ask that fails keeps the login for the next recovery', async () => {
-  const { retries, restore } = captureRetries();
-  try {
-    const server = startServer(false);
-    const xbox = await mount(true);
-    await waitForApproval(xbox);
-    server.failing = true;
-    saveAccount(server);
-    endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
+  const server = startServer(false);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+  server.failing = true;
+  saveAccount(server);
+  endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
 
-    xbox.render(false);
-    xbox.render(true);
-    await settle();
+  xbox.render(false);
+  xbox.render(true);
+  await settle();
 
-    assert.equal(server.requests, 1);
-    assert.equal(globalThis.__reported.length, 1, 'the failed ask is reported, not swallowed');
-    assert.equal(xbox.succeeded.count, 0);
-    assert.equal(xbox.render(true).state.needsDeviceCode, true);
-    assert.equal(retries.length, 1, 'the failed ask is asked again without waiting for a recovery');
+  assert.equal(server.requests, 1);
+  assert.equal(globalThis.__reported.length, 1, 'the failed ask is reported, not swallowed');
+  assert.equal(xbox.succeeded.count, 0);
+  assert.equal(xbox.render(true).state.needsDeviceCode, true);
+  assert.equal(
+    heldTimers.retries.length,
+    0,
+    'a failed read arms no timed retry; the next recovery asks again'
+  );
 
-    server.failing = false;
-    xbox.render(false);
-    xbox.render(true);
-    await settle();
-    xbox.render(true);
+  server.failing = false;
+  xbox.render(false);
+  xbox.render(true);
+  await settle();
+  xbox.render(true);
 
-    assert.equal(server.requests, 2);
-    assert.equal(xbox.succeeded.count, 1);
-  } finally {
-    restore();
-  }
+  assert.equal(server.requests, 2);
+  assert.equal(xbox.succeeded.count, 1);
 });
 
 test('a re-sign-in ends on its own completed event while another sign-in runs', async () => {
@@ -684,36 +702,95 @@ test("the Management card's own reconnect read still ends the sign-in", async ()
   assert.equal(xbox.failed.count, 0);
 });
 
-test('one failed read at the ending is read again', async () => {
-  const { retries, restore } = captureRetries();
-  try {
-    const server = startServer(false);
-    const xbox = await mount(true);
-    await waitForApproval(xbox);
+test('a failed read at the ending waits for the next push instead of a timer', async () => {
+  const server = startServer(false);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
 
-    server.failing = true;
-    saveAccount(server);
-    endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
-    globalThis.__emit('XboxMappingAuthStateChanged', {
-      operationId: 'op-run',
-      status: 'completed'
-    });
-    await settle();
-    xbox.render(true);
+  server.failing = true;
+  saveAccount(server);
+  endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
+  globalThis.__emit('XboxMappingAuthStateChanged', {
+    operationId: 'op-run',
+    status: 'completed'
+  });
+  await settle();
+  xbox.render(true);
 
-    assert.equal(retries.length, 1, 'the failed read is scheduled again');
-    assert.equal(xbox.succeeded.count, 0);
+  assert.equal(heldTimers.retries.length, 0, 'no timed retry is armed');
+  assert.equal(xbox.succeeded.count, 0);
 
-    server.failing = false;
-    retries[0]();
-    await settle();
-    xbox.render(true);
+  server.failing = false;
+  globalThis.__emit('XboxMappingAuthStateChanged', {
+    operationId: 'op-run',
+    status: 'completed'
+  });
+  await settle();
+  xbox.render(true);
 
-    assert.equal(xbox.succeeded.count, 1);
-    assert.equal(xbox.failed.count, 0);
-  } finally {
-    restore();
-  }
+  assert.equal(xbox.succeeded.count, 1);
+  assert.equal(xbox.failed.count, 0);
+});
+
+test('a saved sign-in beside another session pending sign-in still ends in success', async () => {
+  const server = startServer(false);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+
+  // The account was saved here, then another session of the same owner began a recovery: this caller can no longer
+  // manage the account but the server reports the reason.
+  saveAccount(server);
+  endAttempt(server, 'completed', 'signalr.xbox.mapping.completed');
+  server.canManage = false;
+  server.ownershipReason = 'login-in-progress';
+  globalThis.__emit('XboxMappingAuthStateChanged', {
+    operationId: 'op-run',
+    status: 'completed'
+  });
+  await settle();
+  xbox.render(true);
+
+  assert.equal(xbox.succeeded.count, 1);
+  assert.equal(xbox.failed.count, 0);
+});
+
+test('a sign-in no longer the caller pending one reads ended while another sign-in runs', async () => {
+  const server = startServer(false);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+
+  // The server restarted and forgot attempt-a; another caller's attempt-b is the running sign-in.
+  server.attemptId = 'attempt-b';
+  server.loginInProgress = true;
+  globalThis.__emit('XboxMappingAuthStateChanged', {
+    operationId: 'op-run',
+    status: 'waiting'
+  });
+  await settle();
+  xbox.render(true);
+
+  assert.equal(xbox.succeeded.count, 0);
+  assert.equal(xbox.failed.count, 1);
+  assert.equal(xbox.failed.message, 'errors.integration.attemptExpired');
+});
+
+test('reads that keep failing past the device code deadline end the sign-in as expired', async () => {
+  const server = startServer(false);
+  const xbox = await mount(true);
+  await waitForApproval(xbox);
+  server.failing = true;
+
+  const deadlines = liveDeadlines();
+  assert.equal(deadlines.length, 1, 'one deadline timer is armed for the device code');
+  assert.ok(deadlines[0].delay > 14 * 60 * 1000 && deadlines[0].delay <= 15 * 60 * 1000);
+  deadlines[0].callback();
+  await settle();
+  xbox.render(true);
+
+  assert.equal(server.requests, 1, 'the deadline reads once');
+  assert.equal(xbox.failed.count, 1);
+  assert.equal(xbox.failed.message, 'errors.integration.attemptExpired');
+  assert.equal(xbox.render(true).state.needsDeviceCode, false);
 });
 
 test('a sign-in saved and then signed out shows the sign-in failed text', async () => {

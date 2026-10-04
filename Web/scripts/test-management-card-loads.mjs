@@ -605,15 +605,48 @@ const STEAM_LOGIN_FLOW = 'src/hooks/useSteamLoginFlow.ts';
  * popup behind it.
  */
 const liftSteamSignIn = (fetch) => {
-  const state = { popups: [], errors: [], deadlines: [], successes: [] };
-  const handleAuthenticate = bindLifted(liftConstArrow(STEAM_LOGIN_FLOW, 'handleAuthenticate'), {
-    canAuthenticate: true,
+  const state = {
+    popups: [],
+    errors: [],
+    deadlines: [],
+    successes: [],
+    waits: [],
+    prompts: [],
+    loading: []
+  };
+  const attemptRef = { current: null };
+  const shared = {
     identityRef: { current: undefined },
     integration: {
       identity: undefined,
       access: { canSignIn: true },
       refresh: async () => undefined
     },
+    cancelledAttemptRef: { current: null },
+    attemptRef,
+    setError: (value) => state.errors.push(value),
+    setLoading: (value) => state.loading.push(value),
+    setWaitingForMobileConfirmation: () => undefined,
+    setNeedsTwoFactor: (value) => state.prompts.push(value ? 'twoFactor' : null),
+    setNeedsEmailCode: (value) => state.prompts.push(value ? 'email' : null),
+    setLoginDeadline: (value) => state.deadlines.push(value),
+    setEndingWait: (value) => state.waits.push(value),
+    fetch,
+    ApiService: {
+      getJsonFetchOptions: (_body, options) => options,
+      getFetchOptions: () => ({}),
+      handleResponse: async (response) => response.json()
+    },
+    t: (key) => key,
+    resetAuthForm: () => undefined,
+    onSuccess: (message) => state.successes.push(message),
+    onError: undefined
+  };
+  const readLoginEnding = bindLifted(liftConstArrow(STEAM_LOGIN_FLOW, 'readLoginEnding'), shared);
+  const handleAuthenticate = bindLifted(liftConstArrow(STEAM_LOGIN_FLOW, 'handleAuthenticate'), {
+    ...shared,
+    readLoginEnding,
+    canAuthenticate: true,
     createUuid: () => 'attempt-a',
     busyRef: { current: false },
     needsTwoFactor: false,
@@ -621,32 +654,16 @@ const liftSteamSignIn = (fetch) => {
     useManualCode: false,
     username: 'user',
     password: 'secret',
-    setError: (value) => state.errors.push(value),
-    setLoading: () => undefined,
     requestRef: { current: 0 },
-    cancelledAttemptRef: { current: null },
-    attemptRef: { current: null },
     setAttemptId: () => undefined,
     setAbortController: () => undefined,
-    setWaitingForMobileConfirmation: () => undefined,
     STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS: 120000,
-    setLoginDeadline: (value) => state.deadlines.push(value),
-    fetch,
     loginUrl: '/api/steam-auth/login',
-    ApiService: {
-      getJsonFetchOptions: (_body, options) => options,
-      getFetchOptions: () => ({}),
-      handleResponse: async (response) => response.json()
-    },
     getExtraRequestBody: undefined,
     ApiError: class ApiError extends Error {},
-    t: (key) => key,
-    notifyLoginFailure: (message) => state.popups.push(message),
-    resetAuthForm: () => undefined,
-    onSuccess: (message) => state.successes.push(message),
-    onError: undefined
+    notifyLoginFailure: (message) => state.popups.push(message)
   });
-  return { state, handleAuthenticate };
+  return { state, handleAuthenticate, readLoginEnding, attemptRef };
 };
 
 /** What GET /api/steam-auth/status answers: the caller's running attempt and the asked attempt's ending, nulls omitted. */
@@ -678,7 +695,10 @@ const abortsOnSignal = (_url, options) =>
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
+/** A saved sign-in as GET /api/steam-auth/status answers it: the account is signed in and the caller manages it. */
 const completedEnding = {
+  isAuthenticated: true,
+  canManage: true,
   loginEnding: {
     attemptId: 'attempt-a',
     status: 'completed',
@@ -714,22 +734,30 @@ test('a Steam sign-in whose connection dropped shows how it ended in the dialog 
 
 test('a Steam sign-in saved after the two-minute wait closes with success', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
-  const { fetch } = steamFetch(abortsOnSignal, [
+  const { fetch, statusUrls } = steamFetch(abortsOnSignal, [
     async () => steamStatus({ attemptId: 'attempt-a' }),
     async () => steamStatus(completedEnding)
   ]);
-  const { state, handleAuthenticate } = liftSteamSignIn(fetch);
+  const { state, handleAuthenticate, readLoginEnding } = liftSteamSignIn(fetch);
 
   const signIn = handleAuthenticate();
   t.mock.timers.tick(120000);
-  await settle();
+  await signIn;
   assert.deepEqual(
     state.successes,
     [],
     'the attempt is still running, so the dialog keeps waiting'
   );
+  assert.deepEqual(
+    state.waits.map((wait) => [wait.attemptId, wait.username]),
+    [['attempt-a', 'user']],
+    'the dialog waits for the server to announce the ending'
+  );
   t.mock.timers.tick(5000);
-  await signIn;
+  await settle();
+  assert.equal(statusUrls.length, 1, 'no timer re-reads the status');
+
+  assert.equal(await readLoginEnding('attempt-a', 'user', false), true);
 
   assert.deepEqual(state.successes, ['modals.steamAuth.success.authenticatedAs']);
   assert.deepEqual(
@@ -766,28 +794,137 @@ test('a Steam sign-in that ends after the wait shows its own reason', async (t) 
   );
 });
 
-test('a failed Steam status read is read again after 5 seconds', async (t) => {
+test('a failed Steam status read is not read again on a timer', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const { fetch, statusUrls } = steamFetch(abortsOnSignal, [
     () => Promise.reject(new TypeError('Failed to fetch')),
     async () => steamStatus(completedEnding)
   ]);
-  const { state, handleAuthenticate } = liftSteamSignIn(fetch);
+  const { state, handleAuthenticate, readLoginEnding } = liftSteamSignIn(fetch);
 
   const signIn = handleAuthenticate();
   t.mock.timers.tick(120000);
-  await settle();
+  await signIn;
   assert.equal(statusUrls.length, 1);
   assert.deepEqual(
     state.errors.filter((message) => message !== null),
     []
   );
   assert.deepEqual(state.successes, []);
+  assert.equal(state.waits.length, 1, 'the dialog waits for a push, a reconnect or its deadline');
+  const [wait] = state.waits;
+  assert.ok(
+    wait.deadline > Date.now() + 14 * 60 * 1000,
+    'the deadline is the attempt window, not a retry delay'
+  );
   t.mock.timers.tick(5000);
-  await signIn;
+  await settle();
+  assert.equal(statusUrls.length, 1, 'nothing reads again until the dialog is told to');
 
+  assert.equal(await readLoginEnding(wait.attemptId, wait.username, false), true);
   assert.equal(statusUrls.length, 2);
   assert.deepEqual(state.successes, ['modals.steamAuth.success.authenticatedAs']);
+});
+
+test('a lost Steam answer that was a code prompt opens the code box', async () => {
+  const { fetch } = steamFetch(
+    async () => undefined,
+    [
+      async () =>
+        steamStatus({
+          attemptId: 'attempt-a',
+          pendingPrompt: 'twoFactor',
+          loginExpiresAtUtc: '2030-01-01T00:00:00Z'
+        })
+    ]
+  );
+  const { state, readLoginEnding, attemptRef } = liftSteamSignIn(fetch);
+  attemptRef.current = 'attempt-a';
+
+  const decided = await readLoginEnding('attempt-a', 'user', false);
+
+  assert.equal(decided, false, 'the sign-in is not over, but the wait is');
+  assert.deepEqual(state.prompts, ['twoFactor']);
+  assert.deepEqual(state.waits, [null]);
+  assert.equal(state.loading.at(-1), false, 'no spinner behind the code box');
+  assert.equal(state.deadlines.at(-1), Date.parse('2030-01-01T00:00:00Z'));
+  assert.deepEqual(state.successes, []);
+  assert.deepEqual(
+    state.errors.filter((message) => message !== null),
+    []
+  );
+});
+
+test('a Steam sign-in saved and then signed out reads as not gone through', async () => {
+  const { fetch } = steamFetch(
+    async () => undefined,
+    [async () => steamStatus({ ...completedEnding, isAuthenticated: false })]
+  );
+  const { state, readLoginEnding, attemptRef } = liftSteamSignIn(fetch);
+  attemptRef.current = 'attempt-a';
+
+  assert.equal(await readLoginEnding('attempt-a', 'user', false), false);
+
+  assert.deepEqual(state.successes, []);
+  assert.equal(state.errors.at(-1), 'modals.steamAuth.errors.authenticationFailed');
+});
+
+test('a saved Steam sign-in beside another pending sign-in still closes with success', async () => {
+  const { fetch } = steamFetch(
+    async () => undefined,
+    [
+      async () =>
+        steamStatus({
+          ...completedEnding,
+          canManage: false,
+          ownershipReason: 'login-in-progress'
+        })
+    ]
+  );
+  const { state, readLoginEnding, attemptRef } = liftSteamSignIn(fetch);
+  attemptRef.current = 'attempt-a';
+
+  assert.equal(await readLoginEnding('attempt-a', 'user', false), true);
+
+  assert.deepEqual(state.successes, ['modals.steamAuth.success.authenticatedAs']);
+});
+
+test('a Steam sign-in nothing decided by its deadline ends as ended or expired', async () => {
+  const { fetch } = steamFetch(
+    async () => undefined,
+    [
+      async () => steamStatus({ attemptId: 'attempt-a' }),
+      () => Promise.reject(new TypeError('Failed to fetch'))
+    ]
+  );
+  const { state, readLoginEnding, attemptRef } = liftSteamSignIn(fetch);
+  attemptRef.current = 'attempt-a';
+
+  assert.equal(
+    await readLoginEnding('attempt-a', 'user', false),
+    null,
+    'still running: keep waiting'
+  );
+  assert.equal(state.errors.at(-1), undefined);
+  assert.equal(
+    await readLoginEnding('attempt-a', 'user', true),
+    false,
+    'a failed final read ends it too'
+  );
+
+  assert.equal(state.errors.at(-1), 'errors.integration.attemptExpired');
+  assert.deepEqual(state.successes, []);
+});
+
+test('a Steam sign-in the caller no longer owns is left to whoever reset it', async () => {
+  const { fetch } = steamFetch(async () => undefined, [async () => steamStatus(completedEnding)]);
+  const { state, readLoginEnding, attemptRef } = liftSteamSignIn(fetch);
+  attemptRef.current = 'attempt-b';
+
+  assert.equal(await readLoginEnding('attempt-a', 'user', false), false);
+
+  assert.deepEqual(state.successes, []);
+  assert.deepEqual(state.errors, []);
 });
 
 test('a Steam sign-in the server refuses ends its countdown', async () => {
@@ -833,6 +970,7 @@ test('resetting the Steam sign-in form ends its countdown', () => {
     setWaitingForMobileConfirmation: noop,
     setUseManualCode: noop,
     setLoading: noop,
+    setEndingWait: noop,
     setLoginDeadline: (value) => deadlines.push(value)
   });
 

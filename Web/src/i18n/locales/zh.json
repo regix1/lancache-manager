@@ -5649,6 +5649,9 @@
       "authorizationCodeLabel": "授权码",
       "authorizationCodePlaceholder": "在此粘贴您的授权码",
       "authenticatingMessage": "正在验证您的授权码",
+      "errors": {
+        "loginFailed": "Epic 登录未通过。"
+      },
       "actions": {
         "authenticating": "认证中...",
         "submitCode": "提交代码",

@@ -57,7 +57,6 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const [statusIdentity, setStatusIdentity] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [statusFailures, setStatusFailures] = useState(0);
   const hasAccess =
     !isLoading &&
     (authenticationEnabled === false ||
@@ -82,7 +81,6 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       if (identityRef.current !== identity || statusRequestRef.current !== request) return null;
       setStatus(null);
       setStatusError(getErrorMessage(error));
-      setStatusFailures((count) => count + 1);
       notifyError('Xbox integration status unavailable', error, { silent: true });
       return null;
     } finally {
@@ -171,7 +169,10 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     if (ending?.attemptId === submittedAttempt) {
       if (ending.status !== 'completed') {
         failLogin(t(ending.stageKey, ending.context ?? {}));
-      } else if (authStatus.canManage === true && authStatus.isAuthenticated) {
+      } else if (
+        authStatus.isAuthenticated &&
+        (authStatus.canManage === true || authStatus.ownershipReason === 'login-in-progress')
+      ) {
         finishLogin();
       } else {
         // The account was saved, then signed out (a logout from another tab) before this read.
@@ -179,30 +180,33 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
       }
     } else if (
       statusAttemptRef.current === submittedAttempt &&
-      authStatus.attemptId !== submittedAttempt &&
-      !authStatus.loginInProgress
+      authStatus.attemptId !== submittedAttempt
     ) {
-      // The server holds no ending for this attempt and runs no sign-in: a restart ended it.
+      // No ending and no longer this caller's own pending sign-in: an ending is recorded before an attempt stops being
+      // its caller's pending sign-in, so only a restart reads this way.
       failLogin(t('errors.integration.attemptExpired'));
     }
   }, [authStatus, needsDeviceCode, finishLogin, failLogin, t]);
 
-  // A failed status read while a sign-in waits is retried every 5 s (the setup wizard watchdog's tick) until a read
-  // answers or the device code's deadline passes, so one failed read cannot leave a finished sign-in's code on screen.
+  // At the device code's deadline the dialog reads once; a read that brings no ending for this attempt ends it.
   useEffect(() => {
     const waitingAttempt = attemptRef.current;
-    if (
-      statusError === null ||
-      !waitingAttempt ||
-      loginDeadline === null ||
-      Date.now() >= loginDeadline
-    )
-      return;
-    const retry = setTimeout(() => {
-      if (attemptRef.current === waitingAttempt) void refreshStatus();
-    }, 5000);
-    return () => clearTimeout(retry);
-  }, [statusError, statusFailures, loginDeadline, refreshStatus]);
+    if (!waitingAttempt || !needsDeviceCode || loginDeadline === null) return;
+    const expire = setTimeout(
+      () => {
+        void refreshStatus().then((next) => {
+          if (
+            attemptRef.current === waitingAttempt &&
+            loginInProgressRef.current &&
+            next?.loginEnding?.attemptId !== waitingAttempt
+          )
+            failLogin(t('errors.integration.attemptExpired'));
+        });
+      },
+      Math.max(0, loginDeadline - Date.now())
+    );
+    return () => clearTimeout(expire);
+  }, [needsDeviceCode, loginDeadline, refreshStatus, failLogin, t]);
 
   useEffect(() => {
     const handleAuthStateChanged = () => {

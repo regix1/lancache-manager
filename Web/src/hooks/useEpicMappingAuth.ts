@@ -4,7 +4,9 @@ import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/useAuth';
 import { createUuid } from '@utils/uuid';
+import { ApiError } from '@services/apiError';
 import { getIntegrationReasonKey, type EpicMappingAuthStatus } from '../types';
+import { useSignInEndingWait } from './useSignInEndingWait';
 
 interface UseEpicMappingAuthOptions {
   onSuccess?: () => void;
@@ -48,6 +50,10 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   const busyRef = useRef(false);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [loginDeadline, setLoginDeadline] = useState<number | null>(null);
+  // The attempt whose code check lost its answer and whose ending this dialog is waiting to be told about.
+  const [endingWait, setEndingWait] = useState<{ attemptId: string; deadline: number } | null>(
+    null
+  );
   const [status, setStatus] = useState<EpicMappingAuthStatus | null>(null);
   const [statusIdentity, setStatusIdentity] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
@@ -106,6 +112,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     setAuthorizationUrl('');
     setAuthorizationCode('');
     setAbortController(null);
+    setEndingWait(null);
   }, [abortController]);
 
   const cancelPendingRequest = useCallback(() => {
@@ -209,6 +216,53 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     accessUnavailable
   ]);
 
+  // Reads once how the sign-in with this attempt id ended and acts on it: true when it saved, false when it ended
+  // another way (or the form moved on to another attempt), null while the server still runs it with nothing to show.
+  const readLoginEnding = useCallback(
+    async (askedAttempt: string, final: boolean): Promise<boolean | null> => {
+      const next = await ApiService.getEpicMappingAuthStatus(askedAttempt).catch(() => null);
+      if (identityRef.current !== identity || attemptRef.current !== askedAttempt) return false;
+      const endWithError = (message: string): false => {
+        attemptRef.current = null;
+        setAttemptId(null);
+        setNeedsAuthorizationCode(false);
+        setAuthorizationCode('');
+        setAuthorizationUrl('');
+        setError(message);
+        onError?.(message);
+        return false;
+      };
+      if (next === null) return final ? endWithError(t('errors.integration.attemptExpired')) : null;
+      const ending = next.loginEnding?.attemptId === askedAttempt ? next.loginEnding : null;
+      if (ending?.status === 'completed') {
+        if (
+          next.isAuthenticated &&
+          (next.canManage === true || next.ownershipReason === 'login-in-progress')
+        ) {
+          attemptRef.current = null;
+          setAttemptId(null);
+          onSuccess?.();
+          return true;
+        }
+        // Saved, then signed out (a logout from another tab) before this read.
+        return endWithError(t('modals.epicAuth.errors.loginFailed'));
+      }
+      if (ending) return endWithError(t(ending.stageKey, ending.context ?? {}));
+      // With no ending and another attempt (or none) running, the server no longer knows this one.
+      if (next.attemptId !== askedAttempt)
+        return endWithError(t('errors.integration.attemptExpired'));
+      return final ? endWithError(t('errors.integration.attemptExpired')) : null;
+    },
+    [identity, onSuccess, onError, t]
+  );
+
+  useSignInEndingWait(endingWait, (final) => {
+    if (endingWait)
+      void readLoginEnding(endingWait.attemptId, final).then((decided) => {
+        if (decided !== null) setEndingWait(null);
+      });
+  });
+
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
     if (identityRef.current !== identity || !canAuthenticate || busyRef.current) return false;
     // The prompt's Continue button and the code box's Submit button share this handler, so the step
@@ -247,28 +301,15 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       return true;
     } catch (error) {
       if (!current()) return false;
-      if (error instanceof Error && error.name === 'AbortError') {
-        // Closing the dialog moves the request on before it aborts, so a current request that aborted was ended by the
-        // server: the card's X, pressed in another tab, stopped this sign-in, possibly after its account was saved. A
-        // status read that fails leaves the code form as it was.
-        const ending = await ApiService.getEpicMappingAuthStatus(submittedAttempt).then(
-          (next) => (next.loginEnding?.attemptId === submittedAttempt ? next.loginEnding : null),
-          () => null
-        );
-        if (!current() || !ending) return false;
-        attemptRef.current = null;
-        setAttemptId(null);
-        if (ending.status === 'completed') {
-          onSuccess?.();
-          return true;
-        }
-        setNeedsAuthorizationCode(false);
-        setAuthorizationCode('');
-        setAuthorizationUrl('');
-        const message = t(ending.stageKey);
-        setError(message);
-        onError?.(message);
-        return false;
+      if (!(error instanceof ApiError && error.body?.stageKey)) {
+        // No answer from the server, only a lost connection, a page from a proxy, or the card's X in another tab
+        // stopping the request (closing the dialog moves the request on before it aborts, so a current request that
+        // aborted was ended by the server). The server may have saved the account, so read how this attempt ended once;
+        // when that decides nothing, wait for the server's ending push, a reconnect, or the code window's deadline.
+        const decided = await readLoginEnding(submittedAttempt, false);
+        if (decided === null && current() && loginDeadline !== null)
+          setEndingWait({ attemptId: submittedAttempt, deadline: loginDeadline });
+        return decided === true;
       }
       attemptRef.current = null;
       setAttemptId(null);
@@ -296,7 +337,8 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     identity,
     refreshStatus,
     canAuthenticate,
-    t
+    readLoginEnding,
+    loginDeadline
   ]);
 
   const state: EpicAuthState = {
