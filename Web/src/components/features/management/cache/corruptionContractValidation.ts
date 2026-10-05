@@ -54,7 +54,9 @@ export const isCoverage = (value: unknown): value is CorruptionScanCoverage => {
   return (
     counts.every((count) => typeof count === 'number' && Number.isInteger(count) && count >= 0) &&
     (value.filesChecked as number) <= (value.filesSeen as number) &&
-    (value.consistent as number) <= (value.filesChecked as number) &&
+    // An Incremental Scan counts the files it reuses from its baseline as consistent without
+    // checking them again, so consistent can exceed filesChecked but never filesSeen.
+    (value.consistent as number) <= (value.filesSeen as number) &&
     (value.sparseFiles as number) <= (value.filesSeen as number)
   );
 };
