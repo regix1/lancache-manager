@@ -61,6 +61,7 @@
     "@number-flow/react": "^0.5.10",
     "@tanstack/react-virtual": "^3.13.23",
     "chart.js": "^4.5.1",
+    "chartjs-plugin-zoom": "^2.2.0",
     "croner": "^10.0.1",
     "i18next": "^26.0.3",
     "lucide-react": "^0.542.0",

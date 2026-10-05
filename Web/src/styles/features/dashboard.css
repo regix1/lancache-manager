@@ -811,6 +811,54 @@
   flex-shrink: 0;
 }
 
+/* Pushes the legend items to the end of the row, where they sit without an action. */
+.line-trend-legend-action {
+  margin-right: auto;
+}
+
+/* The zoom hint and Reset zoom stack in one cell sized to the larger of the two, so swapping
+   them never wraps the legend onto another line and moves the chart. visibility also takes the
+   hidden one out of the tab order. */
+.line-trend-zoom-slot {
+  display: grid;
+  align-items: center;
+  justify-items: start;
+}
+
+.line-trend-zoom-slot > * {
+  grid-area: 1 / 1;
+}
+
+.line-trend-zoom-slot > .is-idle {
+  visibility: hidden;
+}
+
+.line-trend-zoom-hint-touch {
+  display: none;
+}
+
+/* Touch screens have no Ctrl key; they zoom with a pinch. */
+@media (hover: none) and (pointer: coarse) {
+  .line-trend-zoom-hint-pointer {
+    display: none;
+  }
+
+  .line-trend-zoom-hint-touch {
+    display: inline;
+  }
+}
+
+/* The zoom plugin sets touch-action: none on the canvas, which would stop a finger on the
+   chart from scrolling the page. pan-y gives vertical swipes back to the page and keeps
+   horizontal drags and two-finger pinches for the chart. !important outranks its inline style. */
+.dash-line-chart.is-zoomable > canvas {
+  touch-action: pan-y !important;
+}
+
+.dash-line-chart.is-zoomed > canvas {
+  cursor: grab;
+}
+
 /* The swatch and label together are only ~14px tall, which is below any touch
    target minimum. The padding and min-height give the button a real hit area;
    the legend's own row gap absorbs the extra height without moving the chart. */

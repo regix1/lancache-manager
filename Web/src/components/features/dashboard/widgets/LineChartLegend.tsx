@@ -10,15 +10,18 @@ interface LineChartLegendItem {
 interface LineChartLegendProps {
   items: LineChartLegendItem[];
   onToggle: (index: number) => void;
+  /** A control for the whole chart, held at the start of the legend row. */
+  action?: React.ReactNode;
 }
 
-const LineChartLegend: React.FC<LineChartLegendProps> = memo(({ items, onToggle }) => {
+const LineChartLegend: React.FC<LineChartLegendProps> = memo(({ items, onToggle, action }) => {
   if (items.length === 0) {
     return null;
   }
 
   return (
     <div className="line-trend-legend">
+      {action ? <div className="line-trend-legend-action">{action}</div> : null}
       {items.map((item, index) => (
         // Series names come from user data and can be far longer than the chart is wide, so
         // the label truncates and the tooltip carries the full name. Tooltip handles touch,

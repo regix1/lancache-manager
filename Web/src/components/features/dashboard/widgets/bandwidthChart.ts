@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { ChartOptions, Scale } from 'chart.js';
+import type { Scale, ScaleOptions } from 'chart.js';
 import { formatTimestamp, type ReaderClock } from '@utils/dateTimeFormat';
 import { formatBytes } from '@utils/formatters';
 import { getThemeColor } from '../ServiceAnalyticsChart/chartTheme';
@@ -45,13 +45,19 @@ const NARROW_PLOT_WIDTH = 400;
 interface NarrowScaleTicks {
   includeBounds?: boolean;
   autoSkipPadding?: number;
+  stepSize?: number;
   callback?: (value: number | string, index: number) => string;
 }
 
 // A narrow plot can't fit the full label ("Aug 27, 2026, 10:00 AM") twice without the boundary
 // ticks colliding, but it has room for several short ones ("Aug 27"). `narrowLabels` is the short
-// form of the same points, indexed the same as the chart's own category ticks.
-export function lineChartScales(narrowLabels: string[]): ChartOptions<'line'>['scales'] {
+// form of the same points as `labels`, both indexed by point. Both axes are typed as linear
+// options so a caller can turn x into a linear axis; every field set here is also valid on the
+// category x axis the compare chart keeps.
+export function lineChartScales(
+  labels: string[],
+  narrowLabels: string[]
+): { x: ScaleOptions<'linear'>; y: ScaleOptions<'linear'> } {
   // Chart chrome reads the chart token family, the one the theme editor exposes for
   // charts, so an author retuning it moves every canvas. `border` is off on both
   // scales because chart.js otherwise draws an axis rule in its own library default,
@@ -68,14 +74,23 @@ export function lineChartScales(narrowLabels: string[]): ChartOptions<'line'>['s
       beforeBuildTicks: (scale: Scale) => {
         const ticks = (scale.options as unknown as { ticks: NarrowScaleTicks }).ticks;
         const narrow = scale.chart.width < NARROW_PLOT_WIDTH;
-        ticks.includeBounds = !narrow;
+        // A linear axis's bounds fall between buckets and have no label, so a tick forced onto
+        // them only crowds out the dated ticks beside it, which then blink in and out as the
+        // bounds move during a zoom or drag.
+        ticks.includeBounds = !narrow && scale.type !== 'linear';
         ticks.autoSkipPadding = narrow ? 20 : 0;
-        // A category scale's own tick value is the point's index, not its label, so restoring the
-        // library default here (rather than deleting our override) still needs an explicit lookup.
-        const categoryScale = scale as unknown as { getLabelForValue(value: number): string };
-        ticks.callback = narrow
-          ? (_value, index) => narrowLabels[index] ?? ''
-          : (value) => categoryScale.getLabelForValue(Number(value));
+        if (scale.type === 'linear') {
+          // Power-of-two steps nest: zooming in only adds dates between the ones shown and
+          // zooming out only drops every other one, so no date blinks out while still in view.
+          // The step fits about seven gaps, four on a narrow plot, and never splits a bucket.
+          const gaps = narrow ? 4 : 7;
+          ticks.stepSize = Math.max(1, 2 ** Math.ceil(Math.log2((scale.max - scale.min) / gaps)));
+        }
+        // A tick's value is its point's index on both a category and a linear axis. Look up by
+        // that value, not the tick's position: a zoomed axis starts its ticks at the first visible
+        // point, and a linear axis can put a tick between two points, which then has no label.
+        const pointLabels = narrow ? narrowLabels : labels;
+        ticks.callback = (value) => pointLabels[Number(value)] ?? '';
       },
       grid: { display: false },
       border: { display: false }

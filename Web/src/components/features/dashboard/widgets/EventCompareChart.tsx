@@ -262,7 +262,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
           }
         })
       },
-      scales: lineChartScales(labels)
+      scales: lineChartScales(labels, labels)
     };
   }, [labels, repeatedColors, t, themeRevision, visibleCompare]);
 

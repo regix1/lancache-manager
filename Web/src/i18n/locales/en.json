@@ -1065,6 +1065,9 @@
       "missed": "Cache misses",
       "noDataTitle": "No bandwidth data",
       "noDataDesc": "No downloads in this range yet.",
+      "resetZoom": "Reset zoom",
+      "zoomHintPointer": "Ctrl + scroll to zoom",
+      "zoomHintTouch": "Pinch to zoom",
       "resolution": {
         "15": "15-minute",
         "30": "30-minute",
@@ -1075,7 +1078,8 @@
       "help": {
         "aboutTitle": "About This Chart",
         "about": "Total served, cache hits and cache misses over the selected range. Total served is the other two added together. Short windows use hour or 3-hour buckets so a one-day range still has a readable line.",
-        "resolution": "The badge is the bucket width. It follows the hours that actually have downloads, not only the picker."
+        "resolution": "The badge is the bucket width. It follows the hours that actually have downloads, not only the picker.",
+        "zoom": "Hold Ctrl and scroll over the chart, or pinch it on a touch screen or trackpad, to zoom in. Then drag to move along the timeline. Reset zoom shows the whole range again."
       }
     },
     "eventCompare": {
