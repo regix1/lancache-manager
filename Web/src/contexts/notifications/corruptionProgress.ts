@@ -99,8 +99,10 @@ function structuralScanMode(
   );
 }
 
+// Only the effective mode says whether a baseline was found: every stateful run reports
+// baselineStatus 'building' until it commits, including incremental runs that reuse one.
 function isInitialBaselineBuild(context: StageContext): boolean {
-  return context.effectiveScanMode === 'baseline' || context.baselineStatus === 'building';
+  return context.effectiveScanMode === 'baseline';
 }
 
 function structuralProgressKey(

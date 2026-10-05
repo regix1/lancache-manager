@@ -160,12 +160,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           ? activeNotificationScanMode
           : null
       : null;
-  const activeBaselineStatus = activeDetectionNotification?.details?.baselineStatus;
   const activeEffectiveScanMode = activeDetectionNotification?.details?.effectiveScanMode;
   const activeScanResumed = activeDetectionNotification?.details?.resumed === true;
+  // Only the effective mode says whether a baseline was found: every stateful run reports
+  // baselineStatus 'building' until it commits, including incremental runs that reuse one.
   const isInitialBaselineBuild =
-    activeRunningScanAction === 'incremental' &&
-    (activeBaselineStatus === 'building' || activeEffectiveScanMode === 'baseline');
+    activeRunningScanAction === 'incremental' && activeEffectiveScanMode === 'baseline';
 
   useEffect(() => {
     if (!startingScanAction || !activeDetectionNotification) return;
