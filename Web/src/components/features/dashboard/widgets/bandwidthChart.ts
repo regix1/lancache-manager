@@ -1,8 +1,12 @@
 import { useCallback, useState } from 'react';
 import type { Scale, ScaleOptions } from 'chart.js';
 import { formatTimestamp, type ReaderClock } from '@utils/dateTimeFormat';
-import { formatBytes } from '@utils/formatters';
-import { getThemeColor } from '../ServiceAnalyticsChart/chartTheme';
+import {
+  byteAxisStep,
+  formatAxisBytes,
+  getChartFontFamily,
+  getThemeColor
+} from '../ServiceAnalyticsChart/chartTheme';
 
 interface HiddenSeries {
   hiddenSeries: ReadonlySet<number>;
@@ -63,10 +67,12 @@ export function lineChartScales(
   // scales because chart.js otherwise draws an axis rule in its own library default,
   // which no theme can reach.
   const textColor = getThemeColor('--theme-chart-text');
+  const font = { family: getChartFontFamily() };
   return {
     x: {
       ticks: {
         color: textColor,
+        font,
         maxRotation: 0,
         autoSkip: true,
         maxTicksLimit: 8
@@ -98,9 +104,15 @@ export function lineChartScales(
     y: {
       beginAtZero: true,
       grace: '10%',
+      // Four gaps keep the value axis quiet behind the lines.
+      beforeBuildTicks: (scale: Scale) => {
+        const ticks = (scale.options as unknown as { ticks: NarrowScaleTicks }).ticks;
+        ticks.stepSize = byteAxisStep(scale.max, 4);
+      },
       ticks: {
         color: textColor,
-        callback: (value) => formatBytes(typeof value === 'number' ? value : Number(value))
+        font,
+        callback: (value) => formatAxisBytes(Number(value))
       },
       grid: { color: getThemeColor('--theme-chart-grid') },
       border: { display: false }

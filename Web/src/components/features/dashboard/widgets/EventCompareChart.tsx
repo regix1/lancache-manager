@@ -223,13 +223,17 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
           borderColor: color,
           backgroundColor: color,
           borderDash: repeatedColors.has(index) ? EVENT_REPEAT_DASH : undefined,
+          borderWidth: 2,
           fill: false,
-          tension: 0.25,
+          // Monotone curves never swing below zero beside a spike the way a tension curve does.
+          cubicInterpolationMode: 'monotone',
           hidden: hiddenSeries.has(index),
           // An event that has only just started has one value and nulls after it, and a lone value
           // has no neighbour to draw a line to, so at radius 0 the series is invisible.
           pointRadius: values.filter((value) => value !== null).length === 1 ? 4 : 0,
-          pointHoverRadius: 6,
+          pointHoverRadius: 5,
+          pointHoverBorderWidth: 2,
+          pointHoverBorderColor: getThemeColor('--theme-bg-tertiary'),
           pointHitRadius: 12
         };
       })

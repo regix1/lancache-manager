@@ -314,12 +314,15 @@
   border-radius: var(--theme-border-radius) !important;
   background: var(--theme-bg-tertiary);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
+/* Asks for 22rem but may shrink below it. The panel shrinks the body to match the Downloads panel
+   beside it, and a hard 22rem floor then pushed the axis labels through the well's bottom padding. */
 .compare-line-chart {
-  height: 100%;
-  min-height: 22rem;
-  max-height: 28rem;
+  flex: 1 1 22rem;
+  min-height: 0;
   width: 100%;
 }
 

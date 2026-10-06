@@ -205,52 +205,53 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
     // of the charts already use for these two words - the compare chart's hit/miss lines and
     // legend swatches read the same two tokens - and it leaves success and warning to mean a
     // status. Served has no cache meaning, so it stays on the series colour.
-    // All three area washes take the -subtle tier, the one tier that is 0.15 alpha on
-    // every family: -muted is 0.25 on primary and 0.20 on success and warning, which
-    // read as a depth order the data does not have. pointBackgroundColor repeats each
-    // series' stroke so the hover dot is solid rather than filled with its own wash.
+    // Only Total served carries an area wash. Hits and misses add up to it, so their areas sat
+    // under its own and the three overlapping washes mixed into a muddy band; as plain lines they
+    // read against one clean fill. pointBackgroundColor repeats each series' stroke so the hover
+    // dot is solid, and its ring in the well colour keeps it readable where two lines cross.
+    // Monotone curves never swing below zero beside a spike the way a plain tension curve does.
     const servedColor = getThemeColor('--theme-primary');
     const savedColor = getThemeColor('--theme-chart-cache-hit');
     const missedColor = getThemeColor('--theme-chart-cache-miss');
+    const lineStyle = {
+      borderWidth: 2,
+      cubicInterpolationMode: 'monotone' as const,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+      pointHoverBorderWidth: 2,
+      pointHoverBorderColor: getThemeColor('--theme-bg-tertiary')
+    };
     // Points sit at their bucket's position on a linear axis rather than in category slots.
     const toPoints = (values: number[]) => values.slice(0, pointCount).map((y, x) => ({ x, y }));
     return {
       datasets: [
         {
+          ...lineStyle,
           label: t('widgets.bandwidthTrend.served'),
           data: toPoints(served),
           borderColor: servedColor,
           backgroundColor: getThemeColor('--theme-primary-subtle'),
           pointBackgroundColor: servedColor,
           fill: true,
-          tension: 0.25,
-          hidden: hiddenSeries.has(0),
-          pointRadius: 0,
-          pointHoverRadius: 4
+          hidden: hiddenSeries.has(0)
         },
         {
+          ...lineStyle,
           label: t('widgets.bandwidthTrend.saved'),
           data: toPoints(saved),
           borderColor: savedColor,
-          backgroundColor: getThemeColor('--theme-chart-cache-hit-subtle'),
           pointBackgroundColor: savedColor,
-          fill: true,
-          tension: 0.25,
-          hidden: hiddenSeries.has(1),
-          pointRadius: 0,
-          pointHoverRadius: 4
+          fill: false,
+          hidden: hiddenSeries.has(1)
         },
         {
+          ...lineStyle,
           label: t('widgets.bandwidthTrend.missed'),
           data: toPoints(missed),
           borderColor: missedColor,
-          backgroundColor: getThemeColor('--theme-chart-cache-miss-subtle'),
           pointBackgroundColor: missedColor,
-          fill: true,
-          tension: 0.25,
-          hidden: hiddenSeries.has(2),
-          pointRadius: 0,
-          pointHoverRadius: 4
+          fill: false,
+          hidden: hiddenSeries.has(2)
         }
       ]
     };

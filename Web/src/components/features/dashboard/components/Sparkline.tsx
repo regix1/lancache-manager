@@ -179,7 +179,8 @@ const Sparkline: React.FC<SparklineProps> = memo(
               borderWidth: 2,
               backgroundColor: showArea ? gradient : 'transparent',
               fill: showArea,
-              tension: 0.4,
+              // Monotone curves never swing past a data point, so a flat run stays flat.
+              cubicInterpolationMode: 'monotone',
               pointRadius: 0,
               pointHoverRadius: 0
             }

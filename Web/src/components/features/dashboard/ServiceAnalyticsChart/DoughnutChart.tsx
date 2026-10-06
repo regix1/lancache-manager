@@ -12,7 +12,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatCount } from '@utils/formatters';
 import type { DoughnutChartProps, GameSliceExtra } from './types';
-import { getThemeColor, getThemeRadius, useThemeRevision } from './chartTheme';
+import { getChartFontFamily, getThemeColor, getThemeRadius, useThemeRevision } from './chartTheme';
 
 // Register only what we need (tree shaking)
 ChartJS.register(ArcElement, Tooltip, Legend);
@@ -52,11 +52,13 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
       // so both tooltips in this panel keep one border color on every theme.
       const tooltipBorder = getThemeColor('--theme-card-border');
       const swatchRadius = getThemeRadius('--theme-border-radius-sm');
+      const fontFamily = getChartFontFamily();
 
       return {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: '64%',
+        // A thin ring keeps the slices from outweighing the total printed in the middle.
+        cutout: '74%',
         radius: '98%',
         layout: {
           padding: 4
@@ -80,6 +82,8 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
             backgroundColor: tooltipBg,
             titleColor: tooltipTitle,
             bodyColor: tooltipBody,
+            titleFont: { family: fontFamily },
+            bodyFont: { family: fontFamily },
             borderColor: tooltipBorder,
             borderWidth: 1,
             cornerRadius: 10,

@@ -11,14 +11,23 @@ import {
   type Chart,
   type ChartData,
   type ChartOptions,
-  type Plugin
+  type Plugin,
+  type Scale
 } from 'chart.js';
 import { useTranslation } from 'react-i18next';
 import { formatBytes } from '@utils/formatters';
+import { formatServiceLabel } from '@utils/serviceDisplayName';
 import { clampToViewport } from '@utils/viewportClamp';
 import type { ServiceStat } from '@/types';
 import { useServiceColors } from './useServiceColors';
-import { getThemeColor, getThemeRadius, useThemeRevision } from './chartTheme';
+import {
+  byteAxisStep,
+  formatAxisBytes,
+  getChartFontFamily,
+  getThemeColor,
+  getThemeRadius,
+  useThemeRevision
+} from './chartTheme';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -80,6 +89,8 @@ interface DivergingBarTheme {
   labelColor: string;
   /** For the hovered row only, whose labels sit on the highlight instead of the card. */
   labelHoverColor: string;
+  /** Canvas font for the inline values, in the app's own face. */
+  labelFont: string;
 }
 
 const TOOLTIP_GAP = 12;
@@ -98,8 +109,8 @@ const MIN_BAR_LENGTH = 6;
 // narrower "slivers" stay tooltip-only to avoid clutter (web-research Topic 2 #4).
 const INLINE_LABEL_MIN_BAR_PX = 44;
 const INLINE_LABEL_GAP = 6;
-const VALUE_LABEL_FONT =
-  '600 11px "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif';
+
+const NARROW_CHART_WIDTH = 480;
 
 /**
  * Canvas plugin that paints, beneath the bars, a faint full-width highlight
@@ -163,7 +174,7 @@ function createValueLabelPlugin(getTheme: () => DivergingBarTheme): Plugin<'bar'
       const hoveredRow = chart.getActiveElements()[0]?.index ?? -1;
 
       ctx.save();
-      ctx.font = VALUE_LABEL_FONT;
+      ctx.font = theme.labelFont;
       ctx.textBaseline = 'middle';
 
       chart.data.datasets.forEach((_dataset, datasetIndex) => {
@@ -253,7 +264,7 @@ function positionTooltip(el: HTMLDivElement, anchor: TooltipAnchor): void {
 const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceStats }) => {
   const { t } = useTranslation();
   const themeRevision = useThemeRevision();
-  const { getCacheHitColor, getCacheMissColor, getBorderColor } = useServiceColors();
+  const { getCacheHitColor, getCacheMissColor } = useServiceColors();
   const tooltipElRef = useRef<HTMLDivElement | null>(null);
   const lastDataKeyRef = useRef<string>('');
   const anchorRef = useRef<TooltipAnchor | null>(null);
@@ -277,14 +288,16 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
   const themeRef = useRef<DivergingBarTheme>({
     rowHighlight: '',
     labelColor: '',
-    labelHoverColor: ''
+    labelHoverColor: '',
+    labelFont: ''
   });
   themeRef.current = useMemo(() => {
     void themeRevision;
     return {
       rowHighlight: getThemeColor('--theme-bg-hover'),
       labelColor: getThemeColor('--theme-chart-text'),
-      labelHoverColor: getThemeColor('--theme-text-primary')
+      labelHoverColor: getThemeColor('--theme-text-primary'),
+      labelFont: `600 11px ${getChartFontFamily()}`
     };
   }, [themeRevision]);
 
@@ -305,7 +318,10 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
     [serviceStats]
   );
 
-  const labels = useMemo(() => services.map((service) => service.service), [services]);
+  const labels = useMemo(
+    () => services.map((service) => formatServiceLabel(service.service)),
+    [services]
+  );
 
   const chartData: ChartData<'bar'> = useMemo(() => {
     void themeRevision;
@@ -313,8 +329,15 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
     // Solid fills, unchanged on hover; the full-row highlight is the hover feedback.
     const hitColor = getCacheHitColor() || getThemeColor('--theme-chart-cache-hit');
     const missColor = getCacheMissColor() || getThemeColor('--theme-chart-cache-miss');
-    const borderColor = getBorderColor() || getThemeColor('--theme-chart-border');
-    const barRadius = getThemeRadius('--theme-border-radius-sm');
+    // Rounded at the value end only: the zero line is the baseline both halves grow from, so
+    // the ends that meet it stay square and the hit and miss of one service read as one bar.
+    const bar = {
+      borderRadius: getThemeRadius('--theme-border-radius-sm'),
+      borderSkipped: 'start' as const,
+      minBarLength: MIN_BAR_LENGTH,
+      maxBarThickness: 24,
+      categoryPercentage: 0.8
+    };
 
     return {
       labels,
@@ -325,13 +348,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             service.totalCacheHitBytes > 0 ? service.totalCacheHitBytes : null
           ),
           backgroundColor: hitColor,
-          borderColor,
-          borderWidth: 1,
-          borderRadius: barRadius,
-          borderSkipped: false,
-          minBarLength: MIN_BAR_LENGTH,
-          barPercentage: 0.92,
-          categoryPercentage: 0.86
+          ...bar
         },
         {
           label: t('dashboard.serviceAnalytics.compare.cacheMisses'),
@@ -339,17 +356,11 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             service.totalCacheMissBytes > 0 ? -service.totalCacheMissBytes : null
           ),
           backgroundColor: missColor,
-          borderColor,
-          borderWidth: 1,
-          borderRadius: barRadius,
-          borderSkipped: false,
-          minBarLength: MIN_BAR_LENGTH,
-          barPercentage: 0.92,
-          categoryPercentage: 0.86
+          ...bar
         }
       ]
     };
-  }, [labels, services, t, themeRevision, getCacheHitColor, getCacheMissColor, getBorderColor]);
+  }, [labels, services, t, themeRevision, getCacheHitColor, getCacheMissColor]);
 
   const options: ChartOptions<'bar'> = useMemo(() => {
     void themeRevision;
@@ -358,10 +369,17 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
     // exposes for chart chrome, so it is the one an author expects to move all of it.
     const textColor = getThemeColor('--theme-chart-text');
     const zeroLineColor = getThemeColor('--theme-chart-grid');
+    const font = { family: getChartFontFamily() };
     const maxMagnitude = services.reduce(
       (max, service) => Math.max(max, service.totalCacheHitBytes, service.totalCacheMissBytes),
       0
     );
+    // Both halves share one power-of-two step and end on a whole step, so the axis reads
+    // 0, 64 GB, 128 GB outward on each side instead of Chart.js's decimal 93.13 GB marks.
+    // The axis runs a third past the longest bar so that bar keeps room for its value label.
+    const reach = maxMagnitude * 1.35;
+    const step = byteAxisStep(reach, 3);
+    const axisEnd = Math.max(1, Math.ceil(reach / step)) * step;
 
     return {
       responsive: true,
@@ -394,10 +412,12 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
         }
       },
       scales: {
+        // Stacked on both axes so a service's hit and miss share one row: Chart.js stacks
+        // positive and negative values apart, so the two halves still grow from zero.
         x: {
-          stacked: false,
-          suggestedMin: -maxMagnitude,
-          suggestedMax: maxMagnitude,
+          stacked: true,
+          min: -axisEnd,
+          max: axisEnd,
           // No vertical gridlines except a single 1px zero baseline; both halves
           // grow from it so rows compare across the center (web-research #3).
           grid: {
@@ -408,14 +428,19 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
           border: {
             display: false
           },
+          // A phone has room for the two ends and zero only; three marks a side would collide.
+          beforeBuildTicks: (scale: Scale) => {
+            const ticks = (scale.options as unknown as { ticks: { stepSize: number } }).ticks;
+            ticks.stepSize = scale.chart.width < NARROW_CHART_WIDTH ? axisEnd : step;
+          },
           ticks: {
             color: textColor,
-            maxTicksLimit: 5,
-            callback: (value) => formatBytes(Math.abs(Number(value)))
+            font,
+            callback: (value) => formatAxisBytes(Math.abs(Number(value)))
           }
         },
         y: {
-          stacked: false,
+          stacked: true,
           grid: {
             display: false
           },
@@ -424,6 +449,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
           },
           ticks: {
             color: textColor,
+            font,
             autoSkip: false,
             callback: (_value, index) => {
               const label = labels[index] ?? '';
@@ -438,6 +464,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
           align: 'end',
           labels: {
             color: textColor,
+            font,
             boxWidth: 10,
             boxHeight: 10,
             usePointStyle: true,
@@ -502,7 +529,7 @@ const CompareLineChart: React.FC<CompareLineChartProps> = React.memo(({ serviceS
             title: (items) => {
               const item = items[0];
               if (!item) return '';
-              return services[item.dataIndex]?.service ?? item.label;
+              return item.label;
             },
             label: (context) => {
               const service = services[context.dataIndex];
