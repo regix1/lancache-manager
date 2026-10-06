@@ -287,13 +287,12 @@ public class GameImagesController : ControllerBase
     /// the pass finished on. A conflicting operation is never rejected outright.
     ///
     /// How the re-fetch survives depends on what is in the way, because the rows are already gone by
-    /// the time either path runs. A different operation, such as a database reset or a cache clear,
-    /// is parked on the wait queue and starts once that conflict clears. An image fetch pass that is
-    /// already running is NOT parked: the queue treats a second request under the same name as an
-    /// idempotent accept and answers "already running" without a waiter, which would leave every
-    /// banner deleted and nothing to refill them. StartFetchInBackgroundAsync announces the request before
-    /// it tries for the execution lock and the running pass starts one more on its way out, so that
-    /// follow-up reads the emptied table and refetches everything.
+    /// the time either path runs. A conflicting operation, whether a database reset, a cache clear or an
+    /// image fetch pass already running, is parked on the wait queue and starts once that conflict
+    /// clears. A pass that holds the execution lock but has not registered its operation yet conflicts
+    /// with nothing, so StartFetchInBackgroundAsync announces the request before it tries for the lock
+    /// and the running pass starts one more on its way out; that follow-up reads the emptied table and
+    /// refetches everything from the stored Epic URLs.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("cache")]
@@ -308,7 +307,7 @@ public class GameImagesController : ControllerBase
 
         IncrementCacheGeneration();
 
-        // Wait-queue model: a conflict with a DIFFERENT operation is parked (visible waiting card),
+        // Wait-queue model: every conflict is parked (a waiting card),
         // never 409'd. The delegate captures only the singleton fetch service, so it stays valid at
         // promotion time when this request is long gone.
         Task<Guid?> StartImageFetchAsync() =>
@@ -328,11 +327,11 @@ public class GameImagesController : ControllerBase
                 ConflictScope.Bulk(),
                 cancellationToken);
 
-            // A conflict with another image fetch is the one the queue cannot hold. It reads a
-            // same-name duplicate as an idempotent accept and answers "already running" without
-            // parking a waiter (OperationQueueService.cs:139-152), so the re-fetch would be dropped.
-            // The fetch service covers this case itself: see the null branch below.
-            if (conflict != null && conflict.ActiveOperationType != nameof(OperationType.GameImageFetch))
+            // Every conflict parks the re-fetch on the wait queue, a running image fetch pass included: the
+            // queue never answers an image fetch with a pass already running, because that pass read its
+            // work list before the rows were deleted (OperationQueueService.GetDuplicateId). The re-fetch
+            // runs a pass of its own, with the Epic URL refresh, once the conflict clears.
+            if (conflict != null)
             {
                 // The waiting click is drawn in the image fetch schedule's mode, as the run it starts is. [104]
                 return Accepted(await _operationQueue.EnqueueAsync(

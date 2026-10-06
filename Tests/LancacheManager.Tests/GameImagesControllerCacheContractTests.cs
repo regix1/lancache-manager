@@ -130,21 +130,13 @@ public sealed class GameImagesControllerCacheContractTests
     }
 
     /// <summary>
-    /// Refresh banners deletes every stored row before it starts the re-fetch. If a fetch pass is
-    /// already running, the queue cannot carry that re-fetch: it reads a second request under the
-    /// same display name as an idempotent accept and answers "already running" without parking a
-    /// waiter, and the running pass read its work list before the delete. Sending it there leaves
-    /// every banner gone until the next scheduled tick, up to half an hour later.
+    /// Refresh banners deletes every stored row before it starts the re-fetch. A pass that holds the
+    /// execution lock but has not registered its tracker operation yet conflicts with nothing, so the
+    /// re-fetch is not parked; the running pass starts one more on its way out, which reads the table
+    /// this request emptied and refills it from the stored Epic URLs.
     /// </summary>
-    /// <param name="activeOperationType">
-    /// The conflict checker's answer. It reports a duplicate once the running pass has registered its
-    /// tracker operation, and nothing at all in the window before that, so both reach this path.
-    /// </param>
-    [Theory]
-    [InlineData(null)]
-    [InlineData("GameImageFetch")]
-    public async Task ClearImageCache_WhileAFetchPassRuns_ArmsTheRefetchRatherThanQueueingItAsync(
-        string? activeOperationType)
+    [Fact]
+    public async Task ClearImageCache_WhileAFetchPassRuns_ArmsTheRefetchRatherThanQueueingItAsync()
     {
         var passes = new CountingServiceProvider();
         var tracker = NewTracker();
@@ -155,30 +147,50 @@ public sealed class GameImagesControllerCacheContractTests
             .StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
         Assert.True(passes.WaitForFirstPass(), "the first pass never started");
 
-        var conflict = activeOperationType == null
-            ? null
-            : new OperationConflictResponse
-            {
-                StageKey = "errors.conflict.duplicate",
-                Error = "A GameImageFetch operation for the same target is already in progress.",
-                ActiveOperationId = Guid.NewGuid(),
-                ActiveOperationType = activeOperationType
-            };
-
         var queue = new RecordingOperationQueue(new QueuedOperationResponse());
-        var controller = CreateController(passes, tracker, conflict, queue, images);
+        var controller = CreateController(passes, tracker, null, queue, images);
 
         var accepted = Assert.IsType<AcceptedResult>(
             await controller.ClearImageCacheAsync(CancellationToken.None));
         Assert.IsType<ImageCacheClearResponse>(accepted.Value);
 
-        // Not parked. The queue is exactly what would swallow it.
+        // Not parked: nothing conflicts yet, so the request arms the running pass's follow-up.
         Assert.Null(queue.Type);
 
         // The running pass finishes and starts the follow-up, which reads the table this request
         // emptied and refills it.
         passes.ReleaseFirstPass();
         Assert.True(passes.WaitForSecondPass(), "the cleared cache was never re-fetched");
+    }
+
+    /// <summary>
+    /// Refresh banners pressed while a fetch pass runs parks the re-fetch behind that pass. The queue never
+    /// answers an image fetch with a pass already running, because that pass read its work list before the
+    /// delete, so the parked re-fetch runs a pass of its own, with the Epic URL refresh, once the running
+    /// pass ends.
+    /// </summary>
+    [Fact]
+    public async Task ClearImageCache_WhileAFetchPassRuns_ParksTheRefetchBehindItAsync()
+    {
+        var passes = new CountingServiceProvider();
+        var tracker = NewTracker();
+        var images = CreateDefaultProxy<IImageCacheService>();
+        var conflict = new OperationConflictResponse
+        {
+            StageKey = "errors.conflict.duplicate",
+            Error = "A GameImageFetch operation for the same target is already in progress.",
+            ActiveOperationId = Guid.NewGuid(),
+            ActiveOperationType = nameof(OperationType.GameImageFetch)
+        };
+        var queue = new RecordingOperationQueue(new QueuedOperationResponse());
+        var controller = CreateController(passes, tracker, conflict, queue, images);
+
+        var accepted = Assert.IsType<AcceptedResult>(
+            await controller.ClearImageCacheAsync(CancellationToken.None));
+
+        Assert.IsType<QueuedOperationResponse>(accepted.Value);
+        Assert.Equal(OperationType.GameImageFetch, queue.Type);
+        Assert.Equal("Game Image Fetch", queue.DisplayName);
     }
 
     /// <summary>

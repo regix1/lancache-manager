@@ -172,6 +172,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         _ = Task.Run(async () =>
         {
             string? error = null;
+            var end = PassEnd.Stopped;
             try
             {
                 using var scope = _serviceProvider.CreateScope();
@@ -203,7 +204,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                     }
                 }
 
-                await FetchImagesAsync(scope.ServiceProvider, reporter, reporter.Token);
+                end = await FetchImagesAsync(scope.ServiceProvider, reporter, reporter.Token);
             }
             catch (OperationCanceledException) when (reporter.Token.IsCancellationRequested)
             {
@@ -223,6 +224,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 {
                     await reporter.CompleteAsync(success: false, error: error);
                 }
+                await CompletePassAsync(reporter, end);
                 await reporter.DisposeAsync();
                 StartFollowUpPass();
             }
@@ -237,7 +239,9 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// for the next scheduled tick.
     /// </summary>
     /// <remarks>
-    /// Called after the lock is released, so the pass it starts can take it. Epic's catalog is not
+    /// Called after the lock is released, so the pass it starts can take it, and after the run has
+    /// ended, so the queue starts promoting a request that waited on this pass before this reads the
+    /// record; that request clears the record when it takes the lock. Epic's catalog is not
     /// re-read: that belongs to the clear-the-cache path and to Epic's own refresh interval, and the
     /// stored URLs are what this pass needs to fetch the art the previous one missed.
     /// </remarks>
@@ -321,27 +325,6 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
-        // Scheduled / startup / Run Now path: surface a progress card via a run reporter. The reporter
-        // only starts once real fetch work is confirmed (inside FetchImagesAsync), so an automatic run
-        // with no downloads yet never shows a card.
-        await using var reporter = new ScheduledRunReporter(
-            _notifications,
-            _operationTracker,
-            ServiceKey,
-            OperationType.GameImageFetch,
-            _eventNames,
-            $"{StageBase}.complete",
-            CurrentRunNotice,
-            stoppingToken);
-
-        await RunFetchAsync(scopedServices, reporter, stoppingToken);
-    }
-
-    private async Task RunFetchAsync(
-        IServiceProvider scopedServices,
-        ScheduledRunReporter? reporter,
-        CancellationToken stoppingToken)
-    {
         // Prevent concurrent execution - a programmatic trigger and a scheduled run can overlap. A run that
         // loses this race did no work, so it returns before starting the reporter (no card).
         if (!await _executionLock.WaitAsync(0, stoppingToken))
@@ -356,11 +339,36 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
         try
         {
-            await FetchImagesAsync(scopedServices, reporter, stoppingToken);
+            // Scheduled / startup / Run Now path: surface a progress card via a run reporter. The reporter
+            // only starts once real fetch work is confirmed (inside FetchImagesAsync), so an automatic run
+            // with no downloads yet never shows a card. A run that throws is ended by the reporter's
+            // dispose, which also comes after the release below.
+            await using var reporter = new ScheduledRunReporter(
+                _notifications,
+                _operationTracker,
+                ServiceKey,
+                OperationType.GameImageFetch,
+                _eventNames,
+                $"{StageBase}.complete",
+                CurrentRunNotice,
+                stoppingToken);
+
+            var end = PassEnd.Stopped;
+            try
+            {
+                end = await FetchImagesAsync(scopedServices, reporter, stoppingToken);
+            }
+            finally
+            {
+                // Same order as the background path: release the gate before the run ends, so a
+                // queued waiter promoted by the ending can acquire it.
+                _executionLock.Release();
+            }
+
+            await CompletePassAsync(reporter, end);
         }
         finally
         {
-            _executionLock.Release();
             StartFollowUpPass();
         }
     }
@@ -428,7 +436,29 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         });
     }
 
-    private async Task FetchImagesAsync(
+    /// <summary>
+    /// How a pass left <see cref="FetchImagesAsync"/>. The pass's run is ended from this by its
+    /// caller once the execution lock is released, so a request the queue promotes on that ending can
+    /// take the lock.
+    /// </summary>
+    private enum PassEnd
+    {
+        Stopped,
+        NothingToDo,
+        Finished
+    }
+
+    // A stopped pass is ended by its reporter's dispose. A run that never started has nothing to end,
+    // which is how an automatic run with no downloads yet stays quiet.
+    private static Task CompletePassAsync(ScheduledRunReporter reporter, PassEnd end) => end switch
+    {
+        PassEnd.Finished => reporter.CompleteAsync(success: true),
+        PassEnd.NothingToDo => reporter.CompleteAsync(
+            success: true, stageKey: ScheduledRunReporter.NothingToDoStageKey, skipped: true),
+        _ => Task.CompletedTask
+    };
+
+    private async Task<PassEnd> FetchImagesAsync(
         IServiceProvider scopedServices,
         ScheduledRunReporter? reporter,
         CancellationToken stoppingToken)
@@ -446,13 +476,9 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             {
                 await reporter.StartAsync($"{StageBase}.starting");
             }
-            if (reporter is { IsStarted: true })
-            {
-                // The background-trigger path starts its reporter eagerly, so this run must still
-                // reach a terminal instead of being disposed as a failure.
-                await reporter.CompleteAsync(success: true, stageKey: ScheduledRunReporter.NothingToDoStageKey, skipped: true);
-            }
-            return;
+            // The background-trigger path starts its reporter eagerly, so this run must still reach a
+            // terminal instead of being disposed as a failure.
+            return PassEnd.NothingToDo;
         }
 
         // There is work to do (downloads exist): start the run now so the "no downloads yet" retry never
@@ -478,30 +504,27 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             // pass that ends early still tells clients it is over.
             var missingSteamCount = await FetchMissingSteamImagesAsync(
                 db, client, steamMappedAppIds, InBand(SteamBand), stoppingToken);
-            if (missingSteamCount == null) return;
+            if (missingSteamCount == null) return PassEnd.Stopped;
             await ReportBandAsync(reporter, SteamBand, 1, missingSteamCount.Value, missingSteamCount.Value);
 
             var missingEpicCount = await FetchMissingEpicImagesAsync(
                 db, client, InBand(EpicBand), stoppingToken);
-            if (missingEpicCount == null) return;
+            if (missingEpicCount == null) return PassEnd.Stopped;
             await ReportBandAsync(reporter, EpicBand, 1, missingEpicCount.Value, missingEpicCount.Value);
 
             var nameKeyed = await FetchMissingNameKeyedImagesAsync(
                 scopedServices, db, client, nameKeyedDownloads, steamCoveredSlugs, InBand(NameKeyedBand), stoppingToken);
-            if (nameKeyed == null) return;
+            if (nameKeyed == null) return PassEnd.Stopped;
             await ReportBandAsync(reporter, NameKeyedBand, 1, nameKeyed.Value.Attempted, nameKeyed.Value.Attempted);
 
             var staleRefreshed = await RefreshStaleImagesAsync(db, client, InBand(StaleBand), stoppingToken);
-            if (staleRefreshed == null) return;
+            if (staleRefreshed == null) return PassEnd.Stopped;
 
             _logger.LogInformation(
                 "[GameImageFetch] Complete: {NewSteam} new Steam, {NewEpic} new Epic, {NewNameKeyed} new Blizzard/Riot, {Stale} refreshed",
                 missingSteamCount.Value, missingEpicCount.Value, nameKeyed.Value.Stored, staleRefreshed.Value);
 
-            if (reporter != null)
-            {
-                await reporter.CompleteAsync(success: true);
-            }
+            return PassEnd.Finished;
         }
         finally
         {
