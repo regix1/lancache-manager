@@ -1,4 +1,5 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -139,7 +140,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             // interpolation values.
             _operationId = _tracker.RegisterOperation(
                 _operationType,
-                _serviceKey,
+                ScheduleTitles.ByServiceKey[_serviceKey],
                 _cts,
                 metadata: new Dictionary<string, object?>
                 {

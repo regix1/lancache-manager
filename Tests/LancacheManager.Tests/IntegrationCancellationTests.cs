@@ -57,6 +57,20 @@ public sealed class IntegrationCancellationTests
     }
 
     [Fact]
+    public async Task AMappingRunIsNamedByItsCardTitleAsync()
+    {
+        // The queue prints a running operation's name as the blocker in another card's waiting line.
+        var tracker = NewTracker();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
+        await using var reporter = new MappingOperationReporter(notifications, tracker, MappingOperations.Epic,
+            new RunNotice(NotificationMode.All, RunTrigger.Manual), CancellationToken.None, NullLogger.Instance);
+
+        await reporter.StartAsync();
+
+        Assert.Equal("Epic Game Mapping", tracker.GetOperation(reporter.OperationId)!.Name);
+    }
+
+    [Fact]
     public async Task AReporterWhoseRunWasForceStoppedStillReadsItsCancelAsync()
     {
         var tracker = NewTracker();

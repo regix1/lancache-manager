@@ -115,7 +115,7 @@ public class ScheduledRunReporterTests
         => new(
             notifications,
             tracker,
-            "probe",
+            "gameDetection",
             OperationType.GameDetection,
             Events,
             "probe.complete",
