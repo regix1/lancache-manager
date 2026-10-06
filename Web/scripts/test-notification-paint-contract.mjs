@@ -730,6 +730,45 @@ test('on a phone at most three full cards show and the rest go to the strip', ()
   desktop.dispose();
 });
 
+test('on a phone background rows count toward the three full cards like any card', () => {
+  const rows = ['a', 'b', 'c', 'd'].map((id, index) => ({
+    ...notice(id),
+    controlOnly: true,
+    status: 'running',
+    startedAt: new Date(index)
+  }));
+  const phone = makeBar(rows, {}, {}, { isMobile: true });
+  const tree = phone.render();
+  assert.deepEqual(
+    rows.map((row) => placement(tree, row.id)),
+    ['full', 'full', 'full', 'condensed']
+  );
+  phone.dispose();
+});
+
+test('on a phone a row shown only in the strip takes none of the three full slots', () => {
+  const hidden = {
+    ...notice('h'),
+    controlOnly: true,
+    stripOnly: true,
+    status: 'repairing',
+    startedAt: new Date(0)
+  };
+  const rows = ['a', 'b', 'c'].map((id, index) => ({
+    ...notice(id),
+    controlOnly: true,
+    status: 'running',
+    startedAt: new Date(index + 1)
+  }));
+  const phone = makeBar([hidden, ...rows], {}, {}, { isMobile: true });
+  const tree = phone.render();
+  assert.deepEqual(
+    [hidden, ...rows].map((row) => placement(tree, row.id)),
+    ['condensed', 'full', 'full', 'full']
+  );
+  phone.dispose();
+});
+
 test('a warning ending colors its strip segment amber', () => {
   const warning = {
     ...notice('scan'),

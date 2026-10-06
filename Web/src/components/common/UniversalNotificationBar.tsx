@@ -274,8 +274,10 @@ const UniversalNotificationBar: React.FC = () => {
     if (!ready && notification.details?.operationId !== undefined) return [];
     const displayMode = resolvedDisplayMode ?? defaultMode;
     const condensedByService = displayMode === 'condensed';
-    const orderAmongFull = condensedByService || control ? -1 : fullOrder++;
-    const condensedByCap = !control && isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;
+    // Background rows share the list with the cards, so they count toward the phone cap too. A row
+    // shown only in the strip takes no full slot.
+    const orderAmongFull = condensedByService || notification.stripOnly === true ? -1 : fullOrder++;
+    const condensedByCap = isMobile && orderAmongFull >= MOBILE_FULL_CARD_CAP;
     return [
       {
         notification,
