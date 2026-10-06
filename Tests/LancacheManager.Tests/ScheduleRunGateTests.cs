@@ -1311,6 +1311,225 @@ public class ScheduleRunGateTests
         }
     }
 
+    // A Run All run held for a download already has its waiting card, and only that run can close
+    // it, so a busy loop still queues it once the download ends. A fresh Run All is turned away.
+    [Fact]
+    public async Task BusyLoop_QueuesAHeldRunAllRunButRefusesAFreshOne()
+    {
+        using var service = new RunGateProbeService(EvictionKey);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.Work = () => { started.TrySetResult(); return release.Task; };
+        var running = WithGateAsync(DeclineOnly("other"), () => service.InvokeRunScheduledWorkAsync(RunTrigger.Scheduled, CancellationToken.None));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            Assert.False(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.RunAll), out _, out _));
+
+            var held = new RunNotice(NotificationMode.All, RunTrigger.RunAll) { PendingId = Guid.NewGuid() };
+            Assert.True(service.TryTriggerImmediateRun(held, out var retained, out var followUpQueued));
+            Assert.True(followUpQueued);
+            Assert.Same(held, retained);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await running;
+        }
+    }
+
+    // Game detection's startup run waits for setup and log processing before it registers its
+    // operation. Run All during a download counts that busy loop as running instead of holding a
+    // second run for it.
+    [Fact]
+    public async Task RunAllDuringADownload_LeavesABusyLoopWithoutAHeldRun()
+    {
+        using var service = new RunGateProbeService(EvictionKey);
+        var snapshot = new DownloadSpeedSnapshot();
+        CacheScanGateHarness.MakeBusy(snapshot);
+        var tracker = CreateRealTracker();
+        var schedules = CreateRegistry(service, CacheScanGateHarness.With(snapshot), tracker);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.Work = () => { started.TrySetResult(); return release.Task; };
+        var running = WithGateAsync(DeclineOnly("other"), () => service.InvokeRunScheduledWorkAsync(RunTrigger.Scheduled, CancellationToken.None));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            var (triggered, alreadyRunning, skipped, _) = await schedules.TriggerAllAsync();
+
+            Assert.Equal(0, triggered);
+            Assert.Equal(1, alreadyRunning);
+            Assert.Equal(0, skipped);
+            Assert.Empty(tracker.GetWaitingOperations());
+        }
+        finally
+        {
+            release.TrySetResult();
+            await running;
+        }
+    }
+
+    // A queued run that is being canceled will not run, so Run All starts the schedule instead of
+    // counting it as already running.
+    [Fact]
+    public async Task RunAll_StartsAScheduleWhoseQueuedRunIsBeingCancelled()
+    {
+        using var service = new RunGateProbeService("gameDetection");
+        var tracker = CreateRealTracker();
+        var schedules = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker);
+        var queued = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        tracker.CancelOperation(queued);
+        Assert.Equal(OperationStatus.Cancelling, tracker.GetOperation(queued)!.Status);
+
+        var (triggered, alreadyRunning, _, _) = await schedules.TriggerAllAsync();
+
+        Assert.Equal(1, triggered);
+        Assert.Equal(0, alreadyRunning);
+        Assert.True(service.HasPendingRun);
+    }
+
+    // The route matches a schedule in any casing, and depot mapping keeps no waiting card for a run
+    // queued behind its own. Asked under the URL's casing, that rule missed the key.
+    [Fact]
+    public async Task RunNowUnderAnotherCasing_QueuesDepotMappingWithoutAWaitingCard()
+    {
+        using var service = new ConfigurableRunGateProbeService("depotMapping", queueManualRuns: true);
+        var tracker = CreateRealTracker();
+        var schedules = CreateRegistry([service], CacheScanGateHarness.Idle(), tracker);
+        var controller = new ScheduleController(schedules, ScheduleExecutionTestService.Create())
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var running = WithGateAsync(DeclineOnly("other"), () => service.InvokeRunScheduledWorkAsync(
+            RunTrigger.Scheduled, CancellationToken.None, null, _ => { started.TrySetResult(); return release.Task; }));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            var response = Assert.IsType<QueuedOperationResponse>(
+                Assert.IsType<AcceptedResult>((await controller.TriggerRunAsync("DepotMapping")).Result).Value);
+
+            Assert.True(response.FollowUpQueued);
+            Assert.True(service.HasPendingRun);
+            Assert.Empty(tracker.GetWaitingOperations());
+        }
+        finally
+        {
+            release.TrySetResult();
+            await running;
+        }
+    }
+
+    // A Run All run held for a download and released while its schedule is busy waits behind the run
+    // in progress, and its waiting card closes when it runs.
+    [Fact]
+    public async Task RunAllRunHeldForADownload_QueuesBehindABusyLoopAndClosesItsCardWhenItRuns()
+    {
+        using var service = new RunGateProbeService(EvictionKey);
+        var snapshot = new DownloadSpeedSnapshot();
+        CacheScanGateHarness.MakeBusy(snapshot);
+        var tracker = CreateRealTracker();
+        var schedules = CreateRegistry(service, CacheScanGateHarness.With(snapshot), tracker);
+        await schedules.TriggerAllAsync();
+        var held = Assert.Single(tracker.GetWaitingOperations());
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.Work = () => { started.TrySetResult(); return release.Task; };
+        var running = WithGateAsync(DeclineOnly("other"), () => service.InvokeRunScheduledWorkAsync(RunTrigger.Scheduled, CancellationToken.None));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            CacheScanGateHarness.MakeIdle(snapshot);
+            RaiseDownloadsEnded();
+
+            Assert.True(service.HasPendingRun);
+            Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(held.Id)!.Status);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await running;
+        }
+
+        Assert.True(service.TakePendingManualRun(out var queued));
+        Assert.Same(held.Notice, queued);
+        await WithGateAsync(DeclineOnly("other"), () => service.InvokeRunScheduledWorkAsync(RunTrigger.RunAll, CancellationToken.None, queued));
+        Assert.Empty(tracker.GetWaitingOperations());
+    }
+
+    // A held Run Now handed back by Run All queues behind a run the schedule has already taken, which
+    // counts as already running, not as a new run.
+    [Fact]
+    public async Task RunAll_CountsAHeldRunNowQueuedBehindAStartingRunAsAlreadyRunning()
+    {
+        using var service = new RunGateProbeService(EvictionKey);
+        var snapshot = new DownloadSpeedSnapshot();
+        CacheScanGateHarness.MakeBusy(snapshot);
+        var tracker = CreateRealTracker();
+        var schedules = CreateRegistry(service, CacheScanGateHarness.With(snapshot), tracker);
+        await schedules.TriggerRunAsync(EvictionKey);
+        var held = Assert.Single(tracker.GetWaitingOperations());
+        CacheScanGateHarness.MakeIdle(snapshot);
+        // The loop has taken a run and not reached its gate, as at the top of its iteration. Run All
+        // reads only the loop's executing flag, so it still sees the schedule as idle.
+        Assert.True(service.TryTriggerImmediateRun(new RunNotice(NotificationMode.All, RunTrigger.Manual), out _, out _));
+        Assert.True(service.TakePendingManualRun(out _));
+
+        var (triggered, alreadyRunning, skipped, _) = await schedules.TriggerAllAsync();
+
+        Assert.Equal(0, triggered);
+        Assert.Equal(1, alreadyRunning);
+        Assert.Equal(0, skipped);
+        Assert.True(service.TakePendingManualRun(out var queued));
+        Assert.Same(held.Notice, queued);
+    }
+
+    // A cache scan that is being canceled stops before it does the work, so Run All starts the schedule;
+    // its new run waits in the queue for the canceled one to end. Another schedule's canceled run still
+    // counts as running until it ends.
+    [Fact]
+    public async Task RunAll_StartsACacheScanWhoseRunIsBeingCanceled()
+    {
+        using var detection = new RunGateProbeService("gameDetection");
+        using var cacheSnapshot = new RunGateProbeService("cacheSnapshot");
+        var tracker = CreateRealTracker();
+        var schedules = CreateRegistry([detection, cacheSnapshot], CacheScanGateHarness.Idle(), tracker);
+        var scan = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
+        var copy = tracker.RegisterOperation(OperationType.CacheSnapshot, "Cache Snapshot", new CancellationTokenSource());
+        tracker.CancelOperation(scan);
+        tracker.CancelOperation(copy);
+        Assert.Equal(OperationStatus.Cancelling, tracker.GetOperation(scan)!.Status);
+
+        var (triggered, alreadyRunning, _, _) = await schedules.TriggerAllAsync();
+
+        Assert.Equal(1, triggered);
+        Assert.Equal(1, alreadyRunning);
+        Assert.True(detection.HasPendingRun);
+        Assert.False(cacheSnapshot.HasPendingRun);
+    }
+
+    // Run Now on a cache scan that is being canceled starts a new run, which waits in the queue for the
+    // canceled one to end, and is answered as started rather than already running.
+    [Fact]
+    public async Task RunNow_StartsACacheScanWhoseRunIsBeingCanceled()
+    {
+        using var service = new RunGateProbeService("gameDetection");
+        var tracker = CreateRealTracker();
+        var schedules = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker);
+        var scan = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
+        tracker.CancelOperation(scan);
+
+        var (status, skippedReason, followUpQueued) = await schedules.TriggerRunAsync("gameDetection");
+
+        Assert.False(status.IsRunning);
+        Assert.Null(skippedReason);
+        Assert.False(followUpQueued);
+        Assert.True(service.HasPendingRun);
+    }
+
     // A schedule that takes no second run (scheduled prefill) refuses the extra Run Now, but the
     // pending Run All run still becomes the person's own run. [103]
     [Fact]
@@ -1749,14 +1968,16 @@ public class ScheduleRunGateTests
 
     private sealed class ConfigurableRunGateProbeService : ConfigurableScheduledService
     {
-        public ConfigurableRunGateProbeService()
+        public ConfigurableRunGateProbeService(string scheduleServiceKey = "scheduledPrefill", bool queueManualRuns = false)
             : base(NullLogger<ConfigurableRunGateProbeService>.Instance, TimeSpan.FromHours(1))
         {
+            ScheduleServiceKey = scheduleServiceKey;
+            QueueManualRuns = queueManualRuns;
         }
 
-        public string ScheduleServiceKey => "scheduledPrefill";
+        public string ScheduleServiceKey { get; }
         protected override string ServiceName => ScheduleServiceKey;
-        protected override bool QueueManualRuns => false;
+        protected override bool QueueManualRuns { get; }
         public bool HasPendingRun => HasPendingManualRun();
 
         public bool TakePendingManualRun(out RunNotice? notice) => ConsumePendingManualRun(out notice);
