@@ -74,8 +74,10 @@ public abstract class ScheduledServiceBase : BackgroundService
             }
             var busy = _startingNotice is not null || IsCurrentlyExecuting;
             // Run All starts idle schedules only. A follow-up queued behind a busy one shows a second
-            // card for a run nobody asked for.
-            if ((!QueueManualRuns || notice.Trigger == RunTrigger.RunAll) && (busy || _pendingManualRun != 0))
+            // card for a run nobody asked for. A Run All run held for a download already has its card
+            // (PendingId), and only this run can close it, so it still queues.
+            var freshRunAll = notice.Trigger == RunTrigger.RunAll && notice.PendingId is null;
+            if ((!QueueManualRuns || freshRunAll) && (busy || _pendingManualRun != 0))
             {
                 retained = _manualNotice ?? _startingNotice ?? CurrentRunNotice;
                 followUpQueued = false;
