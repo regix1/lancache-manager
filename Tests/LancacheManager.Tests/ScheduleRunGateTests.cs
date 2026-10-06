@@ -1246,6 +1246,44 @@ public class ScheduleRunGateTests
         Assert.Empty(tracker.GetWaitingOperations());
     }
 
+    // A detection parked in the queue behind a cache file scan is not running yet, but its run is
+    // coming, so Run All counts it with the running ones instead of asking for another.
+    [Fact]
+    public async Task RunAll_CountsAScheduleWithAQueuedRunAsAlreadyRunning()
+    {
+        using var service = new RunGateProbeService("gameDetection");
+        var tracker = CreateRealTracker();
+        var schedules = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker);
+        tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+
+        var (triggered, alreadyRunning, _, _) = await schedules.TriggerAllAsync();
+
+        Assert.Equal(0, triggered);
+        Assert.Equal(1, alreadyRunning);
+        Assert.False(service.HasPendingRun);
+    }
+
+    // A run held for a download is reported as skipped with its reason on every Run All, not as
+    // running, even though its card is a waiting one.
+    [Fact]
+    public async Task RunAll_KeepsReportingARunHeldForADownloadAsSkipped()
+    {
+        using var service = new RunGateProbeService(EvictionKey);
+        var snapshot = new DownloadSpeedSnapshot();
+        CacheScanGateHarness.MakeBusy(snapshot);
+        var tracker = CreateRealTracker();
+        var schedules = CreateRegistry(service, CacheScanGateHarness.With(snapshot), tracker);
+
+        await schedules.TriggerAllAsync();
+        var (triggered, alreadyRunning, skipped, _) = await schedules.TriggerAllAsync();
+
+        Assert.Equal(0, triggered);
+        Assert.Equal(0, alreadyRunning);
+        Assert.Equal(1, skipped);
+        Assert.Single(tracker.GetWaitingOperations());
+    }
+
     // A Run Now pressed while the schedule runs queues a second run. Its waiting card prints the
     // schedule's title, not the internal key.
     [Fact]

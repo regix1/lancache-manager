@@ -1397,7 +1397,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // A run started elsewhere (the Storage page Scan button, or a loop that fires its work
             // and returns) is not visible to the loop's own admission, so the tracker is asked first.
             // Asking before the download gate also keeps a running schedule from gaining a held card.
-            if (GetRunStatus(key)?.IsRunning == true)
+            if (IsRunningOrQueued(key))
             {
                 alreadyRunningCount++;
                 continue;
@@ -1419,7 +1419,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         foreach (var (key, service) in _configurableServices)
         {
-            if (GetRunStatus(key)?.IsRunning == true)
+            if (IsRunningOrQueued(key))
             {
                 alreadyRunningCount++;
                 continue;
@@ -1439,6 +1439,25 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
 
         return Task.FromResult((triggeredCount, alreadyRunningCount, skippedCount, skippedReason));
+    }
+
+    /// <summary>
+    /// Whether a run of this schedule is going or parked in the queue behind another job. The run
+    /// status reads only running operations, so a queued run is looked up among the waiting ones. A
+    /// run held for a download is left out: Run All reports that one as skipped, with its reason.
+    /// </summary>
+    private bool IsRunningOrQueued(string serviceKey)
+    {
+        if (GetRunStatus(serviceKey)?.IsRunning == true) return true;
+        if (_tracker is null || !_runStatusOperationTypes.TryGetValue(serviceKey, out var operationType)) return false;
+
+        Guid heldId;
+        lock (_deferredRuns)
+        {
+            heldId = _deferredRuns.TryGetValue(serviceKey, out var held) ? held.Id : Guid.Empty;
+        }
+
+        return _tracker.GetWaitingOperations().Any(operation => operation.Type == operationType && operation.Id != heldId);
     }
 
     private ServiceScheduleInfo MapScheduledService(ScheduledBackgroundService service)
