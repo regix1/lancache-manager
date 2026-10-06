@@ -42,6 +42,7 @@ import {
   SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY
 } from './constants';
 import { isTerminalNotificationStatus } from './notificationStatus';
+import { NOTIFICATION_TITLE_KEYS } from './notificationTitleKeys';
 import { waitingCardMessage } from './handlers';
 
 /** The text, detail line and percent that per-type events or detail recovery supplied for a run. */
@@ -281,6 +282,20 @@ const belongsToSession = (run: OperationRun, sessionId: string | null): boolean 
 
 const cardType = (run: OperationRun): NotificationType =>
   OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[run.operationType];
+
+/**
+ * A run's waiting line. The server names most runs by their English card title. A name that is
+ * exactly that title is shown as the reader's own title; any other name is shown as sent, so the
+ * line never drops what it names.
+ */
+const runWaitingMessage = (run: OperationRun): string => {
+  const titleKey =
+    NOTIFICATION_TITLE_KEYS[run.fullRepair === true ? 'cache_repair' : cardType(run)];
+  return waitingCardMessage({
+    name: titleKey && run.name === i18n.t(titleKey, { lng: 'en' }) ? i18n.t(titleKey) : run.name,
+    blockedByName: run.blockedByName
+  });
+};
 
 /** The entry for an operation id, whether it is the entry's current id or one merged into it. */
 function findEntry(state: RunStoreState, operationId: string): RunEntry | undefined {
@@ -586,7 +601,7 @@ export function applyRun(
     hiddenHere: row.repairing === true && hiddenRepairingRuns().includes(id) ? true : undefined,
     // A parked run being cancelled has no worker to describe it, so it keeps its waiting sentence.
     ...(base.run.status === 'waiting' && row.status === 'cancelling'
-      ? { carriedMessage: waitingCardMessage(base.run) }
+      ? { carriedMessage: runWaitingMessage(base.run) }
       : {})
   };
   const buffered = next.buffer.get(id);
@@ -1161,7 +1176,9 @@ function drawRun(entry: RunEntry): UnifiedNotification {
           ? i18n.t('common.notifications.repairFailed', { reason: run.repairError })
           : waitsForAnotherJob(run)
             ? // A background row prints the run's name beside its message, so it names only the blocker.
-              waitingCardMessage(controlOnly ? { blockedByName: run.blockedByName } : run)
+              controlOnly
+              ? waitingCardMessage({ blockedByName: run.blockedByName })
+              : runWaitingMessage(run)
             : signIn
               ? i18n.t('prefill.auth.waitingForSignIn', { service: platform })
               : failedSignIn
@@ -1278,9 +1295,7 @@ export function deriveNotifications(
         ? card
         : {
             ...card,
-            ...(waiting
-              ? { status: 'waiting' as const, message: waitingCardMessage(waiting) }
-              : {}),
+            ...(waiting ? { status: 'waiting' as const, message: runWaitingMessage(waiting) } : {}),
             details: { ...card.details, ...(kept ? { closeOperationIds: kept } : {}) }
           }
     );

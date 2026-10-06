@@ -29,6 +29,8 @@ const TEMPLATES = {
   'common.notifications.operationWaitingNamed': '{{name}} is waiting',
   'common.notifications.operationWaitingOn': 'Waiting for {{blocker}} to finish...',
   'common.notifications.operationWaitingOnNamed': '{{name}} is waiting for {{blocker}}',
+  'common.notifications.titles.epicGameMapping': 'Epic 游戏映射',
+  'common.notifications.titles.evictionRemoval': '淘汰移除',
   'common.notifications.cancelling': 'Cancelling...',
   'common.notifications.repairFailed': 'Repair failed: {{reason}}',
   'common.notifications.warnings.datasourcesNotRepaired':
@@ -49,12 +51,21 @@ const TEMPLATES = {
     'Deleted outside the app during this removal: {{fileNames}}. That log will be read again once.',
   'signalr.downloadHistoryUpgrade.merging': 'Merging split download rows'
 };
+// English titles, which the run store compares with the server's English run names. The
+// reader's titles in TEMPLATES differ from these, so a test can tell which one a line used.
+const ENGLISH_TITLES = {
+  'common.notifications.titles.epicGameMapping': 'Epic Game Mapping',
+  'common.notifications.titles.evictionRemoval': 'Eviction Removal'
+};
 const I18N = moduleUrl(`
 const templates = ${JSON.stringify(TEMPLATES)};
+const english = ${JSON.stringify(ENGLISH_TITLES)};
 export default {
   t: (key, options = {}) =>
-    (templates[key] ?? key).replace(/{{(\\w+)}}/g, (token, name) =>
-      options[name] === undefined ? token : String(options[name])),
+    ((options.lng === 'en' && key in english ? english[key] : templates[key]) ?? key).replace(
+      /{{(\\w+)}}/g,
+      (token, name) => (options[name] === undefined ? token : String(options[name]))
+    ),
   exists: (key) => key in templates || key.startsWith('signalr.')
 };`);
 
@@ -309,6 +320,32 @@ test('a waiting card keeps its blocker while it is cancelled, then says how it e
     ended.push(kept('E', { status, message }));
     assert.equal(ended.card('E').message, shown, message);
   }
+});
+
+test('a waiting line shows the translated title only when the run is named by that title alone', () => {
+  const browser = new Browser();
+  const epic = {
+    operationType: 'epicMapping',
+    name: 'Epic Game Mapping',
+    status: 'waiting',
+    blockedByName: 'Depot Mapping'
+  };
+  browser.push(row('E', epic));
+  assert.equal(browser.card('E').message, 'Epic 游戏映射 is waiting for Depot Mapping');
+  // A parked run being canceled keeps the sentence it carried in.
+  browser.push(row('E', { ...epic, status: 'cancelling', message: 'Cancellation requested...' }));
+  assert.equal(browser.card('E').message, 'Epic 游戏映射 is waiting for Depot Mapping');
+
+  // A name that carries the game it removes is shown as the server sent it.
+  browser.push(
+    row('G', {
+      operationType: 'gameRemoval',
+      name: 'Game Removal (Portal 2)',
+      status: 'waiting',
+      blockedByName: 'Eviction Scan'
+    })
+  );
+  assert.equal(browser.card('G').message, 'Game Removal (Portal 2) is waiting for Eviction Scan');
 });
 
 test('a missed game detection end never blocks the next run, and the stale card ends on return', () => {
@@ -1051,6 +1088,21 @@ test('a bulk removal owns its items: one purple card while an item waits, no ite
   assert.deepEqual(browser.drawn(), ['bulk:bulk_removal:running']);
   assert.equal(browser.card('bulk').message, 'Removing 1 of 3');
   assert.equal(deriveRuns(browser.state).length, 1, 'the item still keeps its row busy');
+});
+
+test('a bulk removal card names its waiting item the way a run card does', () => {
+  const browser = new Browser({
+    localCards: [bulkRemovalCard({ currentOperationId: 'I1', itemOperationIds: ['I1'] })]
+  });
+  browser.push(
+    row('I1', {
+      operationType: 'evictionRemoval',
+      name: 'Eviction Removal',
+      status: 'waiting',
+      blockedByName: 'Eviction Scan'
+    })
+  );
+  assert.equal(browser.card('bulk').message, '淘汰移除 is waiting for Eviction Scan');
 });
 
 test('a failed item stays folded in its batch card after the batch moves on and ends', () => {
