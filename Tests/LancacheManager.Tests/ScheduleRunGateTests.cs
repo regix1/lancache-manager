@@ -1246,6 +1246,33 @@ public class ScheduleRunGateTests
         Assert.Empty(tracker.GetWaitingOperations());
     }
 
+    // A Run Now pressed while the schedule runs queues a second run. Its waiting card prints the
+    // schedule's title, not the internal key.
+    [Fact]
+    public async Task RunNowWhileRunning_NamesTheQueuedRunByItsTitle()
+    {
+        using var service = new RunGateProbeService("logRotation");
+        var tracker = CreateRealTracker();
+        var schedules = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.Work = () => { started.TrySetResult(); return release.Task; };
+        var running = WithGateAsync(DeclineOnly("other"), () => service.InvokeRunScheduledWorkAsync(RunTrigger.Scheduled, CancellationToken.None));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        try
+        {
+            var (_, _, followUpQueued) = await schedules.TriggerRunAsync("logRotation");
+
+            Assert.True(followUpQueued);
+            Assert.Equal("Log Rotation", Assert.Single(tracker.GetWaitingOperations()).Name);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await running;
+        }
+    }
+
     // A schedule that takes no second run (scheduled prefill) refuses the extra Run Now, but the
     // pending Run All run still becomes the person's own run. [103]
     [Fact]

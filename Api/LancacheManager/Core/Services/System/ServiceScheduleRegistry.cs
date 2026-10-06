@@ -128,14 +128,22 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     // schedule id. Read and written only under _keptEndingsLock.
     private readonly Dictionary<(OperationType Type, Guid? ScheduleId), ScheduleOutcomes> _scheduleOutcomes = new();
 
-    // What the waiting card calls each schedule it can hold. The display name is what the card reads,
-    // and every other start site in the app writes its own literal rather than looking one up, so
-    // these are the same three strings their real runs already register with.
+    // What the waiting card calls each schedule, for a run held behind a download or a second run
+    // queued behind the one in progress. The card prints this name in its waiting line under its own
+    // title, so each name is that title. Every schedule that can hold or queue a run needs an entry:
+    // the lookup throws on a missing one rather than print the raw key.
     private static readonly Dictionary<string, string> _heldRunDisplayNames = new(StringComparer.OrdinalIgnoreCase)
     {
         ["cacheReconciliation"] = "Eviction Scan",
         ["cacheSizeScan"] = "Cache File Scan",
         ["gameDetection"] = "Game Detection",
+        ["logRotation"] = "Log Rotation",
+        ["gameImageFetch"] = "Game Image Fetch",
+        ["cacheSnapshot"] = "Cache Snapshot",
+        ["operationHistoryCleanup"] = "Operation History Cleanup",
+        ["dashboardCacheWarmer"] = "Dashboard Cache Warmer",
+        ["epicMapping"] = "Epic Game Mapping",
+        ["xboxMapping"] = "Xbox Game Mapping",
     };
 
     // Optional (like _tracker) so unit tests that construct the registry directly keep compiling; at
@@ -1166,7 +1174,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             return notice;
         }
 
-        var displayName = _heldRunDisplayNames.TryGetValue(serviceKey, out var name) ? name : serviceKey;
+        var displayName = _heldRunDisplayNames[serviceKey];
 
         var cts = new CancellationTokenSource();
 
@@ -1221,7 +1229,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     private void AcknowledgeRun(string serviceKey, OperationType operationType, RunNotice notice, bool registerOnly = false)
     {
         if (_tracker is null || serviceKey is "depotMapping" or "scheduledPrefill" || notice.Cancelled) return;
-        var displayName = _heldRunDisplayNames.TryGetValue(serviceKey, out var name) ? name : serviceKey;
+        var displayName = _heldRunDisplayNames[serviceKey];
         if (notice.PendingId is null)
         {
             var cts = new CancellationTokenSource();
