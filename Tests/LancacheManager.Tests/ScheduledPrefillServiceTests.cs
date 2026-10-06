@@ -698,6 +698,7 @@ public class ScheduledPrefillServiceTests
             PrefillPlatform.Riot,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot)));
         await WaitForRegistrationAsync(harness.Tracker, "Scheduled Prefill - Riot - Default");
+        await harness.Service.StopAsync(CancellationToken.None);
         harness.Service.Dispose();
 
         Assert.DoesNotContain("Scheduled Prefill - BattleNet - Default", harness.Tracker.RegisteredNames);
@@ -807,6 +808,7 @@ public class ScheduledPrefillServiceTests
 
         await WaitForRegistrationAsync(harness.Tracker, "Scheduled Prefill - Riot - Default");
         await WaitForRegistrationAsync(harness.Tracker, "Scheduled Prefill - BattleNet - Default");
+        await harness.Service.StopAsync(CancellationToken.None);
         harness.Service.Dispose();
     }
 
@@ -1132,6 +1134,7 @@ public class ScheduledPrefillServiceTests
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot));
         harness.Service.TriggerImmediateRun();
         await InvokeExecuteWorkAsync(harness.Service);
+        await harness.Service.StopAsync(CancellationToken.None);
         harness.Service.Dispose();
 
         Assert.DoesNotContain("Scheduled Prefill - Steam - Default", harness.Tracker.RegisteredNames);
