@@ -60,10 +60,9 @@ const runAll = async ({ response, failure, recoveryFailure } = {}) => {
 test('result fixtures without unqueued active work rely only on per-service acknowledgments', async () => {
   for (const response of [
     { triggeredCount: 4, alreadyRunningCount: 0, skippedCount: 0 },
-    { triggeredCount: 2, alreadyRunningCount: 2, skippedCount: 0 },
     {
       triggeredCount: 1,
-      alreadyRunningCount: 2,
+      alreadyRunningCount: 0,
       skippedCount: 3,
       skippedReason: 'management.schedules.queuedUntilCacheFree'
     }

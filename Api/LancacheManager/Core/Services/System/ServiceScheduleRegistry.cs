@@ -1374,19 +1374,27 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         };
     }
 
-    public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason, int FollowUpCount)> TriggerAllAsync(
+    public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason)> TriggerAllAsync(
         ScheduleActor? actor = null)
     {
         var triggeredCount = 0;
         var alreadyRunningCount = 0;
         var skippedCount = 0;
-        var followUpCount = 0;
         // Every schedule asks the identical question, so every skip in one call has the identical
         // answer. One string says why without telling the reader which keys the answer applies to.
         string? skippedReason = null;
 
         foreach (var (key, service) in _scheduledServices)
         {
+            // A run started elsewhere (the Storage page Scan button, or a loop that fires its work
+            // and returns) is not visible to the loop's own admission, so the tracker is asked first.
+            // Asking before the download gate also keeps a running schedule from gaining a held card.
+            if (GetRunStatus(key)?.IsRunning == true)
+            {
+                alreadyRunningCount++;
+                continue;
+            }
+
             // Cache deferral and the service's atomic admission decision own separate counts.
             var notice = new RunNotice(service.EffectiveNotificationMode, RunTrigger.RunAll, actor);
             var scheduledDenial = CheckScheduleRun(key, ref notice);
@@ -1397,29 +1405,18 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 continue;
             }
 
-            var alreadyRunning = GetRunStatus(key)?.IsRunning == true;
-            var admitted = service.TryTriggerImmediateRun(notice, out notice, out var followUpQueued, (retained, followUp) =>
-            {
-                if (followUp && _runStatusOperationTypes.TryGetValue(key, out var pendingType))
-                    AcknowledgeRun(key, pendingType, retained, registerOnly: true);
-            });
-            if (admitted && followUpQueued && _runStatusOperationTypes.TryGetValue(key, out var operationType))
-            {
-                AcknowledgeRun(key, operationType, notice);
-            }
-            if (followUpQueued) followUpCount++;
-            if (alreadyRunning || !admitted || followUpQueued)
-            {
-                alreadyRunningCount++;
-            }
-            else
-            {
-                triggeredCount++;
-            }
+            if (service.TryTriggerImmediateRun(notice, out _, out _)) triggeredCount++;
+            else alreadyRunningCount++;
         }
 
         foreach (var (key, service) in _configurableServices)
         {
+            if (GetRunStatus(key)?.IsRunning == true)
+            {
+                alreadyRunningCount++;
+                continue;
+            }
+
             var notice = new RunNotice(service.EffectiveNotificationMode, RunTrigger.RunAll, actor);
             var configurableDenial = CheckScheduleRun(key, ref notice);
             if (configurableDenial is not null)
@@ -1429,28 +1426,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 continue;
             }
 
-            var alreadyRunning = GetRunStatus(key)?.IsRunning == true;
-            var admitted = service.TryTriggerImmediateRun(notice, out notice, out var followUpQueued, (retained, followUp) =>
-            {
-                if (followUp && _runStatusOperationTypes.TryGetValue(key, out var pendingType))
-                    AcknowledgeRun(key, pendingType, retained, registerOnly: true);
-            });
-            if (admitted && followUpQueued && _runStatusOperationTypes.TryGetValue(key, out var operationType))
-            {
-                AcknowledgeRun(key, operationType, notice);
-            }
-            if (followUpQueued) followUpCount++;
-            if (alreadyRunning || !admitted || followUpQueued)
-            {
-                alreadyRunningCount++;
-            }
-            else
-            {
-                triggeredCount++;
-            }
+            if (service.TryTriggerImmediateRun(notice, out _, out _)) triggeredCount++;
+            else alreadyRunningCount++;
         }
 
-        return Task.FromResult((triggeredCount, alreadyRunningCount, skippedCount, skippedReason, followUpCount));
+        return Task.FromResult((triggeredCount, alreadyRunningCount, skippedCount, skippedReason));
     }
 
     private ServiceScheduleInfo MapScheduledService(ScheduledBackgroundService service)

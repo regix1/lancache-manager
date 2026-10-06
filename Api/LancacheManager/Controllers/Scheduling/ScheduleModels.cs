@@ -10,9 +10,6 @@ public class TriggerAllResponse
     /// <summary>Services with a pending, starting or active run when this call reached them.</summary>
     public int AlreadyRunningCount { get; set; }
 
-    /// <summary>Already-running services that retained one additional manual run.</summary>
-    public int FollowUpCount { get; set; }
-
     /// <summary>Services retained until downloads finish before their loop is armed.</summary>
     public int SkippedCount { get; set; }
 

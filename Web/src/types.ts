@@ -87,8 +87,6 @@ export interface QueuedOperationResponse {
 export interface TriggerAllResponse {
   triggeredCount: number;
   alreadyRunningCount?: number;
-  /** Older servers counted every already-running service as a follow-up. */
-  followUpCount?: number;
   skippedCount?: number;
   skippedReason?: string;
 }

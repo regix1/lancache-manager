@@ -308,13 +308,13 @@ test('a platform Run draws no popup when it starts or is already running', async
   }
 });
 
-test('Run All acknowledges active services without inventing follow-up runs', async () => {
+test('Run All tells the person how many services were already running', async () => {
   const source = liftHookCallback(
     'src/components/features/management/schedules/SchedulesSection.tsx',
     'useCallback',
     'ApiService.runAllSchedules()'
   );
-  for (const followUpCount of [0, 1, 2, undefined]) {
+  for (const alreadyRunningCount of [0, 2, undefined]) {
     const notifications = [];
     const steps = [];
     const run = bindLifted(source, {
@@ -323,7 +323,7 @@ test('Run All acknowledges active services without inventing follow-up runs', as
       sessionStore: {},
       setRunAllConfirmOpen: (value) => steps.push(['confirm', value]),
       ApiService: {
-        runAllSchedules: async () => ({ triggeredCount: 3, alreadyRunningCount: 2, followUpCount })
+        runAllSchedules: async () => ({ triggeredCount: 3, alreadyRunningCount })
       },
       fetchSchedules: async () => steps.push(['refresh']),
       flashAll: () => steps.push(['flash']),
@@ -339,11 +339,11 @@ test('Run All acknowledges active services without inventing follow-up runs', as
       ['busy', false],
       ['confirm', false]
     ]);
-    assert.equal(notifications.length, followUpCount !== undefined && followUpCount < 2 ? 1 : 0);
+    assert.equal(notifications.length, alreadyRunningCount ? 1 : 0);
     if (notifications.length)
       assert.equal(
         notifications[0].message,
-        `management.schedules.runAllAlreadyRunning:${2 - followUpCount}`
+        `management.schedules.runAllAlreadyRunning:${alreadyRunningCount}`
       );
   }
 });

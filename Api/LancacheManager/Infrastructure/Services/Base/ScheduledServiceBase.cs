@@ -73,7 +73,9 @@ public abstract class ScheduledServiceBase : BackgroundService
                 _manualNotice.Actor = notice.Actor;
             }
             var busy = _startingNotice is not null || IsCurrentlyExecuting;
-            if (!QueueManualRuns && (busy || _pendingManualRun != 0))
+            // Run All starts idle schedules only. A follow-up queued behind a busy one shows a second
+            // card for a run nobody asked for.
+            if ((!QueueManualRuns || notice.Trigger == RunTrigger.RunAll) && (busy || _pendingManualRun != 0))
             {
                 retained = _manualNotice ?? _startingNotice ?? CurrentRunNotice;
                 followUpQueued = false;

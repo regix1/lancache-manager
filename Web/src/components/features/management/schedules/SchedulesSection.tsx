@@ -1775,12 +1775,11 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
 
       flashAll();
       const activeCount = result.alreadyRunningCount ?? 0;
-      const notQueuedCount = activeCount - (result.followUpCount ?? activeCount);
-      if (notQueuedCount > 0) {
+      if (activeCount > 0) {
         addNotification({
           type: 'generic',
           status: 'completed',
-          message: t('management.schedules.runAllAlreadyRunning', { count: notQueuedCount }),
+          message: t('management.schedules.runAllAlreadyRunning', { count: activeCount }),
           details: { notificationType: 'info' }
         });
       }

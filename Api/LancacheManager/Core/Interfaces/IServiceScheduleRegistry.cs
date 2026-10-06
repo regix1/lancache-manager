@@ -83,17 +83,15 @@ public interface IServiceScheduleRegistry
     ScheduleRunStatus? GetRunStatus(string serviceKey);
 
     /// <summary>
-    /// Triggers an immediate run of every VISIBLE service (both scheduled and configurable),
-    /// regardless of their interval or current running state, using the same visibility gate as
-    /// <see cref="GetAll"/> so the counts never exceed the rows the user can see. Fire-and-forget
-    /// per service - individual services own their concurrency. Returns how many were not-yet-running
-    /// when triggered (a genuine new run) versus already running. FollowUpCount separately counts
-    /// those retaining another run under the service's admission policy.
+    /// Triggers an immediate run of every VISIBLE idle service (both scheduled and configurable),
+    /// regardless of their interval, using the same visibility gate as <see cref="GetAll"/> so the
+    /// counts never exceed the rows the user can see. A service with a pending, starting or active
+    /// run is left alone and counted as already running; no second run is queued behind it.
     /// Services refused before they were armed are counted separately
     /// with the single reason they all share, so the fan-out still triggers everything that can run
     /// rather than being blocked as a whole.
     /// </summary>
-    Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason, int FollowUpCount)> TriggerAllAsync(
+    Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason)> TriggerAllAsync(
         ScheduleActor? actor = null);
 
     void ResetToDefaults();

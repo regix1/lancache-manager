@@ -111,12 +111,11 @@ public class ScheduleControllerNotificationModeTests
     }
 
     [Fact]
-    public async Task TriggerAllAsync_DistinguishesFollowUpsFromAlreadyRunningServices()
+    public async Task TriggerAllAsync_ReportsAlreadyRunningServices()
     {
         var response = Assert.IsType<TriggerAllResponse>(Assert.IsType<AcceptedResult>(
-            (await CreateController(new FakeScheduleRegistry { FollowUpCount = 1 }).TriggerAllAsync()).Result).Value);
+            (await CreateController(new FakeScheduleRegistry()).TriggerAllAsync()).Result).Value);
         Assert.Equal(2, response.AlreadyRunningCount);
-        Assert.Equal(1, response.FollowUpCount);
     }
 
     [Fact]
@@ -551,14 +550,13 @@ public class ScheduleControllerNotificationModeTests
                 (RunStatus ?? new ScheduleRunStatus(), null, FollowUpQueued));
         }
 
-        public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason, int FollowUpCount)> TriggerAllAsync(
+        public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason)> TriggerAllAsync(
             ScheduleActor? actor = null)
         {
             LastActor = actor;
-            return Task.FromResult<(int, int, int, string?, int)>((0, 2, 0, null, FollowUpCount));
+            return Task.FromResult<(int, int, int, string?)>((0, 2, 0, null));
         }
         public bool FollowUpQueued { get; set; }
-        public int FollowUpCount { get; set; }
         public void ResetToDefaults() { }
         public void NotifySchedulesChanged() { }
         public Task BroadcastSchedulesAsync() => Task.CompletedTask;

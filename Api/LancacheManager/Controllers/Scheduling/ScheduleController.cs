@@ -388,7 +388,7 @@ public class ScheduleController : ControllerBase
         var actor = await _scheduleExecutions.ResolveActorAsync(
             HttpContext.GetUserSession()?.AccountId,
             HttpContext.RequestAborted);
-        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason, followUpCount) =
+        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason) =
             await _registry.TriggerAllAsync(actor);
         // As with the single-service run above, each woken service loop broadcasts its own run
         // start/end. A snapshot here would capture every service as not-yet-running and could race
@@ -397,7 +397,6 @@ public class ScheduleController : ControllerBase
         {
             TriggeredCount = triggeredCount,
             AlreadyRunningCount = alreadyRunningCount,
-            FollowUpCount = followUpCount,
             SkippedCount = skippedCount,
             SkippedReason = skippedReason
         });

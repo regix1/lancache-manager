@@ -55,7 +55,6 @@ public class ScheduleRunGateTests
         var starting = await registry.TriggerAllAsync(duplicateActor);
         Assert.Equal(0, starting.TriggeredCount);
         Assert.Equal(1, starting.AlreadyRunningCount);
-        Assert.Equal(0, starting.FollowUpCount);
         Assert.False(service.HasPendingRun);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -791,7 +790,7 @@ public class ScheduleRunGateTests
             CacheScanGateHarness.Downloading(),
             CreateRealTracker());
 
-        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason, _) =
+        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason) =
             await registry.TriggerAllAsync();
 
         // Both are asked the same question. The eviction scan walks the cache tree and declines; log
@@ -1128,7 +1127,7 @@ public class ScheduleRunGateTests
             CacheScanGateHarness.Idle(),
             CreateRealTracker());
 
-        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason, _) =
+        var (triggeredCount, alreadyRunningCount, skippedCount, skippedReason) =
             await registry.TriggerAllAsync();
 
         Assert.Equal(2, triggeredCount);
@@ -1187,7 +1186,7 @@ public class ScheduleRunGateTests
         var schedules = CreateRegistry(service, CacheScanGateHarness.With(snapshot), CreateRealTracker());
 
         var actor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-all-user");
-        var (_, _, skippedCount, _, _) = await schedules.TriggerAllAsync(actor);
+        var (_, _, skippedCount, _) = await schedules.TriggerAllAsync(actor);
         Assert.Equal(1, skippedCount);
         Assert.False(service.HasPendingRun);
 
@@ -1200,13 +1199,12 @@ public class ScheduleRunGateTests
         Assert.Same(actor, woken.Actor);
     }
 
-    // A Run Now pressed while the schedule's Run All run is still pending makes that run the
-    // person's own, so under Manual only its waiting row is sent again as a card. [67]
+    // Run All starts idle schedules only. A second run queued behind a busy one put up a waiting card
+    // for a run nobody asked for.
     [Fact]
-    public async Task RunNowAfterRunAll_TurnsThePendingRunIntoACard()
+    public async Task RunAll_LeavesAScheduleWhoseLoopIsRunningAlone()
     {
         using var service = new RunGateProbeService(EvictionKey);
-        service.SetNotificationMode(NotificationMode.Manual);
         var tracker = CreateRealTracker();
         var schedules = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1216,29 +1214,36 @@ public class ScheduleRunGateTests
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
         try
         {
-            var runAllActor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-all-user");
-            var manualActor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-now-user");
-            var (_, _, _, _, followUps) = await schedules.TriggerAllAsync(runAllActor);
-            Assert.Equal(1, followUps);
-            var pending = Assert.Single(tracker.GetWaitingOperations());
-            Assert.Equal(RunTrigger.RunAll, pending.Notice!.Trigger);
-            Assert.Same(runAllActor, pending.Notice.Actor);
-            var before = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == pending.Id);
-            Assert.Equal(RunVisibility.Background, before.Visibility);
+            var (triggered, alreadyRunning, _, _) = await schedules.TriggerAllAsync();
 
-            await schedules.TriggerRunAsync(EvictionKey, manualActor);
-
-            Assert.Equal(RunTrigger.Manual, pending.Notice.Trigger);
-            Assert.Same(manualActor, pending.Notice.Actor);
-            var after = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == pending.Id);
-            Assert.Equal(RunVisibility.Card, after.Visibility);
-            Assert.True(after.Revision > before.Revision);
+            Assert.Equal(0, triggered);
+            Assert.Equal(1, alreadyRunning);
+            Assert.False(service.HasPendingRun);
+            Assert.Empty(tracker.GetWaitingOperations());
         }
         finally
         {
             release.TrySetResult();
             await running;
         }
+    }
+
+    // A scan started from another page runs under the tracker while the schedule's own loop sleeps,
+    // so the loop's admission alone would let Run All start a second one.
+    [Fact]
+    public async Task RunAll_LeavesAScheduleWithATrackedRunAlone()
+    {
+        using var service = new RunGateProbeService(EvictionKey);
+        var tracker = CreateRealTracker();
+        var schedules = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker);
+        tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+
+        var (triggered, alreadyRunning, _, _) = await schedules.TriggerAllAsync();
+
+        Assert.Equal(0, triggered);
+        Assert.Equal(1, alreadyRunning);
+        Assert.False(service.HasPendingRun);
+        Assert.Empty(tracker.GetWaitingOperations());
     }
 
     // A schedule that takes no second run (scheduled prefill) refuses the extra Run Now, but the
