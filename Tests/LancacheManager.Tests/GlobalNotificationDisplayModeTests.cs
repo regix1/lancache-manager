@@ -15,12 +15,21 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
+// The registry subscribes to process-wide run events in its constructor, before a test can detach
+// it. A run event another class raises under these schedule keys in that moment adds a schedules
+// broadcast, so these tests run with nothing beside them.
+[CollectionDefinition(nameof(GlobalNotificationDisplayModeCollection), DisableParallelization = true)]
+public sealed class GlobalNotificationDisplayModeCollection
+{
+}
+
 /// <summary>
 /// One global Normal/Compact default decides how every notification without a style of its own
 /// renders. An install that predates the setting reads Compact, a schedule's own style overrides it
 /// and can be removed again, scheduled prefill's per-schedule styles never follow it, and a change
 /// reaches every client once.
 /// </summary>
+[Collection(nameof(GlobalNotificationDisplayModeCollection))]
 public sealed class GlobalNotificationDisplayModeTests : IDisposable
 {
     private readonly string _root;
