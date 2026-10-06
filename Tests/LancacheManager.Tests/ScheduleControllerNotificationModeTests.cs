@@ -80,6 +80,43 @@ public class ScheduleControllerNotificationModeTests
         Assert.Same(actor, schedules.LastActor);
     }
 
+    // The route matches a schedule in any casing, but the registry's per-key rules compare the
+    // exact key, so the run is asked for under the registry's own spelling.
+    [Fact]
+    public async Task TriggerRunAsync_PassesTheScheduleKeyWhateverTheUrlCasing()
+    {
+        var schedules = new FakeScheduleRegistry
+        {
+            InfoForGet = new ServiceScheduleInfo { Key = "depotMapping" }
+        };
+
+        await CreateController(schedules).TriggerRunAsync("DepotMapping");
+
+        Assert.Equal("depotMapping", schedules.LastTriggeredKey);
+    }
+
+    // Every route that stores a schedule setting stores it under the schedule's own key, whatever casing
+    // the URL used: a setting stored under the URL's casing is never read back.
+    [Fact]
+    public async Task SettingRoutes_StoreUnderTheScheduleKeyWhateverTheUrlCasing()
+    {
+        var schedules = new FakeScheduleRegistry
+        {
+            InfoForGet = new ServiceScheduleInfo { Key = "depotMapping", SupportsNotifications = true }
+        };
+        var controller = CreateController(schedules);
+
+        await controller.SetIntervalAsync("DepotMapping", new UpdateScheduleIntervalRequest { IntervalHours = 2 });
+        await controller.SetCustomScheduleAsync("DepotMapping", new UpdateScheduleCustomScheduleRequest());
+        await controller.SetRunOnStartupAsync("DepotMapping", new UpdateScheduleRunOnStartupRequest { RunOnStartup = true });
+        await controller.SetNotificationModeAsync("DepotMapping", NotificationMode.All);
+        await controller.SetNotificationDisplayModeAsync("DepotMapping", NotificationDisplayMode.Full);
+        await controller.ClearNotificationDisplayModeAsync("DepotMapping");
+        await controller.SetScanModeAsync("DepotMapping", GameDetectionScanMode.Full);
+
+        Assert.Equal(Enumerable.Repeat("depotMapping", 7), schedules.SettingKeys);
+    }
+
     [Fact]
     public async Task GetHistoryAsync_ReturnsTheTypedPageAndRejectsInvalidPaging()
     {
@@ -515,27 +552,44 @@ public class ScheduleControllerNotificationModeTests
         public int SetScanModeCalls { get; private set; }
         public GameDetectionScanMode? LastScanModeSet { get; private set; }
         public ScheduleActor? LastActor { get; private set; }
+        public string? LastTriggeredKey { get; private set; }
+        public List<string> SettingKeys { get; } = [];
 
         public IReadOnlyList<ServiceScheduleInfo> GetAll() => Array.Empty<ServiceScheduleInfo>();
         public ServiceScheduleInfo? Get(string serviceKey) => InfoForGet;
-        public void SetInterval(string serviceKey, double intervalHours) { }
-        public void SetRunOnStartup(string serviceKey, bool runOnStartup) { }
-        public bool SetCustomSchedule(string serviceKey, CustomSchedule? schedule) => true;
+        public void SetInterval(string serviceKey, double intervalHours)
+        {
+            SettingKeys.Add(serviceKey);
+        }
+
+        public void SetRunOnStartup(string serviceKey, bool runOnStartup)
+        {
+            SettingKeys.Add(serviceKey);
+        }
+
+        public bool SetCustomSchedule(string serviceKey, CustomSchedule? schedule)
+        {
+            SettingKeys.Add(serviceKey);
+            return true;
+        }
 
         public void SetNotificationMode(string serviceKey, NotificationMode mode)
         {
+            SettingKeys.Add(serviceKey);
             SetNotificationModeCalls++;
             LastModeSet = mode;
         }
 
         public void SetNotificationDisplayMode(string serviceKey, NotificationDisplayMode mode)
         {
+            SettingKeys.Add(serviceKey);
             SetNotificationDisplayModeCalls++;
             LastDisplayModeSet = mode;
         }
 
         public bool SetScanMode(string serviceKey, GameDetectionScanMode mode)
         {
+            SettingKeys.Add(serviceKey);
             SetScanModeCalls++;
             LastScanModeSet = mode;
             return ScanModeAccepted;
@@ -546,6 +600,7 @@ public class ScheduleControllerNotificationModeTests
             ScheduleActor? actor = null)
         {
             LastActor = actor;
+            LastTriggeredKey = serviceKey;
             return Task.FromResult<(ScheduleRunStatus, string?, bool)>(
                 (RunStatus ?? new ScheduleRunStatus(), null, FollowUpQueued));
         }
@@ -561,7 +616,10 @@ public class ScheduleControllerNotificationModeTests
         public void NotifySchedulesChanged() { }
         public Task BroadcastSchedulesAsync() => Task.CompletedTask;
         public ScheduleRunStatus? GetRunStatus(string serviceKey) => RunStatus;
-        public void ClearNotificationDisplayMode(string serviceKey) { }
+        public void ClearNotificationDisplayMode(string serviceKey)
+        {
+            SettingKeys.Add(serviceKey);
+        }
         public NotificationDisplayMode GetGlobalNotificationDisplayMode() => NotificationDisplayMode.Condensed;
         public Task SetGlobalNotificationDisplayModeAsync(NotificationDisplayMode mode) => Task.CompletedTask;
         public Task PublishGlobalNotificationDisplayModeAsync() => Task.CompletedTask;

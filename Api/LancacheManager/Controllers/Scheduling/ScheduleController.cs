@@ -103,7 +103,7 @@ public class ScheduleController : ControllerBase
             return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
-        _registry.SetInterval(serviceKey, request.IntervalHours);
+        _registry.SetInterval(info.Key, request.IntervalHours);
         await _registry.BroadcastSchedulesAsync();
         return NoContent();
     }
@@ -135,7 +135,7 @@ public class ScheduleController : ControllerBase
             }
         }
 
-        if (!_registry.SetCustomSchedule(serviceKey, request.CustomSchedule))
+        if (!_registry.SetCustomSchedule(info.Key, request.CustomSchedule))
         {
             return BadRequest("This service runs on a fixed interval and cannot take a custom schedule.");
         }
@@ -157,7 +157,7 @@ public class ScheduleController : ControllerBase
             return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
-        _registry.SetRunOnStartup(serviceKey, request.RunOnStartup);
+        _registry.SetRunOnStartup(info.Key, request.RunOnStartup);
         await _registry.BroadcastSchedulesAsync();
         return NoContent();
     }
@@ -183,7 +183,7 @@ public class ScheduleController : ControllerBase
             return Conflict(ApiResponse.Conflict("This schedule does not support run notifications."));
         }
 
-        _registry.SetNotificationMode(serviceKey, mode);
+        _registry.SetNotificationMode(info.Key, mode);
         await _registry.BroadcastSchedulesAsync();
         return NoContent();
     }
@@ -208,7 +208,7 @@ public class ScheduleController : ControllerBase
             return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
-        _registry.SetNotificationDisplayMode(serviceKey, mode);
+        _registry.SetNotificationDisplayMode(info.Key, mode);
         await _registry.BroadcastSchedulesAsync();
         return NoContent();
     }
@@ -220,12 +220,13 @@ public class ScheduleController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     public async Task<ActionResult> ClearNotificationDisplayModeAsync(string serviceKey)
     {
-        if (_registry.Get(serviceKey) == null)
+        var schedule = _registry.Get(serviceKey);
+        if (schedule == null)
         {
             return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
-        _registry.ClearNotificationDisplayMode(serviceKey);
+        _registry.ClearNotificationDisplayMode(schedule.Key);
         await _registry.BroadcastSchedulesAsync();
         return NoContent();
     }
@@ -274,7 +275,7 @@ public class ScheduleController : ControllerBase
             return NotFound(ApiResponse.NotFound("Schedule"));
         }
 
-        if (!_registry.SetScanMode(serviceKey, mode))
+        if (!_registry.SetScanMode(info.Key, mode))
         {
             return Conflict(ApiResponse.Conflict("This schedule does not have a scan mode."));
         }
@@ -326,7 +327,8 @@ public class ScheduleController : ControllerBase
         var actor = await _scheduleExecutions.ResolveActorAsync(
             HttpContext.GetUserSession()?.AccountId,
             HttpContext.RequestAborted);
-        var (status, skippedReason, followUpQueued) = await _registry.TriggerRunAsync(serviceKey, actor);
+        // The route accepts any casing, but the registry's per-key rules compare the exact key.
+        var (status, skippedReason, followUpQueued) = await _registry.TriggerRunAsync(info.Key, actor);
         if (skippedReason is not null)
         {
             // The run is retained until downloads finish; its waiting row is what the browser draws.
