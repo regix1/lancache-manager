@@ -134,6 +134,35 @@ public sealed class OperationQueueCancelDuringPromotionTests
         Assert.False(harness.PromotedToken.IsCancellationRequested);
     }
 
+    [Fact]
+    public async Task ARequestDoesNotJoinAWaiterThatIsBeingCanceledAsync()
+    {
+        var harness = new PromotionHarness();
+        var canceling = await harness.EnqueueBehindBlockerAsync();
+        // The status a cancel sets first, before the waiter leaves the queue on another thread.
+        harness.Tracker.GetOperation(canceling.OperationId)!.Status = OperationStatus.Cancelling;
+
+        var again = await harness.EnqueueBehindBlockerAsync();
+
+        Assert.True(again.Queued);
+        Assert.NotEqual(canceling.OperationId, again.OperationId);
+    }
+
+    // A request made while the same work is being canceled does not join it: the canceled run stops
+    // before it does the work, so the request waits and runs once that run has ended.
+    [Fact]
+    public async Task ARequestDoesNotJoinARunThatIsBeingCanceledAsync()
+    {
+        var harness = new PromotionHarness();
+        var running = harness.Tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
+        // The status a cancel sets first, before the run's worker ends it.
+        harness.Tracker.GetOperation(running)!.Status = OperationStatus.Cancelling;
+
+        var queued = await harness.EnqueueBehindBlockerAsync();
+
+        Assert.NotEqual(running, queued.OperationId);
+    }
+
     /// <summary>
     /// A real tracker, conflict checker and queue, with a start delegate the test can hold open at
     /// will. The blocker keeps the enqueued operation parked until the test releases it.

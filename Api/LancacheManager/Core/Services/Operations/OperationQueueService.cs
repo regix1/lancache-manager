@@ -99,7 +99,10 @@ public sealed class OperationQueueService : IOperationQueue
                 var duplicateWaiter = _waiters.FirstOrDefault(w =>
                     w.Type == type
                     && w.Scope.Matches(scope)
-                    && string.Equals(w.Name, displayName, StringComparison.Ordinal));
+                    && string.Equals(w.Name, displayName, StringComparison.Ordinal)
+                    // A waiter being canceled leaves this list a moment later, on another thread; a new
+                    // request that joined it would end with it.
+                    && _tracker.GetOperation(w.WaitingId)?.Status == OperationStatus.Waiting);
                 if (duplicateWaiter != null)
                 {
                     notice?.Attach(_tracker, duplicateWaiter.WaitingId);
@@ -350,7 +353,12 @@ public sealed class OperationQueueService : IOperationQueue
         }
 
         var operation = _tracker.GetOperation(activeId);
+        // Neither a run being canceled nor an image fetch pass answers a new request: the canceled run
+        // stops before it does the work, and a pass read its work list when it started. The request waits
+        // and runs once that operation ends.
         return operation != null && !operation.Status.IsTerminal() && operation.Status != OperationStatus.Waiting
+            && operation.Status != OperationStatus.Cancelling
+            && operation.Type != OperationType.GameImageFetch
             && string.Equals(operation.Name, displayName, StringComparison.Ordinal)
                 ? activeId
                 : null;
