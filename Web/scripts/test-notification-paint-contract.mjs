@@ -401,7 +401,6 @@ const makeBar = (
     getErrorMessage: (error) => error.message,
     i18n: { t: (key) => key },
     CondensedNotificationStrip: 'CondensedNotificationStrip',
-    BackgroundTaskControls: 'BackgroundTaskControls',
     UnifiedNotificationItem: 'UnifiedNotificationItem',
     CustomScrollbar: 'CustomScrollbar'
   });
@@ -450,13 +449,12 @@ test('silent mapping refreshes stay inside the compact strip under the Compact d
   const draw = () => {
     notifications = [full, compact, ...modules.deriveNotifications(state, [])];
     const tree = bar.setNotifications(notifications);
-    const strip = elements(tree).find((node) => node.type === 'CondensedNotificationStrip');
-    const controls = elements(tree).filter((node) => node.type === 'BackgroundTaskControls');
-    assert.deepEqual(
-      controls,
-      elements(strip).filter((node) => node.type === 'BackgroundTaskControls'),
-      'a refresh must not insert a separate background row above the full cards'
-    );
+    for (const card of notifications.filter((item) => item.controlOnly))
+      assert.equal(
+        placement(tree, card.id),
+        'condensed',
+        'a refresh must not draw a background row beside the full cards'
+      );
     assert.equal(notifications[0], full);
     assert.equal(notifications[1], compact);
     commits += 1;
@@ -520,15 +518,10 @@ test('background controls follow their schedule style, then the global default',
           { defaultMode }
         );
         const tree = bar.render();
-        const strip = elements(tree).find((node) => node.type === 'CondensedNotificationStrip');
         assert.equal(
-          elements(strip).some((node) => node.type === 'BackgroundTaskControls'),
-          (mode ?? defaultMode) === 'condensed',
+          placement(tree, card.id),
+          (mode ?? defaultMode) === 'condensed' ? 'condensed' : 'full',
           `${status} controls with ${mode ?? 'no'} display preference, default ${defaultMode}`
-        );
-        assert.equal(
-          elements(tree).filter((node) => node.type === 'BackgroundTaskControls').length,
-          1
         );
         bar.dispose();
       }
@@ -559,15 +552,7 @@ test('per-platform background tasks retain their full-view default', () => {
     { defaultMode: 'condensed' }
   );
   const tree = bar.render();
-  const strip = elements(tree).find((node) => node.type === 'CondensedNotificationStrip');
-  assert.equal(
-    elements(strip).some((node) => node.type === 'BackgroundTaskControls'),
-    false
-  );
-  assert.equal(
-    elements(tree).some((node) => node.type === 'BackgroundTaskControls'),
-    true
-  );
+  assert.equal(placement(tree, card.id), 'full');
   bar.dispose();
 });
 
@@ -1242,8 +1227,6 @@ test('full and revealed cards reuse the background base radius while the line st
   assert.match(root, /\brounded\s/, 'normal card root must use the existing base radius');
   assert.doesNotMatch(root, /rounded-lg/);
   assert.match(itemComponent, /background-task-control-row[^\n]*\brounded\b/);
-  const background = read('src/components/common/BackgroundTaskControls.css');
-  assert.match(background, /border-radius:\s*var\(--theme-border-radius\)/);
   assert.match(stripCss, /\.condensed-strip-line\s*\{[^}]*border-radius:\s*0/);
 });
 
@@ -1445,23 +1428,15 @@ test('a scheduled prefill row keeps its classification, keys, siblings and discl
     };
     const summarize = () => {
       const strip = elements(tree).find((node) => node.type === 'CondensedNotificationStrip');
-      const stripNodes = new Set(elements(strip));
-      const groups = elements(tree).filter((node) => node.type === 'BackgroundTaskControls');
-      const idsIn = (root) =>
-        elements(root)
-          .filter((node) => node.type === 'UnifiedNotificationItem')
-          .map((node) => node.props.notification.id);
-      const compactIds = groups.filter((group) => stripNodes.has(group)).flatMap(idsIn);
-      const fullControlIds = groups.filter((group) => !stripNodes.has(group)).flatMap(idsIn);
       const scheduled = notifications.find((card) => card.details?.operationId === operationId);
-      const stripIds = idsIn(strip);
-      const branch = compactIds.includes(scheduled.id)
-        ? 'compact-control'
-        : fullControlIds.includes(scheduled.id)
-          ? 'full-control'
-          : stripIds.includes(scheduled.id)
-            ? 'condensed-card'
-            : 'full-card';
+      const where = placement(tree, scheduled.id);
+      const branch = scheduled.controlOnly
+        ? where === 'condensed'
+          ? 'compact-control'
+          : 'full-control'
+        : where === 'condensed'
+          ? 'condensed-card'
+          : 'full-card';
       return {
         branch,
         scheduled,

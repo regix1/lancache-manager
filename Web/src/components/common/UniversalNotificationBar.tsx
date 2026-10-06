@@ -18,7 +18,6 @@ import { useMediaQuery } from '@hooks/useMediaQuery';
 import { useConnectionLost } from '@hooks/useConnectionLost';
 import { platformDisplayModeKey, useScheduleDisplayModes } from '@hooks/useScheduleDisplayModes';
 import { CondensedNotificationStrip } from './CondensedNotificationStrip';
-import { BackgroundTaskControls } from './BackgroundTaskControls';
 import { UnifiedNotificationItem } from './UnifiedNotificationItem';
 import { ConfirmationModal } from './ConfirmationModal';
 import {
@@ -290,9 +289,6 @@ const UniversalNotificationBar: React.FC = () => {
   const compactControls = classified
     .filter((item) => item.control && item.condensed)
     .map((item) => item.notification);
-  const fullControls = classified
-    .filter((item) => item.control && !item.condensed)
-    .map((item) => item.notification);
   // One line per service in the condensed group: a popup that names a service and that
   // service's run notification fold into a single disclosure instead of stacking a line
   // per notification. Notifications without a serviceKey keep a line each. Map preserves the
@@ -317,7 +313,9 @@ const UniversalNotificationBar: React.FC = () => {
       condensedGroups.set(groupKey, [item.notification]);
     }
   }
-  const fullItems = classified.filter((item) => !item.control && !item.condensed);
+  // Background rows sit in the same list as the cards, in start order, rather than in a section
+  // of their own above them.
+  const fullItems = classified.filter((item) => !item.condensed);
   const condensedSegments = [...condensedGroups.entries()].map(([groupKey, group]) => {
     const representative = group.find((n) => !isTerminalNotificationStatus(n.status)) ?? group[0];
     return {
@@ -339,22 +337,11 @@ const UniversalNotificationBar: React.FC = () => {
           : 'info'
     });
   }
+  // The panel lists cards in the strip's segment order, so the background rows come last, where
+  // their shared segment sits.
   const condensedPanel = (
     <div className="space-y-2">
-      {compactControls.length > 0 && (
-        <BackgroundTaskControls count={compactControls.length}>
-          {compactControls.map((notification) => (
-            <UnifiedNotificationItem
-              key={notification.id}
-              notification={notification}
-              onDismiss={handleDismiss}
-              onCancel={notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined}
-              connectionLost={connectionLost}
-            />
-          ))}
-        </BackgroundTaskControls>
-      )}
-      {[...condensedGroups.values()].flat().map((notification) => (
+      {[...[...condensedGroups.values()].flat(), ...compactControls].map((notification) => (
         <UnifiedNotificationItem
           key={notification.id}
           notification={notification}
@@ -376,7 +363,7 @@ const UniversalNotificationBar: React.FC = () => {
     <div className={`w-full ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}>
       <div
         className={`w-full border-b bg-[var(--theme-nav-bg)] transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none ${
-          fullItems.length > 0 || fullControls.length > 0
+          fullItems.length > 0
             ? 'border-[var(--theme-nav-border)] shadow-sm'
             : 'border-transparent shadow-none'
         }${isAnimatingOut && notifications.length === 0 ? ' -translate-y-full opacity-0' : ''}`}
@@ -406,23 +393,6 @@ const UniversalNotificationBar: React.FC = () => {
             </div>
           </CondensedNotificationStrip>
         }
-        {fullControls.length > 0 && (
-          <div className="container mx-auto px-4 py-1">
-            <BackgroundTaskControls count={fullControls.length}>
-              {fullControls.map((notification) => (
-                <UnifiedNotificationItem
-                  key={notification.id}
-                  notification={notification}
-                  onDismiss={handleDismiss}
-                  onCancel={
-                    notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined
-                  }
-                  connectionLost={connectionLost}
-                />
-              ))}
-            </BackgroundTaskControls>
-          </div>
-        )}
         {fullItems.length > 0 && (
           <div className="container mx-auto px-4 py-2 space-y-2">
             {fullItems.map(({ notification }) => (
