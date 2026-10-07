@@ -86,6 +86,18 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     protected override bool BroadcastRunStart => false;
     protected override bool QueueManualRuns => false;
 
+    // A pass a person or Run All started does the work from the moment it is taken. Otherwise the
+    // schedule is busy only while a run-level operation is active, which also covers a run the pass
+    // started in the background and outlives it; that is GetRunStatus's signal. A per-platform
+    // operation alone (a restored run, or the per-row Run button) does not count.
+    protected internal override bool IsDoingWork(RunNotice? taken)
+    {
+        if (taken is { Trigger: RunTrigger.Manual or RunTrigger.RunAll }) return true;
+        if (Tracker is null) return taken is not null;
+        return Tracker.GetActiveOperations(OperationType.ScheduledPrefill)
+            .Any(operation => operation.Metadata is not ScheduledPrefillServiceRunState);
+    }
+
     /// <summary>
     /// Scheduled prefill should not fire automatically the instant the app starts.
     /// </summary>

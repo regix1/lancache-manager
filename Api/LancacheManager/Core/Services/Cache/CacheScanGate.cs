@@ -86,16 +86,14 @@ public sealed class CacheScanGate
     /// the child cannot report until it has opened its database pool. Asked at that instant, every
     /// restart refused the startup scan and left the work until the next interval, which for game
     /// detection is six hours.
-    /// The wait is bounded by the same window the refusal uses, measured from when it starts, so a
-    /// tracker that never comes up costs a startup run that much delay and no more, and the answer
-    /// afterwards is whatever the ordinary rule says.
+    /// The wait ends on the same comparison the refusal makes, against the tracker's stored
+    /// no-answer time, so a tracker that never comes up costs a startup run one window and no more,
+    /// and a child that dies during the wait extends it to the boundary the refusal now uses.
     /// </remarks>
     public async Task WaitForDownloadAnswerAsync(CancellationToken cancellationToken)
     {
-        var deadline = DateTime.UtcNow + _trackerStartupWindow;
-
-        while (_speedTracker.ReadUnfilteredState().UnreportedSinceUtc is not null &&
-               DateTime.UtcNow < deadline)
+        while (_speedTracker.ReadUnfilteredState().UnreportedSinceUtc is { } unreportedSince &&
+               DateTime.UtcNow - unreportedSince < _trackerStartupWindow)
         {
             await Task.Delay(_answerPollInterval, cancellationToken);
         }

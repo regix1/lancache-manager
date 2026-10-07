@@ -275,7 +275,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         var metrics = new RemovalMetrics { EntityKey = "570" };
         var finalMetricsApplied = 0;
         var config = new RemovalOperationConfig<int>(
-            OperationType.GameRemoval, "Game Removal", metrics,
+            OperationType.GameRemoval, "Game Removal", "Portal 2", metrics,
             "started", id => id,
             "progress", "starting", id => id,
             (id, progress) => progress,
@@ -317,7 +317,11 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         var operationId = await TrackedRemovalOperationRunner.StartAsync(tracked, notifications, config);
         // A removal belongs to no schedule: it carries no notice and is always a full card.
         Assert.Null(tracker.GetOperation(operationId)!.Notice);
-        Assert.Equal(RunVisibility.Card, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == operationId).Visibility);
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == operationId);
+        Assert.Equal(RunVisibility.Card, row.Visibility);
+        // The game goes out apart from the English name, so the browser can pair it with the reader's own title.
+        Assert.Contains("\"target\":\"Portal 2\"",
+            System.Text.Json.JsonSerializer.Serialize(row, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase }));
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         tracker.CompleteOperation(operationId, success: false, error: cancelled ? null : "disk failure", cancelled: cancelled);
         var completedAt = tracker.GetOperation(operationId)!.CompletedAt;
@@ -583,7 +587,12 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             Func<Task<Guid?>> start,
             CancellationToken ct,
             bool reportRefusal = false,
-            RunNotice? notice = null)
+            RunNotice? notice = null,
+            string? target = null,
+            StructuralScanMode? scanMode = null,
+            int? scanThreshold = null,
+            int? scanLookbackDays = null,
+            DetectionScanType? detectionScanType = null)
         {
             Type = type;
             Scope = scope;
@@ -791,6 +800,7 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
         return new RemovalOperationConfig<(int Files, long Bytes)>(
             type,
             type == OperationType.ServiceRemoval ? "Service removal" : "Game removal",
+            "steam",
             metrics,
             "started",
             id => id,

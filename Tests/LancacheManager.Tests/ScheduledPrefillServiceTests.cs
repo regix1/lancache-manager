@@ -625,13 +625,13 @@ public class ScheduledPrefillServiceTests
         try
         {
             // DefaultRunOnStartup is false, so the loop skips its first iteration and then sleeps on the
-            // 1-minute poll cadence. Nudge it (TriggerImmediateRun also flags a bypass so every enabled
-            // service is due) until it has executed work at least twice — proving a benign cancel on one
-            // tick does not tear down the recurring schedule.
+            // 1-minute poll cadence. Nudge it (a Run Now also flags a
+            // bypass so every enabled service is due) until it has executed work at least twice — proving a
+            // benign cancel on one tick does not tear down the recurring schedule.
             var deadline = DateTime.UtcNow.AddSeconds(30);
             while (harness.Tracker.RunRegisterCount < 2 && DateTime.UtcNow < deadline)
             {
-                service.TriggerImmediateRun();
+                await service.TryTriggerImmediateRunAsync(new RunNotice(service.EffectiveNotificationMode, RunTrigger.Manual));
                 await Task.Delay(TimeSpan.FromMilliseconds(100));
             }
         }
@@ -652,9 +652,45 @@ public class ScheduledPrefillServiceTests
             entry => entry.Level == LogLevel.Information && entry.Message.Contains("cancelled"));
     }
 
+    // A pass a person or Run All started is doing the work from the moment it is taken; a scheduled
+    // pass, or none, is doing it only while a run-level operation is active, and a per-platform
+    // operation alone does not count.
+    [Fact]
+    public void PrefillIsDoingWork_CoversPassesAndBackgroundRuns()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var services = harness.Provider;
+        using var service = harness.Service;
+        var tracker = new LancacheManager.Core.Services.UnifiedOperationTracker(
+            new LancacheManager.Infrastructure.Utilities.ProcessManager(
+                NullLogger<LancacheManager.Infrastructure.Utilities.ProcessManager>.Instance),
+            NullLogger<LancacheManager.Core.Services.UnifiedOperationTracker>.Instance);
+        service.Tracker = tracker;
+        var manual = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        var runAll = new RunNotice(NotificationMode.All, RunTrigger.RunAll);
+        var scheduled = new RunNotice(NotificationMode.All, RunTrigger.Scheduled);
+
+        Assert.True(service.IsDoingWork(manual));
+        Assert.True(service.IsDoingWork(runAll));
+        Assert.False(service.IsDoingWork(scheduled));
+        Assert.False(service.IsDoingWork(null));
+
+        var platformRun = tracker.RegisterOperation(OperationType.ScheduledPrefill, "Scheduled Prefill - Steam",
+            new CancellationTokenSource(), new ScheduledPrefillServiceRunState(
+                PrefillPlatform.Steam, ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
+                "Default", scheduled));
+        Assert.False(service.IsDoingWork(scheduled));
+        tracker.CompleteOperation(platformRun, success: true);
+
+        tracker.RegisterOperation(OperationType.ScheduledPrefill, "Scheduled Prefill", new CancellationTokenSource(),
+            new ScheduledPrefillOperationMetadata());
+        Assert.True(service.IsDoingWork(scheduled));
+        Assert.True(service.IsDoingWork(null));
+    }
+
     // ---- A per-row Run runs the platform it names and nothing else ----
     // The Schedules page's per-service Run button posts to a per-platform route, and the shared
-    // TriggerImmediateRun it goes through takes no arguments, so the platform has to survive the trip
+    // Run Now it goes through carries no platform, so the platform has to survive the trip
     // some other way. These drive the real ExecuteWorkAsync and read back which platforms it opened a
     // tracked operation for.
 
@@ -1132,7 +1168,8 @@ public class ScheduledPrefillServiceTests
         harness.Service.TriggerServiceRun(
             PrefillPlatform.Riot,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot));
-        harness.Service.TriggerImmediateRun();
+        await harness.Service.TryTriggerImmediateRunAsync(
+            new RunNotice(harness.Service.EffectiveNotificationMode, RunTrigger.Manual));
         await InvokeExecuteWorkAsync(harness.Service);
         await harness.Service.StopAsync(CancellationToken.None);
         harness.Service.Dispose();

@@ -36,6 +36,16 @@ public interface IOperationQueue
     /// exception, where the announcement is the only thing the reader would ever see. Refusals at
     /// promotion time are unaffected and always reported, because by then nobody is waiting on a
     /// response.</param>
+    /// <param name="target">The game, service or other target named in <paramref name="displayName"/>,
+    /// carried on the waiting row so the browser can pair it with the reader's own title.</param>
+    /// <param name="scanMode">The structural scan mode of a corruption scan request; null for a repeated-miss
+    /// scan and for every other type.</param>
+    /// <param name="scanThreshold">The miss threshold a corruption scan request runs with; null for every
+    /// other type.</param>
+    /// <param name="scanLookbackDays">The lookback window, in days, a corruption scan request runs with; null
+    /// for every other type. Two corruption scan requests are the same scan only when mode, threshold and
+    /// lookback all match, as the scan service decides.</param>
+    /// <param name="detectionScanType">The scan a game detection request performs; null for every other type.</param>
     Task<QueuedOperationResponse> EnqueueAsync(
         OperationType type,
         ConflictScope scope,
@@ -43,5 +53,10 @@ public interface IOperationQueue
         Func<Task<Guid?>> start,
         CancellationToken ct,
         bool reportRefusal = false,
-        RunNotice? notice = null);
+        RunNotice? notice = null,
+        string? target = null,
+        StructuralScanMode? scanMode = null,
+        int? scanThreshold = null,
+        int? scanLookbackDays = null,
+        DetectionScanType? detectionScanType = null);
 }

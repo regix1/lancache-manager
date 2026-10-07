@@ -759,7 +759,12 @@ public sealed class GameImagesControllerCacheContractTests
             Func<Task<Guid?>> start,
             CancellationToken ct,
             bool reportRefusal = false,
-            RunNotice? notice = null)
+            RunNotice? notice = null,
+            string? target = null,
+            StructuralScanMode? scanMode = null,
+            int? scanThreshold = null,
+            int? scanLookbackDays = null,
+            DetectionScanType? detectionScanType = null)
         {
             Type = type;
             Scope = scope;

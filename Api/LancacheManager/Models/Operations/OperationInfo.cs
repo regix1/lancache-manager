@@ -8,6 +8,26 @@ public class OperationInfo
     public Guid? ParentOperationId { get; set; }
     public required OperationType Type { get; set; }
     public required string Name { get; set; }
+
+    /// <summary>The game, service or other target named in <see cref="Name"/>; null when it has none.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? Target { get; init; }
+
+    /// <summary>The scan mode of a corruption scan or a request for one; null for a repeated-miss scan and every other type.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public StructuralScanMode? ScanMode { get; init; }
+
+    /// <summary>The scan a game detection or a request for one performs; null for every other type.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public DetectionScanType? DetectionScanType { get; init; }
+
+    /// <summary>The miss threshold of a corruption scan or a request for one; null for every other type.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int? ScanThreshold { get; init; }
+
+    /// <summary>The lookback window, in days, of a corruption scan or a request for one; null for every other type.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int? ScanLookbackDays { get; init; }
     public OperationStatus Status { get; set; } = OperationStatus.Pending;
     public string Message { get; set; } = "";
     public double PercentComplete { get; set; }
@@ -19,6 +39,22 @@ public class OperationInfo
 
     /// <summary>Display name of the operation a waiting run is parked behind; null when unknown.</summary>
     public string? BlockedByName { get; set; }
+
+    /// <summary>Operation type of the operation a waiting run is parked behind, so the browser names the blocker in the reader's language; null when unknown.</summary>
+    public OperationType? BlockedByType { get; set; }
+
+    /// <summary>The target the blocker works on (a game, service or datasource), shown beside its translated name; null when it has none.</summary>
+    public string? BlockedByTarget { get; set; }
+
+    /// <summary>True when the blocker is a full cache repair, which shares the cache clearing type.</summary>
+    public bool BlockedByFullRepair { get; set; }
+
+    /// <summary>True for a waiting run that a download writing to the cache is holding back, so the browser says it waits for downloads even when it cannot name the client.</summary>
+    public bool WaitingForDownload { get; set; }
+
+    /// <summary>True for a skipped run that a download writing to the cache turned away, so its schedule holds it until downloads stop.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool SkippedForDownload { get; set; }
 
     /// <summary>The notice the run was admitted with, which decides how it is drawn; null draws a full card.</summary>
     [System.Text.Json.Serialization.JsonIgnore]

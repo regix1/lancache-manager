@@ -205,17 +205,18 @@ public class GameDetectionVisibilityRaceTests
         var parent = Guid.NewGuid();
         var id = (await ctx.Service.StartDetectionAsync(new RunNotice(NotificationMode.Hidden, RunTrigger.Manual),
             incremental: false, parentOperationId: parent))!.Value;
-        var active = ctx.Service.GetActiveOperation()!;
+        // A page reload must not rebuild the step as a detection of its own.
+        Assert.Null(ctx.Service.GetActiveOperation());
+        var active = ctx.Tracker.Get(id)!;
         Assert.Equal(parent, active.ParentOperationId);
-        Assert.Equal(DetectionScanType.Full, active.ScanType);
-        Assert.Equal(parent, ctx.Tracker.Get(id)!.ParentOperationId);
+        Assert.Equal(DetectionScanType.Full, ((GameDetectionMetrics)active.Metadata!).ScanType);
         var started = JsonSerializer.SerializeToElement(ctx.Notifications.Events.Single(e => e.Event == SignalREvents.GameDetectionStarted).Value);
         Assert.Equal(parent, started.GetProperty("ParentOperationId").GetGuid());
         var running = ctx.States.GetAllStates().Single(s => s.Key.EndsWith(id.ToString()));
         Assert.Equal(parent, running.Fields!.Value.GetProperty("parentOperationId").GetGuid());
         Assert.Equal("hidden", running.Fields.Value.GetProperty("notificationMode").GetString());
         Assert.Equal((int)RunTrigger.Manual, running.Fields.Value.GetProperty("trigger").GetInt32());
-        Assert.Equal(active.StartTime, running.Fields.Value.GetProperty("startedAt").GetDateTime());
+        Assert.Equal(((GameDetectionMetrics)active.Metadata!).StartTime, running.Fields.Value.GetProperty("startedAt").GetDateTime());
         ctx.Tracker.FireTerminal(id, success: false, cancelled: true, error: "Cancelled by user");
         var complete = Assert.IsType<SignalRNotifications.GameDetectionComplete>(ctx.Notifications.Events.Single(e => e.Event == SignalREvents.GameDetectionComplete).Value);
         Assert.Equal(parent, complete.ParentOperationId);

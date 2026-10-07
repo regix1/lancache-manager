@@ -44,6 +44,18 @@ public class GameDetectionService : ScheduledBackgroundService
     }
 
     /// <summary>
+    /// The scan the schedule would request now. The schedule registry asks the same question to tell
+    /// whether a running detection is the scan this schedule would run.
+    /// </summary>
+    public static DetectionScanType ResolveScanType(IStateService stateService)
+        => stateService.GetGameDetectionScanMode().IsIncremental(stateService.GetGameDetectionLastFullScan(), DateTime.UtcNow)
+            ? DetectionScanType.Incremental
+            : DetectionScanType.Full;
+
+    protected internal override DetectionScanType? ScanTypeOf(RunNotice notice)
+        => notice.RequestedScanType ?? ResolveScanType(_stateService);
+
+    /// <summary>
     /// Route automatic detection through the same heavy-operation queue as manual requests.
     /// This closes the conflict-check/start race and gives a blocked scheduled run a cancellable
     /// purple waiting card in the universal notification menu instead of silently skipping it.
@@ -56,9 +68,10 @@ public class GameDetectionService : ScheduledBackgroundService
         // Resolve the run once. Hybrid picks incremental or full from the clock, so asking twice could
         // log one scan and start the other. Read at the top of each run rather than held on this
         // instance, so a mode saved while a run is in flight takes effect on the next run and not
-        // partway through this one.
-        var incremental = _stateService.GetGameDetectionScanMode().IsIncremental(
-            _stateService.GetGameDetectionLastFullScan(), DateTime.UtcNow);
+        // partway through this one. A run held for a download on a person's Games-page request keeps the
+        // type that person asked for.
+        var scanType = ScanTypeOf(notice);
+        var incremental = scanType == DetectionScanType.Incremental;
 
         // Reported where the mode is resolved rather than beside the outcome below. A run the
         // detection service refuses - a datasource whose cache-key scheme cannot be determined -
@@ -85,7 +98,8 @@ public class GameDetectionService : ScheduledBackgroundService
             StartDetectionAsync,
             ct,
             reportRefusal: true,
-            notice: notice);
+            notice: notice,
+            detectionScanType: scanType);
 
         var disposition = outcome.Queued
             ? "queued"
@@ -152,10 +166,14 @@ public class GameDetectionService : ScheduledBackgroundService
                 _logger.LogInformation("[GameDetection] CacheReconciliationService first scan complete");
             }
 
+            // A request or an owed run taken as the startup run asks for its scan whatever is cached;
+            // only the startup run itself skips when there is nothing to detect or detection is cached.
+            var askedFor = CurrentRunNotice.Trigger != RunTrigger.Startup;
+
             // Skip detection if there are no downloads in the database yet
             using var scope = _scopeFactory.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            if (!await context.Downloads.AnyAsync(stoppingToken))
+            if (!askedFor && !await context.Downloads.AnyAsync(stoppingToken))
             {
                 _logger.LogInformation("[GameDetection] No downloads in database, skipping startup detection scan");
                 return;
@@ -171,7 +189,7 @@ public class GameDetectionService : ScheduledBackgroundService
             var hasPersistedDetections =
                 await context.CachedGameDetections.AnyAsync(stoppingToken)
                 || await context.CachedServiceDetections.AnyAsync(stoppingToken);
-            if (hasPersistedDetections)
+            if (!askedFor && hasPersistedDetections)
             {
                 _logger.LogInformation("[GameDetection] Game detection data already cached, skipping startup scan");
                 // Warm the in-memory detection cache for subsequent dashboard reads.
@@ -179,12 +197,17 @@ public class GameDetectionService : ScheduledBackgroundService
                 return;
             }
 
-            _logger.LogInformation("[GameDetection] No cached game detection data found, requesting a detection scan");
+            _logger.LogInformation("[GameDetection] Requesting a detection scan at startup");
             await QueueDetectionAsync("Startup", stoppingToken);
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("[GameDetection] Cancelled during startup wait");
+        }
+        // The queue has already recorded the decline and the schedule holds the run until downloads stop.
+        catch (DownloadInProgressException ex)
+        {
+            _logger.LogInformation("[GameDetection] Startup detection held for a download: {Reason}", ex.Message);
         }
         catch (Exception ex)
         {
@@ -198,6 +221,12 @@ public class GameDetectionService : ScheduledBackgroundService
         {
             _logger.LogInformation("[GameDetection] Requesting scheduled game detection scan");
             await QueueDetectionAsync("Scheduled", stoppingToken);
+        }
+        // A download that began after the gate said yes: the queue has already recorded the decline, and
+        // the schedule holds the run until downloads stop, so it is not a failure of this run.
+        catch (DownloadInProgressException ex)
+        {
+            _logger.LogInformation("[GameDetection] Detection held for a download: {Reason}", ex.Message);
         }
         // A Run Now the detection refuses before it registers goes on to the schedule's failure
         // handling, which shows it as a red card. An automatic refusal is only logged: a failed run

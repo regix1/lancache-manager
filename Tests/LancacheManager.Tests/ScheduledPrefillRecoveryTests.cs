@@ -979,7 +979,7 @@ public sealed class ScheduledPrefillRecoveryTests
     private static Task<ScheduledPrefillServiceRunResult> Start(ScheduledPrefillService scheduler, RunFixture fixture,
         ScheduledPrefillServiceRun run)
         => (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
-            .GetMethod("StartRunAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetMethod("StartRunAsync", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)!
             .Invoke(scheduler, [fixture.Daemon, fixture.Session, run, Notifications(), ScheduledPrefillConfigFactory.CreateDefault()])!;
 
     private static Task<ScheduledPrefillServiceRunResult> Watch(ScheduledPrefillService scheduler, RunFixture fixture,

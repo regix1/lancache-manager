@@ -5,6 +5,7 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using static LancacheManager.Tests.CacheScanGateHarness;
 
@@ -99,6 +100,31 @@ public class CacheSizeScanNotificationFlagTests
         Assert.Same(notice, tracker.GetOperation(row.OperationId)!.Notice);
     }
 
+    // A download that began after the gate said yes is held by the schedule, so its refusal is not logged as
+    // a failed scan.
+    [Fact]
+    public async Task ADownloadRefusalIsLoggedAsInformationNotAsAFailure()
+    {
+        var tool = Path.GetTempFileName();
+        try
+        {
+            var paths = CreateProxy<IPathResolver>((method, _) =>
+                method.Name == nameof(IPathResolver.GetRustCacheSizePath) ? tool : null);
+            var queue = CreateProxy<IOperationQueue>((_, _) => throw new DownloadInProgressException("A download is in progress"));
+            var logger = new CapturingLogger<CacheSizeScanScheduledService>();
+            var service = new ScanProbe(cacheService: null!, paths, queue, NewTracker(), logger);
+
+            await service.RunAsync(new RunNotice(NotificationMode.All, RunTrigger.Scheduled));
+
+            Assert.DoesNotContain(logger.Entries, entry => entry.Level == LogLevel.Error);
+            Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Information && entry.Message.Contains("held for a download"));
+        }
+        finally
+        {
+            File.Delete(tool);
+        }
+    }
+
     private static UnifiedOperationTracker NewTracker() =>
         new(new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance);
 
@@ -132,14 +158,19 @@ public class CacheSizeScanNotificationFlagTests
     {
         protected override TimeSpan ErrorRetryDelay => TimeSpan.Zero;
 
-        public ScanProbe(CacheManagementService cacheService, IPathResolver paths, IOperationQueue queue, UnifiedOperationTracker tracker)
+        public ScanProbe(
+            CacheManagementService cacheService,
+            IPathResolver paths,
+            IOperationQueue queue,
+            UnifiedOperationTracker tracker,
+            ILogger<CacheSizeScanScheduledService>? logger = null)
             : base(
                 cacheService,
                 paths,
                 queue,
                 VisibleClientsStateService(),
                 new RustProcessHelper(NullLogger<RustProcessHelper>.Instance, new ProcessManager(NullLogger<ProcessManager>.Instance), paths, tracker),
-                NullLogger<CacheSizeScanScheduledService>.Instance,
+                logger ?? NullLogger<CacheSizeScanScheduledService>.Instance,
                 new ConfigurationBuilder().Build())
         {
             _ = new ServiceScheduleRegistry([this], VisibleClientsStateService(),

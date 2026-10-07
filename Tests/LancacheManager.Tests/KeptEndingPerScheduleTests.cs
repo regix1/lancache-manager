@@ -265,10 +265,13 @@ public sealed class KeptEndingPerScheduleTests
         Assert.Equal(1, Assert.Single(kept, run => run.OperationId == other.Id).ConsecutiveFailures);
     }
 
-    [Fact]
-    public async Task ASkipHeldAgainForADownloadIsContinuedByTheHoldAndClosed()
+    // Held on the skip's own download refusal, also when the download ended before the handler ran.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ASkipHeldAgainForADownloadIsContinuedByTheHoldAndClosed(bool stillDownloading)
     {
-        var (tracker, recorder, handle) = Create(CacheScanGateHarness.Downloading());
+        var (tracker, recorder, handle) = Create(stillDownloading ? CacheScanGateHarness.Downloading() : CacheScanGateHarness.Idle());
         var older = Fail(tracker);
         handle(older);
         var skip = Skip(tracker, visible: true);
@@ -553,7 +556,8 @@ public sealed class KeptEndingPerScheduleTests
         ServiceScheduleRegistry schedules;
         try
         {
-            schedules = new ServiceScheduleRegistry([], CacheScanGateHarness.VisibleClientsStateService(),
+            // The eviction schedule's loop owns its held runs, so the re-hold case needs one.
+            schedules = new ServiceScheduleRegistry([new EvictionLoopProbe()], CacheScanGateHarness.VisibleClientsStateService(),
                 DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
                 ScheduleExecutionTestService.Create(), tracker,
                 activityRegistry: null, cacheScanGate: gate);
@@ -588,11 +592,23 @@ public sealed class KeptEndingPerScheduleTests
     }
 
     // A visible skip shows a card and is kept; one that ran as a background row is not.
+    private sealed class EvictionLoopProbe() : ScheduledBackgroundService(
+        NullLogger<EvictionLoopProbe>.Instance, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build())
+    {
+        public override string ServiceKey => "cacheReconciliation";
+        protected override string ServiceName => "cacheReconciliation";
+        protected override TimeSpan Interval => TimeSpan.FromHours(1);
+        protected override Task ExecuteWorkAsync(CancellationToken stoppingToken) => Task.CompletedTask;
+    }
+
+    // A scan skipped for a download, marked the way the scan's own outcome and the queue's declines mark it
+    // (CacheScanGateTests.ADownloadRefusalMarksItsSkippedRowAsync covers the queue's two producers).
     private static OperationInfo Skip(UnifiedOperationTracker tracker, bool visible)
     {
         var id = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
             notice: new RunNotice(visible ? NotificationMode.All : NotificationMode.Silent, RunTrigger.Scheduled));
-        tracker.CompleteOperation(id, success: true, skipped: true);
+        tracker.CompleteOperation(id, success: true, skipped: true,
+            onCompleting: operation => operation.SkippedForDownload = true);
         return tracker.GetOperation(id)!;
     }
 

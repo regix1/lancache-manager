@@ -1,4 +1,5 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
@@ -87,7 +88,12 @@ public sealed class OperationQueueService : IOperationQueue
         Func<Task<Guid?>> start,
         CancellationToken ct,
         bool reportRefusal = false,
-        RunNotice? notice = null)
+        RunNotice? notice = null,
+        string? target = null,
+        StructuralScanMode? scanMode = null,
+        int? scanThreshold = null,
+        int? scanLookbackDays = null,
+        DetectionScanType? detectionScanType = null)
     {
         await _gate.WaitAsync(ct);
         try
@@ -99,18 +105,23 @@ public sealed class OperationQueueService : IOperationQueue
                 var duplicateWaiter = _waiters.FirstOrDefault(w =>
                     w.Type == type
                     && w.Scope.Matches(scope)
-                    && string.Equals(w.Name, displayName, StringComparison.Ordinal)
                     // A waiter being canceled leaves this list a moment later, on another thread; a new
                     // request that joined it would end with it.
-                    && _tracker.GetOperation(w.WaitingId)?.Status == OperationStatus.Waiting);
-                if (duplicateWaiter != null)
+                    // Two requests are the same when type, scope, target and scan settings match; a schedule's
+                    // requests carry neither target nor scan settings, so they match by type, which names the
+                    // schedule. The English name is for logs.
+                    && _tracker.GetOperation(w.WaitingId) is { Status: OperationStatus.Waiting } waiting
+                    && string.Equals(waiting.Target, target, StringComparison.Ordinal)
+                    && SameScanSettings(waiting, scanMode, scanThreshold, scanLookbackDays, detectionScanType));
+                // A request whose join was refused (that waiter is being canceled, or its own card
+                // stopped waiting) is not a duplicate: it goes on to the conflict check and waits or starts
+                // on its own. The waiting run's own lock is taken by Adopt, so a person's click raises its
+                // trigger and actor together, and the scan type the person pressed is kept.
+                if (duplicateWaiter != null
+                    && (notice is not { OperationId: not null, Cancelled: false }
+                        || notice.CloseInto(_tracker, duplicateWaiter.WaitingId))
+                    && (notice is null || duplicateWaiter.Notice is not { } retained || retained.Adopt(_tracker, notice)))
                 {
-                    notice?.Attach(_tracker, duplicateWaiter.WaitingId);
-                    if (notice?.Trigger == RunTrigger.Manual && duplicateWaiter.Notice is { } retained)
-                    {
-                        retained.Trigger = RunTrigger.Manual;
-                        _tracker.RefreshRun(duplicateWaiter.WaitingId);
-                    }
                     return new QueuedOperationResponse
                     {
                         OperationId = duplicateWaiter.WaitingId,
@@ -129,6 +140,10 @@ public sealed class OperationQueueService : IOperationQueue
             if (conflict == null)
             {
                 Guid? startedId;
+                // The card the notice named before the start. A start that re-held its run on a new
+                // card (a download began while it ran) leaves the notice on that card, and attaching
+                // it to the started run afterwards would close the hold's card into a run that ended.
+                var cardBeforeStart = notice?.OperationId;
                 try
                 {
                     startedId = await start();
@@ -137,9 +152,9 @@ public sealed class OperationQueueService : IOperationQueue
                 {
                     // The same refusal the promotion path reports, arriving through the immediate
                     // door: the schedule gate said yes, then a download began before the start
-                    // delegate ran its own check. Named here as a decline rather than left to the
-                    // caller, whose only handler logs it as an error for something that did not go
-                    // wrong. Rethrown unchanged, because an HTTP caller is waiting on this and its
+                    // delegate ran its own check. Named here as a decline so it is recorded the same
+                    // way whoever called, and not left to each caller to notice. Rethrown unchanged,
+                    // because an HTTP caller is waiting on this and its
                     // 400 with the reason is the answer: dropping the throw would turn that into a
                     // silent success, so this handler only looks redundant.
                     _logger.LogInformation(
@@ -162,11 +177,16 @@ public sealed class OperationQueueService : IOperationQueue
                             new CancellationTokenSource(),
                             metadata: new Dictionary<string, object?> { [DeclinedRunMetadata.Key] = true },
                             notice: notice);
+                        // A request that already has a waiting card hands it on to this row, so the run's
+                        // end finds no waiting card to end as skipped and a hold that follows links to this row.
+                        if (notice is { OperationId: not null }) notice.Attach(_tracker, declinedId);
                         // No error text. The card prints this field VERBATIM and only translates the
                         // stage key beside it, so the gate's English would reach every locale as-is
                         // and a translation key would show as the key itself. Leaving it null lets
                         // the card say why in the reader's own language.
-                        _tracker.CompleteOperation(declinedId, success: true, skipped: true);
+                        // Marked as a download refusal on its own row, so the schedule holds the run on the
+                        // refusal itself and not on the download gate asked again later.
+                        _tracker.CompleteOperation(declinedId, success: true, skipped: true, onCompleting: MarkSkippedForDownload);
                     }
 
                     throw;
@@ -174,7 +194,7 @@ public sealed class OperationQueueService : IOperationQueue
 
                 if (startedId.HasValue)
                 {
-                    notice?.Attach(_tracker, startedId.Value);
+                    if (notice is not null && notice.OperationId == cardBeforeStart) notice.Attach(_tracker, startedId.Value);
                     return new QueuedOperationResponse
                     {
                         OperationId = startedId.Value,
@@ -190,9 +210,11 @@ public sealed class OperationQueueService : IOperationQueue
                 conflict = await _conflictChecker.CheckAsync(type, scope, ct);
             }
             // Identical op already ACTIVE -> idempotent accept (never rejected, never doubled).
-            if (GetDuplicateId(conflict, displayName) is { } activeId)
+            // Refused: the running duplicate turned Cancelling after GetDuplicateId read it. The request parks
+            // below and runs once that run ends.
+            if (GetDuplicateId(conflict, scanMode, scanThreshold, scanLookbackDays, detectionScanType) is { } activeId
+                && (notice is not { OperationId: not null, Cancelled: false } || notice.CloseInto(_tracker, activeId)))
             {
-                notice?.Attach(_tracker, activeId);
                 return new QueuedOperationResponse
                 {
                     OperationId = activeId,
@@ -206,7 +228,7 @@ public sealed class OperationQueueService : IOperationQueue
             // and the frontend card has a real operationId (no ghost-notification shape).
             var cts = new CancellationTokenSource();
             Guid waitingId = default;
-            var blockerName = ResolveBlockerName(conflict);
+            var blocker = ResolveBlocker(conflict);
             waitingId = _tracker.RegisterOperation(
                 type,
                 displayName,
@@ -214,8 +236,16 @@ public sealed class OperationQueueService : IOperationQueue
                 onTerminalCleanup: () => RemoveWaiter(waitingId),
                 initialStatus: OperationStatus.Waiting,
                 metadata: new Dictionary<string, object?> { ["waiting"] = true },
-                blockedByName: blockerName,
-                notice: notice);
+                blockedByName: blocker?.Name,
+                notice: notice,
+                target: target,
+                blockedByType: blocker?.Type,
+                blockedByTarget: blocker?.Target,
+                scanMode: scanMode,
+                scanThreshold: scanThreshold,
+                scanLookbackDays: scanLookbackDays,
+                blockedByFullRepair: blocker?.Metadata is CacheClearingRepair { FullRepair: true },
+                detectionScanType: detectionScanType);
 
             // A waiting op has no worker, so the queue is its worker: when the universal
             // cancel path cancels the CTS, complete the op as cancelled (CompletedFlag makes
@@ -291,22 +321,25 @@ public sealed class OperationQueueService : IOperationQueue
     }
 
     /// <summary>
-    /// The blocker's display name comes from the live tracker rather than the conflict response:
-    /// the response only carries the enum name, and a raw enum token is not something to show a
-    /// person. A blocker that already left the tracker resolves to null (generic waiting text) -
-    /// its terminal event is about to trigger a promotion pass anyway.
+    /// The blocker comes from the live tracker rather than the conflict response: the response
+    /// carries neither the blocker's name nor its target. A blocker that already left the tracker
+    /// resolves to null (generic waiting text) - its terminal event is about to trigger a promotion
+    /// pass anyway.
     /// </summary>
-    private string? ResolveBlockerName(OperationConflictResponse? conflict)
+    private OperationInfo? ResolveBlocker(OperationConflictResponse? conflict)
     {
         if (conflict?.ActiveOperationId is not { } blockerId || blockerId == Guid.Empty)
         {
             return null;
         }
-        return _tracker.GetOperation(blockerId)?.Name;
+        // A child step (an eviction scan's own detection) is not a job of its own, so a request waiting on
+        // it names the scan that owns it.
+        var blocker = _tracker.GetOperation(blockerId);
+        return blocker?.ParentOperationId is { } parentId ? _tracker.GetOperation(parentId) : blocker;
     }
 
-    // The waiting run's row carries the blocker's name, so recording it on the tracker is what
-    // updates the card, the recovery endpoint and the run list together.
+    // The waiting run's row carries the blocker's name, type and target, so recording them on the
+    // tracker is what updates the card, the recovery endpoint and the run list together.
     private void AnnounceBlockerChange(Waiter waiter, OperationConflictResponse conflict)
     {
         if (conflict.ActiveOperationId == waiter.LastBlockerId)
@@ -314,7 +347,9 @@ public sealed class OperationQueueService : IOperationQueue
             return;
         }
         waiter.LastBlockerId = conflict.ActiveOperationId;
-        _tracker.SetBlockedByName(waiter.WaitingId, ResolveBlockerName(conflict));
+        var blocker = ResolveBlocker(conflict);
+        _tracker.SetBlockedByName(waiter.WaitingId, blocker?.Name, blocker?.Type, blocker?.Target,
+            blocker?.Metadata is CacheClearingRepair { FullRepair: true });
     }
 
     private bool RemoveWaiter(Guid waitingId)
@@ -344,7 +379,8 @@ public sealed class OperationQueueService : IOperationQueue
     /// Serialized by <see cref="_gate"/>; re-entrant terminal events (the waiting op's own
     /// completion fires OperationTerminal too) simply run a later, idempotent pass.
     /// </summary>
-    private Guid? GetDuplicateId(OperationConflictResponse? conflict, string displayName)
+    private Guid? GetDuplicateId(OperationConflictResponse? conflict, StructuralScanMode? scanMode, int? scanThreshold,
+        int? scanLookbackDays, DetectionScanType? detectionScanType)
     {
         if (conflict?.StageKey != "errors.conflict.duplicate"
             || conflict.ActiveOperationId is not { } activeId || activeId == Guid.Empty)
@@ -356,13 +392,36 @@ public sealed class OperationQueueService : IOperationQueue
         // Neither a run being canceled nor an image fetch pass answers a new request: the canceled run
         // stops before it does the work, and a pass read its work list when it started. The request waits
         // and runs once that operation ends.
+        // A running operation answers a new request only when it is known to do that work: a schedule's
+        // run, or a corruption scan with the same mode, miss threshold and lookback, the values the scan
+        // service compares. Other running operations do not carry the target of the request they serve,
+        // so the request waits and runs after them. A child step (an eviction scan's own detection) shares a
+        // schedule's type but serves only its parent, so it never answers a schedule's request. A game
+        // detection answers only a request for the same scan type: the other type waits and runs its own
+        // scan after.
         return operation != null && !operation.Status.IsTerminal() && operation.Status != OperationStatus.Waiting
             && operation.Status != OperationStatus.Cancelling
             && operation.Type != OperationType.GameImageFetch
-            && string.Equals(operation.Name, displayName, StringComparison.Ordinal)
+            && (operation.ParentOperationId is null && ScheduleOperationTypes.FindServiceKey(operation.Type) is not null
+                    && (operation.Type != OperationType.GameDetection || operation.DetectionScanType == detectionScanType)
+                || (operation.Type == OperationType.CorruptionDetection
+                    && SameScanSettings(operation, scanMode, scanThreshold, scanLookbackDays, detectionScanType)))
                 ? activeId
                 : null;
     }
+
+    // A corruption scan's identity: the mode, miss threshold and lookback the scan service compares
+    // (CorruptionDetectionService.StartDetectionAsync); the method is implied by the mode. A game detection's
+    // identity is its scan type. Both the waiter dedupe and GetDuplicateId use this, so the two cannot disagree.
+    private static bool SameScanSettings(OperationInfo operation, StructuralScanMode? scanMode, int? scanThreshold,
+        int? scanLookbackDays, DetectionScanType? detectionScanType)
+        => operation.ScanMode == scanMode
+            && operation.ScanThreshold == scanThreshold
+            && operation.ScanLookbackDays == scanLookbackDays
+            && operation.DetectionScanType == detectionScanType;
+
+    // Set only where the refusal is a DownloadInProgressException, never for a start gate that stayed busy.
+    private static void MarkSkippedForDownload(OperationInfo operation) => operation.SkippedForDownload = true;
 
     private async Task PromoteEligibleAsync()
     {
@@ -390,8 +449,10 @@ public sealed class OperationQueueService : IOperationQueue
                     }
 
                     var conflict = await _conflictChecker.CheckAsync(waiter.Type, waiter.Scope, CancellationToken.None);
-                    var startedId = GetDuplicateId(conflict, waiter.Name);
-                    if (conflict != null && !startedId.HasValue)
+                    var waiterOperation = _tracker.GetOperation(waiter.WaitingId);
+                    var duplicateId = GetDuplicateId(conflict, waiterOperation?.ScanMode, waiterOperation?.ScanThreshold,
+                        waiterOperation?.ScanLookbackDays, waiterOperation?.DetectionScanType);
+                    if (conflict != null && !duplicateId.HasValue)
                     {
                         // Still blocked; independent-scope waiters behind it may still promote.
                         // The blocker may be a DIFFERENT operation than last announced (the one
@@ -407,11 +468,24 @@ public sealed class OperationQueueService : IOperationQueue
                         continue;
                     }
 
+                    Guid? startedId = null;
                     string? startError = null;
                     var startDeclined = false;
-                    try
+                    if (duplicateId is { } runningId)
                     {
-                        if (!startedId.HasValue)
+                        // A run of the same work is already going: the waiting card closes into it as a join, so
+                        // dismissing the card never stops that run. Refused (the run is ending, or the card was
+                        // canceled): the card takes the re-park branch below.
+                        if (_tracker.TryCloseInto(waiter.WaitingId, runningId))
+                        {
+                            _logger.LogInformation(
+                                "Queued {Type} '{Name}' joined running op {RunningId}", waiter.Type, waiter.Name, runningId);
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        try
                         {
                             if (waiter.Notice != null)
                                 waiter.Notice.BlockedByOperationId = waiter.LastBlockerId;
@@ -420,32 +494,32 @@ public sealed class OperationQueueService : IOperationQueue
                                 startedId = await waiter.Start();
                             }
                         }
-                    }
-                    catch (DownloadInProgressException ex)
-                    {
-                        // Only this one condition is a decline. The same request refused a moment
-                        // earlier, at request time, would have been answered 400 and never queued,
-                        // so being parked behind another operation must not turn it into a red
-                        // failure. Every other stated precondition that throws the base
-                        // ValidationException - a wrong PUID or PGID failing a write-permission
-                        // re-check, a datasource that cannot map logical objects - is a real
-                        // problem the reader has to see, and falls through to the handler below.
-                        // This catch must stay above that one; the derived type is unreachable
-                        // otherwise.
-                        startDeclined = true;
-                        // Set for the control flow below, which reads a null startError as the
-                        // transient local-start-gate case and parks the waiter for another 30
-                        // seconds. It never reaches the card: the terminal emit drops the text on a
-                        // skipped completion, because that field is rendered verbatim.
-                        startError = ex.Message;
-                        _logger.LogInformation(
-                            "Queued {Type} '{Name}' declined at promotion: {Reason}",
-                            waiter.Type, waiter.Name, ex.Message);
-                    }
-                    catch (Exception ex)
-                    {
-                        startError = ex.Message;
-                        _logger.LogError(ex, "Queued {Type} '{Name}' failed to start at promotion", waiter.Type, waiter.Name);
+                        catch (DownloadInProgressException ex)
+                        {
+                            // Only this one condition is a decline. Being parked behind another
+                            // operation must not turn a download into a red failure: the row ends
+                            // skipped and marked, and the schedule holds the run on a waiting card until
+                            // downloads end. Every other stated precondition that throws the base
+                            // ValidationException - a wrong PUID or PGID failing a write-permission
+                            // re-check, a datasource that cannot map logical objects - is a real
+                            // problem the reader has to see, and falls through to the handler below.
+                            // This catch must stay above that one; the derived type is unreachable
+                            // otherwise.
+                            startDeclined = true;
+                            // Set for the control flow below, which reads a null startError as the
+                            // transient local-start-gate case and parks the waiter for another 30
+                            // seconds. It never reaches the card: the terminal emit drops the text on a
+                            // skipped completion, because that field is rendered verbatim.
+                            startError = ex.Message;
+                            _logger.LogInformation(
+                                "Queued {Type} '{Name}' declined at promotion: {Reason}",
+                                waiter.Type, waiter.Name, ex.Message);
+                        }
+                        catch (Exception ex)
+                        {
+                            startError = ex.Message;
+                            _logger.LogError(ex, "Queued {Type} '{Name}' failed to start at promotion", waiter.Type, waiter.Name);
+                        }
                     }
 
                     if (startedId == waiter.WaitingId)
@@ -555,7 +629,8 @@ public sealed class OperationQueueService : IOperationQueue
                             waiter.WaitingId,
                             success: startDeclined,
                             error: startError,
-                            skipped: startDeclined);
+                            skipped: startDeclined,
+                            onCompleting: startDeclined ? MarkSkippedForDownload : null);
                     }
                 }
             }

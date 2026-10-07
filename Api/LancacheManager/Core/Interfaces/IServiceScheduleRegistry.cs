@@ -64,7 +64,7 @@ public interface IServiceScheduleRegistry
     /// Triggers an immediate run of the service, bypassing the scheduled interval, and reports the
     /// run state observed immediately before the trigger was armed. When that state already reports
     /// <see cref="ScheduleRunStatus.IsRunning"/> = <c>true</c>, this call could not start a second run
-    /// (see <c>ScheduledServiceBase.TriggerImmediateRun</c>'s single pending-run flag) - the caller is
+    /// (see the run queue in <c>ScheduledServiceBase</c>, which admits one waiting run) - the caller is
     /// colliding with the run described by the returned status, not starting a new one.
     ///
     /// SkippedReason identifies a retained download hold before the loop is armed.

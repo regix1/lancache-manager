@@ -12,6 +12,7 @@ using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.Internal;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -22,8 +23,10 @@ namespace LancacheManager.Tests;
 /// Covers the ScheduleController notification-mode hardening and the generic run-status recovery
 /// endpoint: the mode PUT is admin-only and rejects services that do not support run notifications
 /// (including scheduledPrefill), while the run-status route maps a service key to its tracked
-/// operation and reports the live percent for card recovery.
+/// operation and reports the live percent for card recovery. Runs in the downloads-ended collection
+/// because a registry built with a download gate installs the process-wide run gate.
 /// </summary>
+[Collection(nameof(DownloadsEndedEventCollection))]
 public class ScheduleControllerNotificationModeTests
 {
     [Theory]
@@ -489,15 +492,195 @@ public class ScheduleControllerNotificationModeTests
             Assert.Equal("management.schedules.services.scheduledPrefill.runNowNoSchedule",
                 document.RootElement.GetProperty("stageKey").GetString());
             Assert.Empty(tracker.GetRuns().Runs);
-            Assert.Null(typeof(ScheduledServiceBase)
-                .GetField("_manualNotice", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(prefill));
+            Assert.Null(RequestedRun(prefill));
         }
         finally
         {
             Directory.Delete(root, recursive: true);
         }
     }
+
+    // Run All with no prefill schedule enabled leaves prefill out of every count instead of reporting
+    // it started.
+    [Fact]
+    public async Task RunAll_LeavesOutAPrefillWithNoScheduleEnabled()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-run-all-no-schedule-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            using var prefill = new NoPrefillScheduleEnabledProbe();
+            var schedules = new ServiceScheduleRegistry(
+                [prefill], StateTestMethods.CreateStateService(root),
+                (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                ScheduleExecutionTestService.Create(), CreateTracker());
+
+            var (triggered, alreadyRunning, skipped, _) = await schedules.TriggerAllAsync();
+
+            Assert.Equal((0, 0, 0), (triggered, alreadyRunning, skipped));
+            Assert.Null(RequestedRun(prefill));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // A service turned off in configuration has no loop to take a run: Run Now is refused with a key
+    // the browser translates, and Run All leaves it out of every count.
+    [Fact]
+    public async Task AServiceDisabledInConfiguration_IsRefusedByRunNowAndLeftOutOfRunAll()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-run-now-disabled-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            using var service = new DisabledInConfigurationProbe();
+            await service.StartAsync(CancellationToken.None);
+            await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(5));
+            var tracker = CreateTracker();
+            var schedules = new ServiceScheduleRegistry(
+                [service], StateTestMethods.CreateStateService(root),
+                (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                ScheduleExecutionTestService.Create(), tracker);
+            var controller = CreateController(schedules);
+
+            var context = new DefaultHttpContext();
+            var body = new MemoryStream();
+            context.Response.Body = body;
+            var middleware = new GlobalExceptionMiddleware(
+                async _ => await controller.TriggerRunAsync("logRotation"),
+                NullLogger<GlobalExceptionMiddleware>.Instance,
+                new HostingEnvironment { EnvironmentName = Environments.Production });
+            await middleware.InvokeAsync(context);
+
+            Assert.Equal(StatusCodes.Status409Conflict, context.Response.StatusCode);
+            using var document = JsonDocument.Parse(body.ToArray());
+            Assert.Equal("management.schedules.runNowServiceDisabled",
+                document.RootElement.GetProperty("stageKey").GetString());
+            var (triggered, alreadyRunning, skipped, _) = await schedules.TriggerAllAsync();
+            Assert.Equal((0, 0, 0), (triggered, alreadyRunning, skipped));
+            Assert.Empty(tracker.GetRuns().Runs);
+            Assert.Null(RequestedRun(service));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // A scan a download turned away on a service that has no loop is not held on a card nothing takes: it
+    // ends with the reason the service cannot run.
+    [Fact]
+    public async Task ASkippedScanOnAServiceWithNoLoop_EndsWithTheReasonInsteadOfWaiting()
+    {
+        const string missingProgramKey = "management.schedules.runNowProgramMissing";
+        var root = Path.Combine(Path.GetTempPath(), "lm-held-disabled-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            using var service = new DisabledInConfigurationProbe("cacheReconciliation", missingProgramKey);
+            await service.StartAsync(CancellationToken.None);
+            await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(5));
+            var tracker = CreateTracker();
+            var announced = new TaskCompletionSource<ScheduledRunCompleteEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var notifications = CacheScanGateHarness.CreateProxy<ISignalRNotificationService>((_, args) =>
+            {
+                if (args?.Length > 1 && args[1] is ScheduledRunCompleteEvent terminal) announced.TrySetResult(terminal);
+                return Task.CompletedTask;
+            });
+            _ = new ServiceScheduleRegistry(
+                [service], StateTestMethods.CreateStateService(root), notifications,
+                ScheduleExecutionTestService.Create(), tracker, activityRegistry: null,
+                cacheScanGate: CacheScanGateHarness.Idle());
+
+            var id = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+                notice: new RunNotice(NotificationMode.All, RunTrigger.Manual));
+            tracker.CompleteOperation(id, success: true, skipped: true,
+                onCompleting: operation => operation.SkippedForDownload = true);
+
+            var terminal = await announced.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(missingProgramKey, terminal.StageKey);
+            Assert.Empty(tracker.GetWaitingOperations());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // An eviction scan's own detection step is not the detection schedule's run.
+    [Fact]
+    public void GetRunStatus_IgnoresAnEvictionScansDetectionStep()
+    {
+        var tracker = CreateTracker();
+        var scan = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
+            parentOperationId: scan);
+
+        var status = CreateRegistry(tracker).GetRunStatus("gameDetection");
+
+        Assert.NotNull(status);
+        Assert.False(status!.IsRunning);
+    }
+
+    // A running detection is the detection schedule's run only when it is the scan type the schedule would
+    // run (Full here, the default mode); the other type waits and runs its own scan after.
+    [Theory]
+    [InlineData(DetectionScanType.Incremental, false)]
+    [InlineData(DetectionScanType.Full, true)]
+    public void ARunningDetection_IsTheSchedulesRunOnlyForTheSameScanType(DetectionScanType running, bool counts)
+    {
+        var tracker = CreateTracker();
+        tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
+            detectionScanType: running);
+
+        var status = (ScheduleRunStatus?)typeof(ServiceScheduleRegistry)
+            .GetMethod("GetRunThatDoesTheWork", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(CreateRegistry(tracker), ["gameDetection", null]);
+
+        Assert.Equal(counts, status is not null);
+    }
+
+    // A held Games-page request is answered by a running detection of the type the person asked for, whatever
+    // the schedule's own mode resolves to (Full here).
+    [Theory]
+    [InlineData(DetectionScanType.Incremental, DetectionScanType.Incremental, true)]
+    [InlineData(DetectionScanType.Full, DetectionScanType.Incremental, false)]
+    public void ARunningDetection_AnswersAHeldRequestOnlyForTheScanTypeItAskedFor(
+        DetectionScanType running, DetectionScanType requested, bool counts)
+    {
+        var tracker = CreateTracker();
+        tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
+            detectionScanType: running);
+
+        var status = (ScheduleRunStatus?)typeof(ServiceScheduleRegistry)
+            .GetMethod("GetRunThatDoesTheWork", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(CreateRegistry(tracker), ["gameDetection", requested]);
+
+        Assert.Equal(counts, status is not null);
+    }
+
+    // The detection step an eviction scan runs inside is not a detection a page reload may rebuild.
+    [Fact]
+    public void TheActiveDetectionAnswer_IgnoresAnEvictionScansDetectionStep()
+    {
+        var tracker = CreateTracker();
+        var scan = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
+            new GameDetectionMetrics { ParentOperationId = scan }, parentOperationId: scan);
+        var service = (GameCacheDetectionService)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(GameCacheDetectionService));
+        typeof(GameCacheDetectionService).GetField("_operationTracker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(service, tracker);
+
+        Assert.Null(service.GetActiveOperation());
+    }
+
+    private static RunNotice? RequestedRun(ScheduledServiceBase loop)
+        => ((RunNotice?[])typeof(ScheduledServiceBase)
+            .GetField("_requested", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(loop)!).FirstOrDefault(request => request is not null);
 
     private static ScheduleController CreateController(
         IServiceScheduleRegistry registry,
@@ -537,6 +720,22 @@ public class ScheduleControllerNotificationModeTests
 
         public bool HasAnyServiceEnabled() => false;
 
+        protected override Task ExecuteWorkAsync(CancellationToken stoppingToken) => Task.CompletedTask;
+    }
+
+    // Log Rotation as a default install has it: its enabling key is false, so its loop stops at start.
+    private sealed class DisabledInConfigurationProbe(string serviceKey = "logRotation", string? stageKey = null)
+        : ScheduledBackgroundService(
+            NullLogger<DisabledInConfigurationProbe>.Instance,
+            new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Probe:Enabled"] = "false" })
+                .Build())
+    {
+        public override string ServiceKey => serviceKey;
+        public override string DisabledStageKey => stageKey ?? base.DisabledStageKey;
+        protected override string ServiceName => serviceKey;
+        protected override string? EnabledConfigKey => "Probe:Enabled";
+        protected override TimeSpan Interval => TimeSpan.FromHours(1);
         protected override Task ExecuteWorkAsync(CancellationToken stoppingToken) => Task.CompletedTask;
     }
 

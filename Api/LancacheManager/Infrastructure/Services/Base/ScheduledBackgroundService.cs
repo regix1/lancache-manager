@@ -7,7 +7,7 @@ namespace LancacheManager.Infrastructure.Services.Base;
 /// Base class for background services that run on a schedule.
 /// Provides common functionality for startup delay, configuration checking,
 /// error handling, and interval-based execution.
-/// Supports runtime-configurable intervals via SetInterval() and TriggerImmediateRun().
+/// Supports runtime-configurable intervals via SetInterval() and Run Now through the run queue.
 /// </summary>
 public abstract class ScheduledBackgroundService : ScheduledServiceBase
 {
@@ -43,10 +43,17 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
     }
 
     /// <summary>
-    /// Default time between work executions. Return TimeSpan.Zero to run continuously.
+    /// Default time between work executions. TimeSpan.Zero means Disabled, except for a service that
+    /// sets <see cref="RunsContinuously"/>.
     /// Use EffectiveInterval in the loop - this is the hardcoded default only.
     /// </summary>
     protected abstract TimeSpan Interval { get; }
+
+    /// <summary>
+    /// True for a service whose one work pass never ends (the speed tracker). It runs at an interval
+    /// of zero; for every other service zero means Disabled and nothing runs unless someone asks.
+    /// </summary>
+    protected virtual bool RunsContinuously => false;
 
     /// <summary>
     /// Configuration key to check if service is enabled.
@@ -58,6 +65,18 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
     /// Whether service is enabled by default if config key not found.
     /// </summary>
     protected virtual bool EnabledByDefault => true;
+
+    /// <summary>
+    /// True once the loop found the service disabled in configuration and stopped, so no loop will
+    /// take a Run Now.
+    /// </summary>
+    public bool DisabledInConfiguration { get; private set; }
+
+    /// <summary>
+    /// The translation key that says why a service with <see cref="DisabledInConfiguration"/> has no loop.
+    /// A service that is off for another reason overrides it.
+    /// </summary>
+    public virtual string DisabledStageKey => "management.schedules.runNowServiceDisabled";
 
     protected ScheduledBackgroundService(ILogger logger, IConfiguration configuration)
         : base(logger)
@@ -103,6 +122,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
         // Check if enabled
         if (!IsEnabled())
         {
+            DisabledInConfiguration = true;
             _logger.LogInformation("{ServiceName} is disabled", ServiceName);
             return;
         }
@@ -121,7 +141,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
         // broadcasts below are this class's own - so it asks the same question here. Eviction and
         // game detection both do real work from OnStartupAsync, so a container that comes up while a
         // download is writing would otherwise run them unguarded.
-        string? startupDenial = null;
+        RunNotice? startupNotice = null;
         if (RunOnStartup)
         {
             // The question is asked at the earliest moment the process can ask it, which for the
@@ -136,28 +156,35 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                 await WaitForDownloadAnswer(ServiceKey, stoppingToken);
             }
 
-            var manualPending = ConsumePendingManualRun(out var notice);
-            SelectRunNotice(manualPending ? RunTrigger.Manual : RunTrigger.Startup, notice);
-            startupDenial = ScheduleRunGate?.Invoke(ServiceKey, CurrentRunTrigger);
-        }
-
-        if (startupDenial is not null)
-        {
-            _logger.LogInformation("{ServiceName} startup run skipped: {Reason}", ServiceName, startupDenial);
+            // A Run Now waiting at startup is the startup run, attributed Manual (same as
+            // ConfigurableScheduledService): left waiting, it would misattribute a later scheduled
+            // tick as Manual.
+            var taken = await StartRunAsync(RunTrigger.Startup, null);
+            SelectRunNotice(RunTrigger.Startup, taken);
+            var startupDenial = ScheduleRunGate is { } gate ? await gate(ServiceKey, CurrentRunTrigger) : null;
+            if (startupDenial is not null)
+            {
+                _logger.LogInformation("{ServiceName} startup run skipped: {Reason}", ServiceName, startupDenial);
+            }
+            if (startupDenial is not null || !await EnterRunAsync(CurrentRunNotice))
+            {
+                await EndRunAsync(taken, ServiceKey, null, false, report: false);
+            }
+            else
+            {
+                startupNotice = CurrentRunNotice;
+                // A held run released while this one waited at its gate may have raised its trigger.
+                SelectRunNotice(startupNotice);
+            }
         }
 
         // Optional: Run once at startup
-        if (RunOnStartup && startupDenial is null && !CurrentRunNotice.Cancelled)
+        if (startupNotice is not null)
         {
-            var startupNotice = CurrentRunNotice;
             string? startupError = null;
             using var startupCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, startupNotice.Token);
             try
             {
-                IsCurrentlyExecuting = true;
-                // Manual takes priority over Startup (same ternary as ConfigurableScheduledService):
-                // a Run Now landing around startup must be consumed here, or the stale flag would
-                // misattribute a later scheduled tick as Manual.
                 // Broadcast the start so the Schedules status dot lights up for the whole run.
                 ServiceExecutionStateChanged?.Invoke(ServiceKey);
                 startupCts.Token.ThrowIfCancellationRequested();
@@ -175,9 +202,8 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             }
             finally
             {
-                IsCurrentlyExecuting = false;
-                if (!stoppingToken.IsCancellationRequested)
-                    RunCompleted?.Invoke(startupNotice, ServiceKey, startupError, startupNotice.Cancelled);
+                await EndRunAsync(startupNotice, ServiceKey, startupError, startupNotice.Cancelled,
+                    report: !stoppingToken.IsCancellationRequested);
                 // Whether startup succeeded or failed, the next thing is the main loop's skip-first
                 // sleep, so set the countdown to that before the END broadcast rather than shipping a
                 // null "Soon". The skip-first sleep re-sets this authoritatively.
@@ -202,6 +228,11 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
         //      must NOT fire on the first iteration either (otherwise "disabling startup" is a lie)
         // The first ExecuteWorkAsync only runs after the interval has elapsed (or via Run Now).
         bool skipFirstExecution = true;
+        var woken = false;
+        // The NextRunUtc the last sleep was computed for.
+        DateTime? dueAt = null;
+        // When a failed run's retry back-off ends, kept so an extra run that cut the back-off short can finish it.
+        DateTime? retryDueAt = null;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -210,18 +241,26 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             // be true on the same wake) AND even during the skip-first-execution pass. Reading it
             // before the branches, rather than inside the "else" below, is what makes that possible
             // - checking IntervalJustChanged/skipFirstExecution first and only reading
-            // _pendingManualRun in the other branch silently drops a same-tick Run Now (no work
+            // the waiting request in the other branch silently drops a same-tick Run Now (no work
             // happens) AND leaves the flag stale to misattribute a LATER genuinely scheduled tick as
             // Manual. Mirrors ConfigurableScheduledService's ordering.
-            var manualPending = ConsumePendingManualRun(out var manualNotice);
+            var manualNotice = await ConsumePendingManualRunAsync();
+            var manualPending = manualNotice is not null;
+            // A scan of another type than this schedule's own is an extra run: it leaves the countdown, the
+            // due time and the skip-first sleep as they were, so the schedule's own run still happens on time.
+            var extraRun = manualNotice is not null && IsExtraRun(manualNotice);
 
             // A run this service was already due for, refused while a download was writing to the
             // cache and owed now that it has stopped. It reaches the work branch the same way a Run
             // Now does, and is attributed Scheduled below, because that is what it is.
-            var deferredPending = ConsumePendingDeferredRun(out var deferredNotice);
+            var deferredNotice = await ConsumePendingDeferredRunAsync();
+            var deferredPending = deferredNotice is not null;
 
             var schedule = ConfiguredCustomSchedule;
             var interval = EffectiveInterval;
+            var intervalChanged = IntervalJustChanged;
+            // Disabled and Startup only are not due to run, so a failed Run Now there is not retried.
+            var workIsDue = schedule is null ? interval > TimeSpan.Zero || RunsContinuously : IsWorkDue(schedule, interval);
 
             if (skipFirstExecution && !manualPending && !deferredPending)
             {
@@ -234,7 +273,8 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                 // lands on the same wall-clock time whether or not a restart happened in between.
                 if (schedule is not null && NextRunUtc is not null)
                 {
-                    await InterruptibleDelayAsync(TimeUntil(NextRunUtc.Value), stoppingToken);
+                    dueAt = NextRunUtc;
+                    woken = await InterruptibleDelayAsync(TimeUntil(NextRunUtc.Value), stoppingToken);
                     continue;
                 }
 
@@ -247,7 +287,16 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
 
                 if (interval > TimeSpan.Zero)
                 {
-                    await InterruptibleDelayAsync(interval, stoppingToken);
+                    dueAt = NextRunUtc;
+                    woken = await InterruptibleDelayAsync(interval, stoppingToken);
+                }
+                else if (!RunsContinuously)
+                {
+                    // A zero or negative interval means Disabled or Startup only, so the first pass waits
+                    // for a change or a Run Now instead of falling through to the work. The speed tracker
+                    // runs its work as one long pass.
+                    dueAt = NextRunUtc;
+                    woken = await InterruptibleDelayAsync(Timeout.InfiniteTimeSpan, stoppingToken);
                 }
                 continue;
             }
@@ -257,6 +306,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             if (IntervalJustChanged && !manualPending && !deferredPending)
             {
                 IntervalJustChanged = false;
+                intervalChanged = true;
             }
             // `schedule is null` short-circuits to the unchanged behaviour: without a schedule this
             // branch is still taken unconditionally, and a paused service is stopped by the sleep at
@@ -264,10 +314,21 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             // to an occurrence, so the gate is whether the schedule can fire at all - a schedule with
             // no next run idles on the interval sleep, and running the work then would run it on
             // exactly the schedule the user set to stop it.
-            else if (manualPending || deferredPending || schedule is null || IsWorkDue(schedule, interval))
+            // Work runs on a request, an owed run, a sleep that ran out, or a wake handled after the time
+            // that sleep was waiting for; a wake whose request was dismissed before the take, and before
+            // that time, re-sleeps until that same time, so the dismissed request does not move the next run.
+            else if (manualPending || deferredPending
+                || ((!woken || (dueAt is { } due && DateTime.UtcNow >= due)) && workIsDue))
             {
-                skipFirstExecution = false;
-                IntervalJustChanged = false;
+                // The run taken here consumed the wake and the due time, so a failed run's retry below runs.
+                if (!extraRun)
+                {
+                    woken = false;
+                    dueAt = null;
+                    skipFirstExecution = false;
+                    IntervalJustChanged = false;
+                    retryDueAt = null;
+                }
 
                 // Resolved before the call rather than inside it, because the gate is asked with it
                 // and the work run is attributed with it, and the two must agree.
@@ -285,20 +346,30 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                         // instead of the just-elapsed one. The bottom-of-loop sleep re-sets this
                         // authoritatively; this only keeps the END snapshot from shipping a stale
                         // countdown.
-                        NextRunUtc = ComputeNextRun(ConfiguredCustomSchedule, EffectiveInterval);
+                        if (!extraRun) NextRunUtc = ComputeNextRun(ConfiguredCustomSchedule, EffectiveInterval);
                     },
                     stoppingToken,
                     "{ServiceName} error in execution loop",
                     () => ServiceExecutionStateChanged?.Invoke(ServiceKey),
-                    manualPending ? manualNotice : deferredNotice);
+                    manualPending ? manualNotice : deferredNotice,
+                    workIsDue && !extraRun);
 
                 if (shuttingDown)
                 {
                     break;
                 }
 
-                if (runFailed)
+                // An extra run goes back to the top with the sleep state untouched, so the schedule's own run
+                // that came due while it ran is taken there and a countdown still running is resumed.
+                if (runFailed || extraRun)
                 {
+                    if (runFailed) retryDueAt = NextRunUtc;
+                    // A failed run's back-off cut short by this extra run is finished before the retry, so the
+                    // extra scan does not bring the retry forward.
+                    else if (retryDueAt is { } retryAt)
+                    {
+                        await WaitForRetryAsync(retryAt, stoppingToken);
+                    }
                     continue;
                 }
             }
@@ -308,23 +379,30 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             // about to start below. Detect it here and loop straight into another run instead of
             // sleeping - otherwise a positive-interval service defers it to the next natural wake
             // (mislabelled Manual) and a paused service (interval <= 0) sleeps forever, dropping the
-            // accepted run entirely. The flag is consumed exactly once at the loop top, which re-reads
-            // it and tags the follow-up run Manual; peek without consuming here.
-            if (HasPendingManualRun())
+            // accepted run entirely. The request is taken exactly once at the loop top, which tags the
+            // follow-up run Manual; peek without taking here. A request posted after this peek finds no
+            // sleep to cancel, so its wake is recorded and the sleep below returns at once.
+            if (await HasPendingRunAsync())
             {
+                woken = true;
+                // The countdown the run just set goes on across an extra run that takes the next pass; a run
+                // taken as the schedule's own clears it there.
+                if (NextRunUtc > DateTime.UtcNow) dueAt = NextRunUtc;
                 continue;
             }
 
             interval = EffectiveInterval;
             schedule = ConfiguredCustomSchedule;
-            NextRunUtc = ComputeNextRun(schedule, interval);
+            var resumedDue = ResumedDueAt(woken, intervalChanged, schedule, dueAt);
+            NextRunUtc = resumedDue ?? ComputeNextRun(schedule, interval);
 
             if (schedule is not null && NextRunUtc is not null)
             {
                 // Sleep to the schedule's own instant. This is what makes a restart leave a schedule
                 // where it was: the interval branch below counts from now, so downtime pushes every
                 // later run out, while an occurrence is the same wall-clock time either way.
-                await InterruptibleDelayAsync(TimeUntil(NextRunUtc.Value), stoppingToken);
+                dueAt = NextRunUtc;
+                woken = await InterruptibleDelayAsync(TimeUntil(NextRunUtc.Value), stoppingToken);
             }
             else
             {
@@ -339,8 +417,9 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
 
                 var idleDelay = interval.TotalHours < 0 || interval == TimeSpan.Zero
                     ? Timeout.InfiniteTimeSpan
-                    : interval;
-                await InterruptibleDelayAsync(idleDelay, stoppingToken);
+                    : resumedDue is { } resumed ? TimeUntil(resumed) : interval;
+                dueAt = NextRunUtc;
+                woken = await InterruptibleDelayAsync(idleDelay, stoppingToken);
             }
         }
 

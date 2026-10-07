@@ -121,13 +121,16 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
 
         // If RunOnStartup is false, skip the very first work execution and go straight
         // to the sleep - work will only run after the first interval has elapsed (or
-        // when TriggerImmediateRun() is called manually).
+        // when a Run Now arrives).
         bool skipFirstExecution = !RunOnStartup;
 
         // When RunOnStartup is true, the very first ExecuteWorkAsync IS the startup pass; mark it so
         // CurrentRunTrigger reports Startup for it (unless a manual trigger claims that first run).
         // Cleared after the first real execution so every later run is Scheduled or Manual.
         bool startupRunPending = RunOnStartup;
+        var woken = false;
+        // The NextRunUtc the last sleep was computed for.
+        DateTime? dueAt = null;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -135,28 +138,34 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
             var schedule = ConfiguredCustomSchedule;
 
             var workIsDue = IsWorkDue(schedule, interval);
+            var intervalChanged = IntervalJustChanged;
 
             // A pending manual run must always be honored this iteration, even if it lands
             // alongside an interval change or the skip-first-execution pass, and even while the
             // schedule itself is paused (interval <= 0) - Run Now overrides all of those the same
-            // way TriggerImmediateRun's old due-check bypass used to. Reading it before the branch
+            // way a Run Now always has. Reading it before the branch
             // (rather than only inside the interval>0 branch) is what makes that possible; checking
-            // the other conditions first and only reading _pendingManualRun in the innermost branch
+            // the other conditions first and only taking the waiting request in the innermost branch
             // silently drops a same-tick Run Now AND leaves the flag stale to misattribute a LATER
             // genuinely scheduled tick as Manual.
-            var manualPending = ConsumePendingManualRun(out var manualNotice);
+            var manualNotice = await ConsumePendingManualRunAsync();
+            var manualPending = manualNotice is not null;
 
             // A run this service was already due for, refused while a download was writing to the
             // cache and owed now that it has stopped. It reaches the work branch the same way a Run
             // Now does, and keeps its Scheduled or Startup attribution below, because that is what
             // it is.
-            var deferredPending = ConsumePendingDeferredRun(out var deferredNotice);
+            var deferredNotice = await ConsumePendingDeferredRunAsync();
+            var deferredPending = deferredNotice is not null;
 
             // Skip work if woken by an interval change with no manual run pending - just re-sleep
             // with the new interval.
             if (IntervalJustChanged && !manualPending && !deferredPending)
             {
                 IntervalJustChanged = false;
+                // A save that landed after the copy above while the take was awaited is this wake's cause too,
+                // so the sleep below counts from the new interval and not from the old due time.
+                intervalChanged = true;
             }
             else if (skipFirstExecution && !manualPending && !deferredPending)
             {
@@ -164,8 +173,16 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                 skipFirstExecution = false;
                 _logger.LogInformation("{ServiceName} skipping startup run (RunOnStartup is false)", ServiceName);
             }
-            else if (manualPending || deferredPending || workIsDue)
+            // Work runs on a request, an owed run, the startup pass of a Startup only schedule, a sleep that
+            // ran out, or a wake handled after the time that sleep was waiting for; a wake whose request was
+            // dismissed before the take, and before that time, re-sleeps until that same time.
+            else if (manualPending || deferredPending
+                || (startupRunPending && interval < TimeSpan.Zero)
+                || (workIsDue && (!woken || (dueAt is { } due && DateTime.UtcNow >= due))))
             {
+                // The run taken here consumed the wake and the due time, so a failed run's retry below runs.
+                woken = false;
+                dueAt = null;
                 IntervalJustChanged = false;
                 skipFirstExecution = false;
 
@@ -201,7 +218,8 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                     stoppingToken,
                     "{ServiceName} error in scheduled work",
                     () => ServiceExecutionStateChanged?.Invoke(ServiceName),
-                    manualPending ? manualNotice : deferredNotice);
+                    manualPending ? manualNotice : deferredNotice,
+                    workIsDue);
 
                 if (shuttingDown)
                 {
@@ -210,6 +228,8 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
 
                 if (runFailed)
                 {
+                    // The retry is a scheduled run, not a second startup run.
+                    startupRunPending = false;
                     continue;
                 }
             }
@@ -225,10 +245,12 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
             // are about to enter below. Detect it here and loop straight into another run instead of
             // sleeping - otherwise a positive-interval service defers it to the next natural wake
             // (mislabelled Manual) and a paused service (interval <= 0) sleeps forever, dropping the
-            // accepted run entirely. The flag is consumed exactly once at the loop top, which re-reads
-            // it and tags the follow-up run Manual; peek without consuming here.
-            if (HasPendingManualRun())
+            // accepted run entirely. The request is taken exactly once at the loop top, which tags the
+            // follow-up run Manual; peek without taking here. A request posted after this peek finds no
+            // sleep to cancel, so its wake is recorded and the sleep below returns at once.
+            if (await HasPendingRunAsync())
             {
+                woken = true;
                 continue;
             }
 
@@ -236,7 +258,8 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
             // Use a linked CTS so UpdateInterval() can wake us up
             interval = ConfiguredInterval;
             schedule = ConfiguredCustomSchedule;
-            NextRunUtc = ComputeNextRun(schedule, interval);
+            var resumedDue = ResumedDueAt(woken, intervalChanged, schedule, dueAt);
+            NextRunUtc = resumedDue ?? ComputeNextRun(schedule, interval);
 
             // A custom schedule names an absolute instant, so sleep until that instant rather than for
             // a duration measured from now. An interval restarts its countdown at process start, which
@@ -257,11 +280,13 @@ public abstract class ConfigurableScheduledService : ScheduledServiceBase
                     WarnScheduleNeverFires(schedule);
                 }
 
-                sleepDuration = interval > TimeSpan.Zero ? interval : Timeout.InfiniteTimeSpan;
+                sleepDuration = resumedDue is { } resumed ? TimeUntil(resumed)
+                    : interval > TimeSpan.Zero ? interval : Timeout.InfiniteTimeSpan;
             }
 
             // On shutdown the delay returns and the while condition ends the loop.
-            await InterruptibleDelayAsync(sleepDuration, stoppingToken);
+            dueAt = NextRunUtc;
+            woken = await InterruptibleDelayAsync(sleepDuration, stoppingToken);
         }
 
         _logger.LogInformation("{ServiceName} scheduling loop stopped", ServiceName);

@@ -168,7 +168,7 @@ public class GamesController : ControllerBase
         {
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.GameRemoval, ConflictScope.SteamGame(appId), $"Game Removal ({gameName})",
-                async () => await StartCoreAsync(), cancellationToken));
+                async () => await StartCoreAsync(), cancellationToken, target: gameName));
         }
 
         var operationId = await StartCoreAsync();
@@ -248,7 +248,7 @@ public class GamesController : ControllerBase
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.GameRemoval, ConflictScope.EpicGame(epicAppId, gameName),
                 $"Epic Game Removal ({gameName})",
-                async () => await StartCoreAsync(), cancellationToken));
+                async () => await StartCoreAsync(), cancellationToken, target: gameName));
         }
 
         var operationId = await StartCoreAsync();
@@ -330,7 +330,7 @@ public class GamesController : ControllerBase
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.GameRemoval, ConflictScope.NamedGame(service, gameName),
                 $"Game Removal ({gameName})",
-                async () => await StartCoreAsync(), cancellationToken));
+                async () => await StartCoreAsync(), cancellationToken, target: gameName));
         }
 
         var operationId = await StartCoreAsync();
@@ -413,6 +413,7 @@ public class GamesController : ControllerBase
             new RemovalOperationConfig<CacheManagementService.GameCacheRemovalReport>(
                 OperationType: OperationType.GameRemoval,
                 OperationLabel: operationLabel,
+                Target: displayName,
                 Metrics: removalMetrics,
                 StartedEventName: SignalREvents.GameRemovalStarted,
                 BuildStarted: id => new GameRemovalStarted(
@@ -605,8 +606,15 @@ public class GamesController : ControllerBase
         // forceRefresh=false means quick scan (incremental=true)
         var incremental = !forceRefresh;
 
+        // A full scan never joins an incremental one; the queue tells them apart by this mode. The notice
+        // carries it too, so a scan a download turns away at promotion is held and run as this same type.
+        var scanType = incremental ? DetectionScanType.Incremental : DetectionScanType.Full;
+
         // A scan started from this page follows the game detection schedule's notification mode.
-        var notice = new RunNotice(_gameDetectionService.EffectiveNotificationMode, RunTrigger.Manual);
+        var notice = new RunNotice(_gameDetectionService.EffectiveNotificationMode, RunTrigger.Manual)
+        {
+            RequestedScanType = scanType
+        };
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         // StartDetectionAsync returns null only for the already-running race; capability
@@ -622,7 +630,7 @@ public class GamesController : ControllerBase
         {
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
-                StartDetectionCoreAsync, cancellationToken, notice: notice));
+                StartDetectionCoreAsync, cancellationToken, notice: notice, detectionScanType: scanType));
         }
 
         var operationId = await StartDetectionCoreAsync();
@@ -633,7 +641,7 @@ public class GamesController : ControllerBase
             // (the queue re-checks under its gate and deduplicates against the now-active op).
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
-                StartDetectionCoreAsync, cancellationToken, notice: notice));
+                StartDetectionCoreAsync, cancellationToken, notice: notice, detectionScanType: scanType));
         }
 
         _logger.LogInformation("Started game detection operation: {OperationId} (forceRefresh={ForceRefresh}, incremental={Incremental})", operationId, forceRefresh, incremental);

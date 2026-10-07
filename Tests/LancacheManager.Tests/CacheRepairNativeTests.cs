@@ -619,7 +619,12 @@ public sealed class CacheRepairNativeTests
             Func<Task<Guid?>> start,
             CancellationToken ct,
             bool reportRefusal = false,
-            RunNotice? notice = null)
+            RunNotice? notice = null,
+            string? target = null,
+            StructuralScanMode? scanMode = null,
+            int? scanThreshold = null,
+            int? scanLookbackDays = null,
+            DetectionScanType? detectionScanType = null)
         {
             return Task.FromException<QueuedOperationResponse>(
                 new InvalidOperationException("The native repair fixture does not start queued work."));

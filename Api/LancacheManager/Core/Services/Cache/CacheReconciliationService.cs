@@ -93,30 +93,24 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// <summary>
     /// Start reconciliation as a fire-and-forget background task.
     /// Returns the operationId immediately, or null if already running. The caller's notice carries
-    /// this service's notification mode and the manual trigger (this call site bypasses
-    /// TriggerImmediateRun entirely, so CurrentRunTrigger cannot be relied on here).
+    /// this service's notification mode and the manual trigger (this call site bypasses the run
+    /// queue's Run Now entirely, so CurrentRunTrigger cannot be relied on here).
     /// </summary>
     public Guid? RunManualAsync(RunNotice notice)
     {
         return StartScanInBackground(
             "Eviction Scan",
-            deferIfDownloading: false,
             notice: notice);
     }
 
     /// <summary>
     /// Starts a scan whose lifetime belongs to this singleton rather than to the scheduler
     /// invocation that requested it. This is required for wait-queue promotion, which may happen
-    /// long after the original scheduled tick and its scoped DbContext have ended.
+    /// long after the original scheduled tick and its scoped DbContext have ended. A scan that meets
+    /// a download is not lost, whoever started it: its schedule holds it until downloads end.
     /// </summary>
-    /// <param name="deferIfDownloading">
-    /// True for the runs nobody is watching, so a scan promoted into a download that started while it
-    /// waited is owed rather than lost. False for a person's own scan: they are told why it stopped,
-    /// and one arriving by itself an hour later would be a surprise.
-    /// </param>
     private Guid? StartScanInBackground(
         string name,
-        bool deferIfDownloading,
         RunNotice notice,
         Action? onCompleted = null)
     {
@@ -191,8 +185,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         context,
                         operationId,
                         cts.Token,
-                        notice,
-                        deferIfDownloading);
+                        notice);
                 }
                 catch (OperationCanceledException) when (_applicationLifetime.ApplicationStopping.IsCancellationRequested)
                 {
@@ -231,6 +224,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                                     terminalState.UnEvicted = outcome.UnEvicted;
                                 }
                                 if (outcome.Success) operation.PercentComplete = 100;
+                                // Every skipped outcome is a download refusal; the schedule holds the run on it.
+                                operation.SkippedForDownload = outcome.Skipped;
                             });
                     }
                     onCompleted?.Invoke();
@@ -294,11 +289,23 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         LoadStateOverrides(stateService);
     }
 
+    // Whether the scan program was missing when the loop decided at startup. Read when a click is refused,
+    // not recomputed from the disk then: a program installed since startup does not start the loop.
+    private bool _programMissingAtStartup;
+
+    // A missing scan program is a different cause from the configuration switch, and the reader looks for
+    // the wrong fix when told the wrong one.
+    public override string DisabledStageKey
+        => _programMissingAtStartup
+            ? "management.schedules.runNowProgramMissing"
+            : base.DisabledStageKey;
+
     protected override bool IsEnabled()
     {
         var rustBinaryPath = _pathResolver.GetRustEvictionScanPath();
         if (!File.Exists(rustBinaryPath))
         {
+            _programMissingAtStartup = true;
             _logger.LogWarning("cache_eviction_scan binary not found at {Path}, eviction scanning disabled", rustBinaryPath);
             return false;
         }
@@ -332,7 +339,6 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             var scanCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             Task<Guid?> StartStartupScanAsync() => Task.FromResult(StartScanInBackground(
                 "Eviction Scan",
-                deferIfDownloading: true,
                 notice,
                 () => scanCompleted.TrySetResult()));
 
@@ -394,7 +400,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
 
         Task<Guid?> StartScheduledScanAsync() => Task.FromResult(
-            StartScanInBackground("Eviction Scan", deferIfDownloading: true, notice: notice));
+            StartScanInBackground("Eviction Scan", notice: notice));
 
         // Same as the startup path: the start delegate cannot throw a refusal, so asking the queue
         // to announce one would announce nothing. The refusal this run can hit is reported by the
@@ -431,35 +437,27 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         AppDbContext context,
         Guid operationId,
         CancellationToken stoppingToken,
-        RunNotice notice,
-        bool deferIfDownloading)
+        RunNotice notice)
     {
         var isRemoveMode = _stateService.GetEvictedDataMode() == EvictedDataMode.Remove.ToWireString();
 
-        // A manual request parked behind another operation can be promoted much later, so the
-        // download state is read again here rather than only at request time. Asked before the
-        // capability revalidation below, which enumerates log directories for a run that is
-        // already refused.
+        // A request parked behind another operation can be promoted much later, so the download
+        // state is read again here rather than only at request time. Asked before the capability
+        // revalidation below, which enumerates log directories for a run that is already refused.
         var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
         if (downloadDenial != null)
         {
             _logger.LogWarning("[EvictionScan] Skipping eviction scan: {Reason}", downloadDenial);
-            if (deferIfDownloading)
-            {
-                // This refusal is read here, inside the promoted run, and never reaches the schedule's
-                // own run gate, so nothing else has recorded that a run is owed. Waking the loop puts
-                // the run back in front of that gate, which refuses it for the same download and holds
-                // it there until downloads stop. Only the download branch arms this: the capability
-                // refusal below can stay true indefinitely, and waking for that would be a loop.
-                // The terminal listener retains this admitted run until downloads stop.
+            // This refusal is read here, inside the run, and never reaches the schedule's own run gate.
+            // The skip is marked as a download refusal on its tracked row, and the schedule's terminal
+            // listener holds the run on that mark until downloads stop, also when the download has
+            // already ended by the time the listener runs. That holds a person's own scan too: it shows
+            // a waiting card and starts by itself once downloads end.
 
-                // No error text: the card prints this field verbatim in preference to any
-                // translation key, so the gate's English would tell the reader to try again for a
-                // run that is already coming back on its own, and a key would show as the key.
-                return new EvictionScanRunOutcome(Success: false, Error: null, Skipped: true);
-            }
-
-            return new EvictionScanRunOutcome(Success: false, Error: downloadDenial, Skipped: true);
+            // No error text: the card prints this field verbatim in preference to any
+            // translation key, so the gate's English would tell the reader to try again for a
+            // run the schedule holds and runs once downloads stop, and a key would show as the key.
+            return new EvictionScanRunOutcome(Success: false, Error: null, Skipped: true);
         }
 
         // Execution-time capability revalidation prevents a queued scan from running after
@@ -1542,11 +1540,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     return _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                         Success: true,
                         OperationId: operationId,
-                        // No stage key: this branch always carries a reason, because the only run
-                        // outcome that sets Skipped is the download refusal and it is built with
-                        // the gate's own sentence. The reader prefers that sentence to a key, so a
-                        // key here could never render and would only oblige every locale to
-                        // translate a line nobody sees.
+                        // No stage key and no text: the only run outcome that sets Skipped is the
+                        // download refusal, and the schedule holds that run on a waiting card that
+                        // says why in the reader's language.
                         StageKey: null,
                         Processed: 0,
                         Evicted: 0,
@@ -1938,7 +1934,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             onTerminalCleanup: () => _evictionRemovalTerminalStates.TryRemove(operationId, out _),
             // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
             onTerminalEmit: BuildTerminalEmit(() => operationId, terminalState),
-            ownerCompletes: true);
+            ownerCompletes: true,
+            target: key);
         _evictionRemovalTerminalStates[operationId] = terminalState;
 
         await _notifications.NotifyAllAsync(
@@ -3289,7 +3286,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 onTerminalCleanup: () => _evictionRemovalTerminalStates.TryRemove(selfRegisteredId, out _),
                 // Terminal EvictionRemovalComplete fires EXACTLY ONCE from inside CompleteOperation.
                 onTerminalEmit: BuildTerminalEmit(() => selfRegisteredId, terminalState),
-                ownerCompletes: true);
+                ownerCompletes: true,
+                target: key);
             _evictionRemovalTerminalStates[selfRegisteredId] = terminalState;
             operationId = selfRegisteredId;
 

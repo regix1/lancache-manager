@@ -159,7 +159,10 @@ public class CorruptionDetectionService
                         metadata.ClearProgress();
                         _operationStateService.RemoveState(operationId.ToString());
                     },
-                    onTerminalEmit: info => EmitTerminalAsync(info, operationId, metadata)),
+                    onTerminalEmit: info => EmitTerminalAsync(info, operationId, metadata),
+                    scanMode: scanMode,
+                    scanThreshold: threshold,
+                    scanLookbackDays: lookbackDays),
                 cancellationToken);
             if (registered is null)
             {

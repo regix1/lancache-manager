@@ -99,15 +99,16 @@ public partial class OperationStateService
                 }
 
                 waited = true;
-                // A holder with no operation, or an owed import turn, has no name to show, and the
-                // previous holder's name would be false.
+                // A holder with no operation, or an owed import turn, has no blocker to show, and the
+                // previous holder's name, type and target would be false.
                 if (operationId.HasValue)
                 {
+                    var holderOperation = holder?.OperationId is { } holderOperationId
+                        ? _operationTracker.GetOperation(holderOperationId)
+                        : null;
                     _operationTracker.SetBlockedByName(
-                        operationId.Value,
-                        holder?.OperationId is { } holderOperationId
-                            ? _operationTracker.GetOperation(holderOperationId)?.Name
-                            : null);
+                        operationId.Value, holderOperation?.Name, holderOperation?.Type, holderOperation?.Target,
+                        holderOperation?.Metadata is CacheClearingRepair { FullRepair: true });
                 }
                 await workChanged.WaitAsync(cancellationToken);
             }

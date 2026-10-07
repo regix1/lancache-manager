@@ -4,6 +4,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Infrastructure.Services.Scheduling;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
@@ -22,7 +23,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     /// old operation id -> the operation that took over its work (see <see cref="RecordHandoff"/>).
     /// Entries outlive reaped waiting rows until their resolved terminal target is reaped.
     /// </summary>
-    private readonly ConcurrentDictionary<Guid, Guid> _handoffs = new();
+    private readonly ConcurrentDictionary<Guid, Handoff> _handoffs = new();
+
+    // A link from an id to the operation that took over its work. A cancel follows it unless it is a join:
+    // a waiting card that closed into another run's card.
+    private readonly record struct Handoff(Guid To, bool CancelFollows);
 
     /// <summary>
     /// How a dropped run ended, for a browser that missed its ending event and asks after the drop. The setup wizard's
@@ -86,7 +91,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                                   Guid? parentOperationId = null, DateTime? startedAt = null,
                                   string? blockedByName = null, RunNotice? notice = null,
                                   bool liveIngest = false, Guid? ownerSessionId = null,
-                                  bool ownerCompletes = false)
+                                  bool ownerCompletes = false, string? target = null,
+                                  OperationType? blockedByType = null, string? blockedByTarget = null,
+                                  StructuralScanMode? scanMode = null, int? scanThreshold = null,
+                                  int? scanLookbackDays = null, bool blockedByFullRepair = false,
+                                  DetectionScanType? detectionScanType = null, bool waitingForDownload = false)
     {
         var operationId = Guid.NewGuid();
         var operation = new OperationInfo
@@ -95,6 +104,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             ParentOperationId = parentOperationId,
             Type = type,
             Name = name,
+            Target = target,
+            ScanMode = scanMode,
+            DetectionScanType = detectionScanType,
+            ScanThreshold = scanThreshold,
+            ScanLookbackDays = scanLookbackDays,
             Status = initialStatus,
             Message = $"Starting {name}...",
             StartedAt = startedAt ?? DateTime.UtcNow,
@@ -103,6 +117,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             OnTerminalCleanup = onTerminalCleanup,
             OnTerminalEmit = onTerminalEmit,
             BlockedByName = blockedByName,
+            BlockedByType = blockedByType,
+            BlockedByTarget = blockedByTarget,
+            BlockedByFullRepair = blockedByFullRepair,
+            WaitingForDownload = waitingForDownload,
             Notice = notice,
             LiveIngest = liveIngest,
             OwnerSessionId = ownerSessionId,
@@ -140,7 +158,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                                     Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
                                     Guid? parentOperationId = null, DateTime? startedAt = null,
                                     RunNotice? notice = null, bool ownerCompletes = false,
-                                    bool liveIngest = false)
+                                    bool liveIngest = false, DetectionScanType? detectionScanType = null)
     {
         var operation = new OperationInfo
         {
@@ -148,6 +166,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             ParentOperationId = parentOperationId,
             Type = type,
             Name = name,
+            DetectionScanType = detectionScanType,
             Status = OperationStatus.Running,
             Message = $"Starting {name}...",
             StartedAt = startedAt ?? DateTime.UtcNow,
@@ -200,11 +219,47 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return;
         }
 
-        _handoffs.TryAdd(fromOperationId, toOperationId);
+        _handoffs.TryAdd(fromOperationId, new Handoff(toOperationId, CancelFollows: true));
         _logger.LogDebug(
             "Operation {FromId} handed its work to {ToId}; cancels aimed at the old id now follow it",
             fromOperationId, toOperationId);
     }
+
+    public bool TryCloseInto(Guid waitingId, Guid runId)
+    {
+        if (waitingId == runId
+            || !_operations.TryGetValue(runId, out var run)
+            || !_operations.TryGetValue(waitingId, out var waiting)) return false;
+
+        // Read under the run's lock, the lock a cancel marks it Cancelling under, and released before the
+        // card's lock is taken: no path holds two operation locks. A cancel of the run that lands after this
+        // read ends both, the same as one that lands after the join.
+        lock (run)
+        {
+            if (run.CompletedFlag != 0 || run.Status.IsTerminal() || run.Status == OperationStatus.Cancelling)
+                return false;
+        }
+
+        // The card's check and its link are one step under the card's lock. A cancel that lands first leaves
+        // the card Cancelling and the join refused; one that lands after finds the link (IsJoined) and
+        // answers that the card already finished, so it never reaches the run.
+        lock (waiting)
+        {
+            if (waiting.CompletedFlag != 0 || waiting.Status != OperationStatus.Waiting || waiting.Cancelled
+                || !_handoffs.TryAdd(waitingId, new Handoff(runId, CancelFollows: false)))
+                return false;
+        }
+
+        _logger.LogDebug(
+            "Waiting operation {WaitingId} joined {RunId}; cancels aimed at it stop at its own card",
+            waitingId, runId);
+        CompleteOperation(waitingId, success: true);
+        return true;
+    }
+
+    // A waiting card that closed into another run: it has finished, whatever its status reads until its
+    // completion lands a moment later.
+    private bool IsJoined(Guid operationId) => _handoffs.TryGetValue(operationId, out var link) && !link.CancelFollows;
 
     public bool BeginQueuedOperation(
         Guid operationId,
@@ -230,6 +285,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.Status = OperationStatus.Running;
             // A run that left the queue waits for nothing, so its card stops naming the job it waited for.
             operation.BlockedByName = null;
+            operation.BlockedByType = null;
+            operation.BlockedByTarget = null;
+            operation.BlockedByFullRepair = false;
+            operation.WaitingForDownload = false;
             operation.Message = $"Starting {operation.Name}...";
             operation.Metadata = state;
             operation.OnTerminalCleanup = onTerminalCleanup;
@@ -280,18 +339,20 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     /// <summary>
     /// Follow any recorded handoff to the operation actually doing the work. Returns the id
-    /// unchanged when nothing has taken over.
+    /// unchanged when nothing has taken over. With <paramref name="throughJoins"/> false the walk stops
+    /// at a join, the link a cancel does not follow.
     /// </summary>
-    private Guid ResolveHandoff(Guid operationId)
+    private Guid ResolveHandoff(Guid operationId, bool throughJoins)
     {
         var resolved = operationId;
         for (var hop = 0; hop < MaxHandoffDepth; hop++)
         {
-            if (!_handoffs.TryGetValue(resolved, out var next) || next == resolved)
+            if (!_handoffs.TryGetValue(resolved, out var next) || next.To == resolved
+                || (!throughJoins && !next.CancelFollows))
             {
                 return resolved;
             }
-            resolved = next;
+            resolved = next.To;
         }
 
         _logger.LogWarning(
@@ -305,7 +366,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         // The caller's card may still carry the id of an operation that has already handed its work
         // to another one (the wait-queue promoting a parked operation is the case that matters).
         // Cancelling the id as given would stop nothing while reporting success.
-        var operationId = followHandoff ? ResolveHandoff(requestedOperationId) : requestedOperationId;
+        var operationId = followHandoff ? ResolveHandoff(requestedOperationId, throughJoins: false) : requestedOperationId;
         if (operationId != requestedOperationId)
         {
             _logger.LogInformation(
@@ -323,7 +384,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         Process? process;
         lock (operation)
         {
-            if (operation.CompletedFlag != 0 || operation.Status.IsTerminal())
+            if (operation.CompletedFlag != 0 || operation.Status.IsTerminal() || IsJoined(operationId))
             {
                 return OperationCancelResult.AlreadyFinished;
             }
@@ -397,7 +458,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     public bool ForceKillOperation(Guid requestedOperationId, bool followHandoff = true)
     {
         // Same reasoning as CancelOperation: follow the work, not the id the caller happens to hold.
-        var operationId = followHandoff ? ResolveHandoff(requestedOperationId) : requestedOperationId;
+        var operationId = followHandoff ? ResolveHandoff(requestedOperationId, throughJoins: false) : requestedOperationId;
         if (!_operations.TryGetValue(operationId, out var operation))
         {
             _logger.LogWarning("Operation {Id} not found for force kill", operationId);
@@ -408,7 +469,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         Process? process;
         lock (operation)
         {
-            if (operation.CompletedFlag != 0 || operation.Status.IsTerminal()) return true;
+            if (operation.CompletedFlag != 0 || operation.Status.IsTerminal() || IsJoined(operationId)) return true;
             cts = operation.CancellationTokenSource;
             process = operation.AssociatedProcess;
             operation.Status = OperationStatus.Cancelling;
@@ -459,7 +520,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     public OperationInfo? GetOperation(Guid operationId, bool followHandoff = false)
     {
-        if (followHandoff) operationId = ResolveHandoff(operationId);
+        if (followHandoff) operationId = ResolveHandoff(operationId, throughJoins: false);
         return _operations.TryGetValue(operationId, out var operation) ? operation : null;
     }
 
@@ -504,13 +565,22 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return new OperationRunsSnapshot(runs, revision);
     }
 
-    public void SetBlockedByName(Guid operationId, string? name)
+    public void SetBlockedByName(Guid operationId, string? name, OperationType? type = null, string? target = null,
+        bool fullRepair = false)
     {
         if (!_operations.TryGetValue(operationId, out var operation)) return;
         lock (operation)
         {
-            if (operation.Status.IsTerminal() || operation.BlockedByName == name) return;
+            if (operation.Status.IsTerminal()
+                || (operation.BlockedByName == name && operation.BlockedByType == type && operation.BlockedByTarget == target
+                    && operation.BlockedByFullRepair == fullRepair && !operation.WaitingForDownload))
+                return;
+            // A new or cleared blocker means the download no longer holds this run back.
+            operation.WaitingForDownload = false;
             operation.BlockedByName = name;
+            operation.BlockedByType = type;
+            operation.BlockedByTarget = target;
+            operation.BlockedByFullRepair = fullRepair;
             Publish(operation);
         }
 
@@ -694,7 +764,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         // browser merges the waiting card into an entry that is already a card. The two locks are
         // taken one after the other, never nested; an ended successor reads its frozen
         // visibility, so the floor changes nothing there.
-        var successorId = ResolveHandoff(operationId);
+        var successorId = ResolveHandoff(operationId, throughJoins: true);
         if (successorId != operationId && _operations.TryGetValue(successorId, out var successor))
         {
             RunVisibility handedOn;
@@ -756,7 +826,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.Success = success;
             operation.CompletedAt = DateTime.UtcNow;
 
-            var nextId = ResolveHandoff(operationId);
+            var nextId = ResolveHandoff(operationId, throughJoins: true);
             operation.NextOperationId = nextId != operationId ? nextId : null;
             keep = KeepsUntilClosed(operation);
             Publish(operation);
@@ -858,7 +928,12 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     {
         if (!_operations.TryGetValue(operationId, out var operation)) return;
         var links = _handoffs.ToArray();
-        var stale = links.Where(link => ResolveHandoff(link.Key) == operationId).ToArray();
+        // A join's card ends at the join, so its cancel walk stops there; the link is stale once either walk
+        // reaches this run.
+        var stale = links.Where(link => ResolveHandoff(link.Key, throughJoins: true) == operationId
+            || ResolveHandoff(link.Key, throughJoins: false) == operationId).ToArray();
+        var followed = stale.Where(link => link.Value.CancelFollows
+            && ResolveHandoff(link.Key, throughJoins: false) == operationId).ToArray();
         OperationStatus status;
         DateTime reapedAt;
         lock (operation)
@@ -875,8 +950,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             // A run that handed off answers its successor's ending; a successor reaped first already wrote it here.
             if (operation.NextOperationId is null) _reapedStatuses[operationId] = (status, reapedAt);
             else _reapedStatuses.TryAdd(operationId, (status, reapedAt));
-            foreach (var link in stale)
+            foreach (var link in followed)
             {
+                // A joined card's ending was fixed when it joined, and its own reap records it; this run's
+                // ending is never written for it, even when this run is reaped first. A link whose cancel
+                // walk stops at a join before reaching this run belongs to that joined card.
                 _reapedStatuses[link.Key] = (status, reapedAt);
             }
             ((ICollection<KeyValuePair<Guid, OperationInfo>>)_operations).Remove(new(operationId, operation));
@@ -889,9 +967,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         {
             ((ICollection<KeyValuePair<(OperationType Type, string EntityKey), Guid>>)_entityKeyIndex).Remove(entry);
         }
-        foreach (var link in stale)
+        // A link that ends at a join stays until the joined card is reaped and writes its own ending.
+        foreach (var link in followed.Concat(stale.Where(link => link.Value.To == operationId)).Distinct())
         {
-            ((ICollection<KeyValuePair<Guid, Guid>>)_handoffs).Remove(link);
+            ((ICollection<KeyValuePair<Guid, Handoff>>)_handoffs).Remove(link);
         }
     }
 
@@ -965,7 +1044,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         Guid? nextId = operation.NextOperationId;
         if (!terminal)
         {
-            var resolved = ResolveHandoff(operation.Id);
+            var resolved = ResolveHandoff(operation.Id, throughJoins: true);
             nextId = resolved != operation.Id ? resolved : null;
         }
 
@@ -974,12 +1053,16 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.Id,
             operation.Type.ToWireString(),
             operation.Name,
+            operation.Target,
+            ScheduleOperationTypes.FindServiceKey(operation.Type),
             operation.Status.ToWireString(),
             ReadVisibility(operation),
             operation.PercentComplete,
             operation.Message,
             operation.Status == OperationStatus.Failed ? operation.Message : null,
             operation.BlockedByName,
+            operation.BlockedByType?.ToWireString(),
+            operation.BlockedByTarget,
             operation.PreviousOperationId,
             operation.ParentOperationId,
             nextId,
@@ -1004,7 +1087,14 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.OwnerSessionId,
             terminal ? operation.CompletedRevision : null,
             operation.StartedAt,
-            operation.Revision);
+            operation.Revision,
+            operation.DetectionScanType is { } detectionScan ? detectionScan.ToWireString() : operation.ScanMode?.ToWireString(),
+            operation.BlockedByFullRepair,
+            // Only a repeated-miss scan is drawn with a threshold and lookback; the queue keeps both on a
+            // structural scan too, because the scan service compares them for its identity.
+            operation.ScanMode is null ? operation.ScanThreshold : null,
+            operation.ScanMode is null ? operation.ScanLookbackDays : null,
+            operation.WaitingForDownload);
     }
 
     /// <summary>

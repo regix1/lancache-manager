@@ -111,10 +111,11 @@ public class OperationCancellationService
         }
 
         var current = _operationTracker.GetOperation(operationId);
-        if (current == null || current.Status.IsTerminal())
+        // ForceKillOperation marks every operation it stops Cancelling. One it left alone, a card that has
+        // joined a running job, or one that already ended (the worker observed the cancellation and completed
+        // it) is not this force stop's to complete, and completing it again would send a second completion.
+        if (current is not { Status: OperationStatus.Cancelling })
         {
-            // The worker observed cancellation and already completed the op (A.3 flag). Avoid a duplicate
-            // SignalR completion — the op is already terminal.
             return true;
         }
 

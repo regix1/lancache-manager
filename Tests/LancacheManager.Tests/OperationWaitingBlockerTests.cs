@@ -183,9 +183,8 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         // A failed final target is kept until its card is closed; closing it reaps it and the chain.
         Assert.True(tracker.CloseRun(last));
         Assert.Null(tracker.GetOperation(first, true));
-        var links = Assert.IsType<System.Collections.Concurrent.ConcurrentDictionary<Guid, Guid>>(
-            typeof(UnifiedOperationTracker).GetField("_handoffs", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker));
-        Assert.Empty(links);
+        Assert.Empty(Assert.IsAssignableFrom<System.Collections.ICollection>(
+            typeof(UnifiedOperationTracker).GetField("_handoffs", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker)));
     }
 
     [Theory]
@@ -316,9 +315,22 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         Assert.Equal(parent, accepted.OperationId);
         Assert.Empty(tracker.GetWaitingOperations());
         Assert.Equal(0, starts);
-        var distinct = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Other Scan",
+        // A schedule's request joins its running scan whatever name either carries.
+        var renamed = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Other Scan",
             () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
-        Assert.True(distinct.Queued);
+        Assert.True(renamed.AlreadyRunning);
+        Assert.Equal(parent, renamed.OperationId);
+
+        // A running removal does not carry the target of the request it serves, so a repeat waits for it.
+        var removals = CreateTracker();
+        removals.RegisterOperation(OperationType.GameRemoval, "Remove Game", new CancellationTokenSource());
+        var removalQueue = new OperationQueueService(removals,
+            OperationConflictTestServices.Create(removals, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        var removal = await removalQueue.EnqueueAsync(OperationType.GameRemoval, ConflictScope.Bulk(), "Remove Game",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
+        Assert.True(removal.Queued);
+        Assert.False(removal.AlreadyRunning);
     }
 
     [Fact]
@@ -331,6 +343,10 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         var starts = 0;
         var queued = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
             () => { starts++; return Task.FromResult<Guid?>(Guid.NewGuid()); }, CancellationToken.None);
+        var renamed = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Scan (renamed)",
+            () => { starts++; return Task.FromResult<Guid?>(Guid.NewGuid()); }, CancellationToken.None);
+        Assert.Equal(queued.OperationId, renamed.OperationId);
+        Assert.True(renamed.AlreadyRunning);
         var gate = Assert.IsType<SemaphoreSlim>(typeof(OperationQueueService).GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(queue));
         await gate.WaitAsync();
         Guid active;
@@ -350,8 +366,409 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         Assert.Equal("Cache File Scan", ended.BlockedByName);
         Assert.Equal(OperationStatus.Running, tracker.GetOperation(active)!.Status);
         Assert.Equal(0, starts);
-        tracker.CancelOperation(queued.OperationId);
-        Assert.True(tracker.GetOperation(active)!.Cancelled);
+        // The waiting card joined the running scan, so dismissing it leaves that scan running.
+        Assert.Equal(OperationCancelResult.AlreadyFinished, tracker.CancelOperation(queued.OperationId));
+        Assert.False(tracker.GetOperation(active)!.Cancelled);
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(active)!.Status);
+    }
+
+    [Fact]
+    public async Task AQueueJoinCancel_LeavesTheRunningScan()
+    {
+        var tracker = CreateTracker();
+        var queue = new OperationQueueService(tracker,
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        var scan = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        notice.Attach(tracker, card);
+
+        var joined = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
+
+        Assert.True(joined.AlreadyRunning);
+        Assert.Equal(scan, joined.OperationId);
+        Assert.Equal(OperationCancelResult.AlreadyFinished, tracker.CancelOperation(card));
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(scan)!.Status);
+        Assert.False(tracker.GetOperation(scan)!.Cancelled);
+    }
+
+    [Fact]
+    public async Task ARefusedQueueJoin_ParksTheRequest()
+    {
+        var tracker = CreateTracker();
+        var scan = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        // The scan turns Cancelling after the queue read it as running and before the join.
+        var cancelAtJoin = CreateProxy<IUnifiedOperationTracker>((method, args) =>
+        {
+            if (method.Name == nameof(IUnifiedOperationTracker.TryCloseInto)) tracker.CancelOperation(scan);
+            return method.Invoke(tracker, args);
+        });
+        var queue = new OperationQueueService(cancelAtJoin,
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        var card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        notice.Attach(tracker, card);
+
+        var parked = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
+
+        Assert.True(parked.Queued);
+        Assert.False(parked.AlreadyRunning);
+        Assert.NotEqual(card, parked.OperationId);
+        Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(parked.OperationId)!.Status);
+        Assert.Equal(parked.OperationId, tracker.GetOperation(card, followHandoff: true)!.Id);
+        Assert.NotEqual(OperationStatus.Skipped, tracker.GetOperation(card)!.Status);
+    }
+
+    // A click with no card of its own meets a waiter whose request was canceled but has not left the queue
+    // yet: it parks as its own request instead of being handed that waiter's id.
+    [Fact]
+    public async Task ACardlessRequestRefusedByACanceledWaiter_ParksOnItsOwn()
+    {
+        var tracker = CreateTracker();
+        var queue = new OperationQueueService(tracker,
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
+        var waiterNotice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        var first = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: waiterNotice);
+        Assert.True(first.Queued);
+        waiterNotice.Cancel(null, Guid.Empty);
+
+        var second = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None,
+            notice: new RunNotice(NotificationMode.All, RunTrigger.Manual));
+
+        Assert.True(second.Queued);
+        Assert.False(second.AlreadyRunning);
+        Assert.NotEqual(first.OperationId, second.OperationId);
+    }
+
+    [Fact]
+    public async Task APromotionJoinRefused_ReparksTheWaiter()
+    {
+        var tracker = CreateTracker();
+        Guid active = Guid.Empty;
+        var cancelAtJoin = CreateProxy<IUnifiedOperationTracker>((method, args) =>
+        {
+            if (method.Name == nameof(IUnifiedOperationTracker.TryCloseInto)) tracker.CancelOperation(active);
+            return method.Invoke(tracker, args);
+        });
+        var checker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var queue = new OperationQueueService(cancelAtJoin, checker, NullLogger<OperationQueueService>.Instance);
+        var blocker = tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
+        var starts = 0;
+        var queued = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+            () => { Interlocked.Increment(ref starts); return Task.FromResult<Guid?>(Guid.NewGuid()); }, CancellationToken.None);
+        var gate = Assert.IsType<SemaphoreSlim>(typeof(OperationQueueService).GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(queue));
+        await gate.WaitAsync();
+        try
+        {
+            tracker.CompleteOperation(blocker, success: true);
+            active = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        }
+        finally { gate.Release(); }
+
+        await WaitForOperationAsync(tracker, active, operation => operation.Status == OperationStatus.Cancelling);
+        // The pass that refused the join holds the gate until it is done with the waiter.
+        await gate.WaitAsync();
+        gate.Release();
+        Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(queued.OperationId)!.Status);
+        Assert.Equal(queued.OperationId, tracker.GetOperation(queued.OperationId, followHandoff: true)!.Id);
+        Assert.Equal(0, Volatile.Read(ref starts));
+
+        // Once the canceled scan ends, the waiter starts its own work.
+        tracker.CompleteOperation(active, success: false, cancelled: true);
+        await WaitForOperationAsync(tracker, queued.OperationId, operation => operation.Status == OperationStatus.Completed);
+        Assert.Equal(1, Volatile.Read(ref starts));
+    }
+
+    [Fact]
+    public async Task ACacheClearForAllAndForOneDatasource_StayTwoRequests()
+    {
+        var tracker = CreateTracker();
+        var queue = new OperationQueueService(tracker,
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        tracker.RegisterOperation(OperationType.DatabaseReset, "Database Reset", new CancellationTokenSource());
+
+        var all = await queue.EnqueueAsync(OperationType.CacheClearing, ConflictScope.Bulk(), "Cache Clear (All)",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
+        var one = await queue.EnqueueAsync(OperationType.CacheClearing, ConflictScope.Bulk(), "Cache Clear (steam)",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, target: "steam");
+        var repeat = await queue.EnqueueAsync(OperationType.CacheClearing, ConflictScope.Bulk(), "Cache Clear (renamed)",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
+
+        Assert.True(all.Queued);
+        Assert.True(one.Queued);
+        Assert.False(one.AlreadyRunning);
+        Assert.NotEqual(all.OperationId, one.OperationId);
+        Assert.True(repeat.AlreadyRunning);
+        Assert.Equal(all.OperationId, repeat.OperationId);
+    }
+
+    [Fact]
+    public async Task ACorruptionRemovalForAllServicesAndForOne_StayTwoRequests()
+    {
+        var tracker = CreateTracker();
+        var queue = new OperationQueueService(tracker,
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        tracker.RegisterOperation(OperationType.DatabaseReset, "Database Reset", new CancellationTokenSource());
+
+        var one = await queue.EnqueueAsync(OperationType.CorruptionRemoval, ConflictScope.Service("steam"),
+            "Corruption Removal (steam)", () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None,
+            target: "steam");
+        var all = await queue.EnqueueAsync(OperationType.CorruptionRemoval, ConflictScope.Service("steam"),
+            "Corruption Removal (all services)", () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
+        var repeat = await queue.EnqueueAsync(OperationType.CorruptionRemoval, ConflictScope.Service("steam"),
+            "renamed", () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, target: "steam");
+
+        Assert.True(one.Queued);
+        Assert.True(all.Queued);
+        Assert.False(all.AlreadyRunning);
+        Assert.NotEqual(one.OperationId, all.OperationId);
+        Assert.True(repeat.AlreadyRunning);
+        Assert.Equal(one.OperationId, repeat.OperationId);
+    }
+
+    [Fact]
+    public async Task ALogProcessingRequestForAllAndForOneDatasource_StayTwoRequests()
+    {
+        var tracker = CreateTracker();
+        var queue = new OperationQueueService(tracker,
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        // Only another log pass parks a log request.
+        tracker.RegisterOperation(OperationType.LogProcessing, "Log Pass", new CancellationTokenSource());
+
+        var all = await queue.EnqueueAsync(OperationType.LogProcessing, ConflictScope.Bulk(), "Log Processing",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
+        var one = await queue.EnqueueAsync(OperationType.LogProcessing, ConflictScope.Bulk(), "Log Processing (cache2)",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, target: "cache2");
+        var repeat = await queue.EnqueueAsync(OperationType.LogProcessing, ConflictScope.Bulk(), "Log Processing (renamed)",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
+
+        Assert.True(all.Queued);
+        Assert.True(one.Queued);
+        Assert.False(one.AlreadyRunning);
+        Assert.NotEqual(all.OperationId, one.OperationId);
+        Assert.True(repeat.AlreadyRunning);
+        Assert.Equal(all.OperationId, repeat.OperationId);
+    }
+
+    [Fact]
+    public async Task CorruptionScansWithDifferentSettings_StayTwoRequests()
+    {
+        var tracker = CreateTracker();
+        var queue = new OperationQueueService(tracker,
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        var full = tracker.RegisterOperation(OperationType.CorruptionDetection, "Scan", new CancellationTokenSource(),
+            scanMode: StructuralScanMode.Full, scanThreshold: 3, scanLookbackDays: 30);
+
+        var incremental = await queue.EnqueueAsync(OperationType.CorruptionDetection, ConflictScope.Bulk(), "Scan",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None,
+            scanMode: StructuralScanMode.Incremental, scanThreshold: 3, scanLookbackDays: 30);
+        var sameAsRunning = await queue.EnqueueAsync(OperationType.CorruptionDetection, ConflictScope.Bulk(), "Other",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None,
+            scanMode: StructuralScanMode.Full, scanThreshold: 3, scanLookbackDays: 30);
+        var sameAsWaiting = await queue.EnqueueAsync(OperationType.CorruptionDetection, ConflictScope.Bulk(), "Other",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None,
+            scanMode: StructuralScanMode.Incremental, scanThreshold: 3, scanLookbackDays: 30);
+
+        Assert.True(incremental.Queued);
+        Assert.False(incremental.AlreadyRunning);
+        Assert.True(sameAsRunning.AlreadyRunning);
+        Assert.Equal(full, sameAsRunning.OperationId);
+        Assert.True(sameAsWaiting.AlreadyRunning);
+        Assert.Equal(incremental.OperationId, sameAsWaiting.OperationId);
+
+        // A repeated-miss scan has no mode; its miss threshold and lookback tell scans apart.
+        var missTracker = CreateTracker();
+        var missQueue = new OperationQueueService(missTracker,
+            OperationConflictTestServices.Create(missTracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        var running = missTracker.RegisterOperation(OperationType.CorruptionDetection, "Scan", new CancellationTokenSource(),
+            scanThreshold: 3, scanLookbackDays: 30);
+
+        var higherThreshold = await missQueue.EnqueueAsync(OperationType.CorruptionDetection, ConflictScope.Bulk(), "Scan",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, scanThreshold: 5, scanLookbackDays: 30);
+        var shorterLookback = await missQueue.EnqueueAsync(OperationType.CorruptionDetection, ConflictScope.Bulk(), "Scan",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, scanThreshold: 3, scanLookbackDays: 7);
+        var higherThresholdAgain = await missQueue.EnqueueAsync(OperationType.CorruptionDetection, ConflictScope.Bulk(), "Scan",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, scanThreshold: 5, scanLookbackDays: 30);
+        var sameAsMissRun = await missQueue.EnqueueAsync(OperationType.CorruptionDetection, ConflictScope.Bulk(), "Scan",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, scanThreshold: 3, scanLookbackDays: 30);
+
+        Assert.True(higherThreshold.Queued);
+        Assert.False(higherThreshold.AlreadyRunning);
+        Assert.True(shorterLookback.Queued);
+        Assert.NotEqual(higherThreshold.OperationId, shorterLookback.OperationId);
+        Assert.True(higherThresholdAgain.AlreadyRunning);
+        Assert.Equal(higherThreshold.OperationId, higherThresholdAgain.OperationId);
+        Assert.Equal(running, sameAsMissRun.OperationId);
+        Assert.True(sameAsMissRun.AlreadyRunning);
+
+        // The waiting row sends both settings, so two waiting lines can tell the scans apart.
+        var higherThresholdRow = Assert.Single(missTracker.GetRuns().Runs, run => run.OperationId == higherThreshold.OperationId);
+        Assert.Equal((5, 30), (higherThresholdRow.ScanThreshold, higherThresholdRow.ScanLookbackDays));
+    }
+
+    // A full detection never joins an incremental one; it waits and runs after. An incremental request
+    // is answered by the running scan.
+    [Fact]
+    public async Task AFullDetection_WaitsBehindAnIncrementalOne()
+    {
+        var tracker = CreateTracker();
+        var queue = new OperationQueueService(tracker,
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        var running = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
+            detectionScanType: DetectionScanType.Incremental);
+
+        var full = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, detectionScanType: DetectionScanType.Full);
+        var incremental = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None,
+            detectionScanType: DetectionScanType.Incremental);
+
+        Assert.True(full.Queued);
+        Assert.False(full.AlreadyRunning);
+        Assert.True(incremental.AlreadyRunning);
+        Assert.Equal(running, incremental.OperationId);
+    }
+
+    // A Run Now that joins a waiting scheduled run makes it the person's run, trigger and actor together.
+    [Fact]
+    public async Task ARunNowJoiningAWaitingRun_TakesItsTriggerAndActor()
+    {
+        var tracker = CreateTracker();
+        var queue = new OperationQueueService(tracker,
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
+        var scheduled = new RunNotice(NotificationMode.All, RunTrigger.Scheduled);
+        var waiting = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: scheduled);
+        var actor = new ScheduleActor(ScheduleActorKind.Account, Guid.NewGuid(), "run-now-user");
+
+        var joined = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None,
+            notice: new RunNotice(NotificationMode.All, RunTrigger.Manual, actor));
+
+        Assert.Equal(waiting.OperationId, joined.OperationId);
+        Assert.Equal(RunTrigger.Manual, scheduled.Trigger);
+        Assert.Same(actor, scheduled.Actor);
+    }
+
+    // A run parked behind a full cache repair says so with a typed flag beside the cache clearing type.
+    [Fact]
+    public async Task ARunParkedBehindAFullRepair_CarriesTheRepairFlag()
+    {
+        var tracker = CreateTracker();
+        var queue = new OperationQueueService(tracker,
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        tracker.RegisterOperation(OperationType.CacheClearing, "Cache Repair", new CancellationTokenSource(),
+            new CacheClearingRepair { FullRepair = true });
+
+        var queued = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
+
+        Assert.True(queued.Queued);
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId);
+        Assert.Equal(OperationType.CacheClearing.ToWireString(), row.BlockedByOperationType);
+        Assert.True(row.BlockedByFullRepair);
+    }
+
+    [Fact]
+    public async Task ALogProcessingRequestWaitsBehindARunningPass()
+    {
+        var tracker = CreateTracker();
+        var queue = new OperationQueueService(tracker,
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        // The running pass may cover one datasource only, so it does not answer a request for all of them.
+        var pass = tracker.RegisterOperation(OperationType.LogProcessing, "Log Processing", new CancellationTokenSource());
+        var starts = 0;
+
+        var request = await queue.EnqueueAsync(OperationType.LogProcessing, ConflictScope.Bulk(), "Log Processing",
+            () => { Interlocked.Increment(ref starts); return Task.FromResult<Guid?>(Guid.NewGuid()); }, CancellationToken.None);
+
+        Assert.True(request.Queued);
+        Assert.False(request.AlreadyRunning);
+        Assert.NotEqual(pass, request.OperationId);
+        tracker.CompleteOperation(pass, success: true);
+        await WaitForOperationAsync(tracker, request.OperationId, operation => operation.Status == OperationStatus.Completed);
+        Assert.Equal(1, Volatile.Read(ref starts));
+    }
+
+    [Theory]
+    [InlineData(OperationCancelResult.AlreadyFinished, true)]
+    [InlineData(OperationCancelResult.Requested, false)]
+    public async Task AnXThatLandsAsACardJoins_AnswersAlreadyFinished(OperationCancelResult answer, bool alreadyFinished)
+    {
+        var tracker = CreateTracker();
+        var card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        // The card has joined a run; its completion has not landed yet, so it still reads Waiting.
+        var joining = CreateProxy<IUnifiedOperationTracker>((method, args) =>
+            method.Name == nameof(IUnifiedOperationTracker.CancelOperation) ? (object)answer : method.Invoke(tracker, args));
+        var controller = new OperationsController(joining,
+            new OperationCancellationService(joining, new ProcessManager(NullLogger<ProcessManager>.Instance),
+                OperationConflictTestServices.Owner, NullLogger<OperationCancellationService>.Instance),
+            OperationConflictTestServices.Owner)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    RequestServices = new ServiceCollection()
+                        .AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())
+                        .BuildServiceProvider()
+                }
+            }
+        };
+
+        var response = Assert.IsType<OperationCancelResponse>(
+            Assert.IsType<OkObjectResult>((await controller.CancelOperation(card)).Result).Value);
+
+        Assert.Equal(alreadyFinished, response.AlreadyFinished);
+        Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(card)!.Status);
+    }
+
+    [Fact]
+    public async Task AForceStopThatLandsAsACardJoins_LeavesTheCard()
+    {
+        var tracker = CreateTracker();
+        var card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        // The tracker answers a force stop on a card that has joined without touching it.
+        var joining = CreateProxy<IUnifiedOperationTracker>((method, args) =>
+            method.Name == nameof(IUnifiedOperationTracker.ForceKillOperation) ? (object)true : method.Invoke(tracker, args));
+        var cancellation = new OperationCancellationService(joining, new ProcessManager(NullLogger<ProcessManager>.Instance),
+            OperationConflictTestServices.Owner, NullLogger<OperationCancellationService>.Instance);
+
+        Assert.True(await cancellation.ForceKillAsync(card));
+
+        var waiting = tracker.GetOperation(card)!;
+        Assert.Equal(OperationStatus.Waiting, waiting.Status);
+        Assert.False(waiting.Cancelled);
+        Assert.Equal(0, waiting.CompletedFlag);
+
+        // A force stop the tracker carried out still ends the run as canceled.
+        var running = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var direct = new OperationCancellationService(tracker, new ProcessManager(NullLogger<ProcessManager>.Instance),
+            OperationConflictTestServices.Owner, NullLogger<OperationCancellationService>.Instance);
+        Assert.True(await direct.ForceKillAsync(running));
+        Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(running)!.Status);
     }
 
     // A parked run's row reads the notice it was admitted with, and a duplicate request joins the
@@ -385,6 +802,8 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         var duplicate = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
             () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
         Assert.Equal(queued.OperationId, duplicate.OperationId);
+        // The notice already holds that waiting card, so asking again parks no second waiter.
+        Assert.Equal(queued.OperationId, Assert.Single(tracker.GetWaitingOperations()).Id);
         Assert.Same(notice, tracker.GetOperation(queued.OperationId)!.Notice);
         var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId);
         Assert.Equal("waiting", row.Status);
@@ -400,7 +819,7 @@ public sealed class OperationWaitingBlockerTests : IDisposable
             tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
 
         tracker.RegisterOperation(
-            OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
+            OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource(), target: "steam");
 
         var queued = await queue.EnqueueAsync(
             OperationType.GameDetection,
@@ -413,6 +832,12 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId);
         Assert.Equal("waiting", row.Status);
         Assert.Equal("Cache File Scan", row.BlockedByName);
+        Assert.Equal(OperationType.CacheSizeScan.ToWireString(), row.BlockedByOperationType);
+        Assert.Equal("steam", row.BlockedByTarget);
+        var json = System.Text.Json.JsonSerializer.Serialize(row,
+            new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase });
+        Assert.Contains("\"blockedByOperationType\":", json);
+        Assert.Contains("\"blockedByTarget\":", json);
         // A waiter with no notice is a full card.
         Assert.Equal(RunVisibility.Card, row.Visibility);
     }
@@ -451,7 +876,17 @@ public sealed class OperationWaitingBlockerTests : IDisposable
         Assert.Equal(OperationStatus.Waiting, waiting.Status);
         Assert.Equal("Game Detection", waiting.Name);
         Assert.Equal(0, startCalls);
-        Assert.Equal("Eviction Scan", Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId).BlockedByName);
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId);
+        Assert.Equal("Eviction Scan", row.BlockedByName);
+        Assert.Equal(OperationType.EvictionScan.ToWireString(), row.BlockedByOperationType);
+        Assert.Null(row.BlockedByTarget);
+
+        // Clearing the blocker clears its name, type and target together.
+        tracker.SetBlockedByName(queued.OperationId, null);
+        row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId);
+        Assert.Null(row.BlockedByName);
+        Assert.Null(row.BlockedByOperationType);
+        Assert.Null(row.BlockedByTarget);
     }
 
     [Fact]
@@ -537,6 +972,8 @@ public sealed class OperationWaitingBlockerTests : IDisposable
             Assert.IsType<OkObjectResult>(controller.GetWaitingOperations().Result).Value);
         Assert.Equal(2, rows.Count);
         Assert.All(rows, item => Assert.Equal("Cache File Scan", item.BlockedByName));
+        // The blocker's type comes typed, so a reader names it in its own language.
+        Assert.All(rows, item => Assert.Equal(OperationType.CacheSizeScan.ToWireString(), item.BlockedByOperationType));
         var runs = tracker.GetRuns().Runs;
         Assert.Equal(RunVisibility.Card, Assert.Single(runs, run => run.OperationId == announced.OperationId).Visibility);
         Assert.Equal(RunVisibility.Background, Assert.Single(runs, run => run.OperationId == silent.OperationId).Visibility);

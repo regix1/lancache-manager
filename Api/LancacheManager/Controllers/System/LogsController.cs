@@ -376,7 +376,7 @@ public class LogsController : ControllerBase
             {
                 return Accepted(await _operationQueue.EnqueueAsync(
                     OperationType.LogProcessing, ConflictScope.Bulk(), $"Log Processing ({datasourceName})",
-                    StartDatasourceProcessingAsync, cancellationToken));
+                    StartDatasourceProcessingAsync, cancellationToken, target: datasourceName));
             }
 
             var operationId = await StartDatasourceProcessingAsync();
@@ -391,7 +391,7 @@ public class LogsController : ControllerBase
                     // Race: processing began between our check and the start - park it.
                     return Accepted(await _operationQueue.EnqueueAsync(
                         OperationType.LogProcessing, ConflictScope.Bulk(), $"Log Processing ({datasourceName})",
-                        StartDatasourceProcessingAsync, cancellationToken));
+                        StartDatasourceProcessingAsync, cancellationToken, target: datasourceName));
                 }
 
                 _logger.LogWarning("Failed to start log processing for datasource '{Name}'", datasourceName);
@@ -611,7 +611,8 @@ public class LogsController : ControllerBase
         {
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.LogRemoval, ConflictScope.Service(service),
-                $"Log Removal ({service} @ {datasourceName})", StartDatasourceLogRemovalAsync, cancellationToken));
+                $"Log Removal ({service} @ {datasourceName})", StartDatasourceLogRemovalAsync, cancellationToken,
+                    target: $"{service} @ {datasourceName}"));
         }
 
         var operationId = await StartDatasourceLogRemovalAsync();
@@ -627,7 +628,8 @@ public class LogsController : ControllerBase
                 // Race: removal began between our check and the start - park it.
                 return Accepted(await _operationQueue.EnqueueAsync(
                     OperationType.LogRemoval, ConflictScope.Service(service),
-                    $"Log Removal ({service} @ {datasourceName})", StartDatasourceLogRemovalAsync, cancellationToken));
+                    $"Log Removal ({service} @ {datasourceName})", StartDatasourceLogRemovalAsync, cancellationToken,
+                    target: $"{service} @ {datasourceName}"));
             }
 
             return StatusCode(500, new ErrorResponse

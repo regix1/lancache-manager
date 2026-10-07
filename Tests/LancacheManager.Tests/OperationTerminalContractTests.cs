@@ -828,9 +828,9 @@ public sealed partial class OperationTerminalContractTests
     public void TrackerOptionalArgumentsKeepExistingPositionsAndVoidContracts()
     {
         var contract = typeof(IUnifiedOperationTracker);
-        Assert.Equal(new[] { "type", "name", "cts", "metadata", "onTerminalCleanup", "onTerminalEmit", "initialStatus", "parentOperationId", "startedAt", "blockedByName", "notice", "liveIngest", "ownerSessionId", "ownerCompletes" },
+        Assert.Equal(new[] { "type", "name", "cts", "metadata", "onTerminalCleanup", "onTerminalEmit", "initialStatus", "parentOperationId", "startedAt", "blockedByName", "notice", "liveIngest", "ownerSessionId", "ownerCompletes", "target", "blockedByType", "blockedByTarget", "scanMode", "scanThreshold", "scanLookbackDays", "blockedByFullRepair", "detectionScanType", "waitingForDownload" },
             contract.GetMethod(nameof(IUnifiedOperationTracker.RegisterOperation))!.GetParameters().Select(parameter => parameter.Name));
-        Assert.Equal(new[] { "operationId", "type", "name", "cts", "metadata", "onTerminalCleanup", "onTerminalEmit", "parentOperationId", "startedAt", "notice", "ownerCompletes", "liveIngest" },
+        Assert.Equal(new[] { "operationId", "type", "name", "cts", "metadata", "onTerminalCleanup", "onTerminalEmit", "parentOperationId", "startedAt", "notice", "ownerCompletes", "liveIngest", "detectionScanType" },
             contract.GetMethod(nameof(IUnifiedOperationTracker.TryRestoreOperation))!.GetParameters().Select(parameter => parameter.Name));
         foreach (var name in new[] { nameof(IUnifiedOperationTracker.CompleteOperation), nameof(IUnifiedOperationTracker.UpdateProgress) })
         {
@@ -845,6 +845,20 @@ public sealed partial class OperationTerminalContractTests
         Assert.True(completion[^1].IsOptional);
         Assert.Equal(typeof(Action), completion[^1].ParameterType);
         Assert.True(contract.GetMethod(nameof(IUnifiedOperationTracker.GetOperation))!.GetParameters()[1].IsOptional);
+    }
+
+    // A detection resumed after a restart carries its scan type, so a request for the other type waits.
+    [Theory]
+    [InlineData(DetectionScanType.Incremental)]
+    [InlineData(DetectionScanType.Full)]
+    public void ARestoredDetectionKeepsItsScanType(DetectionScanType scanType)
+    {
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var id = Guid.NewGuid();
+        Assert.True(tracker.TryRestoreOperation(id, OperationType.GameDetection, "Detection", new CancellationTokenSource(),
+            detectionScanType: scanType));
+        Assert.Equal(scanType, tracker.GetOperation(id)!.DetectionScanType);
     }
 
     [Fact]

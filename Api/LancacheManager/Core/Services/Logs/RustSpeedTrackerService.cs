@@ -126,6 +126,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     // general-purpose settling delay.
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
     protected override TimeSpan Interval => TimeSpan.Zero;
+    protected override bool RunsContinuously => true;
     protected override TimeSpan ErrorRetryDelay => TimeSpan.FromSeconds(5);
 
     public RustSpeedTrackerService(

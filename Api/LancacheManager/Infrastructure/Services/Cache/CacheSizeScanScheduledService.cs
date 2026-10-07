@@ -115,6 +115,12 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
         {
             _logger.LogInformation("[CacheSizeScan] Scan request cancelled (trigger: {Trigger})", trigger);
         }
+        // A download that began after the gate said yes: the queue has already recorded the decline, and
+        // the schedule holds the run until downloads stop, so it is not a failure of this run.
+        catch (DownloadInProgressException ex)
+        {
+            _logger.LogInformation("[CacheSizeScan] Cache file scan held for a download: {Reason}", ex.Message);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[CacheSizeScan] Cache file scan failed (trigger: {Trigger})", trigger);

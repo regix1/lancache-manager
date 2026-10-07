@@ -370,7 +370,7 @@ public class CacheController : ControllerBase
         {
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.CacheClearing, ConflictScope.Bulk(), $"Cache Clear ({name})",
-                StartClearDatasourceAsync, cancellationToken));
+                StartClearDatasourceAsync, cancellationToken, target: name));
         }
 
         var operationId = await StartClearDatasourceAsync();
@@ -380,7 +380,7 @@ public class CacheController : ControllerBase
             // Race: clearing began between our check and StartCacheClearAsync - park it.
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.CacheClearing, ConflictScope.Bulk(), $"Cache Clear ({name})",
-                StartClearDatasourceAsync, cancellationToken));
+                StartClearDatasourceAsync, cancellationToken, target: name));
         }
 
         _logger.LogInformation("Started cache clear operation for datasource {Datasource}: {OperationId}", name, operationId);
@@ -667,7 +667,8 @@ public class CacheController : ControllerBase
                 OperationType.CorruptionDetection,
                 ConflictScope.Bulk(),
                 CorruptionDetectionService.DetectionOperationName(method, structuralScanMode),
-                StartDetectionAsync, cancellationToken));
+                StartDetectionAsync, cancellationToken,
+                scanMode: structuralScanMode, scanThreshold: threshold, scanLookbackDays: lookbackDays));
         }
 
         var operationId = await StartDetectionAsync();
@@ -679,7 +680,8 @@ public class CacheController : ControllerBase
                 OperationType.CorruptionDetection,
                 ConflictScope.Bulk(),
                 CorruptionDetectionService.DetectionOperationName(method, structuralScanMode),
-                StartDetectionAsync, cancellationToken));
+                StartDetectionAsync, cancellationToken,
+                scanMode: structuralScanMode, scanThreshold: threshold, scanLookbackDays: lookbackDays));
         }
 
         return Accepted(new CorruptionDetectionStartResponse
@@ -887,7 +889,7 @@ public class CacheController : ControllerBase
         {
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.CorruptionRemoval, ConflictScope.Service(service),
-                $"Corruption Removal ({service})", StartCorruptionRemovalAsync, cancellationToken));
+                $"Corruption Removal ({service})", StartCorruptionRemovalAsync, cancellationToken, target: service));
         }
 
         var operationId = await StartCorruptionRemovalAsync();
@@ -896,7 +898,7 @@ public class CacheController : ControllerBase
             // Race: the core refused to start - park it.
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.CorruptionRemoval, ConflictScope.Service(service),
-                $"Corruption Removal ({service})", StartCorruptionRemovalAsync, cancellationToken));
+                $"Corruption Removal ({service})", StartCorruptionRemovalAsync, cancellationToken, target: service));
         }
 
         return Accepted(new CacheOperationResponse
@@ -1598,7 +1600,8 @@ public class CacheController : ControllerBase
                             DetectionMethod: detectionMethod.ToWireString()));
                 },
                 startedAt: startedAt,
-                ownerCompletes: true));
+                ownerCompletes: true,
+                target: service));
 
         // The caller gets the id now, so a cancel during the prepare ends a run the caller already reported.
         // Remove all names this card in its canceled summary, so the id is recorded before the prepare can end.
@@ -2093,6 +2096,7 @@ public class CacheController : ControllerBase
             new RemovalOperationConfig<CacheManagementService.ServiceCacheRemovalReport>(
                 OperationType: OperationType.ServiceRemoval,
                 OperationLabel: $"Service removal: {name}",
+                Target: name,
                 Metrics: metadata,
                 StartedEventName: SignalREvents.ServiceRemovalStarted,
                 BuildStarted: id => new ServiceRemovalStarted(
@@ -2221,7 +2225,7 @@ public class CacheController : ControllerBase
         {
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.ServiceRemoval, ConflictScope.Service(name),
-                $"Service Removal ({name})", StartServiceRemovalAsync, requestCt));
+                $"Service Removal ({name})", StartServiceRemovalAsync, requestCt, target: name));
         }
 
         var operationId = await StartServiceRemovalAsync();
@@ -2756,7 +2760,7 @@ public class CacheController : ControllerBase
         {
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.EvictionRemoval, conflictScope,
-                $"Evicted Data Removal ({scopeLower}: {key})", StartScopedEvictedRemovalAsync, cancellationToken));
+                $"Evicted Data Removal ({scopeLower}: {key})", StartScopedEvictedRemovalAsync, cancellationToken, target: key));
         }
 
         var operationId = await StartScopedEvictedRemovalAsync();
@@ -2832,7 +2836,7 @@ public class CacheController : ControllerBase
         {
             return Accepted(await _operationQueue.EnqueueAsync(
                 OperationType.EvictionRemoval, conflictScope,
-                $"Evicted Data Removal (named: {serviceLower}:{gameName})", StartScopedEvictedRemovalAsync, cancellationToken));
+                $"Evicted Data Removal (named: {serviceLower}:{gameName})", StartScopedEvictedRemovalAsync, cancellationToken, target: gameName));
         }
 
         var operationId = await StartScopedEvictedRemovalAsync();

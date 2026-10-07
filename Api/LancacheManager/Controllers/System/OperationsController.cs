@@ -103,7 +103,10 @@ public class OperationsController : ControllerBase
                 Status = op.Status.ToWireString(),
                 // Both owners that park operations (the queue and the schedule registry's download
                 // hold) record the blocker on the tracked row, so one read covers both.
-                BlockedByName = op.BlockedByName
+                BlockedByName = op.BlockedByName,
+                BlockedByOperationType = op.BlockedByType?.ToWireString(),
+                BlockedByTarget = op.BlockedByTarget,
+                BlockedByFullRepair = op.BlockedByFullRepair
             })
             .ToList();
 
@@ -169,12 +172,16 @@ public class OperationsController : ControllerBase
                     });
 
                 case OperationCancelResult.AlreadyFinished:
+                    // The tracker answers "already finished" for a card that has joined a running job a moment
+                    // before the card's own completion lands, so the operation the cancel reached counts as
+                    // finished whatever its status reads; a later operation a handoff moved to is judged by its
+                    // status.
                     return Ok(new OperationCancelResponse
                     {
                         Message = "Operation already finished",
                         OperationId = id,
                         Status = target.Status,
-                        AlreadyFinished = target.Status.IsTerminal()
+                        AlreadyFinished = target.Id == operation.Id || target.Status.IsTerminal()
                     });
 
                 default:

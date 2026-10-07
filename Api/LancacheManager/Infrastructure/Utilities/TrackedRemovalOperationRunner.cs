@@ -38,7 +38,8 @@ internal static class TrackedRemovalOperationRunner
                         config.BuildErrorComplete(
                             operationId,
                             GetTerminalError(capturedException, info.Error))),
-            ownerCompletes: true);
+            ownerCompletes: true,
+            target: config.Target);
 
         await notifications.NotifyAllAsync(config.StartedEventName, config.BuildStarted(operationId));
 

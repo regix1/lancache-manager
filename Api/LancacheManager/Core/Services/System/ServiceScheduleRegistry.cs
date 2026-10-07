@@ -1,6 +1,7 @@
 using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Services.Scheduling;
@@ -23,32 +24,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         "dashboardCacheWarmer"
     };
 
-    // Maps a schedule service key to the operation type the run-status endpoint queries on the tracker.
-    // Covers both the pipeline-less maintenance services (each owns its own operation type) and the
-    // existing pipelines (eviction/cache-size/detection/depot/epic/xbox/prefill) so a single generic
-    // recovery route can rehydrate any card's in-progress bar after a refresh.
-    private static readonly Dictionary<string, OperationType> _runStatusOperationTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["logRotation"] = OperationType.LogRotation,
-        ["gameImageFetch"] = OperationType.GameImageFetch,
-        ["cacheSnapshot"] = OperationType.CacheSnapshot,
-        ["operationHistoryCleanup"] = OperationType.OperationHistoryCleanup,
-        ["dashboardCacheWarmer"] = OperationType.DashboardCacheWarmer,
-        ["cacheReconciliation"] = OperationType.EvictionScan,
-        ["cacheSizeScan"] = OperationType.CacheSizeScan,
-        ["gameDetection"] = OperationType.GameDetection,
-        ["depotMapping"] = OperationType.DepotMapping,
-        ["epicMapping"] = OperationType.EpicMapping,
-        ["xboxMapping"] = OperationType.XboxMapping,
-        ["battleNetMapping"] = OperationType.BattleNetMapping,
-        ["riotMapping"] = OperationType.RiotMapping,
-        ["scheduledPrefill"] = OperationType.ScheduledPrefill,
-    };
-
     // The operations that walk the cache directory tree, so they are the ones a client download can
     // pull the ground out from under. Every schedule asks the same question through the same code;
     // this is what makes the ANSWER differ, and it is reached through the key-to-OperationType map
-    // above rather than by naming schedule keys.
+    // (ScheduleOperationTypes) rather than by naming schedule keys.
     private static readonly HashSet<OperationType> _cacheReadingOperations =
     [
         OperationType.EvictionScan,
@@ -111,13 +90,6 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     // Optional for the same reason as _tracker below: unit tests construct the registry directly.
     // When it is absent every schedule is allowed to run, which is the behaviour before this gate.
     private readonly CacheScanGate? _cacheScanGate;
-
-    // Schedules refused while something was downloading, held so the run happens once the download
-    // ends instead of waiting out the whole interval - a nightly scan refused during a prefill used
-    // to slip a full day. The value is the waiting operation putting the card on screen for that
-    // hold, so the two live and die together: one entry means one card, and holding a key twice is
-    // impossible by construction rather than by a second bookkeeping set.
-    private readonly Dictionary<string, (Guid Id, RunNotice Notice)> _deferredRuns = new(StringComparer.OrdinalIgnoreCase);
 
     // Serializes the one-kept-card-per-schedule step. The tracker raises each terminal on its own
     // thread-pool task, so two endings of one schedule can reach it at once. Taken before any
@@ -202,9 +174,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
 
         ScheduledBackgroundService.ServiceExecutionStateChanged += OnServiceExecutionStateChangedAsync;
-        foreach (var loop in _scheduledServices.Values.Cast<ScheduledServiceBase>().Concat(_configurableServices.Values))
+        foreach (var (_, loop) in ScheduleLoops())
         {
             loop.RunCompleted = OnRunCompleted;
+            loop.Tracker = _tracker;
         }
         ConfigurableScheduledService.ServiceExecutionStateChanged += OnServiceExecutionStateChangedAsync;
 
@@ -215,7 +188,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // alone rather than replacing a working one with a function that always says yes.
         if (_cacheScanGate is not null)
         {
-            ScheduledServiceBase.ScheduleRunGate = OnScheduleRunGate;
+            ScheduledServiceBase.ScheduleRunGate = OnScheduleRunGateAsync;
             ScheduledServiceBase.WaitForDownloadAnswer = WaitForDownloadAnswer;
         }
 
@@ -241,18 +214,20 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         RustSpeedTrackerService.DownloadsEnded += OnDownloadsEnded;
     }
 
-    private void OnRunCompleted(RunNotice notice, string serviceKey, string? error, bool cancelled)
+    // Runs on the schedule's run queue, which passes whether the run is kept for later: a run held
+    // or queued again keeps its waiting card for the run still to come.
+    private void OnRunCompleted(RunNotice notice, string serviceKey, string? error, bool cancelled, bool kept)
     {
         if (_tracker is null) return;
         if (_configurableServiceNames.TryGetValue(serviceKey, out var key)) serviceKey = key;
         if (notice.OperationId is { } operationId)
         {
             var operation = _tracker.GetOperation(operationId);
-            if (operation?.Status == OperationStatus.Waiting && operationId == notice.PendingId)
+            if (!kept && operation?.Status == OperationStatus.Waiting && operationId == notice.PendingId)
                 _tracker.CompleteOperation(operationId, error is null && !cancelled, error, cancelled, error is null && !cancelled);
             return;
         }
-        if (error is null || cancelled || !_runStatusOperationTypes.TryGetValue(serviceKey, out var type)
+        if (error is null || cancelled || !ScheduleOperationTypes.ByServiceKey.TryGetValue(serviceKey, out var type)
             || !_runCompleteEvents.TryGetValue(serviceKey, out var completeEvent)) return;
         Guid failedId = default;
         failedId = _tracker.RegisterOperation(type, serviceKey, new CancellationTokenSource(),
@@ -286,21 +261,22 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             QueueExecutionWrite(execution);
         }
 
-        if (_runStatusOperationTypes.ContainsValue(operation.Type))
-        {
-            NotifySchedulesChanged();
-        }
-
         // Hybrid counts its week from the last full detection scan, and this is the only place that
         // learns a scan finished without the detection service taking a dependency on state. Stamped
         // after the scan finishes rather than when it starts, so a run that died partway through does
         // not push the next hybrid full scan out by a week. Manual full scans stamp it too: switching
-        // to hybrid the day after any full scan should wait a week, not start a second one.
+        // to hybrid the day after any full scan should wait a week, not start a second one. Stamped
+        // before the schedules broadcast, which carries the scan type Run Now would now request.
         if (operation.Type == OperationType.GameDetection
             && operation.Status == OperationStatus.Completed
             && operation.Metadata is GameDetectionMetrics { ScanType: DetectionScanType.Full })
         {
             _stateService.SetGameDetectionLastFullScan(DateTime.UtcNow);
+        }
+
+        if (ScheduleOperationTypes.ByServiceKey.Values.Contains(operation.Type))
+        {
+            NotifySchedulesChanged();
         }
 
         // Placed before the two branches below because both return, and their endings are outcomes too.
@@ -319,23 +295,37 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // it: a run refused the moment it is enqueued is marked, while one refused at promotion
         // completes the waiter itself and is not. Asked of the gate rather than read off the message
         // because this is also reached by heavy-operation conflicts, which the queue parks and retries
-        // on its own and must keep doing.
+        // on its own and must keep doing. A skip that a download caused is decided on the run's own
+        // refusal instead of the gate asked again (the eviction scan's outcome, and the queue's decline
+        // at an immediate start and at promotion): a download that ended in between would otherwise
+        // leave the run neither held nor owed and without a card. The hold's own re-check then
+        // releases it at once. The gate is still asked for a skip that carries no mark, such as a start
+        // gate that stayed busy. A registry with no gate never holds a run.
         if (operation.Status == OperationStatus.Skipped
+            && _cacheScanGate is { } downloadGate
+            && (operation.SkippedForDownload || downloadGate.CheckDownloadInProgress() is not null)
             && _cacheReadingOperations.Contains(operation.Type)
-            && _cacheScanGate?.CheckDownloadInProgress() is not null
             && TryFindScheduleKey(operation.Type, out var heldKey))
         {
+            // A service with no loop would hold the run on a card nothing ever takes, so the run ends
+            // with the reason the service cannot run.
+            if (FindScheduleLoop(heldKey) is ScheduledBackgroundService { DisabledInConfiguration: true } disabledLoop)
+            {
+                _ = EmitSkippedRunAsync(heldKey, operation.Id, reason: null, disabledLoop.DisabledStageKey);
+                return;
+            }
+
             // Off this callback: the tracker is mid-terminal for one operation and holding registers
             // another, which is the tracker re-entered from inside its own notify. The new hold
             // continues this skipped run's card, so the skip itself is closed once the hold is up.
             var heldType = operation.Type;
             var notice = operation.Notice
                 ?? new RunNotice(FindScheduleLoop(heldKey)?.EffectiveNotificationMode ?? NotificationMode.All, RunTrigger.Scheduled);
-            if (!notice.Cancelled) _ = Task.Run(() =>
+            if (!notice.Cancelled) _ = Task.Run(async () =>
             {
                 using (tracker.BeginPromotion(operation.Id, heldType))
                 {
-                    HoldRefusedRun(heldKey, heldType, notice);
+                    await HoldRefusedRunAsync(heldKey, heldType, notice);
                 }
                 tracker.CloseRun(operation.Id);
             });
@@ -501,7 +491,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     }
 
     private static bool IsScheduleOutcome(OperationInfo operation, Guid? scheduleId)
-        => _runStatusOperationTypes.ContainsValue(operation.Type)
+        => ScheduleOperationTypes.ByServiceKey.Values.Contains(operation.Type)
             && (operation.Type != OperationType.ScheduledPrefill || scheduleId is not null)
             && (operation.ParentOperationId is null || scheduleId is not null)
             && UnifiedOperationTracker.ReadIntegrationLogin(operation.Metadata) is null;
@@ -526,85 +516,36 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
     /// <summary>
     /// Downloads have stopped, so every schedule may announce its next skip. The polled clear in
-    /// <see cref="CheckScheduleRun"/> stays as the backstop for the cases this edge deliberately
+    /// <see cref="CheckScheduleRunAsync"/> stays as the backstop for the cases this edge deliberately
     /// does not cover: a process that starts up with a download already in flight, and a tracker
     /// that dies, which stops answering rather than reporting that anything finished.
     /// </summary>
     private void OnDownloadsEnded()
     {
-        // Raised on the tracker's stdout thread, so this has to be safe off the loop threads. It takes
-        // the same lock every other reader of the held runs takes, and the runs it starts only set a
-        // flag and cancel a sleep on the loops that own them.
-        StartDeferredRuns(alreadyStarting: null);
+        // Raised on the tracker's stdout thread. Each schedule's run queue decides its own held run;
+        // a run that goes ahead only wakes its loop, so the work still happens on the loop's thread.
+        ReleaseHolds();
     }
 
     /// <summary>
-    /// Starts every run that was refused while a download was in flight. Each one wakes its own loop
-    /// rather than running here, so the work still happens on the thread that owns it and under that
-    /// loop's own bookkeeping. Draining under the lock and waking outside it keeps a loop that asks
-    /// the gate on its way up from blocking on the thread that woke it.
+    /// Releases every run that was held while a download was in flight, posting the release to each
+    /// schedule's run queue. Each queue handles messages in the order they were written, so a caller
+    /// that asks a queue next sees the release.
     /// </summary>
-    /// <param name="alreadyStarting">
-    /// The schedule whose own gate call is draining this. Waking it would buy a second, pointless
-    /// pass right after the run it is already starting. Null from the tracker's edge.
-    /// </param>
-    private RunNotice? StartDeferredRuns(string? alreadyStarting)
+    private void ReleaseHolds()
     {
-        RunNotice? notice = null;
-        KeyValuePair<string, (Guid Id, RunNotice Notice)>[] deferred;
-        lock (_deferredRuns)
+        foreach (var (key, loop) in ScheduleLoops())
         {
-            if (alreadyStarting is not null && _deferredRuns.Remove(alreadyStarting, out var startingHeldId))
-            {
-                // Its own run is what this call is on its way to start, so its card closes with the
-                // rest rather than waiting for a loop it is already inside.
-                notice = startingHeldId.Notice;
-            }
-
-            if (_deferredRuns.Count == 0)
-            {
-                return notice;
-            }
-
-            deferred = [.. _deferredRuns];
-            _deferredRuns.Clear();
+            loop.ReleaseHeldRun(held => GetRunThatDoesTheWork(key, held.RequestedScanType) is { OperationId: { } id }
+                && Guid.TryParse(id, out var running)
+                    ? running
+                    : null);
         }
-
-        foreach (var (serviceKey, heldId) in deferred)
-        {
-            // The card closes whether or not a loop was found. A key with no loop behind it is
-            // already out of the set by this point, so leaving its card open would leave it on
-            // screen for the life of the process with nothing able to clear it.
-            if (heldId.Notice.Cancelled) continue;
-
-            // A schedule already running is doing the work this hold was waiting for, so waking it
-            // would only arm a follow-up that queues behind the run in progress - and the queue names
-            // a blocker by its display name, so that card reads "Eviction Scan: waiting for Eviction
-            // Scan to finish".
-            var status = GetRunStatus(serviceKey);
-            if (status?.IsRunning == true && Guid.TryParse(status.OperationId, out var acceptedId) && _tracker is not null)
-            {
-                heldId.Notice.Attach(_tracker, acceptedId);
-                continue;
-            }
-
-            var loop = FindScheduleLoop(serviceKey);
-            if (loop is null)
-            {
-                _tracker?.CompleteOperation(heldId.Id, success: true, skipped: true);
-                continue;
-            }
-            if (heldId.Notice.Trigger is RunTrigger.Manual or RunTrigger.RunAll) loop?.TriggerImmediateRun(heldId.Notice);
-            else loop?.TriggerDeferredRun(heldId.Notice);
-        }
-        return notice;
     }
 
-    /// <summary>
-    /// Ends the waiting card for a hold that is going ahead. Completing it as a success and not a skip
-    /// is what the card reads as promoted, which retires it quietly so the run's own Started card can
-    /// take its place.
-    /// </summary>
+    private IEnumerable<(string Key, ScheduledServiceBase Loop)> ScheduleLoops()
+        => _scheduledServices.Select(entry => (entry.Key, (ScheduledServiceBase)entry.Value))
+            .Concat(_configurableServices.Select(entry => (entry.Key, (ScheduledServiceBase)entry.Value)));
 
     /// <summary>
     /// The loop that owns a schedule key, whichever of the two bases it runs on. Callers pick the
@@ -639,13 +580,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// </summary>
     private static bool TryFindScheduleKey(OperationType operationType, out string serviceKey)
     {
-        foreach (var key in _runCompleteEvents.Keys)
+        if (ScheduleOperationTypes.FindServiceKey(operationType) is { } key && _runCompleteEvents.ContainsKey(key))
         {
-            if (_runStatusOperationTypes.TryGetValue(key, out var mapped) && mapped == operationType)
-            {
-                serviceKey = key;
-                return true;
-            }
+            serviceKey = key;
+            return true;
         }
 
         serviceKey = string.Empty;
@@ -1007,11 +945,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// which is what keeps every other subclass of the two scheduled bases - the speed tracker that
     /// produces the download answer among them - running exactly as it did.
     /// </summary>
-    private string? CheckScheduleRun(string serviceKey, ref RunNotice notice)
+    private async Task<ScheduleRunCheck> CheckScheduleRunAsync(string serviceKey, RunNotice notice)
     {
-        if (_cacheScanGate is null || !_runStatusOperationTypes.TryGetValue(serviceKey, out var operationType))
+        if (_cacheScanGate is null || !ScheduleOperationTypes.ByServiceKey.TryGetValue(serviceKey, out var operationType))
         {
-            return null;
+            return new ScheduleRunCheck(null, notice);
         }
 
         var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
@@ -1020,32 +958,24 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // The backstop for the tracker's own downloads-ended edge, which is missed when the
             // process starts with a download already running, and when the tracker dies and stops
             // answering rather than reporting that anything finished. Without this the schedules
-            // waiting on that edge would sit until their next ordinary interval.
-            var held = StartDeferredRuns(alreadyStarting: serviceKey);
-            if (held is not null)
-            {
-                if (notice.Trigger == RunTrigger.Manual)
-                {
-                    held.Trigger = RunTrigger.Manual;
-                    held.Actor = notice.Actor;
-                }
-                notice = held;
-            }
-
-            return null;
+            // waiting on that edge would sit until their next ordinary interval. This schedule's own
+            // held run joins the run asking now when the loop already took that run, or the request
+            // that follows when the caller is Run Now or Run All.
+            ReleaseHolds();
+            return new ScheduleRunCheck(null, notice);
         }
 
         // A job that never walks the cache tree has no reason to wait for a download to finish, so it
         // gets the same question and a different answer.
         if (!_cacheReadingOperations.Contains(operationType))
         {
-            return null;
+            return new ScheduleRunCheck(null, notice);
         }
 
         // Held here rather than at each caller because every route that refuses a run comes through
         // this one method: the schedule loops, Run Now, and Run All. Holding it at the callers is
         // what left Run All reporting three schedules as simply not run.
-        notice = HoldRefusedRun(serviceKey, operationType, notice);
+        var held = await HoldRefusedRunAsync(serviceKey, operationType, notice);
 
         // Not the gate's own sentence, which ends in "try again once it finishes" and is written for
         // the controllers, where a refused scan really is over. A schedule's run is kept, so telling
@@ -1053,8 +983,12 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // causes, a download writing and the tracker not having reported yet, are deliberately not
         // repeated: they differ in what a person would do about them, and here there is nothing to do
         // about either. The controllers still get the gate's own wording.
-        return QueuedUntilCacheIsFree;
+        return new ScheduleRunCheck(QueuedUntilCacheIsFree, held);
     }
+
+    // The gate's refusal (null when the run may start) and the notice that stands for the run: the hold
+    // the run joined when it was refused, or the caller's own notice.
+    private sealed record ScheduleRunCheck(string? Denial, RunNotice Notice);
 
     /// <summary>
     /// Waits, before a startup run is asked about, for the tracker to have something to say. Only
@@ -1069,7 +1003,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             : announcedKey;
 
         if (_cacheScanGate is null
-            || !_runStatusOperationTypes.TryGetValue(serviceKey, out var operationType)
+            || !ScheduleOperationTypes.ByServiceKey.TryGetValue(serviceKey, out var operationType)
             || !_cacheReadingOperations.Contains(operationType))
         {
             return Task.CompletedTask;
@@ -1082,10 +1016,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// The answer given to a service loop, which declines above its own run bookkeeping and so
     /// registers nothing itself. A refusal is recorded here as one skipped operation carrying the
     /// reason, because the loop's own broadcast has no field that could carry it. The two manual
-    /// routes below ask <see cref="CheckScheduleRun"/> directly instead: they return the reason on
+    /// routes below ask <see cref="CheckScheduleRunAsync"/> directly instead: they return the reason on
     /// the response the caller is waiting for, so a second record would double-report one click.
     /// </summary>
-    private string? OnScheduleRunGate(string announcedKey, RunTrigger trigger)
+    private async Task<string?> OnScheduleRunGateAsync(string announcedKey, RunTrigger trigger)
     {
         // The two loop bases call themselves different things. ScheduledBackgroundService announces
         // its ServiceKey, which is already the schedule key; ConfigurableScheduledService announces
@@ -1098,81 +1032,70 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
         var loop = FindScheduleLoop(serviceKey);
         var notice = loop?.CurrentRunNotice ?? new RunNotice(NotificationMode.All, trigger);
-        var denial = CheckScheduleRun(serviceKey, ref notice);
-        loop?.SelectRunNotice(notice);
-        return denial;
+        var check = await CheckScheduleRunAsync(serviceKey, notice);
+        loop?.SelectRunNotice(check.Notice);
+        return check.Denial;
     }
 
     /// <summary>
     /// Puts the schedule's run on the waiting card that stays in the notification bar until the run
     /// actually starts, which is the same card a run blocked by another heavy operation already gets
-    /// from the operation queue. The hold and the card are one entry: a schedule already holding one
-    /// does not raise a second, so a loop refused every interval for an hour shows one card.
+    /// from the operation queue. The schedule's run queue keeps one held run: a schedule already
+    /// holding one does not raise a second card, so a loop refused every interval for an hour shows one.
     /// </summary>
-    private RunNotice HoldRefusedRun(string serviceKey, OperationType operationType, RunNotice notice)
+    private async Task<RunNotice> HoldRefusedRunAsync(string serviceKey, OperationType operationType, RunNotice notice)
     {
-        if (notice.Cancelled) return notice;
-        if (_tracker is null)
-        {
-            lock (_deferredRuns)
-            {
-                if (_deferredRuns.TryGetValue(serviceKey, out var held))
-                {
-                    if (notice.Trigger == RunTrigger.Manual)
-                    {
-                        held.Notice.Trigger = RunTrigger.Manual;
-                        held.Notice.Actor = notice.Actor;
-                    }
-                    notice = held.Notice;
-                }
-                _deferredRuns[serviceKey] = (Guid.Empty, notice);
-            }
-
-            return notice;
-        }
-
-        var upgradedId = Guid.Empty;
-        lock (_deferredRuns)
-        {
-            if (_deferredRuns.TryGetValue(serviceKey, out var held))
-            {
-                if (held.Notice.Trigger == RunTrigger.Manual || notice.Trigger != RunTrigger.Manual) return held.Notice;
-                held.Notice.Trigger = RunTrigger.Manual;
-                held.Notice.Actor = notice.Actor;
-                notice = held.Notice;
-                upgradedId = held.Id;
-            }
-
-            // Claimed before the card is raised, so two loops refused at once cannot both get past
-            // the check above and put two cards up for one schedule.
-            if (upgradedId == Guid.Empty) _deferredRuns[serviceKey] = (Guid.Empty, notice);
-        }
-
-        // The held run's row reads the raised trigger, so it is sent again, outside the lock: a
-        // person's Run Now turns a Manual-only schedule's background row into a card.
-        if (upgradedId != Guid.Empty)
-        {
-            _tracker.RefreshRun(upgradedId);
-            return notice;
-        }
-
-        var displayName = ScheduleTitles.ByServiceKey[serviceKey];
-
-        var cts = new CancellationTokenSource();
-
+        // A registry built without this schedule's loop has nothing to hold the run on.
+        if (FindScheduleLoop(serviceKey) is not { } loop) return notice;
+        // Read here, never on the run queue's reader: reading the download gate can raise the
+        // downloads-ended edge on the thread that reads it.
         // The prefill is the only blocker the app tracks that can be writing to the cache, so it is
         // the only one that can be named - but the gate answers whether bytes are landing, not whose.
         // Naming it while a machine on the LAN is also downloading would be a guess, and a wrong one
         // sends the reader to watch the prefill finish while the scan stays held for the other
         // download. So it is named only when the prefill is the single client on the wire; anything
-        // else leaves this null and the card falls back to "waiting for another process to
-        // complete", which is true whoever it is. Carried on the tracked row, so a card rebuilt
-        // after a page refresh says the same thing.
-        var blockerName = _cacheScanGate?.ActiveDownloadingClients() == 1
+        // else leaves this null and the card says it waits for downloads, which is true whoever is
+        // writing. Carried on the tracked row, so a card rebuilt after a page refresh says the same thing.
+        var blocker = _tracker is not null && _cacheScanGate?.ActiveDownloadingClients() == 1
             ? _tracker
                 .GetActiveOperations(OperationType.ScheduledPrefill)
-                .FirstOrDefault(op => op.Metadata is not ScheduledPrefillServiceRunState)?.Name
+                .FirstOrDefault(op => op.Metadata is not ScheduledPrefillServiceRunState)
             : null;
+        // A run held again from its skipped ending names that ending as the card it continues through
+        // the promotion scope its caller set. That scope lives in this call's execution context, and
+        // the card is raised on the run queue's reader, so the context goes with it. Flow is never
+        // suppressed on these callers, so there is always a context to capture. Captured before the
+        // first await, while the caller's scope is still current.
+        var context = ExecutionContext.Capture()!;
+        var held = await loop.HoldRunAsync(notice, card =>
+            ExecutionContext.Run(context, _ => RaiseHoldCard(loop, serviceKey, operationType, card, blocker), null));
+        // A download that ended between the gate's answer and this hold released nothing, so this hold
+        // would wait for the next edge. A registry with no gate never holds a run, so it has nothing to release.
+        if (_cacheScanGate is { } gate)
+        {
+            if (gate.CheckDownloadInProgress() is null) ReleaseHolds();
+            else _ = ReleaseHoldsWhenTrackerAnswersAsync(gate);
+        }
+        return held;
+    }
+
+    // A run refused in the first seconds after the tracker starts is held before any download was seen, so
+    // no downloads-ended edge follows it. Once the tracker has answered, or its silence stops counting as an
+    // answer, a gate that now allows the scan releases the hold.
+    private async Task ReleaseHoldsWhenTrackerAnswersAsync(CacheScanGate gate)
+    {
+        await gate.WaitForDownloadAnswerAsync(CancellationToken.None);
+        if (gate.CheckDownloadInProgress() is null) ReleaseHolds();
+    }
+
+    // Runs on the schedule's run queue, which decided this run is the schedule's new hold.
+    private void RaiseHoldCard(ScheduledServiceBase loop, string serviceKey, OperationType operationType, RunNotice notice,
+        OperationInfo? blocker)
+    {
+        if (_tracker is null) return;
+        var displayName = ScheduleTitles.ByServiceKey[serviceKey];
+
+        var cts = new CancellationTokenSource();
 
         var heldId = _tracker.RegisterOperation(
             operationType,
@@ -1181,75 +1104,51 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // Waiting is deliberately excluded from GetActiveOperations, so this held run cannot
             // block the conflict check or light the Schedules running dot before it starts.
             initialStatus: OperationStatus.Waiting,
-            blockedByName: blockerName,
-            notice: notice);
-
-        // A held run ends here only while it is still parked; once a worker runs under this id, that
-        // worker reports the terminal after releasing its gate. Dropping the hold is the other half -
-        // without it the person dismisses the card and the run still fires later.
-        cts.Token.Register(() =>
-        {
-            notice.Cancel(_tracker, heldId);
-            _ = Task.Run(() =>
-            {
-                FindScheduleLoop(serviceKey)?.CancelPendingRun(notice);
-                DropHeldRun(serviceKey, heldId);
-                _tracker.CancelParkedOperation(heldId);
-            });
-        });
-
-        lock (_deferredRuns)
-        {
-            _deferredRuns[serviceKey] = (heldId, notice);
-        }
+            blockedByName: blocker?.Name,
+            notice: notice,
+            blockedByType: blocker?.Type,
+            blockedByTarget: blocker?.Target,
+            // The scan the held run will request, so the card names it and Run All and Run Now see a waiting
+            // scan of the schedule's own type.
+            detectionScanType: loop.ScanTypeOf(notice),
+            waitingForDownload: true);
         notice.Token = cts.Token;
         notice.PendingId = heldId;
         notice.Attach(_tracker, heldId);
-        return notice;
+        DropWhenDismissed(loop, _tracker, cts.Token, heldId, notice);
     }
 
-    private void AcknowledgeRun(string serviceKey, OperationType operationType, RunNotice notice, bool registerOnly = false)
+    // Runs on the schedule's run queue, inside the admission of a run queued behind a busy one.
+    private void AcknowledgeRun(ScheduledServiceBase loop, string serviceKey, OperationType operationType, RunNotice notice)
     {
         if (_tracker is null || serviceKey is "depotMapping" or "scheduledPrefill" || notice.Cancelled) return;
-        var displayName = ScheduleTitles.ByServiceKey[serviceKey];
         if (notice.PendingId is null)
         {
             var cts = new CancellationTokenSource();
-            var pendingId = _tracker.RegisterOperation(operationType, displayName, cts,
-                initialStatus: OperationStatus.Waiting, notice: notice);
+            var pendingId = _tracker.RegisterOperation(operationType, ScheduleTitles.ByServiceKey[serviceKey], cts,
+                initialStatus: OperationStatus.Waiting, notice: notice, detectionScanType: loop.ScanTypeOf(notice));
             notice.PendingId = pendingId;
             notice.Token = cts.Token;
-            cts.Token.Register(() =>
-            {
-                notice.Cancel(_tracker, pendingId);
-                _ = Task.Run(() =>
-                {
-                    FindScheduleLoop(serviceKey)?.CancelPendingRun(notice);
-                    DropHeldRun(serviceKey, pendingId);
-                    _tracker.CancelParkedOperation(pendingId);
-                });
-            });
+            DropWhenDismissed(loop, _tracker, cts.Token, pendingId, notice);
         }
-        if (registerOnly) return;
         if (notice.OperationId is null) notice.Attach(_tracker, notice.PendingId.Value);
         // The waiting run's row reads the notice, whose trigger a Run Now may have just raised.
         _tracker.RefreshRun(notice.PendingId.Value);
     }
 
     /// <summary>
-    /// Forgets a hold without starting it, for the one case that is not the run going ahead: someone
-    /// dismissed its card.
+    /// A waiting card ends here only while it is still parked; once a worker runs under its id, that
+    /// worker reports the terminal after releasing its gate. Dropping the request is the other half -
+    /// without it the person dismisses the card and the run still fires later. The notice is marked
+    /// at once, so a run queue reading it before the dismissal arrives already treats it as gone.
     /// </summary>
-    private void DropHeldRun(string serviceKey, Guid heldId)
-    {
-        lock (_deferredRuns)
+    private static void DropWhenDismissed(
+        ScheduledServiceBase loop, IUnifiedOperationTracker tracker, CancellationToken token, Guid cardId, RunNotice notice)
+        => token.Register(() =>
         {
-            if (_deferredRuns.TryGetValue(serviceKey, out var held) && held.Id == heldId)
-            {
-                _deferredRuns.Remove(serviceKey);
-            }
-        }
-    }
+            notice.Cancel(tracker, cardId);
+            loop.DismissCard(cardId, notice);
+        });
 
     /// <summary>
     /// Announces a refused run on the schedule's own terminal event: a translation key for the card
@@ -1284,7 +1183,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         await _notifications.NotifyAllAsync(completeEvent, terminal);
     }
 
-    public Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpQueued)> TriggerRunAsync(
+    public async Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpQueued)> TriggerRunAsync(
         string serviceKey,
         ScheduleActor? actor = null)
     {
@@ -1298,41 +1197,47 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
                 StageKey = "management.schedules.services.scheduledPrefill.runNowNoSchedule"
             };
         }
+        // A service turned off in configuration has no loop to take the run, so the click is refused rather
+        // than answered as started.
+        if (loop is ScheduledBackgroundService { DisabledInConfiguration: true } disabledLoop)
+        {
+            throw new ConflictException("This service cannot run")
+            {
+                StageKey = disabledLoop.DisabledStageKey
+            };
+        }
 
         var notice = new RunNotice(
             loop?.EffectiveNotificationMode ?? NotificationMode.All,
             RunTrigger.Manual,
             actor);
-        var runDenial = CheckScheduleRun(serviceKey, ref notice);
-        if (runDenial is not null)
+        var check = await CheckScheduleRunAsync(serviceKey, notice);
+        if (check.Denial is not null)
         {
-            return Task.FromResult<(ScheduleRunStatus, string?, bool)>(
-                (new ScheduleRunStatus { IsRunning = false }, runDenial, false));
+            return (new ScheduleRunStatus { IsRunning = false }, check.Denial, false);
         }
 
         var statusBeforeTrigger = GetRunThatDoesTheWork(serviceKey) ?? new ScheduleRunStatus { IsRunning = false };
         var followUpQueued = false;
         if (loop is not null)
         {
-            var admitted = loop.TryTriggerImmediateRun(notice, out notice, out followUpQueued, (retained, followUp) =>
+            // The card goes up inside the admission, so the loop cannot take the run before it has one,
+            // and this answers only after the card exists.
+            var admission = await loop.TryTriggerImmediateRunAsync(check.Notice, (retained, followUp) =>
             {
-                if (followUp && _runStatusOperationTypes.TryGetValue(serviceKey, out var pendingType))
-                    AcknowledgeRun(serviceKey, pendingType, retained, registerOnly: true);
+                if (followUp && ScheduleOperationTypes.ByServiceKey.TryGetValue(serviceKey, out var pendingType))
+                    AcknowledgeRun(loop, serviceKey, pendingType, retained);
             });
-            if (admitted && followUpQueued && _runStatusOperationTypes.TryGetValue(serviceKey, out var operationType))
-            {
-                AcknowledgeRun(serviceKey, operationType, notice);
-            }
-            if (!admitted || followUpQueued) statusBeforeTrigger.IsRunning = true;
+            followUpQueued = admission.FollowUpQueued;
+            if (!admission.Admitted || followUpQueued) statusBeforeTrigger.IsRunning = true;
         }
 
-        return Task.FromResult<(ScheduleRunStatus, string?, bool)>(
-            (statusBeforeTrigger, null, followUpQueued));
+        return (statusBeforeTrigger, null, followUpQueued);
     }
 
     public ScheduleRunStatus? GetRunStatus(string serviceKey)
     {
-        if (!_runStatusOperationTypes.TryGetValue(serviceKey, out var operationType))
+        if (!ScheduleOperationTypes.ByServiceKey.TryGetValue(serviceKey, out var operationType))
         {
             // Unknown key: the caller (controller) turns this into a 404.
             return null;
@@ -1343,9 +1248,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // reports the RUN, so the per-platform operations are filtered out here: a bare
         // FirstOrDefault would otherwise hand the card whichever operation the tracker happened to
         // enumerate first, and its id is what the card's Cancel targets.
+        // A child step (an eviction scan's own detection) shares the type but serves only its parent, the
+        // same rule the operation queue applies, so it is never the schedule's run.
         var active = _tracker?
             .GetActiveOperations(operationType)
-            .FirstOrDefault(op => op.Metadata is not ScheduledPrefillServiceRunState);
+            .FirstOrDefault(op => op.Metadata is not ScheduledPrefillServiceRunState && op.ParentOperationId is null);
         if (active == null)
         {
             return new ScheduleRunStatus { IsRunning = false };
@@ -1372,16 +1279,32 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     /// GetRunStatus keeps reporting the canceled scan, because the Schedules card shows it until it
     /// stops.
     /// </summary>
-    private ScheduleRunStatus? GetRunThatDoesTheWork(string serviceKey)
+    private ScheduleRunStatus? GetRunThatDoesTheWork(string serviceKey, DetectionScanType? requestedScanType = null)
     {
         var status = GetRunStatus(serviceKey);
         if (status is not { IsRunning: true }) return null;
+        var operationType = ScheduleOperationTypes.ByServiceKey[serviceKey];
         var canceledScan = status.Status == OperationStatus.Cancelling.ToWireString()
-            && _cacheReadingOperations.Contains(_runStatusOperationTypes[serviceKey]);
-        return canceledScan ? null : status;
+            && _cacheReadingOperations.Contains(operationType);
+        if (canceledScan) return null;
+        // A detection of the other scan type does the other scan's work: the request waits and runs its own
+        // scan after it, as the queue does. The request's type is the one a person asked for on the Games
+        // page, or the schedule's own when nobody did.
+        if (operationType == OperationType.GameDetection
+            && Guid.TryParse(status.OperationId, out var runningId)
+            && !IsRequestedScanType(_tracker?.GetOperation(runningId)?.DetectionScanType, requestedScanType))
+        {
+            return null;
+        }
+        return status;
     }
 
-    public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason)> TriggerAllAsync(
+    // Whether a detection of <paramref name="scanType"/> is the scan a request asked for: the type a person
+    // chose on the Games page, or the schedule's own when nobody did.
+    private bool IsRequestedScanType(DetectionScanType? scanType, DetectionScanType? requestedScanType)
+        => scanType == (requestedScanType ?? GameDetectionService.ResolveScanType(_stateService));
+
+    public async Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason)> TriggerAllAsync(
         ScheduleActor? actor = null)
     {
         var triggeredCount = 0;
@@ -1391,49 +1314,57 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // answer. One string says why without telling the reader which keys the answer applies to.
         string? skippedReason = null;
 
-        var schedules = _scheduledServices.Select(entry => (entry.Key, Loop: (ScheduledServiceBase)entry.Value))
-            .Concat(_configurableServices.Select(entry => (entry.Key, Loop: (ScheduledServiceBase)entry.Value)));
-        foreach (var (key, loop) in schedules)
+        foreach (var (key, loop) in ScheduleLoops())
         {
-            // A schedule whose run is going or queued keeps that one run. The loop's own flag covers
-            // a run that has not registered its operation yet (game detection's startup run waits for
-            // setup and log processing first). The tracker covers a run started elsewhere, such as the
-            // Storage page Scan button, and one parked in the queue behind another job. A run held for
-            // a download is left to the download gate below, which reports it as skipped with its
-            // reason. Asking before that gate also keeps a running schedule from gaining a held card.
-            Guid heldId;
-            lock (_deferredRuns)
-            {
-                heldId = _deferredRuns.TryGetValue(key, out var held) ? held.Id : Guid.Empty;
-            }
+            // A schedule whose run is going or queued keeps that one run. The run queue covers a run
+            // the loop took that has not registered its operation yet (game detection's startup run
+            // waits for setup and log processing first). The tracker covers a run started elsewhere,
+            // such as the Storage page Scan button, and one parked in the queue behind another job. A
+            // run held for a download is left to the download gate below, which reports it as skipped
+            // with its reason; a held detection is held by scan type, so its card counts here as waiting
+            // when it is the schedule's own type. Asking before that gate also keeps a running schedule from gaining a
+            // held card. A cache scan being canceled stops before it does the work, so its schedule
+            // takes a new run that starts once the canceled one ends; any other canceled run still
+            // counts as running until it ends. A scheduled prefill with no schedule enabled has
+            // nothing to run, and a service turned off in configuration has no loop to run it, so
+            // both are left out of every count.
+            if (loop is IScheduleEnabledGate enabledGate && !enabledGate.HasAnyServiceEnabled()
+                || loop is ScheduledBackgroundService { DisabledInConfiguration: true }) continue;
+            var status = await loop.ReadRunStatusAsync();
+            var operationType = ScheduleOperationTypes.ByServiceKey[key];
+            var canceledScan = status.Run is { Cancelled: true } && _cacheReadingOperations.Contains(operationType);
             var queued = _tracker is not null
-                && _runStatusOperationTypes.TryGetValue(key, out var operationType)
                 && _tracker.GetWaitingOperations().Any(operation => operation.Type == operationType
                     && operation.Status == OperationStatus.Waiting
-                    && operation.Id != heldId);
-            if (loop.IsCurrentlyExecuting || GetRunThatDoesTheWork(key) is not null || queued)
+                    && operation.Id != status.HeldCard
+                    && (operationType != OperationType.GameDetection
+                        || IsRequestedScanType(operation.DetectionScanType, requestedScanType: null)));
+            if (status.Run is not null && !canceledScan || GetRunThatDoesTheWork(key) is not null || queued)
             {
                 alreadyRunningCount++;
                 continue;
             }
 
-            // Cache deferral and the service's atomic admission decision own separate counts.
-            var notice = new RunNotice(loop.EffectiveNotificationMode, RunTrigger.RunAll, actor);
-            var denial = CheckScheduleRun(key, ref notice);
-            if (denial is not null)
+            // Cache deferral and the run queue's admission decision own separate counts.
+            var check = await CheckScheduleRunAsync(key, new RunNotice(loop.EffectiveNotificationMode, RunTrigger.RunAll, actor));
+            if (check.Denial is not null)
             {
                 skippedCount++;
-                skippedReason ??= denial;
+                skippedReason ??= check.Denial;
                 continue;
             }
 
-            // A held run handed back by the download gate may only be queued behind a run starting
-            // now, which is not a new run.
-            if (loop.TryTriggerImmediateRun(notice, out _, out var followUpQueued) && !followUpQueued) triggeredCount++;
+            // Run All is admitted behind a busy run only when that run is being canceled, so an admitted
+            // request is always a new run, shown on its own waiting card the way Run Now shows one.
+            var admission = await loop.TryTriggerImmediateRunAsync(check.Notice, (retained, followUp) =>
+            {
+                if (followUp) AcknowledgeRun(loop, key, operationType, retained);
+            });
+            if (admission.Admitted) triggeredCount++;
             else alreadyRunningCount++;
         }
 
-        return Task.FromResult((triggeredCount, alreadyRunningCount, skippedCount, skippedReason));
+        return (triggeredCount, alreadyRunningCount, skippedCount, skippedReason);
     }
 
     private ServiceScheduleInfo MapScheduledService(ScheduledBackgroundService service)
@@ -1446,10 +1377,13 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         var scheduledIsRunning = service.IsCurrentlyExecuting;
         if (!scheduledIsRunning
             && _tracker is not null
-            && _runStatusOperationTypes.TryGetValue(service.ServiceKey, out var scheduledOpType))
+            && ScheduleOperationTypes.ByServiceKey.TryGetValue(service.ServiceKey, out var scheduledOpType))
         {
             scheduledIsRunning = _tracker.GetActiveOperations(scheduledOpType).Any();
         }
+
+        var detectsScans = string.Equals(service.ServiceKey, ScanModeServiceKey, StringComparison.OrdinalIgnoreCase);
+        if (detectsScans) ArmHybridWeekBroadcast();
 
         return new ServiceScheduleInfo
         {
@@ -1461,8 +1395,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             NotificationDisplayModeOverridden = _stateService.GetServiceNotificationDisplayMode(service.ServiceKey) is not null,
             // Left null on every other card so its presence alone tells the browser which card
             // renders the scan-mode dropdown, the way PendingFullScan and AwaitingSignIn already do.
-            ScanMode = string.Equals(service.ServiceKey, ScanModeServiceKey, StringComparison.OrdinalIgnoreCase)
+            ScanMode = detectsScans
                 ? _stateService.GetGameDetectionScanMode()
+                : null,
+            RunNowScanType = detectsScans
+                ? GameDetectionService.ResolveScanType(_stateService)
                 : null,
             SupportsNotifications = (bool?)GetPropertyValue(service.GetType(), service, "SupportsNotifications", typeof(bool)) ?? false,
             IsRunning = scheduledIsRunning,
@@ -1473,6 +1410,36 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
             // waking, and during it the loop is still the truth.
             CustomSchedule = service.ConfiguredCustomSchedule,
         };
+    }
+
+    // Hybrid mode's scan type flips when the last full scan turns a week old, and no run starts or ends
+    // then, so no broadcast would tell the browser its Run Now scan type changed. One timer, kept for the
+    // boundary the settings give now, sends the schedules just after it. Every settings change and every
+    // finished full scan ends in a status read, which re-arms it for the new boundary.
+    private readonly object _hybridWeekLock = new();
+    private Timer? _hybridWeekTimer;
+    private DateTime? _hybridWeekBoundary;
+
+    private void ArmHybridWeekBroadcast()
+    {
+        DateTime? boundary = _stateService.GetGameDetectionScanMode() == GameDetectionScanMode.Hybrid
+            && _stateService.GetGameDetectionLastFullScan() is { } lastFullScan
+                ? lastFullScan + GameDetectionScanModeExtensions.HybridWeek
+                : null;
+        // A boundary more than a week away comes from a stored scan time ahead of the clock, and a timer cannot
+        // wait as long as that; the first status read after the clock catches up arms it.
+        if (boundary - DateTime.UtcNow > GameDetectionScanModeExtensions.HybridWeek) boundary = null;
+        lock (_hybridWeekLock)
+        {
+            if (boundary == _hybridWeekBoundary) return;
+            _hybridWeekBoundary = boundary;
+            _hybridWeekTimer?.Dispose();
+            _hybridWeekTimer = null;
+            if (boundary is not { } at || at <= DateTime.UtcNow) return;
+            // A second past the boundary, so a timer that fires early still reads the new scan type.
+            _hybridWeekTimer = new Timer(_ => NotifySchedulesChanged(), null,
+                at - DateTime.UtcNow + TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
+        }
     }
 
     private ServiceScheduleInfo MapConfigurableService(ConfigurableScheduledService service)
@@ -1631,7 +1598,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         // the service as running when it has an active tracked operation of its mapped type. This covers
         // both the scheduled crawl and a manual rebuild with one source of truth.
         var configurableIsRunning = service.IsCurrentlyExecuting;
-        if (!configurableIsRunning && _tracker is not null && _runStatusOperationTypes.TryGetValue(key, out var runningOpType))
+        if (!configurableIsRunning && _tracker is not null && ScheduleOperationTypes.ByServiceKey.TryGetValue(key, out var runningOpType))
         {
             configurableIsRunning = _tracker.GetActiveOperations(runningOpType).Any();
         }

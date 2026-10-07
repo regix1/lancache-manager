@@ -20,6 +20,21 @@ namespace LancacheManager.Tests;
 /// </summary>
 public sealed class OperationRunPublishingTests
 {
+    // A structural scan keeps its threshold and lookback for identity but is drawn without them.
+    [Theory]
+    [InlineData(null, 5, 30)]
+    [InlineData(StructuralScanMode.Full, null, null)]
+    public void OnlyARepeatedMissScanSendsItsThresholdAndLookback(StructuralScanMode? mode, int? threshold, int? lookback)
+    {
+        var tracker = CreateTracker();
+        var id = tracker.RegisterOperation(OperationType.CorruptionDetection, "Corruption Scan", new CancellationTokenSource(),
+            scanMode: mode, scanThreshold: 5, scanLookbackDays: 30);
+
+        var run = Assert.Single(tracker.GetRuns().Runs, row => row.OperationId == id);
+
+        Assert.Equal((threshold, lookback), (run.ScanThreshold, run.ScanLookbackDays));
+    }
+
     [Fact]
     public void AHeldRunBegunByItsOwnerIsNeverFinishedAsParked()
     {
@@ -967,6 +982,236 @@ public sealed class OperationRunPublishingTests
         }
 
         return unlocked;
+    }
+
+    [Fact]
+    public void RunRow_CarriesItsScheduleKey()
+    {
+        var tracker = CreateTracker();
+        var eviction = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var removal = tracker.RegisterOperation(OperationType.GameRemoval, "Remove Game", new CancellationTokenSource());
+        var incremental = tracker.RegisterOperation(OperationType.CorruptionDetection, "Corruption Scan",
+            new CancellationTokenSource(), scanMode: StructuralScanMode.Incremental);
+        var repeatedMiss = tracker.RegisterOperation(OperationType.CorruptionDetection, "Corruption Scan",
+            new CancellationTokenSource());
+        // A game detection sends its scan type in the same wire field, with the same strings.
+        var fullDetection = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection",
+            new CancellationTokenSource(), detectionScanType: DetectionScanType.Full);
+        // The SignalR options keep nulls, so a null field is on the wire as null rather than left out.
+        var signalR = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+        Assert.Contains("\"scheduleKey\":\"cacheReconciliation\"", JsonSerializer.Serialize(Run(tracker, eviction), signalR));
+        Assert.Contains("\"scheduleKey\":null", JsonSerializer.Serialize(Run(tracker, removal), signalR));
+        Assert.Contains("\"scanMode\":\"incremental\"", JsonSerializer.Serialize(Run(tracker, incremental), signalR));
+        Assert.Contains("\"scanMode\":null", JsonSerializer.Serialize(Run(tracker, repeatedMiss), signalR));
+        Assert.Contains("\"scanMode\":\"full\"", JsonSerializer.Serialize(Run(tracker, fullDetection), signalR));
+        Assert.Equal("Eviction Scan", Run(tracker, eviction).Name);
+    }
+
+    [Fact]
+    public void AJoinedCardsCancel_AnswersAlreadyFinished()
+    {
+        var tracker = CreateTracker();
+        var kept = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+
+        Assert.True(tracker.TryCloseInto(card, kept));
+
+        Assert.Equal(OperationCancelResult.AlreadyFinished, tracker.CancelOperation(card));
+        Assert.True(tracker.ForceKillOperation(card));
+        Assert.Equal(card, tracker.GetOperation(card, followHandoff: true)!.Id);
+        var joined = tracker.GetOperation(card)!;
+        Assert.Equal(OperationStatus.Completed, joined.Status);
+        Assert.Equal(kept, joined.NextOperationId);
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(kept)!.Status);
+        Assert.False(tracker.GetOperation(kept)!.Cancelled);
+
+        // A handoff, unlike a join, carries the cancel on to the run it names.
+        var handedKept = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var handedCard = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        tracker.RecordHandoff(handedCard, handedKept);
+        tracker.CompleteOperation(handedCard, success: true);
+        tracker.CancelOperation(handedCard);
+        Assert.True(tracker.GetOperation(handedKept)!.Cancelled);
+    }
+
+    [Fact]
+    public void ACancelBeforeTheJoin_RefusesIt()
+    {
+        var tracker = CreateTracker();
+        var kept = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+
+        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(card));
+
+        Assert.False(tracker.TryCloseInto(card, kept));
+        Assert.Equal(card, tracker.GetOperation(card, followHandoff: true)!.Id);
+        Assert.NotEqual(OperationStatus.Completed, tracker.GetOperation(card)!.Status);
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(kept)!.Status);
+    }
+
+    [Fact]
+    public void AJoinOntoARunBeingCanceled_IsRefused()
+    {
+        var tracker = CreateTracker();
+        var kept = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        tracker.CancelOperation(kept);
+
+        Assert.False(tracker.TryCloseInto(card, kept));
+        Assert.Equal(card, tracker.GetOperation(card, followHandoff: true)!.Id);
+        Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(card)!.Status);
+    }
+
+    [Fact]
+    public void AJoinedCard_KeepsItsOwnReapedEnding()
+    {
+        var tracker = CreateTracker();
+        var kept = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        Assert.True(tracker.TryCloseInto(card, kept));
+        OperationWaitingBlockerTests.Reap(tracker, card);
+
+        tracker.CompleteOperation(kept, success: false, error: "Disk read failed");
+        tracker.CloseRun(kept);
+        OperationWaitingBlockerTests.Reap(tracker, kept);
+
+        Assert.Null(tracker.GetOperation(kept));
+        Assert.Equal(OperationStatus.Completed, tracker.GetReapedStatus(card));
+    }
+
+    // The run the card joined fails and is reaped first; the card still answers its own ending.
+    [Fact]
+    public void AJoinedCard_KeepsItsOwnEndingWhenTheRunIsReapedFirst()
+    {
+        var tracker = CreateTracker();
+        var kept = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        Assert.True(tracker.TryCloseInto(card, kept));
+
+        tracker.CompleteOperation(kept, success: false, error: "Disk read failed");
+        tracker.CloseRun(kept);
+        OperationWaitingBlockerTests.Reap(tracker, kept);
+        OperationWaitingBlockerTests.Reap(tracker, card);
+
+        Assert.Null(tracker.GetOperation(card));
+        Assert.Equal(OperationStatus.Completed, tracker.GetReapedStatus(card));
+    }
+
+    [Fact]
+    public void AFollowUpHandedToAJoinedCard_AnswersThatCardsEndingOnceReaped()
+    {
+        var tracker = CreateTracker();
+        var kept = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        var followUp = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        tracker.RecordHandoff(followUp, card);
+        Assert.True(tracker.TryCloseInto(card, kept));
+        tracker.CompleteOperation(followUp, success: true);
+
+        OperationWaitingBlockerTests.Reap(tracker, card);
+        Assert.Equal(OperationStatus.Completed, tracker.GetReapedStatus(followUp));
+
+        tracker.CompleteOperation(kept, success: false, error: "Disk read failed");
+        tracker.CloseRun(kept);
+        OperationWaitingBlockerTests.Reap(tracker, kept);
+        Assert.Null(tracker.GetOperation(kept));
+        Assert.Equal(OperationStatus.Completed, tracker.GetReapedStatus(followUp));
+    }
+
+    // The ending a follow-up answers does not depend on whether the joined run or the joined card is reaped first.
+    [Fact]
+    public void AFollowUpHandedToAJoinedCard_AnswersThatCardsEndingWhenTheJoinedRunIsReapedFirst()
+    {
+        var tracker = CreateTracker();
+        var kept = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        var followUp = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        tracker.RecordHandoff(followUp, card);
+        Assert.True(tracker.TryCloseInto(card, kept));
+        tracker.CompleteOperation(followUp, success: true);
+
+        tracker.CompleteOperation(kept, success: false, error: "Disk read failed");
+        tracker.CloseRun(kept);
+        OperationWaitingBlockerTests.Reap(tracker, kept);
+        OperationWaitingBlockerTests.Reap(tracker, card);
+
+        Assert.Equal(OperationStatus.Completed, tracker.GetReapedStatus(followUp));
+    }
+
+    [Fact]
+    public void AdoptingADroppedCard_ItsCancelLeavesTheKeptCard()
+    {
+        var tracker = CreateTracker();
+        var keptCard = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        var droppedCard = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        var kept = new RunNotice(NotificationMode.All, RunTrigger.Scheduled);
+        kept.Attach(tracker, keptCard);
+        var dropped = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        dropped.Attach(tracker, droppedCard);
+
+        Assert.True(kept.Adopt(tracker, dropped));
+
+        Assert.Equal(keptCard, tracker.GetOperation(droppedCard)!.NextOperationId);
+        Assert.Equal(OperationCancelResult.AlreadyFinished, tracker.CancelOperation(droppedCard));
+        Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(keptCard)!.Status);
+        Assert.False(kept.Cancelled);
+
+        // Handing the dropped card on with Attach lets its cancel reach the kept card.
+        var attachedKept = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        var attachedDropped = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        var attached = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        attached.Attach(tracker, attachedDropped);
+        attached.Attach(tracker, attachedKept);
+        tracker.CancelOperation(attachedDropped);
+        Assert.True(tracker.GetOperation(attachedKept)!.Cancelled);
+    }
+
+    [Fact]
+    public void AdoptingIntoAnEndingCard_LeavesTheRequestWaiting()
+    {
+        var tracker = CreateTracker();
+        var keptCard = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        var droppedCard = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            initialStatus: OperationStatus.Waiting);
+        var kept = new RunNotice(NotificationMode.All, RunTrigger.Scheduled);
+        kept.Attach(tracker, keptCard);
+        tracker.CancelOperation(keptCard);
+        var dropped = new RunNotice(NotificationMode.All, RunTrigger.RunAll);
+        dropped.Attach(tracker, droppedCard);
+
+        Assert.False(kept.Adopt(tracker, dropped));
+
+        Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(droppedCard)!.Status);
+        Assert.Equal(droppedCard, tracker.GetOperation(droppedCard, followHandoff: true)!.Id);
+        Assert.Equal(RunTrigger.Scheduled, kept.Trigger);
+    }
+
+    [Fact]
+    public void AdoptingADismissedRequest_KeepsTheKeptTrigger()
+    {
+        var tracker = CreateTracker();
+        var dropped = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        dropped.Cancel(tracker, Guid.NewGuid());
+        var kept = new RunNotice(NotificationMode.All, RunTrigger.RunAll);
+
+        kept.Adopt(tracker, dropped);
+
+        Assert.Equal(RunTrigger.RunAll, kept.Trigger);
     }
 
     private static Guid Ended(UnifiedOperationTracker tracker, OperationType type, RunNotice? notice, bool cancelled)

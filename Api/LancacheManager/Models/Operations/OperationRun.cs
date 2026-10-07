@@ -23,6 +23,12 @@ internal sealed class RunVisibilityJsonConverter : JsonStringEnumConverter<RunVi
 /// One tracked operation as the browser's run list draws it. Sent to account holders on every state
 /// change and returned in bulk by the run-list endpoint, so the browser keeps exactly one entry per run.
 /// </summary>
+/// <param name="Target">The game, service or other target named in <paramref name="Name"/>, so the browser
+/// can pair it with the reader's own title; null when the name has none.</param>
+/// <param name="ScheduleKey">The schedule whose run this is, read from its type; null for a run no schedule owns.</param>
+/// <param name="BlockedByOperationType">Wire type of the operation the waiting run is parked behind, the same form
+/// as <paramref name="OperationType"/>; null when unknown.</param>
+/// <param name="BlockedByTarget">The target that blocker works on; null when it has none.</param>
 /// <param name="PreviousOperationId">The waiting operation this run took over from, set on its first row.</param>
 /// <param name="NextOperationId">The final operation doing this run's work after it handed it on (the end
 /// of the handoff chain), the same meaning as <see cref="OperationStatusResponse.NextOperationId"/>; null
@@ -42,14 +48,24 @@ internal sealed class RunVisibilityJsonConverter : JsonStringEnumConverter<RunVi
 /// <param name="CompletedRevision">The revision of the run's first terminal row, which orders endings;
 /// null while the run is live.</param>
 /// <param name="Revision">Rises by exactly one for every row sent, in send order.</param>
+/// <param name="ScanMode">Wire form of the scan mode a corruption scan or a game detection runs in; null otherwise.
+/// The browser names it beside the waiting line's title.</param>
+/// <param name="BlockedByFullRepair">True when the waiting run is parked behind a full cache repair, whose
+/// <paramref name="BlockedByOperationType"/> is cache clearing.</param>
+/// <param name="ScanThreshold">The miss threshold of a repeated-miss corruption scan; null otherwise, a structural scan included.</param>
+/// <param name="ScanLookbackDays">The lookback window, in days, of a repeated-miss corruption scan; null otherwise, a structural scan included.</param>
+/// <param name="WaitingForDownload">True when a download writing to the cache holds the waiting run back; the browser
+/// then says it waits for downloads unless a blocker is named.</param>
 public sealed record OperationRun(
-    Guid OperationId, string OperationType, string Name, string Status, RunVisibility Visibility,
-    double PercentComplete, string Message, string? Error, string? BlockedByName,
+    Guid OperationId, string OperationType, string Name, string? Target, string? ScheduleKey, string Status,
+    RunVisibility Visibility, double PercentComplete, string Message, string? Error, string? BlockedByName,
+    string? BlockedByOperationType, string? BlockedByTarget,
     Guid? PreviousOperationId, Guid? ParentOperationId, Guid? NextOperationId, IReadOnlyList<RunWarning> Warnings,
     bool Retained, bool Closed, bool Repairing, string? RepairError, bool FullRepair, int ConsecutiveFailures,
     bool LatestRunSucceeded, Guid? ScheduleId,
     PrefillPlatform? ServiceId, bool LiveIngest, bool IntegrationLogin, Guid? OwnerSessionId,
-    long? CompletedRevision, DateTime StartedAt, long Revision);
+    long? CompletedRevision, DateTime StartedAt, long Revision, string? ScanMode, bool BlockedByFullRepair,
+    int? ScanThreshold, int? ScanLookbackDays, bool WaitingForDownload);
 
 /// <summary>
 /// Every tracked run plus the revision read before they were listed, so the browser drops a run

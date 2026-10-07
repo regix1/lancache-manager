@@ -521,7 +521,6 @@ public sealed class CacheScanDetectionPhaseTests
             capability,
             clientHostnameService: null!,
             eventsService: null!,
-            gate,
             speedTracker,
             operationState)
         {
@@ -789,18 +788,18 @@ public sealed class CacheScanDetectionPhaseTests
         const string evictionKey = "cacheReconciliation";
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
-        var schedules = new ServiceScheduleRegistry([], VisibleClientsStateService(),
+        using var loop = new EvictionLoopProbe();
+        var schedules = new ServiceScheduleRegistry([loop], VisibleClientsStateService(),
             DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>(),
             ScheduleExecutionTestService.Create(), tracker);
         var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
-        typeof(ServiceScheduleRegistry)
-            .GetMethod(acknowledged ? "AcknowledgeRun" : "HoldRefusedRun", BindingFlags.Instance | BindingFlags.NonPublic)!
+        var placed = typeof(ServiceScheduleRegistry)
+            .GetMethod(acknowledged ? "AcknowledgeRun" : "HoldRefusedRunAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(schedules, acknowledged
-                ? [evictionKey, OperationType.EvictionScan, notice, false]
+                ? [loop, evictionKey, OperationType.EvictionScan, notice]
                 : [evictionKey, OperationType.EvictionScan, notice]);
+        if (placed is Task holding) await holding;
         var heldId = notice.PendingId!.Value;
-        var holds = (Dictionary<string, (Guid Id, RunNotice Notice)>)typeof(ServiceScheduleRegistry)
-            .GetField("_deferredRuns", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(schedules)!;
         var terminal = new TaskCompletionSource<OperationStatus>(TaskCreationOptions.RunContinuationsAsynchronously);
         tracker.OperationTerminal += operation =>
         {
@@ -815,12 +814,8 @@ public sealed class CacheScanDetectionPhaseTests
 
         Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(heldId));
         var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (true)
+        while ((await loop.ReadRunStatusAsync()).HeldCard is not null)
         {
-            lock (holds)
-            {
-                if (!holds.ContainsKey(evictionKey)) break;
-            }
             Assert.True(DateTime.UtcNow < deadline, "The cancel callback did not drop the hold");
             await Task.Delay(10);
         }
@@ -840,6 +835,15 @@ public sealed class CacheScanDetectionPhaseTests
 
         tracker.CompleteOperation(heldId, success: false, cancelled: true);
         Assert.Equal(OperationStatus.Cancelled, await terminal.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    private sealed class EvictionLoopProbe() : LancacheManager.Infrastructure.Services.Base.ScheduledBackgroundService(
+        NullLogger<EvictionLoopProbe>.Instance, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build())
+    {
+        public override string ServiceKey => "cacheReconciliation";
+        protected override string ServiceName => "cacheReconciliation";
+        protected override TimeSpan Interval => TimeSpan.FromHours(1);
+        protected override Task ExecuteWorkAsync(CancellationToken stoppingToken) => Task.CompletedTask;
     }
 
     [Fact]
@@ -1133,7 +1137,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         var scan = (Task)typeof(CacheReconciliationService)
             .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(ctx.Scan, [context, scanId, CancellationToken.None, scanNotice, false])!;
+            .Invoke(ctx.Scan, [context, scanId, CancellationToken.None, scanNotice])!;
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         await ctx.CompleteDetectionAsync(detection.Id);
         await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
@@ -1191,7 +1195,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         var scan = (Task)typeof(CacheReconciliationService)
             .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(ctx.Scan, [context, scanId, stop.Token, scanNotice, false])!;
+            .Invoke(ctx.Scan, [context, scanId, stop.Token, scanNotice])!;
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         await ctx.CompleteDetectionAsync(detection.Id);
         await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
@@ -1254,7 +1258,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         var scan = (Task)typeof(CacheReconciliationService)
             .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(ctx.Scan, [context, scanId, stop.Token, scanNotice, false])!;
+            .Invoke(ctx.Scan, [context, scanId, stop.Token, scanNotice])!;
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         await ctx.CompleteDetectionAsync(detection.Id);
         await removeStepStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -1319,7 +1323,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         var scan = (Task)typeof(CacheReconciliationService)
             .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(ctx.Scan, [context, scanId, stop.Token, scanNotice, false])!;
+            .Invoke(ctx.Scan, [context, scanId, stop.Token, scanNotice])!;
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         await ctx.CompleteDetectionAsync(detection.Id);
         await removeStepStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -1387,7 +1391,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         var scan = (Task)typeof(CacheReconciliationService)
             .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(ctx.Scan, [context, scanId, stop.Token, scanNotice, false])!;
+            .Invoke(ctx.Scan, [context, scanId, stop.Token, scanNotice])!;
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         await ctx.CompleteDetectionAsync(detection.Id);
         await removeStepStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -1442,7 +1446,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         var scan = (Task)typeof(CacheReconciliationService)
             .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(ctx.Scan, [context, scanId, CancellationToken.None, scanNotice, false])!;
+            .Invoke(ctx.Scan, [context, scanId, CancellationToken.None, scanNotice])!;
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         await ctx.CompleteDetectionAsync(detection.Id);
         await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
@@ -1489,7 +1493,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         var scan = (Task)typeof(CacheReconciliationService)
             .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(ctx.Scan, [context, scanId, CancellationToken.None, scanNotice, false])!;
+            .Invoke(ctx.Scan, [context, scanId, CancellationToken.None, scanNotice])!;
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         await ctx.CompleteDetectionAsync(detection.Id);
         await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
@@ -1501,6 +1505,52 @@ public sealed class CacheScanDetectionPhaseTests
             Assert.Single(tracker.GetRuns().Runs, row => row.OperationId == scanId).Warnings);
         Assert.Equal("common.notifications.warnings.cacheFoldersUnchecked", warning.StageKey);
         Assert.Equal(cachePath, warning.Context["folders"]);
+    }
+
+    // The Storage page's scan click while a download writes to the cache is handed to the queue like any
+    // other click, not refused with a 400: the scan meets the download itself and its schedule holds it on
+    // a waiting card until downloads end.
+    [Fact]
+    public async Task AStorageScanClickDuringADownload_IsQueuedInsteadOfRefused()
+    {
+        using var ctx = new PhaseContext();
+        var snapshot = new DownloadSpeedSnapshot();
+        CacheScanGateHarness.MakeBusy(snapshot);
+        Assert.NotNull(CacheScanGateHarness.With(snapshot).CheckDownloadInProgress());
+        var enqueued = new List<OperationType>();
+        var queue = CacheScanGateHarness.CreateProxy<IOperationQueue>((method, args) =>
+        {
+            enqueued.Add((OperationType)args![0]!);
+            return Task.FromResult(new QueuedOperationResponse
+            {
+                OperationId = Guid.NewGuid(),
+                Queued = false,
+                Status = "started"
+            });
+        });
+        var controller = new StatsController(
+            context: null!,
+            clientGroupsRepository: null!,
+            ctx.State,
+            Options.Create(new ApiOptions()),
+            (ISignalRNotificationService)(object)ctx.Notifications,
+            ctx.Scan,
+            operationTracker: null!,
+            conflictChecker: null!,
+            queue,
+            new DatasourceCapabilityService(ctx.Datasources),
+            clientHostnameService: null!,
+            eventsService: null!,
+            (RustSpeedTrackerService)RuntimeHelpers.GetUninitializedObject(typeof(RustSpeedTrackerService)),
+            operationStateService: null!)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var result = await controller.ReconcileAsync(CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Equal([OperationType.EvictionScan], enqueued);
     }
 
     [Fact]
@@ -1519,11 +1569,34 @@ public sealed class CacheScanDetectionPhaseTests
         }));
         var scanId = Assert.IsType<Guid>(typeof(CacheReconciliationService)
             .GetMethod("StartScanInBackground", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(ctx.Scan, ["Eviction Scan", false, new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
+            .Invoke(ctx.Scan, ["Eviction Scan", new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         await ctx.CompleteDetectionAsync(detection.Id);
 
         Assert.Equal(OperationStatus.Cancelled, (await WaitForTerminalAsync(tracker, scanId)).Status);
+    }
+
+    // The scan's own refusal is what marks its row as turned away for a download; the schedule holds the run
+    // on that mark, so without it a download that ends before the schedule looks loses the run.
+    [Fact]
+    public async Task AnEvictionScanTurnedAwayForADownload_MarksItsRowAsync()
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var snapshot = new DownloadSpeedSnapshot();
+        CacheScanGateHarness.MakeBusy(snapshot);
+        PhaseContext.SetField(ctx.Scan, "_cacheScanGate", CacheScanGateHarness.With(snapshot));
+
+        var scanId = Assert.IsType<Guid>(typeof(CacheReconciliationService)
+            .GetMethod("StartScanInBackground", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(ctx.Scan, ["Eviction Scan", new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
+
+        var ended = await WaitForTerminalAsync(tracker, scanId);
+        Assert.Equal(OperationStatus.Skipped, ended.Status);
+        Assert.True(ended.SkippedForDownload);
     }
 
     [Theory]
@@ -2662,7 +2735,7 @@ public sealed class CacheScanDetectionPhaseTests
         {
             var scanId = Assert.IsType<Guid>(typeof(CacheReconciliationService)
                 .GetMethod("StartScanInBackground", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(ctx.Scan, ["Eviction Scan", false, new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
+                .Invoke(ctx.Scan, ["Eviction Scan", new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
 
             tracker.CancelOperation(scanId);
 
@@ -2899,7 +2972,7 @@ public sealed class CacheScanDetectionPhaseTests
         };
         var scanId = Assert.IsType<Guid>(typeof(CacheReconciliationService)
             .GetMethod("StartScanInBackground", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(ctx.Scan, ["Eviction Scan", false, new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
+            .Invoke(ctx.Scan, ["Eviction Scan", new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         await ctx.CompleteDetectionAsync(detection.Id);
 
@@ -2932,7 +3005,7 @@ public sealed class CacheScanDetectionPhaseTests
         var state = Assert.IsType<OperationRepairTests.FailingStateService>(ctx.State);
         var scanId = Assert.IsType<Guid>(typeof(CacheReconciliationService)
             .GetMethod("StartScanInBackground", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(ctx.Scan, ["Eviction Scan", false, new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
+            .Invoke(ctx.Scan, ["Eviction Scan", new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
         // A per-service log appears beside access.log once the scan records its checkpoint: after the check
         // that follows the detection phase, before the scan reads the key schemes for its launch.
         state.OnRepairWrite = contents =>
@@ -3257,7 +3330,7 @@ public sealed class CacheScanDetectionPhaseTests
         }));
         var scanId = Assert.IsType<Guid>(typeof(CacheReconciliationService)
             .GetMethod("StartScanInBackground", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(ctx.Scan, ["Eviction Scan", false, new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
+            .Invoke(ctx.Scan, ["Eviction Scan", new RunNotice(NotificationMode.All, RunTrigger.Manual), null]));
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         await ctx.CompleteDetectionAsync(detection.Id);
         return (tracker, scanId);

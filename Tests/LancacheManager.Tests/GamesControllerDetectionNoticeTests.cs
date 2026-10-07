@@ -77,6 +77,8 @@ public sealed class GamesControllerDetectionNoticeTests
             var notice = Assert.IsType<RunNotice>(queue.Notice);
             Assert.Equal(detectionLoop.EffectiveNotificationMode, notice.Mode);
             Assert.Equal(RunTrigger.Manual, notice.Trigger);
+            // The quick scan the page asked for travels on the notice, so a hold keeps it.
+            Assert.Equal(DetectionScanType.Incremental, notice.RequestedScanType);
         }
         finally
         {
@@ -111,6 +113,31 @@ public sealed class GamesControllerDetectionNoticeTests
         else await run;
     }
 
+    // A Run Now the gate let through, then refused by a download that began before the detection started:
+    // the queue has recorded the decline and the schedule holds the run, so the run step ends without an
+    // error, and the schedule raises no failure card for it whichever of the run's end and the hold comes first.
+    [Fact]
+    public async Task ARunNowRefusedByADownloadThatStartedAfterTheGate_IsNotAFailure()
+    {
+        var detectionLoop = new GameDetectionService(
+            detectionService: null!,
+            stateService: DispatchProxy.Create<IStateService, NullReturningProxy>(),
+            pathResolver: null!,
+            scopeFactory: null!,
+            cacheReconciliationService: null!,
+            operationQueue: CacheScanGateHarness.CreateProxy<IOperationQueue>(
+                (_, _) => throw new DownloadInProgressException("A download is in progress")),
+            logger: NullLogger<GameDetectionService>.Instance,
+            configuration: new ConfigurationBuilder().Build());
+        detectionLoop.SelectRunNotice(new RunNotice(NotificationMode.All, RunTrigger.Manual));
+
+        var run = (Task)typeof(GameDetectionService)
+            .GetMethod("ExecuteWorkAsync", BindingFlags.Instance | BindingFlags.NonPublic, [typeof(CancellationToken)])!
+            .Invoke(detectionLoop, [CancellationToken.None])!;
+
+        await run;
+    }
+
     private sealed class RecordingOperationQueue : IOperationQueue
     {
         public RunNotice? Notice { get; private set; }
@@ -122,7 +149,12 @@ public sealed class GamesControllerDetectionNoticeTests
             Func<Task<Guid?>> start,
             CancellationToken ct,
             bool reportRefusal = false,
-            RunNotice? notice = null)
+            RunNotice? notice = null,
+            string? target = null,
+            StructuralScanMode? scanMode = null,
+            int? scanThreshold = null,
+            int? scanLookbackDays = null,
+            DetectionScanType? detectionScanType = null)
         {
             Notice = notice;
             return Task.FromResult(new QueuedOperationResponse

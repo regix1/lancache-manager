@@ -1961,7 +1961,8 @@ public partial class CacheManagementService
             // A request parked in the queue can be promoted long after it was accepted, so the
             // download state is read again here rather than only at the route. Thrown rather than
             // returned as null: the queue reads a null start as transient and parks the caller
-            // again, while a throw terminates the waiting card with this reason.
+            // again, while a throw ends the waiting row as skipped for a download, which the
+            // schedule holds on a waiting card until downloads end.
             var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
             if (downloadDenial != null)
             {

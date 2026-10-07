@@ -140,6 +140,42 @@ public sealed class LogFileLockTests : IDisposable
         Assert.Null(BlockedBy(scanId));
     }
 
+    // A step waiting behind a full cache repair says so, as a run parked behind it does.
+    [Fact]
+    public async Task AStepWaitingBehindAFullRepair_CarriesTheRepairFlagAsync()
+    {
+        await using var harness = await CreateHarnessAsync();
+        var owner = harness.Owner;
+        var tracker = harness.Tracker;
+        var repairId = tracker.RegisterOperation(
+            OperationType.CacheClearing,
+            "Cache Repair",
+            new CancellationTokenSource(),
+            new CacheClearingRepair { FullRepair = true });
+        var scanId = tracker.RegisterOperation(
+            OperationType.EvictionScan,
+            "Eviction Scan",
+            new CancellationTokenSource());
+        var scanContext = new PumpedContext();
+
+        var repair = await owner.LockLogFilesAsync(
+            repairId,
+            OperationType.CacheClearing,
+            LogFileLockKind.Rewrite,
+            CancellationToken.None);
+        var scan = scanContext.Run(() => owner.LockLogFilesAsync(
+            scanId,
+            OperationType.EvictionScan,
+            LogFileLockKind.Rows,
+            CancellationToken.None));
+
+        Assert.True(tracker.GetOperation(scanId)!.BlockedByFullRepair);
+
+        await repair.DisposeAsync();
+        await scanContext.RunNextAsync();
+        await using var scanLock = await scan.WaitAsync(_wait);
+    }
+
     [Fact]
     public async Task WaitingLineDropsANameWhenTheNextHolderHasNoneAsync()
     {

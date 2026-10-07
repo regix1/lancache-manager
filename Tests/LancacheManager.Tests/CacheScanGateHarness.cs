@@ -172,6 +172,7 @@ internal static class CacheScanGateHarness
             nameof(IStateService.GetHiddenClientIps) => hiddenClientIps.ToList(),
             nameof(IStateService.GetEvictedDataMode) => "show",
             nameof(IStateService.GetGlobalNotificationDisplayMode) => NotificationDisplayMode.Condensed,
+            nameof(IStateService.GetGameDetectionScanMode) => GameDetectionScanMode.Full,
             _ => null
         });
 

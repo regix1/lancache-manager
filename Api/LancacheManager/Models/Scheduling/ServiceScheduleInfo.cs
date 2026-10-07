@@ -40,6 +40,13 @@ public class ServiceScheduleInfo
     public GameDetectionScanMode? ScanMode { get; set; }
 
     /// <summary>
+    /// Set only on the game detection schedule: the scan type its next Run Now would request ("incremental"
+    /// or "full"). Hybrid resolves it from the clock, so the browser cannot derive it from
+    /// <see cref="ScanMode"/>. Null on every other service.
+    /// </summary>
+    public DetectionScanType? RunNowScanType { get; set; }
+
+    /// <summary>
     /// Set only on the Xbox mapping schedule, and only while its sign-in is waiting for the user to
     /// approve a device code. The wait registers a tracked XboxMapping operation, which is what turns
     /// <see cref="IsRunning"/> true and greys out Run Now, so its presence alone answers "why is this

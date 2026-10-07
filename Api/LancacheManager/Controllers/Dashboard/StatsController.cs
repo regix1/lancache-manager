@@ -35,7 +35,6 @@ public class StatsController : ControllerBase
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IClientHostnameService _clientHostnameService;
     private readonly IEventsService _eventsService;
-    private readonly CacheScanGate _cacheScanGate;
     private readonly Func<DownloadSpeedSnapshot> _readActivity;
     private readonly OperationStateService _operationStateService;
 
@@ -52,11 +51,9 @@ public class StatsController : ControllerBase
         DatasourceCapabilityService capabilityService,
         IClientHostnameService clientHostnameService,
         IEventsService eventsService,
-        CacheScanGate cacheScanGate,
         RustSpeedTrackerService speedTracker,
         OperationStateService operationStateService)
     {
-        _cacheScanGate = cacheScanGate;
         _clientHostnameService = clientHostnameService;
         _capabilityService = capabilityService;
         _context = context;
@@ -474,7 +471,8 @@ public class StatsController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Requires every datasource to have one unambiguous cache-key scheme, since the scan needs it
-    /// to identify evictable entries. A conflicting scan is parked in the wait-queue rather than rejected.
+    /// to identify evictable entries. A conflicting scan is parked in the wait-queue rather than rejected,
+    /// and a scan that meets a download waits for downloads to end.
     /// </remarks>
     [HttpPost("eviction/reconcile")]
     [Authorize(Policy = "AccountHolder")]
@@ -489,15 +487,8 @@ public class StatsController : ControllerBase
             return BadRequest(ApiResponse.Error(capabilityDenial));
         }
 
-        var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
-        if (downloadDenial != null)
-        {
-            // Coded, unlike the capability denial above, which is a real failure sharing this
-            // status and shape. The caller renders one as "try again later" and the other as
-            // something broken, and it has only the body to tell them apart.
-            return BadRequest(ApiResponse.DownloadInProgress(downloadDenial));
-        }
-
+        // A download writing to the cache is not refused here: the scan starts, meets the download
+        // itself, and its schedule holds it on a waiting card until downloads end.
         var notice = new RunNotice(_reconciliationService.EffectiveNotificationMode, RunTrigger.Manual);
         Task<Guid?> StartManualScanAsync() => Task.FromResult(_reconciliationService.RunManualAsync(notice));
         var result = await _operationQueue.EnqueueAsync(

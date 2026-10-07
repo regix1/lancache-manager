@@ -13,6 +13,7 @@ internal sealed record RemovalProgressUpdate(
 internal sealed record RemovalOperationConfig<TReport>(
     OperationType OperationType,
     string OperationLabel,
+    string Target,
     RemovalMetrics Metrics,
     string StartedEventName,
     Func<Guid, object> BuildStarted,

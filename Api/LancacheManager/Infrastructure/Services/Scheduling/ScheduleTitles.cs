@@ -2,8 +2,9 @@ namespace LancacheManager.Infrastructure.Services.Scheduling;
 
 /// <summary>
 /// The English title of each schedule's run, matching its notification card. A run's tracked
-/// operation carries it as its name: the queue prints that name as the blocker in another card's
-/// waiting line, and matches it to tell a repeated request from a new one. Every schedule that
+/// operation carries it as its name: logs read that name; the browser names a run and its blocker
+/// from their schedule key or operation type, and the queue matches a schedule's runs by their
+/// schedule. Every schedule that
 /// registers a run through this table needs an entry; the lookup throws on a missing one rather
 /// than show the internal key.
 /// </summary>

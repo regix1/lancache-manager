@@ -42,6 +42,9 @@ internal sealed class GameDetectionScanModeJsonConverter : JsonStringEnumConvert
 /// </summary>
 public static class GameDetectionScanModeExtensions
 {
+    /// <summary>How old the last full scan may be before hybrid mode runs a full scan again.</summary>
+    public static readonly TimeSpan HybridWeek = TimeSpan.FromDays(7);
+
     /// <summary>
     /// The scan this mode takes right now. Hybrid resolves to the run it takes this time, so callers
     /// get the same answer whether the mode names a run or picks one.
@@ -58,7 +61,7 @@ public static class GameDetectionScanModeExtensions
             // next tick instead of shifting the week, and a restart changes nothing. With no full scan
             // recorded there is no baseline to build on, so the first run is a full one.
             GameDetectionScanMode.Hybrid =>
-                lastFullScanUtc.HasValue && nowUtc - lastFullScanUtc.Value < TimeSpan.FromDays(7),
+                lastFullScanUtc.HasValue && nowUtc - lastFullScanUtc.Value < HybridWeek,
             _ => false
         };
 }

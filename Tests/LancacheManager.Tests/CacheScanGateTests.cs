@@ -97,7 +97,6 @@ public sealed class CacheScanGateTests
         var controller = (StatsController)RuntimeHelpers.GetUninitializedObject(typeof(StatsController));
         SetField(controller, "_reconciliationService", service);
         SetField(controller, "_operationQueue", queue);
-        SetField(controller, "_cacheScanGate", gate);
         SetField(controller, "_capabilityService", capability);
         Guid? blocker = blocked
             ? tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource())
@@ -138,9 +137,6 @@ public sealed class CacheScanGateTests
         Assert.Equal(RunTrigger.Manual, notice.Trigger);
         Assert.False(notice.ShowNotification);
         if (admitted is not null) Assert.Same(admitted, notice);
-        SetField(controller, "_cacheScanGate", Downloading());
-        var refused = Assert.IsType<BadRequestObjectResult>((await controller.ReconcileAsync(CancellationToken.None)).Result);
-        Assert.Equal(ErrorResponse.DownloadInProgressCode, Assert.IsType<ErrorResponse>(refused.Value).Code);
         SetField(sources, "_datasources", new List<ResolvedDatasource>());
         var invalid = Assert.IsType<BadRequestObjectResult>((await controller.ReconcileAsync(CancellationToken.None)).Result);
         Assert.Null(Assert.IsType<ErrorResponse>(invalid.Value).Code);
@@ -394,6 +390,31 @@ public sealed class CacheScanGateTests
     }
 
     /// <summary>
+    /// The wait ends at the tracker's stored no-answer boundary, the one the refusal compares against.
+    /// A child that dies during the wait re-arms that boundary, so a wait that counted the window from
+    /// its own start would return while the gate still refuses, and a held run released on that answer
+    /// would stay held.
+    /// </summary>
+    [Fact]
+    public async Task AWaitThatSeesTheTrackerReArmed_EndsWhenTheGateAnswersAsync()
+    {
+        var tracker = TrackerWith(new DownloadSpeedSnapshot(), []);
+        SetField(tracker, "_unreportedSinceUtc", DateTime.UtcNow);
+        var gate = GateOver(tracker);
+
+        var rearm = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            SetField(tracker, "_unreportedSinceUtc", DateTime.UtcNow);
+        });
+
+        await gate.WaitForDownloadAnswerAsync(CancellationToken.None);
+
+        Assert.Null(gate.CheckDownloadInProgress());
+        await rearm;
+    }
+
+    /// <summary>
     /// The gate stops refusing the moment the no-answer window expires, and nothing the tracker
     /// does marks that moment: no spawn, no parsed line and no death lines up with it. Without an
     /// announcement booked for it the browser keeps the refusal it was last told about, so the
@@ -623,8 +644,11 @@ public sealed class CacheScanGateTests
         Assert.IsType<CacheSizeUnavailableResponse>(ok.Value);
     }
 
-    [Fact]
-    public async Task PromotedEvictionScanRechecksTheDownloadStateAsync()
+    // A scan a person started waits for downloads the same way a scheduled one does.
+    [Theory]
+    [InlineData(RunTrigger.Scheduled)]
+    [InlineData(RunTrigger.Manual)]
+    public async Task PromotedEvictionScanRechecksTheDownloadStateAsync(RunTrigger trigger)
     {
         var snapshot = new DownloadSpeedSnapshot();
         var reconciliationService = ReconciliationServiceWith(With(snapshot));
@@ -639,12 +663,12 @@ public sealed class CacheScanGateTests
         var blockerId = tracker.RegisterOperation(
             OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
 
-        (bool Success, string? Error)? promotedOutcome = null;
+        (bool Success, string? Error, bool Skipped)? promotedOutcome = null;
         var promoted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         async Task<Guid?> StartScanAsync()
         {
-            promotedOutcome = await RunReconcileAsync(reconciliationService);
+            promotedOutcome = await RunReconcileAsync(reconciliationService, trigger);
             promoted.TrySetResult();
             return Guid.NewGuid();
         }
@@ -665,6 +689,8 @@ public sealed class CacheScanGateTests
         // No reason text: the card prints that field verbatim, so a held run says why through the
         // stage key the card translates instead.
         Assert.Null(promotedOutcome.Value.Error);
+        // The scan's own refusal is what marks its row as turned away for a download.
+        Assert.True(promotedOutcome.Value.Skipped);
     }
 
     [Fact]
@@ -788,6 +814,49 @@ public sealed class CacheScanGateTests
         var skipped = await announced.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal("Eviction Scan", skipped.Name);
         Assert.Equal(OperationStatus.Skipped, skipped.Status);
+    }
+
+    /// <summary>
+    /// A download refusal is marked on its own skipped row, for every cache-reading type, at the start
+    /// the queue runs at once and at the start it runs after parking. The schedule holds the run on
+    /// that mark, so a download that ends before the schedule looks cannot lose the run.
+    /// </summary>
+    [Theory]
+    [InlineData(OperationType.EvictionScan, false)]
+    [InlineData(OperationType.CacheSizeScan, false)]
+    [InlineData(OperationType.GameDetection, false)]
+    [InlineData(OperationType.CacheSizeScan, true)]
+    [InlineData(OperationType.GameDetection, true)]
+    public async Task ADownloadRefusalMarksItsSkippedRowAsync(OperationType type, bool afterParking)
+    {
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var queue = new OperationQueueService(
+            tracker,
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+            NullLogger<OperationQueueService>.Instance);
+        var skipped = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+        tracker.OperationTerminal += operation =>
+        {
+            if (operation.Status == OperationStatus.Skipped) skipped.TrySetResult(operation);
+        };
+        Task<Guid?> RefuseAsync() => throw new DownloadInProgressException("A download is in progress");
+
+        if (afterParking)
+        {
+            var blockerId = tracker.RegisterOperation(OperationType.LogProcessing, "Blocker", new CancellationTokenSource());
+            var queued = await queue.EnqueueAsync(type, ConflictScope.Bulk(), "Scan", RefuseAsync, CancellationToken.None);
+            Assert.True(queued.Queued);
+            tracker.CompleteOperation(blockerId, success: true);
+        }
+        else
+        {
+            await Assert.ThrowsAsync<DownloadInProgressException>(() => queue.EnqueueAsync(
+                type, ConflictScope.Bulk(), "Scan", RefuseAsync, CancellationToken.None, reportRefusal: true));
+        }
+
+        var row = await skipped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(row.SkippedForDownload);
     }
 
     /// <summary>
@@ -986,22 +1055,23 @@ public sealed class CacheScanGateTests
     /// The outcome record is private to the service, so the run is driven and read reflectively.
     /// Reflection means a changed signature shows up as a timeout in whichever test awaits the run
     /// rather than as a compile error, so the argument list is spelled out against the parameters:
-    /// context, operationId, token, notice, deferIfDownloading. Deferring is on, which is what an
-    /// automatic run passes; a person's own scan passes false and is not held.
+    /// context, operationId, token, notice. A scheduled run and a person's own scan are both held.
     /// </summary>
-    private static async Task<(bool Success, string? Error)> RunReconcileAsync(CacheReconciliationService service)
+    private static async Task<(bool Success, string? Error, bool Skipped)> RunReconcileAsync(
+        CacheReconciliationService service, RunTrigger trigger)
     {
         var reconcile = typeof(CacheReconciliationService).GetMethod(
             "ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var run = (Task)reconcile.Invoke(
             service,
-            [null, Guid.NewGuid(), CancellationToken.None, new RunNotice(NotificationMode.All, RunTrigger.Scheduled), true])!;
+            [null, Guid.NewGuid(), CancellationToken.None, new RunNotice(NotificationMode.All, trigger)])!;
         await run;
 
         var outcome = run.GetType().GetProperty("Result")!.GetValue(run)!;
         return (
             (bool)outcome.GetType().GetProperty("Success")!.GetValue(outcome)!,
-            (string?)outcome.GetType().GetProperty("Error")!.GetValue(outcome));
+            (string?)outcome.GetType().GetProperty("Error")!.GetValue(outcome),
+            (bool)outcome.GetType().GetProperty("Skipped")!.GetValue(outcome)!);
     }
 
     private static IUnifiedOperationTracker OperationTrackerWithNothingRunning()

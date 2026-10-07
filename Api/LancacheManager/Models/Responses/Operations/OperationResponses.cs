@@ -60,6 +60,15 @@ public class WaitingOperationResponse
 
     /// <summary>Name of the operation currently blocking this one from starting. Null when nothing is recorded as blocking it.</summary>
     public string? BlockedByName { get; set; }
+
+    /// <summary>Wire type of the blocking operation, so a reader can name it in its own language; null when unknown.</summary>
+    public string? BlockedByOperationType { get; set; }
+
+    /// <summary>The target the blocking operation works on; null when it has none.</summary>
+    public string? BlockedByTarget { get; set; }
+
+    /// <summary>True when the blocking operation is a full cache repair, which shares the cache clearing type.</summary>
+    public bool BlockedByFullRepair { get; set; }
 }
 
 /// <summary>

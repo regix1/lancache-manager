@@ -213,7 +213,8 @@ public partial class GameCacheDetectionService : IDisposable
                     parentOperationId: parentOperationId,
                     startedAt: metadata.StartTime,
                     notice: notice,
-                    ownerCompletes: true);
+                    ownerCompletes: true,
+                    detectionScanType: scanType);
                 _currentTrackerOperationId = registeredId;
             }
             var operationId = registeredId;
@@ -1252,7 +1253,10 @@ public partial class GameCacheDetectionService : IDisposable
 
     public DetectionOperationResponse? GetActiveOperation()
     {
-        var activeOp = _operationTracker.GetActiveOperations(OperationType.GameDetection).FirstOrDefault();
+        // An eviction scan's own detection step is a stage of that scan's card, so a page reload must not
+        // rebuild it as a separate detection notification.
+        var activeOp = _operationTracker.GetActiveOperations(OperationType.GameDetection)
+            .FirstOrDefault(op => op.ParentOperationId is null);
         if (activeOp == null)
         {
             return null;
@@ -1461,7 +1465,8 @@ public partial class GameCacheDetectionService : IDisposable
                 parentOperationId: metrics.ParentOperationId,
                 startedAt: repair.StartedAt,
                 notice: repair.Notice,
-                ownerCompletes: true))
+                ownerCompletes: true,
+                detectionScanType: metrics.ScanType))
         {
             cancellationSource.Dispose();
             return Task.CompletedTask;
@@ -1600,7 +1605,8 @@ public partial class GameCacheDetectionService : IDisposable
                         parentOperationId: parentOperationId,
                         startedAt: startedAt,
                         notice: notice,
-                        ownerCompletes: true))
+                        ownerCompletes: true,
+                        detectionScanType: scanType))
                 {
                     // core-7: the tracker did NOT adopt this CTS (ID already in use), so we still own it.
                     // Dispose the just-created CTS before continuing so it is not leaked.

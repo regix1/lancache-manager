@@ -35,6 +35,23 @@ public interface IUnifiedOperationTracker
     /// <param name="liveIngest">True for a live log ingest pass: no row until it ends with a kept
     /// failure, and a newer kept failure closes the older one.</param>
     /// <param name="ownerSessionId">The auth session whose browser alone draws this run.</param>
+    /// <param name="target">The game, service or other target named in <paramref name="name"/>, sent
+    /// on its own so the browser can pair it with the reader's own title; null when the name has none.</param>
+    /// <param name="blockedByType">Operation type of the operation a waiting registration is parked behind,
+    /// so the browser names the blocker in the reader's language; null when unknown.</param>
+    /// <param name="blockedByTarget">The target that blocker works on; null when it has none.</param>
+    /// <param name="scanMode">The scan mode of a corruption scan, so the queue can tell scans with different
+    /// settings apart; null otherwise.</param>
+    /// <param name="scanThreshold">The miss threshold of a corruption scan, so the queue can tell scans with
+    /// different settings apart; null otherwise.</param>
+    /// <param name="scanLookbackDays">The lookback days of a corruption scan, so the queue can tell scans with
+    /// different settings apart; null otherwise.</param>
+    /// <param name="blockedByFullRepair">True when the blocker is a full cache repair, which shares the cache
+    /// clearing type.</param>
+    /// <param name="detectionScanType">The scan a game detection performs, so a full scan is never answered by an
+    /// incremental one; null for every other type.</param>
+    /// <param name="waitingForDownload">True when a waiting registration is held back by a download writing to
+    /// the cache, so the browser names the downloads as what it waits for.</param>
     Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts,
                            object? metadata = null, Action? onTerminalCleanup = null,
                            Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
@@ -42,7 +59,11 @@ public interface IUnifiedOperationTracker
                            Guid? parentOperationId = null, DateTime? startedAt = null,
                            string? blockedByName = null, RunNotice? notice = null,
                            bool liveIngest = false, Guid? ownerSessionId = null,
-                           bool ownerCompletes = false);
+                           bool ownerCompletes = false, string? target = null,
+                           OperationType? blockedByType = null, string? blockedByTarget = null,
+                           StructuralScanMode? scanMode = null, int? scanThreshold = null,
+                           int? scanLookbackDays = null, bool blockedByFullRepair = false,
+                           DetectionScanType? detectionScanType = null, bool waitingForDownload = false);
 
     /// <summary>
     /// Re-registers a previously-persisted operation by its original ID (recovery after restart).
@@ -62,7 +83,7 @@ public interface IUnifiedOperationTracker
                              Func<OperationTerminalInfo, Task>? onTerminalEmit = null,
                              Guid? parentOperationId = null, DateTime? startedAt = null,
                              RunNotice? notice = null, bool ownerCompletes = false,
-                             bool liveIngest = false);
+                             bool liveIngest = false, DetectionScanType? detectionScanType = null);
 
     /// <summary>
     /// Aggressively cancels an operation: terminates any associated process tree immediately,
@@ -87,6 +108,13 @@ public interface IUnifiedOperationTracker
     /// ends as cancelled while the work it started runs to completion.
     /// </summary>
     void RecordHandoff(Guid fromOperationId, Guid toOperationId);
+
+    /// <summary>
+    /// Ends a waiting card as joined to a run that does its work, so a cancel aimed at the card stops at
+    /// the card and answers that it already finished. False, changing nothing, when the run is unknown,
+    /// ending or being canceled, or the card is not waiting, was canceled or already has a link.
+    /// </summary>
+    bool TryCloseInto(Guid waitingId, Guid runId);
 
     /// <summary>
     /// Makes a parked operation the running one. Its id and cancellation token stay the same, so
@@ -156,10 +184,12 @@ public interface IUnifiedOperationTracker
     OperationRunsSnapshot GetRuns();
 
     /// <summary>
-    /// Records the name of the operation a waiting run is now parked behind and sends its row.
-    /// Does nothing for an ended run or an unchanged name.
+    /// Records the name, type, target and full-repair flag of the operation a waiting run is now parked
+    /// behind and sends its row. Does nothing for an ended run or when all four are unchanged; a null name
+    /// with no type clears all four.
     /// </summary>
-    void SetBlockedByName(Guid operationId, string? name);
+    void SetBlockedByName(Guid operationId, string? name, OperationType? type = null, string? target = null,
+        bool fullRepair = false);
 
     /// <summary>
     /// Sends a live run's row again, for callers that changed a <see cref="RunNotice"/> the row
