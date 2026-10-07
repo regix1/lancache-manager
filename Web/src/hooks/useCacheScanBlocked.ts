@@ -24,7 +24,9 @@ interface CacheScanGate {
  * Whether a cache scan would be refused right now, asked of the server rather than derived from
  * the speed snapshot. The snapshot is the client-visible projection and drops hidden clients, but
  * a hidden client's bytes still reach the cache, so gating on it left the buttons enabled during
- * their download. This reads the same gate the server refuses with, so the two agree.
+ * their download. This reads the same gate the server refuses with, so the two agree. The Storage
+ * page eviction scan is the exception: the server holds that scan instead of refusing it, so that
+ * control stays clickable and reads `blocked` only to say the scan will wait.
  *
  * There are three answers, not two, and the third is "not yet". Between first paint and the first
  * response the gate is closed but says only that it is checking: a scan control that looks ready

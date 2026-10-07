@@ -82,6 +82,8 @@ interface TerminalStageKeyEvent extends StageKeyEvent {
 /** Carries an operation status string from the shared backend `OperationStatus`. */
 interface OperationStatusEvent {
   status?: string;
+  /** Set on a terminal event of a run that was declined before it did any work. */
+  skipped?: boolean;
 }
 
 // ============================================================================
@@ -141,15 +143,21 @@ export function errorOrStageKeyMessage<
  * Terminal resolver for an operation that can be declined before it starts. A declined run
  * reports `success: true`, so the completion handler resolves its card through the SUCCESS
  * message; without this the card would announce work that never happened. The reason travels in
- * `error`, with the event's stage key and a generic line behind it.
+ * `error`, with the event's stage key and a generic line behind it. A run can end with two
+ * terminal events, one carrying the reason and one that only says it was skipped, in either
+ * order; the one with no reason leaves the text the card already shows.
  */
 export function skippedOrStageKeyMessage<
   TEvent extends TerminalStageKeyEvent & OperationStatusEvent = TerminalStageKeyEvent &
     OperationStatusEvent
->(completedKey: string): (event: TEvent) => string {
+>(completedKey: string): (event: TEvent, existing?: UnifiedNotification) => string {
   const completed = stageKeyMessage<TEvent>(completedKey);
   const skipped = errorOrStageKeyMessage<TEvent>(GENERIC_SKIPPED_I18N_KEY);
-  return (event) => (event.status === 'skipped' ? skipped(event) : completed(event));
+  return (event, existing) => {
+    if (event.status !== 'skipped' && event.skipped !== true) return completed(event);
+    if (!event.error && !event.stageKey && existing) return existing.message;
+    return skipped(event);
+  };
 }
 
 /** Holds a running card below 100% so only the terminal event can complete the bar. */

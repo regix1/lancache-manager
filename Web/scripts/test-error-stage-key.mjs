@@ -385,3 +385,31 @@ test('the account screen names the password rule, not the refusal heading', asyn
 
   assert.equal(accountStepShows(brokenRule), 'Password cannot exceed 256 characters');
 });
+
+test('a Run Now refused because the service is turned off in the server configuration reads in the reader language', async () => {
+  const body = {
+    error: 'This service is turned off in the server configuration, so it cannot run.',
+    stageKey: 'management.schedules.runNowServiceDisabled'
+  };
+  const error = await failedWith(409, JSON.stringify(body));
+  for (const language of ['en', 'zh']) {
+    await translator.changeLanguage(language);
+    assert.equal(getErrorMessage(error), sentence('management.schedules.runNowServiceDisabled'));
+  }
+  await translator.changeLanguage('zh');
+  assert.notEqual(getErrorMessage(error), body.error);
+});
+
+test('a Run Now refused because the scan program is missing reads in the reader language', async () => {
+  const body = {
+    error: 'The scan program this service needs is missing on the server, so it cannot run.',
+    stageKey: 'management.schedules.runNowProgramMissing'
+  };
+  const error = await failedWith(409, JSON.stringify(body));
+  for (const language of ['en', 'zh']) {
+    await translator.changeLanguage(language);
+    assert.equal(getErrorMessage(error), sentence('management.schedules.runNowProgramMissing'));
+  }
+  await translator.changeLanguage('zh');
+  assert.notEqual(getErrorMessage(error), body.error);
+});

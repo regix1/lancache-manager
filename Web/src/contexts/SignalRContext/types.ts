@@ -1230,6 +1230,8 @@ export interface EvictionScanCompleteEvent extends OperationEvent {
    * only field separating it from one that finished its work.
    */
   status?: OperationStatus;
+  /** True when the scan was declined before it did any work; the C# record sets it with success. */
+  skipped?: boolean;
 }
 
 export type CacheSizeScanStartedEvent = OperationEvent;
@@ -1270,6 +1272,10 @@ export interface OperationRun {
   /** Backend OperationType wire string (camelCase), e.g. 'evictionScan'. */
   operationType: string;
   name: string;
+  /** The game, service or other target the run works on, when its name carries one. */
+  target?: string | null;
+  /** The schedule whose run this is (for example 'cacheReconciliation'); the browser names the run by that schedule's card title. */
+  scheduleKey?: string | null;
   status: OperationStatus;
   visibility: RunVisibility;
   percentComplete: number;
@@ -1279,6 +1285,20 @@ export interface OperationRun {
   error?: string | null;
   /** Display name of the operation this one is parked behind; null when unknown. */
   blockedByName?: string | null;
+  /** Wire type of the operation this run waits behind (the same strings as operationType); the browser names the blocker by that type's card title. */
+  blockedByOperationType?: string | null;
+  /** The target that blocker works on, shown beside its translated name. */
+  blockedByTarget?: string | null;
+  /** The scan mode a structural corruption scan or a game detection runs in; the browser names it beside the waiting line's title. */
+  scanMode?: StructuralScanMode | null;
+  /** True when this run waits behind a full cache repair, whose operation type is cache clearing. */
+  blockedByFullRepair?: boolean;
+  /** True when a download writing to the cache holds this waiting run back; the line then says it waits for downloads unless a blocker is named. */
+  waitingForDownload?: boolean;
+  /** The miss threshold of a repeated-miss corruption scan; null for every other run, a structural scan included. */
+  scanThreshold?: number | null;
+  /** The lookback window, in days, of a repeated-miss corruption scan; null for every other run, a structural scan included. */
+  scanLookbackDays?: number | null;
   previousOperationId?: string | null;
   parentOperationId?: string | null;
   /**

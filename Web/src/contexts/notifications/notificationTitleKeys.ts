@@ -1,3 +1,4 @@
+import { SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY } from './constants';
 import type { NotificationType } from './types';
 
 /** Stable operation eyebrow keys for the Universal Notification surface. */
@@ -35,4 +36,18 @@ export const NOTIFICATION_TITLE_KEYS: Record<NotificationType, string | null> = 
   // A one-shot error toast rather than an operation, so it carries no operation eyebrow.
   steam_session_error: null,
   generic: null
+};
+
+/** The card title key of a schedule, by its schedule key; null for a key no schedule uses. */
+export const scheduleTitleKey = (scheduleKey: string): string | null => {
+  const entry = Object.entries(SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY).find(
+    ([, serviceKey]) => serviceKey === scheduleKey
+  );
+  return entry ? NOTIFICATION_TITLE_KEYS[entry[0] as NotificationType] : null;
+};
+
+/** Titles of operations that draw no card but can still hold a run back, by operation wire type. */
+export const CARDLESS_OPERATION_TITLE_KEYS: Record<string, string> = {
+  statusCheck: 'common.notifications.titles.statusCheck',
+  cacheFileCount: 'common.notifications.titles.cacheFileCount'
 };

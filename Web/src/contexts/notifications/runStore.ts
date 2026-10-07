@@ -42,7 +42,11 @@ import {
   SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY
 } from './constants';
 import { isTerminalNotificationStatus } from './notificationStatus';
-import { NOTIFICATION_TITLE_KEYS } from './notificationTitleKeys';
+import {
+  CARDLESS_OPERATION_TITLE_KEYS,
+  NOTIFICATION_TITLE_KEYS,
+  scheduleTitleKey
+} from './notificationTitleKeys';
 import { waitingCardMessage } from './handlers';
 
 /** The text, detail line and percent that per-type events or detail recovery supplied for a run. */
@@ -196,6 +200,18 @@ export function readOperationRun(value: unknown): OperationRun | null {
     isIsoDate(value.startedAt) &&
     isOptionalText(value.error) &&
     isOptionalText(value.blockedByName) &&
+    isOptionalText(value.target) &&
+    isOptionalText(value.scheduleKey) &&
+    isOptionalText(value.blockedByOperationType) &&
+    isOptionalText(value.blockedByTarget) &&
+    isOptionalFlag(value.blockedByFullRepair) &&
+    isOptionalFlag(value.waitingForDownload) &&
+    isOptionalNonNegativeInteger(value.scanThreshold) &&
+    isOptionalNonNegativeInteger(value.scanLookbackDays) &&
+    (value.scanMode === undefined ||
+      value.scanMode === null ||
+      value.scanMode === 'full' ||
+      value.scanMode === 'incremental') &&
     (value.warnings === undefined ||
       value.warnings === null ||
       (Array.isArray(value.warnings) &&
@@ -283,17 +299,72 @@ const belongsToSession = (run: OperationRun, sessionId: string | null): boolean 
 const cardType = (run: OperationRun): NotificationType =>
   OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[run.operationType];
 
+/** A run's name in the reader's language: its card title, with the target it works on when it sent one. */
+const titledName = (titleKey: string, target: string | null | undefined): string =>
+  target
+    ? i18n.t('common.notifications.runNameWithTarget', { title: i18n.t(titleKey), target })
+    : i18n.t(titleKey);
+
 /**
- * A run's waiting line. The server names most runs by their English card title. A name that is
- * exactly that title is shown as the reader's own title; any other name is shown as sent, so the
- * line never drops what it names.
+ * A blocker's name, from the blocker's operation type. A blocker whose type has no card title is
+ * shown as sent; a run held by a download with no blocker named says it waits for downloads.
+ */
+const blockerName = (run: OperationRun): string | null | undefined => {
+  const blockerType = run.blockedByOperationType
+    ? run.blockedByFullRepair === true
+      ? 'cache_repair'
+      : OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE[run.blockedByOperationType]
+    : undefined;
+  const titleKey = blockerType
+    ? NOTIFICATION_TITLE_KEYS[blockerType]
+    : run.blockedByOperationType
+      ? CARDLESS_OPERATION_TITLE_KEYS[run.blockedByOperationType]
+      : undefined;
+  if (titleKey) return titledName(titleKey, run.blockedByTarget);
+  if (!run.blockedByName && run.waitingForDownload === true)
+    return i18n.t('common.notifications.blockerDownloads');
+  return run.blockedByName;
+};
+
+/**
+ * A run's waiting line. The run is named by its schedule's card title when a schedule owns it, otherwise
+ * by its type's card title, with its target when it sent one; a run whose type has no card title is
+ * shown as sent.
  */
 const runWaitingMessage = (run: OperationRun): string => {
+  const type = run.fullRepair === true ? 'cache_repair' : cardType(run);
   const titleKey =
-    NOTIFICATION_TITLE_KEYS[run.fullRepair === true ? 'cache_repair' : cardType(run)];
+    (run.scheduleKey ? scheduleTitleKey(run.scheduleKey) : null) ?? NOTIFICATION_TITLE_KEYS[type];
+  // The parenthesis comes from typed fields, never from the name: the run's target, a structural
+  // scan's mode, or "all" for a queued clear or removal sent with no target (every request of those
+  // kinds names one target or none, and none means all of them). A running job held at its log
+  // step draws this line too, and one restored after a restart has lost its target, so "all" is
+  // only said of a run still waiting in the queue.
+  const queued = run.status === 'waiting';
+  let qualifier: string | null = run.target ?? null;
+  const mode =
+    run.scanMode === 'full'
+      ? i18n.t('common.notifications.runQualifiers.full')
+      : run.scanMode === 'incremental'
+        ? i18n.t('common.notifications.runQualifiers.incremental')
+        : null;
+  // Two repeated-miss scans that differ only in their settings are two requests, so the line says them.
+  const limits =
+    typeof run.scanThreshold === 'number' && typeof run.scanLookbackDays === 'number'
+      ? i18n.t('common.notifications.runQualifiers.scanLimits', {
+          threshold: run.scanThreshold,
+          days: run.scanLookbackDays
+        })
+      : null;
+  // The server sends a mode or limits, never both, so a row carries at most one of the two.
+  if (!qualifier && (mode || limits)) qualifier = mode ?? limits;
+  else if (!qualifier && queued && (type === 'cache_clearing' || type === 'eviction_removal'))
+    qualifier = i18n.t('common.notifications.runQualifiers.all');
+  else if (!qualifier && queued && type === 'corruption_removal')
+    qualifier = i18n.t('common.notifications.runQualifiers.allServices');
   return waitingCardMessage({
-    name: titleKey && run.name === i18n.t(titleKey, { lng: 'en' }) ? i18n.t(titleKey) : run.name,
-    blockedByName: run.blockedByName
+    name: titleKey ? titledName(titleKey, qualifier) : run.name,
+    blockedByName: blockerName(run)
   });
 };
 
@@ -1177,7 +1248,7 @@ function drawRun(entry: RunEntry): UnifiedNotification {
           : waitsForAnotherJob(run)
             ? // A background row prints the run's name beside its message, so it names only the blocker.
               controlOnly
-              ? waitingCardMessage({ blockedByName: run.blockedByName })
+              ? waitingCardMessage({ blockedByName: blockerName(run) })
               : runWaitingMessage(run)
             : signIn
               ? i18n.t('prefill.auth.waitingForSignIn', { service: platform })
@@ -1225,6 +1296,8 @@ function drawRun(entry: RunEntry): UnifiedNotification {
     details: {
       ...(run.serviceId ? { service: run.serviceId } : {}),
       ...(run.scheduleId ? { scheduleId: run.scheduleId } : {}),
+      // A detection's row names the scan it runs or waits to run, before any event describes it.
+      ...(cardType(run) === 'game_detection' && run.scanMode ? { scanType: run.scanMode } : {}),
       ...detail.details,
       operationId: run.operationId,
       operationIds: entry.aliases,

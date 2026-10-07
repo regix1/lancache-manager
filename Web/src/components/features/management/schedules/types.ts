@@ -21,6 +21,9 @@ export type GameDetectionScanMode = 'full' | 'incremental' | 'hybrid';
 export const isGameDetectionScanMode = (value: string): value is GameDetectionScanMode =>
   value === 'full' || value === 'incremental' || value === 'hybrid';
 
+/** The one scan a game detection run performs; hybrid mode resolves to one of these per run. */
+export type DetectionScanType = 'full' | 'incremental';
+
 /**
  * What the backend measured when it abandoned a scheduled incremental depot scan. It is also the
  * detail of the SHOW_FULL_SCAN_MODAL window event, so the Full Scan Required prompt shows the
@@ -62,6 +65,11 @@ export interface ServiceScheduleInfo {
    * written before the setting existed reads as `full`.
    */
   scanMode?: GameDetectionScanMode | null;
+  /**
+   * Game detection only: the scan the next Run Now would request, with hybrid mode already
+   * resolved. Null when the server names none.
+   */
+  runNowScanType?: DetectionScanType | null;
   /** Present on the Steam depot mapping schedule only, and only while a full scan is required. */
   pendingFullScan?: PendingFullScan | null;
   /**
@@ -71,6 +79,20 @@ export interface ServiceScheduleInfo {
    */
   awaitingSignIn?: boolean | null;
 }
+
+/**
+ * The schedule list as the browser keeps it. Run Now's scan type decides which running scan blocks
+ * the button, so a value that is not one of the two scan types is dropped to null here, where the
+ * status is read, instead of being compared later.
+ */
+export const readSchedules = (schedules: ServiceScheduleInfo[]): ServiceScheduleInfo[] =>
+  schedules.map((service) => ({
+    ...service,
+    runNowScanType:
+      service.runNowScanType === 'full' || service.runNowScanType === 'incremental'
+        ? service.runNowScanType
+        : null
+  }));
 
 export type ScheduleExecutionStatus = 'completed' | 'failed' | 'cancelled' | 'skipped';
 type ScheduleExecutionTrigger = 'scheduled' | 'startup' | 'manual' | 'runAll';

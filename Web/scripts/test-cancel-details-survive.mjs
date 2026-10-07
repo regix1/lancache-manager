@@ -209,6 +209,32 @@ test('a cancel answered after its card was merged into a newer run still settles
   assert.equal(card.details.cancelSent, true);
   assert.deepEqual(removed, []);
   assert.deepEqual(toasts, []);
+
+  // The same merge, answered "already finished": that answer describes the clicked run, which
+  // ended, while the card now belongs to the run that keeps going. The card stays, with no cancel.
+  const finished = await loadCancel('promotion-finished');
+  const finishedCards = [runningCard()];
+  const finishedClick = finishedCards[0];
+  finished.api.setCancel(
+    () =>
+      new Promise((resolve) => {
+        queueMicrotask(() => {
+          const merged = finishedCards[0];
+          finishedCards[0] = {
+            ...merged,
+            id: 'n0',
+            details: { ...merged.details, operationId: 'op-2', operationIds: ['op-2', 'op-1'] }
+          };
+          resolve({ alreadyFinished: true });
+        });
+      })
+  );
+  const finishedRemoved = await driveCancel(finished.cancel, finishedCards, finishedClick);
+  assert.deepEqual(finishedRemoved, [], 'the card of the run that keeps going is not removed');
+  assert.equal(finishedCards[0].details.cancelPending, false);
+  assert.equal(finishedCards[0].details.cancelRequested, false);
+  assert.equal(finishedCards[0].details.cancelSent, false);
+  assert.deepEqual(finished.toasts, []);
 });
 
 test('an answer for an id no card lists changes nothing', async () => {

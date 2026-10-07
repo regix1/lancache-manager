@@ -52,8 +52,8 @@ test('every server operation type either maps to a card or is listed as having n
 });
 
 test("the client's scheduled types are exactly the server's schedule types", () => {
-  const schedules = api('Core/Services/System/ServiceScheduleRegistry.cs').match(
-    /_runStatusOperationTypes\s*=\s*new\([^)]*\)\s*\{([^}]*)\}/
+  const schedules = api('Infrastructure/Services/Scheduling/ScheduleOperationTypes.cs').match(
+    /ByServiceKey\s*=\s*new[^{]*\{([^}]*)\}/
   );
   assert.ok(schedules, 'the schedule registry maps its service keys to operation types');
   const server = new Map(

@@ -19,7 +19,7 @@ import { ErrorBlock } from '@components/ui/ErrorBlock';
 import ApiService, { type IncrementalViabilityCheck } from '@services/api.service';
 import { recoverScheduledPrefillEditSession } from './scheduled-prefill/scheduledPrefillEditSessionLedger';
 import { sessionStore } from '@utils/storage';
-import { useNotifications } from '@contexts/notifications';
+import { useNotifications, type UnifiedNotification } from '@contexts/notifications';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import ScheduleIntervalPicker from './ScheduleIntervalPicker';
@@ -36,6 +36,8 @@ import {
   isNotificationMode,
   isNotificationDisplayMode,
   isGameDetectionScanMode,
+  readSchedules,
+  type DetectionScanType,
   type NotificationMode,
   type NotificationDisplayMode,
   type GameDetectionScanMode,
@@ -580,6 +582,21 @@ const DepotIncrementalCheck = memo(function DepotIncrementalCheck({
   );
 });
 
+// A detection of the other scan type does the other scan's work, so this schedule's Run Now waits
+// behind it instead of joining it. The scan type is the one the server says the next Run Now would
+// request, with hybrid mode already resolved.
+const hasScheduleScanRun = (
+  runs: UnifiedNotification[],
+  runNowScanType: DetectionScanType | null
+): boolean =>
+  runNowScanType !== null &&
+  runs.some(
+    (run) =>
+      run.type === 'game_detection' &&
+      (run.status === 'running' || run.status === 'waiting') &&
+      run.details?.scanType === runNowScanType
+  );
+
 interface ScheduleRowProps {
   service: ServiceScheduleInfo;
   isAdmin: boolean;
@@ -594,6 +611,8 @@ interface ScheduleRowProps {
   /** True while this row's own click is covering the gap between the POST resolving and the
    * SignalR SchedulesUpdated push that flips service.isRunning - see isRunningDot below. */
   isPendingRun: boolean;
+  /** Game detection only: a detection of this schedule's own scan type is running or waiting. */
+  ownScanRunActive: boolean;
   justCompleted: boolean;
   completedVariant: HighlightGlowVariant;
   onNavigateToEvictionSettings?: () => void;
@@ -621,6 +640,7 @@ const ScheduleRow = memo(function ScheduleRow({
   onScanModeChange,
   onRunNow,
   isPendingRun,
+  ownScanRunActive,
   justCompleted,
   completedVariant,
   onNavigateToEvictionSettings,
@@ -651,8 +671,10 @@ const ScheduleRow = memo(function ScheduleRow({
   // Server truth (isRunningDot) catches a run started by the scheduler itself, another browser
   // tab, or already in progress before this page loaded; isPendingRun covers the ~1.5s gap
   // between this click's POST resolving and that flag arriving over SignalR. Run Now gates on
-  // both so a duplicate click can never slip through either window.
-  const isRunningOrPending = isRunningDot || isPendingRun;
+  // both so a duplicate click can never slip through either window. Game detection lights its dot
+  // for any detection work, an eviction scan's hidden step included, but only a detection of its own
+  // scan type is the run a click would repeat; any other waits behind it and stays clickable.
+  const isRunningOrPending = (scanMode !== null ? ownScanRunActive : isRunningDot) || isPendingRun;
   const customSchedule = service.customSchedule ?? null;
   // Zero interval means the schedule effectively won't run; the informational cells dim
   // but the interval picker stays fully legible - it is the way back out of the state.
@@ -1382,7 +1404,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   // acknowledgement rather than an attention-grab.
   const [completedKeys, setCompletedKeys] = useState<Record<string, HighlightGlowVariant>>({});
   const { on, off, isConnected } = useSignalR();
-  const { addNotification } = useNotifications();
+  const { addNotification, runs } = useNotifications();
   const { notifySuccess } = useNotifySuccess();
   const { notifyError } = useErrorHandler();
   const scheduleFlashClear = useTimeoutCallback(1400);
@@ -1479,7 +1501,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           // A SignalR SchedulesUpdated arrived while this GET was in flight - it is fresher than this
           // snapshot, so drop the GET result rather than roll back the live state.
           if (signalrGenerationRef.current === generationAtRequest) {
-            setSchedules(data);
+            setSchedules(readSchedules(data));
             setError(null);
           }
         } catch (err) {
@@ -1522,7 +1544,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           clearPending(service.key);
         }
       });
-      setSchedules(data);
+      setSchedules(readSchedules(data));
       setError(null);
     };
     on('SchedulesUpdated', handleSchedulesUpdated);
@@ -1986,6 +2008,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
               onScanModeChange={handleScanModeChange}
               onRunNow={handleRunNow}
               isPendingRun={isPending(service.key)}
+              ownScanRunActive={hasScheduleScanRun(runs, service.runNowScanType ?? null)}
               justCompleted={!!completedKeys[service.key]}
               completedVariant={completedKeys[service.key] ?? 'navigate'}
               onNavigateToEvictionSettings={

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test, { mock } from 'node:test';
 import {
   bindLifted,
@@ -29,8 +30,26 @@ const TEMPLATES = {
   'common.notifications.operationWaitingNamed': '{{name}} is waiting',
   'common.notifications.operationWaitingOn': 'Waiting for {{blocker}} to finish...',
   'common.notifications.operationWaitingOnNamed': '{{name}} is waiting for {{blocker}}',
+  'common.notifications.blockerDownloads': '下载',
   'common.notifications.titles.epicGameMapping': 'Epic 游戏映射',
   'common.notifications.titles.evictionRemoval': '淘汰移除',
+  'common.notifications.titles.evictionScan': '淘汰扫描',
+  'common.notifications.titles.logProcessing': '日志处理',
+  'common.notifications.titles.cacheClearing': '缓存清理',
+  'common.notifications.titles.corruptionRemoval': '可疑缓存文件移除',
+  'common.notifications.titles.corruptionDetection': '损坏扫描',
+  'common.notifications.titles.scheduledPrefill': '计划预填充',
+  'common.notifications.titles.cacheRepair': '缓存修复',
+  'common.notifications.runQualifiers.scanLimits': '阈值 {{threshold}}，回溯 {{days}} 天',
+  'common.notifications.titles.statusCheck': '状态检查',
+  'common.notifications.titles.cacheFileCount': '缓存文件计数',
+  'common.notifications.titles.gameDetection': '游戏检测',
+  'common.notifications.titles.gameRemoval': '游戏缓存移除',
+  'common.notifications.runQualifiers.all': '全部',
+  'common.notifications.runQualifiers.allServices': '所有服务',
+  'common.notifications.runQualifiers.full': '全面',
+  'common.notifications.runQualifiers.incremental': '增量',
+  'common.notifications.runNameWithTarget': '{{title}}（{{target}}）',
   'common.notifications.cancelling': 'Cancelling...',
   'common.notifications.repairFailed': 'Repair failed: {{reason}}',
   'common.notifications.warnings.datasourcesNotRepaired':
@@ -53,16 +72,22 @@ const TEMPLATES = {
 };
 // English titles, which the run store compares with the server's English run names. The
 // reader's titles in TEMPLATES differ from these, so a test can tell which one a line used.
+// Setting `globalThis.readerLanguage` to 'en' makes the reader an English one.
 const ENGLISH_TITLES = {
   'common.notifications.titles.epicGameMapping': 'Epic Game Mapping',
-  'common.notifications.titles.evictionRemoval': 'Eviction Removal'
+  'common.notifications.titles.evictionRemoval': 'Eviction Removal',
+  'common.notifications.titles.gameDetection': 'Game Detection',
+  'common.notifications.titles.gameRemoval': 'Game Cache Removal',
+  'common.notifications.runNameWithTarget': '{{title}} ({{target}})'
 };
 const I18N = moduleUrl(`
 const templates = ${JSON.stringify(TEMPLATES)};
 const english = ${JSON.stringify(ENGLISH_TITLES)};
 export default {
   t: (key, options = {}) =>
-    ((options.lng === 'en' && key in english ? english[key] : templates[key]) ?? key).replace(
+    (((options.lng ?? globalThis.readerLanguage) === 'en' && key in english
+      ? english[key]
+      : templates[key]) ?? key).replace(
       /{{(\\w+)}}/g,
       (token, name) => (options[name] === undefined ? token : String(options[name]))
     ),
@@ -218,7 +243,7 @@ test('eviction continued on its waiting id shows one row that waits, runs, and i
   // A full waiting card has no name beside it, so its sentence carries the run's name.
   const full = new Browser();
   full.push(row('C', { status: 'waiting', blockedByName: 'Game Removal' }));
-  assert.equal(full.card('C').message, 'Eviction Scan is waiting for Game Removal');
+  assert.equal(full.card('C').message, '淘汰扫描 is waiting for Game Removal');
 
   browser.push(row('W', { visibility: 'background', percentComplete: 20 }));
   assert.deepEqual(browser.drawn(), ['W:eviction_scan:running:row']);
@@ -295,14 +320,14 @@ test('a waiting card keeps its blocker while it is cancelled, then says how it e
   const browser = new Browser();
   const waiting = { status: 'waiting', blockedByName: 'Game Removal' };
   browser.push(row('W', waiting));
-  assert.equal(browser.card('W').message, 'Eviction Scan is waiting for Game Removal');
+  assert.equal(browser.card('W').message, '淘汰扫描 is waiting for Game Removal');
 
   // The tracker's own sentences, never keys: no worker ever describes a parked run.
   browser.push(
     row('W', { ...waiting, status: 'cancelling', message: 'Cancellation requested...' })
   );
   assert.deepEqual(browser.drawn(), ['W:eviction_scan:cancelling']);
-  assert.equal(browser.card('W').message, 'Eviction Scan is waiting for Game Removal');
+  assert.equal(browser.card('W').message, '淘汰扫描 is waiting for Game Removal');
 
   browser.push(row('W', { ...waiting, status: 'cancelled', message: 'Operation cancelled' }));
   assert.deepEqual(browser.drawn(), ['W:eviction_scan:cancelled']);
@@ -322,8 +347,18 @@ test('a waiting card keeps its blocker while it is cancelled, then says how it e
   }
 });
 
-test('a waiting line shows the translated title only when the run is named by that title alone', () => {
+test("a waiting line names a run by its type's title, never by comparing its name", () => {
   const browser = new Browser();
+  browser.push(
+    row('L', {
+      operationType: 'logProcessing',
+      name: 'Log Processing (renamed)',
+      status: 'waiting',
+      blockedByName: 'Eviction Scan'
+    })
+  );
+  assert.equal(browser.card('L').message, '日志处理 is waiting for Eviction Scan');
+
   const epic = {
     operationType: 'epicMapping',
     name: 'Epic Game Mapping',
@@ -336,7 +371,7 @@ test('a waiting line shows the translated title only when the run is named by th
   browser.push(row('E', { ...epic, status: 'cancelling', message: 'Cancellation requested...' }));
   assert.equal(browser.card('E').message, 'Epic 游戏映射 is waiting for Depot Mapping');
 
-  // A name that carries the game it removes is shown as the server sent it.
+  // The name is never parsed: a run that sends no target shows its type's title alone.
   browser.push(
     row('G', {
       operationType: 'gameRemoval',
@@ -345,7 +380,229 @@ test('a waiting line shows the translated title only when the run is named by th
       blockedByName: 'Eviction Scan'
     })
   );
-  assert.equal(browser.card('G').message, 'Game Removal (Portal 2) is waiting for Eviction Scan');
+  assert.equal(browser.card('G').message, '游戏缓存移除 is waiting for Eviction Scan');
+});
+
+test("a schedule run's waiting line is named by its schedule key", () => {
+  const browser = new Browser();
+  browser.push(
+    row('S', {
+      operationType: 'gameDetection',
+      scheduleKey: 'cacheReconciliation',
+      name: 'Eviction Scan (renamed)',
+      status: 'waiting',
+      blockedByName: 'Eviction Scan'
+    })
+  );
+  assert.equal(browser.card('S').message, '淘汰扫描 is waiting for Eviction Scan');
+});
+
+test('a blocker is named by its operation type and target', () => {
+  const blockerLine = (blocker) => {
+    const browser = new Browser();
+    browser.push(
+      row('B', {
+        operationType: 'evictionScan',
+        name: 'Eviction Scan',
+        status: 'waiting',
+        ...blocker
+      })
+    );
+    return browser.card('B').message;
+  };
+  assert.equal(
+    blockerLine({
+      blockedByName: 'Game Removal (Portal 2)',
+      blockedByOperationType: 'gameRemoval',
+      blockedByTarget: 'Portal 2'
+    }),
+    '淘汰扫描 is waiting for 游戏缓存移除（Portal 2）'
+  );
+  assert.equal(
+    blockerLine({
+      blockedByName: 'Scheduled Prefill (nightly)',
+      blockedByOperationType: 'scheduledPrefill'
+    }),
+    '淘汰扫描 is waiting for 计划预填充'
+  );
+  // Operations that draw no card still have a title, so a run waiting behind one names it.
+  assert.equal(
+    blockerLine({ blockedByName: 'Status Check', blockedByOperationType: 'statusCheck' }),
+    '淘汰扫描 is waiting for 状态检查'
+  );
+  assert.equal(
+    blockerLine({ blockedByName: 'Cache File Count', blockedByOperationType: 'cacheFileCount' }),
+    '淘汰扫描 is waiting for 缓存文件计数'
+  );
+  // A full cache repair arrives as a cache clearing with the repair flag; it is titled as the repair.
+  assert.equal(
+    blockerLine({
+      blockedByName: 'Cache Clearing',
+      blockedByOperationType: 'cacheClearing',
+      blockedByFullRepair: true
+    }),
+    '淘汰扫描 is waiting for 缓存修复'
+  );
+  assert.equal(
+    blockerLine({
+      blockedByName: 'Cache Clearing',
+      blockedByOperationType: 'cacheClearing',
+      blockedByFullRepair: false
+    }),
+    '淘汰扫描 is waiting for 缓存清理'
+  );
+  // Control: a blocker with no type prints the name as sent.
+  assert.equal(
+    blockerLine({ blockedByName: 'Game Removal (Portal 2)' }),
+    '淘汰扫描 is waiting for Game Removal (Portal 2)'
+  );
+});
+
+test('a run held by a download says it waits for downloads unless a blocker is named', () => {
+  const heldLine = (fields) => {
+    const browser = new Browser();
+    browser.push(
+      row('H', {
+        operationType: 'evictionScan',
+        name: 'Eviction Scan',
+        status: 'waiting',
+        ...fields
+      })
+    );
+    return browser.card('H').message;
+  };
+  assert.equal(heldLine({ waitingForDownload: true }), '淘汰扫描 is waiting for 下载');
+  // The prefill, named as the only client, is the blocker the line names instead.
+  assert.equal(
+    heldLine({
+      waitingForDownload: true,
+      blockedByName: 'Scheduled Prefill (nightly)',
+      blockedByOperationType: 'scheduledPrefill'
+    }),
+    '淘汰扫描 is waiting for 计划预填充'
+  );
+  assert.equal(heldLine({}), '淘汰扫描 is waiting');
+  for (const locale of ['en', 'zh']) {
+    const strings = JSON.parse(
+      readFileSync(new URL(`../src/i18n/locales/${locale}.json`, import.meta.url))
+    );
+    assert.equal(typeof strings.common.notifications.blockerDownloads, 'string');
+  }
+});
+
+test('a waiting line keeps its qualifier from typed fields', () => {
+  const lineOf = (fields) => {
+    const browser = new Browser();
+    browser.push(row('Q', { status: 'waiting', blockedByName: 'Log Import', ...fields }));
+    return browser.card('Q').message;
+  };
+  assert.equal(
+    lineOf({ operationType: 'cacheClearing', name: 'Cache Clear (All)' }),
+    '缓存清理（全部） is waiting for Log Import'
+  );
+  assert.equal(
+    lineOf({ operationType: 'cacheClearing', name: 'Cache Clear (All)', target: 'steam' }),
+    '缓存清理（steam） is waiting for Log Import'
+  );
+  assert.equal(
+    lineOf({ operationType: 'corruptionRemoval', name: 'Corruption Removal' }),
+    '可疑缓存文件移除（所有服务） is waiting for Log Import'
+  );
+  assert.equal(
+    lineOf({
+      operationType: 'corruptionDetection',
+      name: 'Structural Corruption Detection (full)',
+      scanMode: 'incremental'
+    }),
+    '损坏扫描（增量） is waiting for Log Import'
+  );
+  assert.equal(
+    lineOf({ operationType: 'corruptionDetection', name: 'Scan', scanMode: 'full' }),
+    '损坏扫描（全面） is waiting for Log Import'
+  );
+  assert.equal(
+    lineOf({ operationType: 'evictionRemoval', name: 'Eviction Removal' }),
+    '淘汰移除（全部） is waiting for Log Import'
+  );
+  // A repeated-miss scan sends its settings and no mode, and two of them with different settings
+  // read differently.
+  const repeatedMissLine = (settings) =>
+    lineOf({ operationType: 'corruptionDetection', name: 'Scan', ...settings });
+  assert.equal(
+    repeatedMissLine({ scanThreshold: 3, scanLookbackDays: 7 }),
+    '损坏扫描（阈值 3，回溯 7 天） is waiting for Log Import'
+  );
+  assert.equal(
+    repeatedMissLine({ scanThreshold: 5, scanLookbackDays: 30 }),
+    '损坏扫描（阈值 5，回溯 30 天） is waiting for Log Import'
+  );
+  // A structural scan sends its mode and no settings, so its line shows no threshold.
+  assert.equal(
+    lineOf({
+      operationType: 'corruptionDetection',
+      name: 'Scan',
+      scanMode: 'full',
+      scanThreshold: null,
+      scanLookbackDays: null
+    }),
+    '损坏扫描（全面） is waiting for Log Import'
+  );
+  // A game detection carries its mode too.
+  assert.equal(
+    lineOf({ operationType: 'gameDetection', name: 'Game Detection', scanMode: 'incremental' }),
+    '游戏检测（增量） is waiting for Log Import'
+  );
+  // A running job held at its log step, such as a removal restored after a restart, has no target
+  // because it was lost, so no target there never means all.
+  for (const [operationType, title] of [
+    ['corruptionRemoval', '可疑缓存文件移除'],
+    ['evictionRemoval', '淘汰移除']
+  ]) {
+    assert.equal(
+      lineOf({ operationType, name: 'Job', status: 'running' }),
+      `${title} is waiting for Log Import`,
+      operationType
+    );
+  }
+});
+
+test('a waiting line shows a title-named blocker and a run target in the reader language', () => {
+  const lines = (readerLanguage) => {
+    globalThis.readerLanguage = readerLanguage;
+    try {
+      const browser = new Browser();
+      browser.push(
+        row('B', {
+          operationType: 'epicMapping',
+          name: 'Epic Game Mapping',
+          status: 'waiting',
+          blockedByName: 'Game Detection',
+          blockedByOperationType: 'gameDetection'
+        })
+      );
+      browser.push(
+        row('G', {
+          operationType: 'gameRemoval',
+          name: 'Game Removal (Portal 2)',
+          target: 'Portal 2',
+          status: 'waiting',
+          blockedByName: 'Eviction Scan'
+        })
+      );
+      return [browser.card('B').message, browser.card('G').message];
+    } finally {
+      delete globalThis.readerLanguage;
+    }
+  };
+
+  assert.deepEqual(lines('zh'), [
+    'Epic 游戏映射 is waiting for 游戏检测',
+    '游戏缓存移除（Portal 2） is waiting for Eviction Scan'
+  ]);
+  assert.deepEqual(lines('en'), [
+    'Epic Game Mapping is waiting for Game Detection',
+    'Game Cache Removal (Portal 2) is waiting for Eviction Scan'
+  ]);
 });
 
 test('a missed game detection end never blocks the next run, and the stale card ends on return', () => {
@@ -1077,7 +1334,7 @@ test('a bulk removal owns its items: one purple card while an item waits, no ite
     })
   );
   assert.deepEqual(browser.drawn(), ['bulk:bulk_removal:waiting']);
-  assert.equal(browser.card('bulk').message, 'Game Removal is waiting for Eviction Scan');
+  assert.equal(browser.card('bulk').message, '游戏缓存移除 is waiting for Eviction Scan');
 
   browser.push(
     row('I1', { operationType: 'gameRemoval', name: 'Game Removal', blockedByName: 'Log Import' })
@@ -1102,7 +1359,7 @@ test('a bulk removal card names its waiting item the way a run card does', () =>
       blockedByName: 'Eviction Scan'
     })
   );
-  assert.equal(browser.card('bulk').message, '淘汰移除 is waiting for Eviction Scan');
+  assert.equal(browser.card('bulk').message, '淘汰移除（全部） is waiting for Eviction Scan');
 });
 
 test('a failed item stays folded in its batch card after the batch moves on and ends', () => {
@@ -1494,7 +1751,7 @@ test('after a reload the bar shows exactly the runs the server has, each once', 
   const result = browser.snapshot([waiting, running]);
   assert.deepEqual(browser.drawn(), ['W:game_removal:waiting', 'R:eviction_scan:running']);
   assert.equal(browser.card('R').progress, 40);
-  assert.equal(browser.card('W').message, 'Game Removal is waiting for Eviction Scan');
+  assert.equal(browser.card('W').message, '游戏缓存移除 is waiting for Eviction Scan');
   assert.deepEqual(result.recover, ['W', 'R'], 'both still need their event detail');
 
   browser.snapshot([waiting, running]);
@@ -1514,14 +1771,14 @@ test('a waiting card names its blocker, follows a new one, and still names it af
   const browser = new Browser();
   const fields = { operationType: 'gameRemoval', name: 'Game Removal', status: 'waiting' };
   browser.push(row('W', { ...fields, blockedByName: 'Eviction Scan' }));
-  assert.equal(browser.card('W').message, 'Game Removal is waiting for Eviction Scan');
+  assert.equal(browser.card('W').message, '游戏缓存移除 is waiting for Eviction Scan');
   const renamed = row('W', { ...fields, blockedByName: 'Cache Clear' });
   browser.push(renamed);
-  assert.equal(browser.card('W').message, 'Game Removal is waiting for Cache Clear');
+  assert.equal(browser.card('W').message, '游戏缓存移除 is waiting for Cache Clear');
 
   const reloaded = new Browser();
   reloaded.snapshot([renamed]);
-  assert.equal(reloaded.card('W').message, 'Game Removal is waiting for Cache Clear');
+  assert.equal(reloaded.card('W').message, '游戏缓存移除 is waiting for Cache Clear');
 });
 
 test('detail recovery fills a card seen only from its row, and an unknown id changes nothing', async () => {
@@ -1767,6 +2024,36 @@ test('(f) a malformed row or snapshot is dropped and logged, never drawn', () =>
       readOperationRunsSnapshot({ runs: [good, { ...good, visibility: 'loud' }], revision: 4 }),
       null
     );
+    for (const bad of [
+      { ...good, target: 7 },
+      { ...good, scheduleKey: 7 },
+      { ...good, blockedByOperationType: 7 },
+      { ...good, blockedByTarget: 7 },
+      { ...good, scanMode: 7 },
+      { ...good, scanMode: 'deep' },
+      { ...good, blockedByFullRepair: 'yes' },
+      { ...good, scanThreshold: '3' },
+      { ...good, scanLookbackDays: '7' }
+    ]) {
+      assert.equal(readOperationRun(bad), null);
+      assert.equal(readOperationRunsSnapshot({ runs: [good, bad], revision: 4 }), null);
+    }
+    const typed = {
+      ...good,
+      target: 'Portal 2',
+      scheduleKey: 'cacheReconciliation',
+      blockedByOperationType: 'gameRemoval',
+      blockedByTarget: 'Portal 2',
+      scanMode: 'full',
+      blockedByFullRepair: true,
+      scanThreshold: 3,
+      scanLookbackDays: 7
+    };
+    assert.deepEqual(readOperationRun(typed), typed);
+    assert.deepEqual(readOperationRunsSnapshot({ runs: [typed], revision: 4 }), {
+      runs: [typed],
+      revision: 4
+    });
     assert.equal(readOperationRunsSnapshot({ runs: {}, revision: 4 }), null);
     assert.deepEqual(readOperationRunsSnapshot({ runs: [good], revision: 4 }), {
       runs: [good],
@@ -2934,13 +3221,17 @@ test('hiding a live card whose row already says repairing hides it like any live
 });
 
 test('a running job held at its log step names what holds it, then shows its own progress', () => {
+  const expected = {
+    gameRemoval: '游戏缓存移除 is waiting for Log Import',
+    logProcessing: '日志处理 is waiting for Log Import'
+  };
   for (const operationType of ['gameRemoval', 'logProcessing']) {
     const browser = new Browser();
     const fields = { operationType, name: 'Job' };
     browser.push(row('J', fields));
     browser.detail('J', { message: 'Removing files' });
     browser.push(row('J', { ...fields, blockedByName: 'Log Import' }));
-    assert.equal(browser.card('J').message, 'Job is waiting for Log Import', operationType);
+    assert.equal(browser.card('J').message, expected[operationType], operationType);
     // A job held at its log step draws the purple waiting card.
     assert.equal(browser.card('J').status, 'waiting');
     // The page gates read the run's own status, so a held job still counts as running there.
@@ -2954,7 +3245,7 @@ test('a running job held at its log step names what holds it, then shows its own
   }
   const waiting = new Browser();
   waiting.push(row('W', { status: 'waiting', blockedByName: 'Game Removal' }));
-  assert.equal(waiting.card('W').message, 'Eviction Scan is waiting for Game Removal');
+  assert.equal(waiting.card('W').message, '淘汰扫描 is waiting for Game Removal');
 });
 
 test("a depot mapping reason sent as a locale key reads in the reader's language", () => {

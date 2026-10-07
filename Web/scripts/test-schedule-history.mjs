@@ -31,16 +31,20 @@ const changePageSource = liftHookCallback(
   'changeQuery({ ...pageRef.current, page: nextPage })'
 );
 
-const [displayNames, rowToggles, platformConstants, notificationConstants, titleKeys] =
-  await Promise.all(
-    [
-      '../src/utils/serviceDisplayName.ts',
-      '../src/utils/rowToggle.ts',
-      '../src/components/features/management/schedules/scheduled-prefill/constants.ts',
-      '../src/contexts/notifications/constants.ts',
-      '../src/contexts/notifications/notificationTitleKeys.ts'
-    ].map(async (path) => import(await compileToUrl(path)))
-  );
+const [displayNames, rowToggles, platformConstants, notificationConstants] = await Promise.all(
+  [
+    '../src/utils/serviceDisplayName.ts',
+    '../src/utils/rowToggle.ts',
+    '../src/components/features/management/schedules/scheduled-prefill/constants.ts',
+    '../src/contexts/notifications/constants.ts'
+  ].map(async (path) => import(await compileToUrl(path)))
+);
+
+const titleKeys = await import(
+  await compileToUrl('../src/contexts/notifications/notificationTitleKeys.ts', {
+    './constants': await compileToUrl('../src/contexts/notifications/constants.ts')
+  })
+);
 
 const { formatWarningCounts } = await import(
   await compileTree('../src/utils/formatters.ts', {
@@ -287,7 +291,7 @@ const makeComponent = (capture, language = 'en') => {
     useSignalR: () => ({ on: () => undefined, off: () => undefined, isConnected: true }),
     SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY:
       notificationConstants.SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY,
-    NOTIFICATION_TITLE_KEYS: titleKeys.NOTIFICATION_TITLE_KEYS,
+    scheduleTitleKey: titleKeys.scheduleTitleKey,
     useReconnectRefetch: () => undefined,
     ApiService: { getScheduleHistory: () => new Promise(() => undefined) },
     getErrorMessage: (error) => error.message,

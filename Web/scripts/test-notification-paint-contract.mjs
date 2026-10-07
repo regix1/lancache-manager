@@ -1940,7 +1940,9 @@ const itemSource = parseSource(
   ts.ScriptKind.TSX
 );
 const { NOTIFICATION_TITLE_KEYS } = await import(
-  await compileToUrl('../src/contexts/notifications/notificationTitleKeys.ts')
+  await compileToUrl('../src/contexts/notifications/notificationTitleKeys.ts', {
+    './constants': await compileToUrl('../src/contexts/notifications/constants.ts')
+  })
 );
 const ICONS = ['CheckCircle', 'AlertCircle', 'X', 'XCircle', 'Info', 'Clock', 'MinusCircle'];
 const STATUS_ICONS = new Set([...ICONS.filter((name) => name !== 'X'), 'LoadingSpinner']);

@@ -17,9 +17,10 @@ import {
  * and the first response every scan control read as ready to use on a claim nothing had made.
  *
  * The hook is compiled and driven here for real, against a translation stub that hands back the
- * key, so the assertions name which sentence each of the three states shows. The five controls
- * that read it are then checked against the source they ship in, because "not yet known" only
- * stays honest for as long as all five keep asking the same question.
+ * key, so the assertions name which sentence each of the three states shows. The four controls
+ * the server refuses are then checked against the source they ship in, because "not yet known"
+ * only stays honest for as long as all four keep asking the same question. The fifth reader, the
+ * Storage page eviction scan, is held by the server rather than refused, so it stays clickable.
  *
  * The same defect sat on the setup status, which the Game Cache scans also read. A status call
  * that fails falls back to a placeholder reading `hasProcessedLogs: false`, so collapsing it to a
@@ -237,12 +238,14 @@ const gatesIn = (file) => {
   });
 };
 
-test('all five scan controls ask the same question and show the same answer', () => {
+test('all four refused scan controls ask the same question and show the same answer', () => {
   // The same wrapper carries the unrelated disk-objects capability gate on removal controls, so
   // the scan controls are the ones whose availability is decided by this hook.
-  const gates = FILES.flatMap(gatesIn).filter((gate) => gate.available.includes('scanGate'));
+  const gates = FILES.flatMap(gatesIn).filter((gate) =>
+    gate.available.includes('scanGate.available')
+  );
 
-  assert.equal(gates.length, 5, 'the five controls the server refuses');
+  assert.equal(gates.length, 4, 'the four controls the server refuses');
 
   for (const gate of gates) {
     assert.ok(
@@ -262,9 +265,38 @@ test('no card announces a download by itself; they disable the control and expla
   );
 
   // The cache card used to raise a yellow banner here while the other three said nothing, so a
-  // download made one card look like it had a problem. All four now decide on `available` and put
-  // the gate's sentence on the disabled control.
-  assert.deepEqual(uses, [], 'deciding whether to offer a control reads available, not blocked');
+  // download made one card look like it had a problem. The four refused controls decide on
+  // `available` and put the gate's sentence on the disabled control; only the Storage eviction
+  // scan reads `blocked`, to say the scan waits.
+  assert.deepEqual(
+    uses,
+    ['src/components/features/management/sections/StorageSection.tsx'],
+    'deciding whether to offer a control reads available, not blocked'
+  );
+});
+
+test('the Storage eviction scan stays clickable during a download and says it will wait', () => {
+  const file = 'src/components/features/management/sections/StorageSection.tsx';
+  const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
+  const [gate] = gatesIn(file).filter((candidate) => candidate.available.includes('scanGate'));
+
+  assert.equal(gate.available, '!scanGate.blocked', 'the hover shows only on a confirmed block');
+  assert.ok(
+    gate.tooltip.includes('management.sections.data.runEvictionScanWaitsForDownload'),
+    'the hover is the waiting sentence, not the gate sentence that says to try again'
+  );
+  // The item beside the gate is the one the person clicks: no gate answer may disable it.
+  const item = source.slice(source.indexOf('<DiskObjectActionGate'));
+  const disabled = /disabled=\{([\s\S]*?)\}\s*onClick/.exec(item)?.[1] ?? '';
+  assert.ok(disabled.includes('isEvictionScanRunning'), 'found the scan item disabled prop');
+  assert.ok(!disabled.includes('scanGate'), 'a download must not disable the scan item');
+
+  for (const locale of ['en', 'zh']) {
+    const storageSentences = JSON.parse(
+      readFileSync(new URL(`../src/i18n/locales/${locale}.json`, import.meta.url), 'utf8')
+    ).management.sections.data;
+    assert.ok(storageSentences.runEvictionScanWaitsForDownload, `${locale} sentence`);
+  }
 });
 
 test('the rsync probe runs again when the connection returns', () => {

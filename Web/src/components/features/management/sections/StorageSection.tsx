@@ -961,9 +961,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                             : t('management.gameDetection.expandAll')}
                         </ActionMenuItem>
 
+                        {/* A scan started during a download waits on a card and starts by itself,
+                            so the item stays clickable and the hover only says so. */}
                         <DiskObjectActionGate
-                          available={scanGate.available}
-                          tooltip={scanGate.tooltip}
+                          available={!scanGate.blocked}
+                          tooltip={t('management.sections.data.runEvictionScanWaitsForDownload')}
                           position="left"
                           className="block w-full"
                         >
@@ -975,9 +977,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                                 <Search className="w-3.5 h-3.5" />
                               )
                             }
-                            disabled={
-                              isEvictionScanRunning || resettingEvictions || !scanGate.available
-                            }
+                            disabled={isEvictionScanRunning || resettingEvictions}
                             onClick={() => {
                               handleStartEvictionScan();
                               close();

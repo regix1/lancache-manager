@@ -11,7 +11,7 @@ import { SearchInput } from '@components/ui/SearchInput';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY } from '@contexts/notifications/constants';
-import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
+import { scheduleTitleKey } from '@contexts/notifications/notificationTitleKeys';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import ApiService from '@services/api.service';
 import { getErrorMessage, isAbortError } from '@utils/error';
@@ -178,13 +178,7 @@ export function ScheduleHistory() {
       return t(displayNameKey);
     }
 
-    const scheduledNotification = Object.entries(SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY).find(
-      ([, scheduledServiceKey]) => scheduledServiceKey === serviceKey
-    );
-    const titleKey =
-      scheduledNotification === undefined
-        ? null
-        : NOTIFICATION_TITLE_KEYS[scheduledNotification[0] as keyof typeof NOTIFICATION_TITLE_KEYS];
+    const titleKey = scheduleTitleKey(serviceKey);
     if (typeof titleKey === 'string' && i18n.exists(titleKey)) {
       return t(titleKey);
     }

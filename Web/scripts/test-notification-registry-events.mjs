@@ -48,11 +48,21 @@ const I18N_STUB = moduleUrl(`export default { t: (key) => key, exists: () => fal
 const i18nStub = { t: (key) => key };
 const modules = await loadNotificationModules(I18N_STUB);
 const localizedModules = new Map();
+const evictionScanSteps = (locale) => {
+  const { evictionScan } = JSON.parse(
+    readFileSync(`src/i18n/locales/${locale}.json`, 'utf8')
+  ).signalr;
+  return {
+    'signalr.evictionScan.detectingGames': evictionScan.detectingGames,
+    'signalr.evictionScan.scanning': evictionScan.scanning
+  };
+};
 const loadLocalizedModules = async (locale) => {
   if (localizedModules.has(locale)) return localizedModules.get(locale);
   const messages =
     locale === 'zh'
       ? {
+          ...evictionScanSteps('zh'),
           'signalr.logProcessing.progress': '处理中: {{mbProcessed}} MB / {{mbTotal}} MB',
           'signalr.logProcessing.progressSource':
             '{{datasourceName}}：处理中：{{mbProcessed}} MB / {{mbTotal}} MB',
@@ -61,6 +71,7 @@ const loadLocalizedModules = async (locale) => {
           'signalr.cacheClear.forDatasource': '{{datasource}}：{{message}}'
         }
       : {
+          ...evictionScanSteps('en'),
           'signalr.logProcessing.progress': 'Processing: {{mbProcessed}} MB of {{mbTotal}} MB',
           'signalr.logProcessing.progressSource':
             '{{datasourceName}}: Processing: {{mbProcessed}} MB of {{mbTotal}} MB',
@@ -1044,6 +1055,76 @@ test('log processing recovery follows the canonical active datasource in both lo
   }
 });
 
+test("an eviction scan's one card shows the detection step, then the scan step, in the reader language", async () => {
+  const expected = {
+    en: {
+      detecting: 'Running a full game detection...',
+      scanning: 'Scanning cache files...'
+    },
+    zh: {
+      detecting: '正在运行完整的游戏检测...',
+      scanning: '正在扫描缓存文件...'
+    }
+  };
+  for (const locale of ['en', 'zh']) {
+    const localized = await loadLocalizedModules(locale);
+    const entry = localized.NOTIFICATION_REGISTRY.find(
+      (candidate) => candidate.type === 'eviction_scan'
+    );
+    assert.ok(entry?.started && entry.progress && entry.recovery?.kind === 'simple');
+    const { patches, dispatchDetail } = recordPatches(undefined);
+    localized.buildStartedHandler(
+      entry.started,
+      dispatchDetail
+    )({ operationId: 'e-1', stageKey: 'signalr.evictionScan.detectingGames' });
+    const progress = localized.buildProgressHandler(entry, entry.progress, dispatchDetail);
+    progress({
+      operationId: 'e-1',
+      status: 'running',
+      percentComplete: 10,
+      stageKey: 'signalr.evictionScan.detectingGames'
+    });
+    progress({
+      operationId: 'e-1',
+      status: 'running',
+      percentComplete: 0,
+      stageKey: 'signalr.evictionScan.scanning'
+    });
+
+    assert.deepEqual(
+      patches.map(({ patch }) => patch.message),
+      [expected[locale].detecting, expected[locale].detecting, expected[locale].scanning],
+      locale
+    );
+    // A patch carries the line and progress only; the card's title comes from the run row's schedule key.
+    for (const { patch } of patches) {
+      assert.deepEqual(
+        Object.keys(patch).filter((field) => !['message', 'progress', 'details'].includes(field)),
+        [],
+        locale
+      );
+    }
+
+    // A reload during either step rebuilds the same line from the status response.
+    for (const [stageKey, text] of [
+      ['signalr.evictionScan.detectingGames', expected[locale].detecting],
+      ['signalr.evictionScan.scanning', expected[locale].scanning]
+    ]) {
+      assert.equal(
+        entry.recovery.createNotification({
+          isProcessing: true,
+          percentComplete: 5,
+          stageKey,
+          context: {},
+          operationId: 'e-1'
+        }).message,
+        text,
+        `${locale} ${stageKey}`
+      );
+    }
+  }
+});
+
 test('cache clear live, recovered, and completed messages retain datasource scope', async () => {
   const localized = await loadLocalizedModules('en');
   const entry = localized.NOTIFICATION_REGISTRY.find(
@@ -1142,4 +1223,67 @@ test('a terminal error that is a locale key is translated', async () => {
     'T:signalr.depotMapping.skippedSteamUnreachable'
   );
   assert.equal(message({ error: 'disk full' }), 'disk full');
+});
+
+test('a skipped eviction scan keeps the reason whichever of its two terminal events arrives last', () => {
+  const entry = modules.NOTIFICATION_REGISTRY.find(
+    (candidate) => candidate.type === 'eviction_scan'
+  );
+  const reasonKey = 'management.schedules.runNowProgramMissing';
+  // The scan's own emit says skipped and nothing else; the schedule's event carries the reason.
+  const scanEmit = {
+    success: true,
+    operationId: 'E',
+    stageKey: null,
+    processed: 0,
+    evicted: 0,
+    unEvicted: 0,
+    error: null,
+    context: { totalProcessed: 0, totalEvicted: 0, totalUnEvicted: 0 },
+    cancelled: false,
+    skipped: true
+  };
+  const scheduleEmit = {
+    operationId: 'E',
+    success: true,
+    stageKey: reasonKey,
+    percentComplete: 0,
+    error: null,
+    context: null,
+    cancelled: false,
+    status: 'skipped'
+  };
+  for (const [label, events] of [
+    ['scan emit first', [scanEmit, scheduleEmit]],
+    ['schedule event first', [scheduleEmit, scanEmit]]
+  ]) {
+    for (const rowFirst of [true, false]) {
+      let state = pushRun(
+        modules,
+        modules.createRunStoreState(),
+        operationRunRow('E', { status: 'running', scheduleKey: 'cacheReconciliation' })
+      );
+      const skippedRow = operationRunRow('E', {
+        status: 'skipped',
+        retained: true,
+        scheduleKey: 'cacheReconciliation'
+      });
+      if (rowFirst) state = pushRun(modules, state, skippedRow);
+      const handle = modules.buildCompleteHandler(
+        entry,
+        entry.complete,
+        (operationId, build, source) => {
+          state = modules.applyDetail(state, operationId, build, source, { requestSeq: 0 });
+        }
+      );
+      for (const event of events) handle(event);
+      if (!rowFirst) state = pushRun(modules, state, skippedRow);
+      const cards = modules.deriveNotifications(state, []);
+      assert.deepEqual(
+        cards.map((card) => ({ status: card.status, message: card.message })),
+        [{ status: 'skipped', message: reasonKey }],
+        `${label}, skipped row ${rowFirst ? 'before' : 'after'} the events`
+      );
+    }
+  }
 });

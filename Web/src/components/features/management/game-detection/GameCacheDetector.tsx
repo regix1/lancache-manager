@@ -126,8 +126,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // A scan walks the cache while a download is still writing into it, so its file counts and
   // sizes are stale before the report is written. Both scans wait for the transfer to finish.
   const scanGate = useCacheScanBlocked();
-  // An eviction scan runs its own hidden full detection, so a scan started here would be
-  // deduplicated onto that child. The run list holds the scan itself, Hidden ones included.
+  // An eviction scan runs its own hidden full detection, and a scan started here would only wait
+  // behind it, so the buttons stay off until the eviction scan ends. The run list holds the scan
+  // itself, Hidden ones included.
   const evictionScanActive = useOperationBusy({
     types: ['eviction_scan'],
     status: ['running', 'waiting']

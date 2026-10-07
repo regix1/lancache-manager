@@ -134,10 +134,20 @@ export const handleCancel = async (
     const live = findLive();
     // A repairing card stays when the answer says the job already finished: its repair still runs.
     if (!live || cancelUnreachable(live)) return;
-    // The answer describes the operation the cancel actually reached, so `alreadyFinished` means
-    // the work ended even when the request named the run this card was promoted from.
+    // `alreadyFinished` describes the operation the cancel reached. When that is no longer this
+    // card's own operation (the card was merged into a run that is still going), the card stays and
+    // only stops showing the cancel.
     if (result && 'alreadyFinished' in result && result.alreadyFinished === true) {
-      removeNotification(live.id);
+      if (live.details?.operationId === operationId) removeNotification(live.id);
+      else
+        updateNotification(live.id, (current) => ({
+          details: {
+            ...current.details,
+            cancelPending: false,
+            cancelRequested: false,
+            cancelSent: false
+          }
+        }));
     } else {
       updateNotification(live.id, (current) =>
         !isTerminalNotificationStatus(current.status)

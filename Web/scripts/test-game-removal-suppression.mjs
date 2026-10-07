@@ -328,7 +328,7 @@ test('the owning bulk card turns purple and names the blocker while its item wai
   assert.equal(batchOf(drawn).status, 'waiting');
   assert.equal(
     batchOf(drawn).message,
-    waitingCardMessage(row),
+    waitingCardMessage({ ...row, name: 'common.notifications.titles.gameRemoval' }),
     'the batch card must name the blocking operation while its item is parked'
   );
   assert.match(batchOf(drawn).message, /Cache File Scan/);
@@ -391,7 +391,10 @@ test('the batch card takes the queue wording for the item the batch itself start
     localCards
   );
   assert.equal(batchOf(drawn).status, 'waiting');
-  assert.equal(batchOf(drawn).message, waitingCardMessage(row));
+  assert.equal(
+    batchOf(drawn).message,
+    waitingCardMessage({ ...row, name: 'common.notifications.titles.gameRemoval' })
+  );
   assert.deepEqual(itemCards(drawn), [], 'no second card may appear beside the batch card');
 });
 

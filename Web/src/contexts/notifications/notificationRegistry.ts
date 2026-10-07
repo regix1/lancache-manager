@@ -984,6 +984,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       translationValidation: {
         kind: 'stageKey',
         cases: [
+          { stageKey: 'signalr.evictionScan.detectingGames', context: {} },
           { stageKey: 'signalr.evictionScan.scanning', context: {} },
           { stageKey: 'signalr.evictionScan.scanningFiles', context: { filesFound: 10 } },
           {
