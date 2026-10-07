@@ -923,6 +923,22 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 .Where(g => batch.Contains(g.Id))
                 .ToListAsync(ct);
 
+            // The Epic URL refresh moves a game's art by rewriting its mapping, never this row, so an
+            // Epic banner is re-fetched from the mapping's URL. The stored one would bring back the
+            // art Refresh banners was pressed to replace.
+            var epicAppIds = images.Where(g => g.Service == "epicgames").Select(g => g.AppId).ToList();
+            var epicImageUrls = await db.EpicGameMappings
+                .AsNoTracking()
+                .Where(m => m.ImageUrl != null && epicAppIds.Contains(m.AppId))
+                .ToDictionaryAsync(m => m.AppId, m => m.ImageUrl!, ct);
+            foreach (var image in images)
+            {
+                if (image.Service == "epicgames" && epicImageUrls.TryGetValue(image.AppId, out var currentUrl))
+                {
+                    image.SourceUrl = currentUrl;
+                }
+            }
+
             var tasks = images.Select(image =>
                 RefreshImageAsync(client, image, ct));
 

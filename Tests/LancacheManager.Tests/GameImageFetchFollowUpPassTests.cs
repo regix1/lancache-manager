@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
@@ -255,6 +256,52 @@ public sealed class GameImageFetchFollowUpPassTests
         Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(canceledPass)!.Status);
     }
 
+    /// <summary>
+    /// Refresh banners backdates every stored row and the Epic URL refresh moves the mapping to Epic's
+    /// current art. The stale phase must fetch an Epic banner from that current URL, not from the one
+    /// stored at its first fetch, and store the new URL on the row.
+    /// </summary>
+    [Fact]
+    public async Task ABackdatedEpicBannerIsFetchedFromItsMappingsCurrentUrlAsync()
+    {
+        const string storedUrl = "https://cdn.example/old-art.jpg";
+        const string currentUrl = "https://cdn.example/new-art.jpg";
+        var requests = new UrlRecorder();
+        var databaseName = $"game-image-epic-url-{Guid.NewGuid():N}";
+        var collection = new ServiceCollection();
+        collection.AddDbContext<AppDbContext>(options => options.UseInMemoryDatabase(databaseName));
+        collection.AddSingleton<IHttpClientFactory>(requests);
+        await using var services = collection.BuildServiceProvider();
+
+        using (var scope = services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.Downloads.Add(new Download { Service = "origin", ClientIp = "10.0.0.1" });
+            db.EpicGameMappings.Add(new EpicGameMapping { AppId = "epic-app", Name = "Epic Game", ImageUrl = currentUrl });
+            db.GameImages.Add(new GameImage
+            {
+                AppId = "epic-app",
+                Service = "epicgames",
+                ImageData = [1, 2, 3],
+                SourceUrl = storedUrl,
+                FetchedAtUtc = DateTime.UnixEpoch
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var tracker = NewTracker();
+        var service = NewService(services, tracker, NullNotifications());
+        Assert.NotNull(await service.StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
+        await WaitForPassesToFinishAsync(tracker);
+
+        Assert.Equal([currentUrl], requests.Snapshot());
+        using (var scope = services.CreateScope())
+        {
+            var row = await scope.ServiceProvider.GetRequiredService<AppDbContext>().GameImages.SingleAsync();
+            Assert.Equal(currentUrl, row.SourceUrl);
+        }
+    }
+
     private static ServiceProvider BuildProvider(IHttpClientFactory httpClients)
     {
         var services = new ServiceCollection();
@@ -435,6 +482,28 @@ public sealed class GameImageFetchFollowUpPassTests
             }
 
             return new HttpClient();
+        }
+    }
+
+    /// <summary>
+    /// Answers every request with an image large enough to pass the size gate and records each URL
+    /// asked for.
+    /// </summary>
+    private sealed class UrlRecorder : HttpMessageHandler, IHttpClientFactory
+    {
+        private readonly ConcurrentQueue<string> _urls = new();
+
+        public string[] Snapshot() => _urls.ToArray();
+
+        public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            _urls.Enqueue(request.RequestUri!.ToString());
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(new byte[10_000])
+            });
         }
     }
 
