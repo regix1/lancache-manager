@@ -101,7 +101,7 @@ printf %s "$NEW_PASSWORD" | docker exec -i lancache-manager /data/scripts/reset-
 
 ## 裸机或源码安装
 
-先重启 LANCache Manager，打开一小时的恢复窗口。将项目提供的 `scripts/reset-main-admin-password.sh` 放入数据目录的 `scripts` 文件夹，然后使用任一用法。如果应用监听其他地址，请修改 URL。本地模式要求该机器已安装 `curl` 和 `jq`。
+先重启 LANCache Manager。这会打开可以请求恢复的那一小时。只重启不会显示恢复界面。将项目提供的 `scripts/reset-main-admin-password.sh` 放入数据目录的 `scripts` 文件夹，然后使用任一用法。如果应用监听其他地址，请修改 URL。本地模式要求该机器已安装 `curl` 和 `jq`。
 
 设置屏幕：
 

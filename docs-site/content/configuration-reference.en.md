@@ -42,7 +42,7 @@ The mode decision and full compose examples live in [Choosing an Image and Datab
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `Security__EnableAuthentication` | `true` | Require an API key for admin actions and API documentation. Only turn off for local development. |
+| `Security__EnableAuthentication` | `true` | Used only before a sign-in mode is saved. `true` selects **API key, username and password**. `false` selects **Unauthenticated**. A saved mode is not replaced by this variable. |
 | `Security__GuestSessionDurationHours` | `6` | Default guest session length (also configurable in the UI). |
 | `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. The UI toggle in Management → Integrations overrides this when set. |
 | `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty means same-origin only (the safe default). `*` allows any origin without credentials; an explicit list allows those origins with credentials. |
@@ -57,12 +57,12 @@ Not every `/metrics` setting has an environment variable. The update interval, t
 
 | Level | What you can do | Examples |
 |-------|----------------|----------|
-| **Primary** | Owns the installation. The only account that can grant Administrator, wipe every account, or rotate the API key. Hidden from every other account, including its sessions. | Wipe accounts, rotate the key, promote an administrator |
-| **Administrator** | Same app access as a user, and can manage user accounts. Cannot see or change the Primary account or its sessions, and cannot grant Administrator. | Clear cache, process logs, manage users |
-| **User** | Signed-in access to the app. Sees and manages only non-administrator accounts. Cannot see the Primary account or its sessions. | Browse downloads, change own settings |
-| **Guest** | Read-only views. Requires a guest session. | Browse downloads, stats, events, client data |
+| **Primary** | Owns the installation. The only account that can grant Admin, wipe every account, or regenerate the API key. Hidden from every other account, including its sessions. | Wipe accounts, regenerate the key, promote an admin |
+| **Admin** | Same app access as an Account, and can manage accounts. Cannot see or change the Primary account or its sessions, and cannot grant Admin. | Clear cache, process logs, manage accounts |
+| **Account** | Signed-in access to the app. Sees and manages only non-admin accounts. Cannot see the Primary account or its sessions. | Browse downloads, change own settings |
+| **Guest** | View access through a guest session. Prefill is separate: an admin can grant it per platform, including for one session. | Browse downloads, stats, events, client data |
 
-To give someone read-only access without sharing an account, make sure guest logins are **Unlocked** on the **Users** page. Your guest then clicks **Guest Mode** on the sign-in screen. Session length and other defaults live under **Guest Defaults**. Every page and action needs a signed-in account or a guest session, with two exceptions: `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`, and the `/health` liveness probe always answers. Sign-in and first-run setup endpoints are public by necessity.
+To give someone access without sharing an account, make sure guest logins are **Unlocked** on the **Users** page. Your guest then clicks **Guest Mode** on the sign-in screen. Session length, and whether new guests receive Prefill, live under **Guest Defaults**. Every page and action needs a signed-in account or a guest session, with two exceptions: `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`, and the `/health` liveness probe always answers. Sign-in and first-run setup endpoints are public by necessity.
 
 ### Prefill settings { #prefill-config }
 
@@ -162,7 +162,7 @@ services:
       # - POSTGRES_DB=lancache
 
       # --- Security ---
-      # - Security__EnableAuthentication=true     # false turns off ALL auth; local dev only
+      # - Security__EnableAuthentication=true     # before a mode is saved: false selects Unauthenticated
       # - Security__RequireAuthForMetrics=false   # true = /metrics needs a Bearer token
       # - Security__GuestSessionDurationHours=6
       # - Security__AllowedOrigins=               # CSV of CORS origins; empty = same-origin only, * = any origin (no credentials)

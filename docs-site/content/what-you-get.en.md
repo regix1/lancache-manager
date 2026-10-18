@@ -38,7 +38,7 @@ Open it when you want to know which machines pull the most and whether their ins
 <em>Users - active sessions and guest access</em>
 </div>
 
-This is where guest access and signed-in accounts live: watch active sessions, create users and administrators, and hand out time-limited, view-only access without sharing an account. The Primary account and its sessions are visible only to that account.
+This is where guest access and signed-in accounts live: watch active sessions, create accounts and admins, and hand out a time-limited guest session without sharing an account. Guest Defaults can also grant Prefill per platform. The Primary account and its sessions are visible only to that account.
 
 ### Events
 
@@ -114,7 +114,7 @@ That covers the daily surface. Management has more tabs behind it - expand below
 <div align="center" markdown>
 <img alt="Integrations tab showing sign-in cards for all five game platforms and the Prometheus endpoint panel" src="../images/management-integrations.png" />
 
-<em>Integrations - sign in to the game platforms and configure the Prometheus endpoint. One page shows the login state of all five prefill services.</em>
+<em>Integrations - Steam, Epic, and Xbox sign-in, Battle.net and Riot (no account), and the Prometheus endpoint.</em>
 </div>
 
 #### Data

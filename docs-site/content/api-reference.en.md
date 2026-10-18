@@ -2,21 +2,11 @@
 
 The web UI runs entirely on LANCache Manager's own HTTP API, so anything you can click, you can script. There are 285 endpoints across six groups.
 
-## Hand the whole API to an AI assistant
+## Download the endpoint list
 
 [Download api-reference.txt](api-reference.txt){ download } (about 88 KB)
 
-Every endpoint with its method, path, auth requirement, purpose, and request and response shapes. Paste it into a chat and ask for what you want:
-
-```text
-Attached is the API reference for LANCache Manager, a LANCache monitoring tool.
-My instance is at http://cache.lan:8080. My API key, username and password are
-in the environment variables LANCACHE_KEY, LANCACHE_USER and LANCACHE_PASSWORD.
-Write me a bash script that starts a Steam prefill for a list of app IDs and
-waits for it to finish.
-```
-
-It is generated from the running app, so it matches the code rather than an intended design.
+Every endpoint with its method, path, auth requirement, purpose, and request and response shapes. It is generated from the running app, so it matches the code rather than an intended design.
 
 ## Browse it interactively
 
@@ -40,7 +30,8 @@ Sign in once, keep the cookie jar, and use the jar for everything after that:
 # Take an antiforgery token first. Signing in changes something, so it needs one too.
 curl -c jar.txt http://cache.lan:8080/api/auth/status
 
-# Sign in with the token out of the jar. All three fields are required.
+# Sign in. This body is for API key, username and password.
+# Username and password mode omits apiKey. Single sign-on does not use this call.
 curl -b jar.txt -c jar.txt -X POST http://cache.lan:8080/api/auth/login \
   -H 'Content-Type: application/json' \
   -H "X-Antiforgery-Token: $(awk '/LancacheManager.Antiforgery/ {print $7}' jar.txt)" \

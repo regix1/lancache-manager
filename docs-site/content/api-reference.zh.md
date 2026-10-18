@@ -2,20 +2,11 @@
 
 Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡是能点击完成的操作都可以脚本化。API 共有 285 个端点，分为六组。
 
-## 把整套 API 交给 AI 助手
+## 下载端点列表
 
 [下载 api-reference.txt](api-reference.txt){ download }（约 88 KB）
 
-其中包含每个端点的请求方法、路径、认证要求、用途，以及请求和响应结构。把它粘贴到对话中，然后描述需求即可：
-
-```text
-附件是 LANCache 监控工具 LANCache Manager 的 API 参考。
-我的实例地址是 http://cache.lan:8080，API 密钥、用户名和密码分别
-保存在环境变量 LANCACHE_KEY、LANCACHE_USER 和 LANCACHE_PASSWORD 中。
-请写一个 bash 脚本，为一组 app ID 启动 Steam 预填充，并等待其完成。
-```
-
-该文件由运行中的应用生成，因此描述的是代码的实际行为，而不是设计意图。
+其中包含每个端点的请求方法、路径、认证要求、用途，以及请求和响应结构。该文件由运行中的应用生成，因此描述的是代码的实际行为，而不是设计意图。
 
 ## 交互式浏览
 
@@ -39,7 +30,8 @@ Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡
 # 先取一个防伪令牌。登录本身也会修改数据，同样需要它。
 curl -c jar.txt http://cache.lan:8080/api/auth/status
 
-# 用 Cookie 文件里的令牌登录。三个字段缺一不可。
+# 登录。下面的请求体对应「API 密钥、用户名和密码」。
+# 「用户名和密码」模式不传 apiKey。单点登录不使用这个调用。
 curl -b jar.txt -c jar.txt -X POST http://cache.lan:8080/api/auth/login \
   -H 'Content-Type: application/json' \
   -H "X-Antiforgery-Token: $(awk '/LancacheManager.Antiforgery/ {print $7}' jar.txt)" \

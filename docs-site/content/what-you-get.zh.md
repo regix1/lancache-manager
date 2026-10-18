@@ -38,7 +38,7 @@
 <em>用户——活跃会话与访客访问</em>
 </div>
 
-访客访问和登录账户都在这里管理：查看活跃会话、创建用户和管理员，无需分享账户即可授予限时的只读访问权限。主要账户及其会话仅对该账户自己可见。
+访客访问和登录账户都在这里管理：查看活跃会话、创建账户和管理员，无需分享账户即可发出限时的访客会话。访客默认设置还可以按平台授予预填充。主要账户及其会话仅对该账户自己可见。
 
 ### 事件
 
@@ -114,7 +114,7 @@ location /lancache-heartbeat {
 <div align="center" markdown>
 <img alt="集成标签页，显示全部五个游戏平台的登录卡片和 Prometheus 端点面板" src="../../images/management-integrations.png" />
 
-<em>集成——登录游戏平台并配置 Prometheus 端点。一个页面即可查看全部五项预填充服务的登录状态。</em>
+<em>集成——Steam、Epic 和 Xbox 的登录，无需账号的 Battle.net 和 Riot，以及 Prometheus 端点。</em>
 </div>
 
 #### 数据

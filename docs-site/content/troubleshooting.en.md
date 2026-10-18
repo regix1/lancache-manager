@@ -87,7 +87,7 @@ The checklist is the same for all five platforms. Work down the list:
    - Check firewall rules for outbound traffic.
 5. **Downloads fail or error out mid-run.** Often the container can't resolve CDN domains to your cache. The most reliable fix is `Prefill__LancacheIp=<your-cache-ip>` - it bypasses DNS entirely for CDN traffic. The full decision table (and what `LancacheDnsIp`/`NetworkMode` do instead) is in [Network setup](prefill.md#prefill-network).
 6. **IPv6 traffic bypassing DNS.** If your network has IPv6, queries can bypass `lancache-dns`. LANCache Manager disables IPv6 inside bridge-mode prefill containers to prevent this; Docker doesn't allow that with host networking, so a host-mode container needs IPv6 handled at the network level instead.
-7. **Epic OAuth never connects.** Complete the OAuth flow in the browser window that pops open. The token lives in the prefill container's own storage: a persistent container stays signed in (even across LANCache Manager restarts) until you stop it; a temporary session starts signed out.
+7. **Epic sign-in never completes.** Open Epic's sign-in page, sign in there, and paste the code into LANCache Manager. The login is kept with the prefill container. A persistent container can stay signed in across a LANCache Manager restart when **After a restart** keeps it. A temporary session starts signed out.
 
 To find the IP of your `lancache-dns`:
 
@@ -97,7 +97,7 @@ docker inspect lancache-dns | grep IPAddress
 
 ### A scheduled prefill "skipped" services
 
-That's [Scheduled Prefill](prefill.md#scheduled-prefill) working as designed: a scheduled run only uses a persistent container that is already running and, for Steam/Epic/Xbox, signed in. Start the container from the Scheduled Prefill card and sign in if needed; the next run will include it. Skips don't count as failures, and the schedule keeps ticking.
+That's [Scheduled Prefill](prefill.md#scheduled-prefill) working as designed: a scheduled run only uses a persistent container that is already running and, for Steam, Epic, and Xbox, signed in. **Start** the container from the Scheduled Prefill card and sign in with **Manage** if that platform needs an account. The next run includes it. A skip does not fail a tick in which another service ran. A tick where nothing ran is reported unsuccessful. The schedule keeps its interval either way.
 
 ### Hit rate looks lower than expected after a prefill
 

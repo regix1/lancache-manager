@@ -22,7 +22,7 @@ Steam, Epic, Battle.net, Riot, and Xbox each run in their own container, so you 
 The flow is the same on every platform:
 
 1. Open the **Prefill** tab and pick **Steam**, **Epic Games**, **Battle.net**, **Riot Games**, or **Xbox**
-2. Sign in (Steam Guard for Steam, OAuth for Epic, a Microsoft device code for Xbox; Battle.net and Riot need no login)
+2. Sign in where the platform asks for it: username, password, and Steam Guard for Steam; Epic's sign-in page, then paste the code; a Microsoft device code for Xbox. Battle.net and Riot need no account
 3. Pick games from your library
 4. Hit **Start Session**
 
@@ -32,7 +32,7 @@ That's it. Leave it running - when guests arrive, everything's cached.
     Prefill builds on community daemons:
 
     - **Steam**: [steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon), a fork of [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90)
-    - **Epic**: [epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon) - account login via OAuth
+    - **Epic**: [epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon) - sign in at Epic, then paste the authorization code
     - **Battle.net**: [battlenet-prefill-daemon](https://github.com/regix1/battlenet-prefill-daemon) - fully anonymous, no account needed
     - **Riot**: [riot-prefill-daemon](https://github.com/regix1/riot-prefill-daemon), built on [@tpill90](https://github.com/tpill90)'s lancache-prefill tools - fully anonymous; covers League of Legends and Valorant
     - **Xbox**: [xbox-prefill-daemon](https://github.com/regix1/xbox-prefill-daemon) - signs in with a Microsoft device code (account required, like Epic)
@@ -56,17 +56,17 @@ The dialog tells you how many games were added, how many were already selected, 
 
 ### Scheduled Prefill { #scheduled-prefill }
 
-Set this up once and stop prefilling by hand before every event. Go to **Management → Schedules** and open the Scheduled Prefill card. The card has one global **Run** action and one global **Actions** menu. **Run** starts the enabled saved schedules immediately. **Actions** opens Activity and Shared container settings.
+Set this up once and stop prefilling by hand before every event. Go to **Management → Schedules** and open the Scheduled Prefill card. The card has **Run all** and an **Actions** menu. **Run all** starts the enabled saved schedules. **Actions** opens **View activity** and **Container settings**.
 
-Each service lists its saved schedules as separate rows. A row shows one exact saved schedule, and its **Run** action starts only that schedule. **Edit schedule** opens that exact record. Save your changes, close the editor, and then use **Run this schedule** from its row. Unsaved changes never affect a run.
+Each service lists its saved schedules as separate rows. **Run schedule** on a row starts only that schedule. **Edit schedule** opens that record. Save, close the editor, then use **Run this schedule**. A run uses the saved schedule.
 
-**Add schedule for _service_** and **Duplicate** both open a draft. They do not create a schedule until you choose **Save schedule**. Deleting a saved schedule does not stop its service container or remove cached games, and each service must keep at least one saved schedule.
+**Add schedule** and **Duplicate** both open a draft. They do not create a schedule until you choose **Save schedule**. Deleting a saved schedule does not stop its service container or remove cached games.
 
-Each service has one shared container for all of its schedules. Use **Manage the service container** to start it and sign in. A scheduled run reuses the container only when it is already running; it never starts the container. If an account service is not ready, its schedule is skipped as "needs login" while other services continue. A run where every schedule is skipped reports as unsuccessful and shows the reason in its notification.
+Each service has one shared container for all of its schedules. **Start** starts it, and **Manage** is where you sign in. A scheduled run reuses that container only when it is already running. If Steam, Epic, or Xbox has no running signed-in container, that service is skipped and the notice says it needs login, while other services continue. Battle.net and Riot need no account, but they are skipped too when their container is not running. A tick where nothing ran is reported unsuccessful, with the reason in its notification. A skip does not fail a tick in which another service did run.
 
-**Shared container settings** supplies the defaults used by all service containers. An existing saved **After a restart** override still takes precedence for its service. Stopping a service container signs it out and clears its stored login. Only the LANCache account that saved a Steam, Epic, or Xbox login can reuse that login. Battle.net and Riot are anonymous and require no account, but their shared service containers must still be running.
+**Container settings** holds the defaults for every service container, including **Login & restart**. A saved **After a restart** override still wins for that service. **Clear stored logins** signs out running containers and removes saved Steam, Epic, and Xbox logins. Only the LANCache account that saved one of those logins can reuse it.
 
-**Activity** covers Steam, Epic, Xbox, Battle.net, and Riot in one view. It shows active downloads and run history, and it lets you cancel an active download. Game selection belongs to the exact saved schedule. To delete cached game content, use **Management → Game Cache Removal** instead of deleting a schedule.
+**View activity** covers Steam, Epic, Xbox, Battle.net, and Riot in one view. It shows active downloads and run history, and it lets you cancel an active download. Game selection belongs to the exact saved schedule. To delete cached game content, use **Game Cache Detection and Removal** under **Management → Logs & Cache**. Deleting a schedule does not delete cached games.
 
 Other schedule behavior remains service-specific:
 
@@ -74,7 +74,7 @@ Other schedule behavior remains service-specific:
 - **Presets or hand-picked games.** Presets are **All**, **Recent**, and **Top**. Epic has no Recent because its API exposes no last-played data. Battle.net and Riot are All-only. Games selected for a schedule override its preset.
 - **New schedule history.** "Last run: Never" remains until that saved schedule finishes its first run. Its next run is predicted from its interval.
 - **Target platforms.** Only Steam supports the Windows, Linux, and macOS depot filter. Windows is the default.
-- **Download controls.** Force re-download is off by default. Connections can be **Auto** or **Fixed** from 1 through 256. Each schedule can show its run notifications normally or silently.
+- **Download controls.** Force re-download is off by default. Connections can be **Auto** or **Fixed** from 1 through 256. Run notifications are **All runs**, **Manual only**, **Silent**, or **Hidden**.
 
 Defaults and limits:
 

@@ -87,7 +87,7 @@ ls -n /path/to/cache
    - 检查防火墙的出站流量规则。
 5. **下载失败或中途报错。** 常见原因是容器无法把 CDN 域名解析到你的缓存。最可靠的修复是设置 `Prefill__LancacheIp=<你的缓存 IP>`——它会为 CDN 流量完全绕开 DNS。完整决策表（以及 `LancacheDnsIp`/`NetworkMode` 各自的作用）见[网络设置](prefill.md#prefill-network)。
 6. **IPv6 流量绕过了 DNS。** 如果你的网络启用了 IPv6，查询可能会绕过 `lancache-dns`。LANCache Manager 会在 bridge 模式的预填充容器内禁用 IPv6 来防止这种情况；host 网络模式下 Docker 不允许这样做，所以 host 模式的容器需要在网络层面另行处理 IPv6。
-7. **Epic OAuth 始终无法连接。** 在弹出的浏览器窗口中完成 OAuth 流程。令牌保存在预填充容器自身的存储中：持久容器在你停止它之前会一直保持登录（即使 LANCache Manager 重启也不受影响）；临时会话则以未登录状态开始。
+7. **Epic 登录无法完成。** 打开 Epic 的登录页并在那里登录，然后把授权码粘贴到 LANCache Manager。登录保存在预填充容器里。当**重启后**设置为保留时，持久容器可以在 LANCache Manager 重启后仍然保持登录。临时会话以未登录状态开始。
 
 查找 `lancache-dns` 的 IP：
 
@@ -97,7 +97,7 @@ docker inspect lancache-dns | grep IPAddress
 
 ### 计划预填充"跳过"了某些服务
 
-这是[计划预填充](prefill.md#scheduled-prefill)的正常设计行为：计划运行只会使用已经在运行、且对 Steam/Epic/Xbox 而言已登录的持久容器。从计划预填充卡片启动该容器，如有需要就登录；下一次运行就会包含它。跳过不算失败，计划仍会照常继续。
+这是[计划预填充](prefill.md#scheduled-prefill)的正常设计行为：计划运行只使用已经在运行的持久容器；Steam、Epic 和 Xbox 还需要已经登录。在计划预填充卡片上**启动**容器，需要账号的平台再到**管理**里登录。下一次运行就会包含它。如果另有服务已经跑过，一次跳过不会把这次执行标成失败。一次执行里如果什么都没跑，会报告为未成功。无论哪种情况，计划都会按自己的间隔继续。
 
 ### 预填充后命中率看起来比预期低
 
