@@ -1,6 +1,6 @@
 # Client Hostnames { #client-hostnames }
 
-**Management → Clients** has a **Client hostnames** setting. Turn on **Show client hostnames** and, wherever the page would show a raw address like `172.16.2.111`, it shows a name instead, if your network's DNS server can supply one.
+**Management → Clients** has a **Client Hostnames** setting. Turn on **Show client hostnames** and, wherever the page would show a raw address like `172.16.2.111`, it shows a name instead, if your network's DNS server can supply one.
 
 This page explains what the setting actually asks for, why a DNS rewrite alone usually isn't enough to satisfy it, and how to make your DNS server answer the question it's asking.
 
@@ -16,7 +16,7 @@ On a very large network, only the most recently active clients are looked up at 
 
 Say you added a rewrite in your DNS server that points `test.lan` at `172.16.2.111`. That rewrite answers the question "what address does `test.lan` point to?" It's a **forward** record.
 
-The Client hostnames setting asks the opposite question: "what name belongs to `172.16.2.111`?" That's a **reverse** record, also called a **PTR record** (PTR is short for "pointer"). A forward record and a reverse record are two separate pieces of data. Creating one does not create the other. Most DNS servers, including the `lancache-dns` container itself, only ever create forward records unless you specifically ask for a reverse one.
+The Client Hostnames setting asks the opposite question: "what name belongs to `172.16.2.111`?" That's a **reverse** record, also called a **PTR record** (PTR is short for "pointer"). A forward record and a reverse record are two separate pieces of data. Creating one does not create the other. Most DNS servers, including the `lancache-dns` container itself, only ever create forward records unless you specifically ask for a reverse one.
 
 So a working `test.lan → 172.16.2.111` rewrite, on its own, does nothing for this setting. You need a PTR record for `172.16.2.111` that points back to `test.lan`.
 

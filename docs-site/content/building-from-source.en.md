@@ -22,9 +22,9 @@ Rust tests (from `rust-processor/`):
 cargo test --no-fail-fast
 ```
 
-15 of the tests need a PostgreSQL server. Point `DATABASE_URL` at one (for example
-`postgres://lancache:lancache@127.0.0.1:5432/lancache`) and they run too; without it they
-fail with a connection error instead of silently skipping.
+19 of the tests need a PostgreSQL server. Point `LANCACHE_TEST_DATABASE_URL` at one (for example
+`postgres://lancache:lancache@127.0.0.1:5432/lancache`) and they run; if that variable is unset they
+skip.
 
 Multi-arch Docker build:
 

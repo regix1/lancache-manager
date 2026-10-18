@@ -29,7 +29,7 @@ The most commonly used series:
 | `lancache_cache_miss_bytes_total` | New data downloaded |
 | `lancache_cache_hit_ratio` | Cache effectiveness (0-1) |
 | `lancache_active_downloads` | Current active downloads |
-| `lancache_active_clients` | Clients seen recently |
+| `lancache_active_clients` | Clients with an active download |
 | `lancache_service_downloads_total` | Downloads per service |
 | `lancache_service_bytes_total` | Bandwidth per service |
 | `lancache_service_hit_ratio` | Hit ratio per service |

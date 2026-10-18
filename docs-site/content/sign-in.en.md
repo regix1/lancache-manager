@@ -1,23 +1,59 @@
-# Sign-in and Access { #sign-in }
+# Access and sign-in { #sign-in }
 
-On first run you choose how people sign in. Version 1.10.7 asks you to confirm that choice once; accounts, cache, and prefill settings are kept. Change it later at **Users → Accounts → Access and sign-in**.
+Version 1.10.7 introduces more sign-in choices. Confirm access for this installation once; your accounts, cache, and prefill settings are kept. Change it later at **Users → Accounts → Access and sign-in**.
 
-## The five modes
+## How should people sign in?
 
-| Mode | What people enter | What the app does |
-|---|---|---|
-| Username and password | Username and password | Local account. No API key on the sign-in screen |
-| API key, username and password | Installation API key, username, and password | The installation key and a local account |
-| API key and single sign-on | Installation API key, then a connected service | An approved single sign-on account and the installation API key |
-| Single sign-on | A connected service | Google, GitHub, Microsoft, Apple, or another OpenID Connect service. No local password and no API key on the sign-in screen |
-| Unauthenticated | Nothing | Anyone who can reach the app can use its management features. Use only where every connected person and device is trusted |
+**Local account**
+
+**Username and password**
+
+Sign in with a local account. No API key entry at sign-in.
+
+Use a unique password and keep it private.
+
+**API key, username and password**
+
+Require the installation key as well as a local account.
+
+The installation key is shared. Keep both the key and your password private.
+
+**Single sign-on**
+
+**API key and single sign-on**
+
+Sign in with an approved SSO account and the installation API key.
+
+The key is shared; keep it private.
+
+HTTPS required
+
+**Single sign-on**
+
+Sign in with Google, GitHub, Microsoft, Apple, or another OpenID Connect service. No local password or API key entry.
+
+Only allowed accounts can sign in. Keep server access available for recovery.
+
+HTTPS required
+
+**No sign-in**
+
+**Unauthenticated**
+
+Open the app without a username, password, or API key.
+
+Anyone who can reach the app can use its management features. Use only on a network where every connected person and device is trusted.
+
+Every mode retains the installation API key for ownership and recovery; it belongs to the first account, the primary administrator.
 
 Until a mode is saved, `Security__EnableAuthentication` selects the default. `true` (the built-in default) is **API key, username and password**. `false` is **Unauthenticated**. A saved mode is not replaced by that variable.
 
-**Username and password** and **API key, username and password** can use HTTP. Credentials and sessions are unencrypted, so use HTTPS on a network you do not trust. The setup screen will not select a single sign-on mode over HTTP.
+Local HTTP is supported. Credentials and sessions travel unencrypted, so use HTTPS on networks you do not trust.
 
-!!! note "The installation API key stays with the primary administrator"
-    Every mode keeps the installation API key for ownership and recovery. It belongs to the first account, the primary administrator. Only **API key, username and password** and **API key and single sign-on** ask for it at sign-in. **Regenerate API Key** replaces it, and the previous key stops working.
+Single sign-on is unavailable over HTTP. Connect to this app using HTTPS.
+
+!!! note "Regenerate API Key"
+    **Regenerate API Key** replaces the installation API key, and the previous key stops working.
 
     ```bash
     docker exec lancache-manager cat /data/security/api_key.txt
@@ -35,9 +71,9 @@ There is no central login service. Register an application with the provider and
 | Apple | Services ID, Team ID, Key ID, and the `.p8` key. The app creates Apple's client secret. An HTTPS domain is required; localhost and IP addresses are rejected |
 | Other (OpenID Connect) | HTTPS issuer URL, client ID, and client secret |
 
-Setup shows **Sign-in callback URL** and **Test callback URL**. Copy both into the provider's application registration. Open setup at the address people will use, because the callbacks are built from that address.
+Setup shows **Sign-in callback URL** and **Test callback URL**. Copy both into the provider's application registration. These return URLs are built in. Open the app at its intended sign-in address before copying them.
 
-**Test connection** performs a real sign-in. The account used for the test is linked to the primary administrator, and the settings become active when the test succeeds. A failed test leaves the current sign-in settings unchanged.
+**Test connection.** The account used to test this connection is linked to the primary administrator automatically. Your connection is tested before activation. A failed test keeps the current sign-in settings.
 
 Additional people are allowed by subject identifier, not by email address or display name. GitHub expects numeric account IDs. Microsoft expects `tenant GUID:object GUID`.
 
@@ -47,7 +83,7 @@ Single sign-on needs HTTPS. The setup screen requires it even on localhost. A na
 
 ## Switching modes
 
-Existing account sessions stay active. End them at **Users → Sessions**. Switching to a sign-in mode removes shared unauthenticated access. An administrator created by single sign-on has no password yet. Set one before switching to **Username and password** or **API key, username and password**.
+Existing account sessions remain active. Use Sessions on the Users page to end them. Switching to a sign-in mode removes shared unauthenticated access. An account created by single sign-on has no password yet, so set one before **Username and password** or **API key, username and password**.
 
 If single sign-on locks you out, run this on the host:
 
@@ -55,4 +91,4 @@ If single sign-on locks you out, run this on the host:
 ./data/scripts/reset-main-admin-password.sh
 ```
 
-The script sends the installation API key and the host recovery token, then opens a one-hour window. The app asks for the API key, the primary administrator username, and a new password. Detail is in [Password Recovery](password-recovery.md).
+The script restarts the app, which opens the hour, then sends the installation API key and the host recovery token. Enter the **Username**, **Password**, **Confirm Password**, and **API key**. Detail is in [Password Recovery](password-recovery.md).

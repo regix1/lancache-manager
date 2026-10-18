@@ -13,17 +13,17 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 ### 要求
 
 - 已挂载 Docker 套接字（`/var/run/docker.sock`）
-- 以管理员或普通用户账号登录 LANCache Manager（访客只能在管理员授权的平台上进行预填充）
+- 以**主要**或**账户**登录 LANCache Manager（**访客模式**只能预填充**访客默认设置**中授权的平台）
 - 预填充容器可以访问到你的缓存服务器（参见下方的[网络设置](#prefill-network)）
 
 ### 运行一次预填充
 
 每个平台的流程都一样：
 
-1. 打开**预填充**标签页，选择 **Steam**、**Epic Games**、**Battle.net**、**Riot Games** 或 **Xbox**
-2. 需要登录的平台：Steam 使用用户名、密码和 Steam 令牌；Epic 先在 Epic 页面登录，再把授权码粘贴回来；Xbox 使用 Microsoft 设备代码。Battle.net 和 Riot 无需账号
-3. 从你的游戏库中选择游戏
-4. 点击**开始会话**
+1. 打开**预填充**标签页，在 **Steam**、**Epic Games**、**Battle.net**、**Riot Games** 或 **Xbox** 上点击**开始会话**
+2. 需要登录的平台：Steam 使用用户名、密码和 Steam 令牌；Epic 点击**打开 Epic 登录页面**，粘贴**授权码**，然后**提交代码**；Xbox 点击**打开 Microsoft 页面**并在那里输入**你的代码**。Battle.net 和 Riot 无需账号
+3. 点击**选择应用**
+4. 点击**预填充已选**，然后点击**开始下载**
 
 就这么简单。让它继续运行——等客人到达时，一切都已经缓存好了。
 
@@ -31,7 +31,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
     预填充构建在社区守护进程之上：
 
     - **Steam**：[steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon)，[steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) 的分支，原作者 [@tpill90](https://github.com/tpill90)
-    - **Epic**：[epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon)——在 Epic 页面登录，然后粘贴授权码
+    - **Epic**：[epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon)——在 Epic 页面登录，然后粘贴**授权码**
     - **Battle.net**：[battlenet-prefill-daemon](https://github.com/regix1/battlenet-prefill-daemon)——完全匿名，无需账号
     - **Riot**：[riot-prefill-daemon](https://github.com/regix1/riot-prefill-daemon)，基于 [@tpill90](https://github.com/tpill90) 的 lancache-prefill 系列工具构建——完全匿名；覆盖英雄联盟和无畏契约
     - **Xbox**：[xbox-prefill-daemon](https://github.com/regix1/xbox-prefill-daemon)——使用 Microsoft 设备代码登录（与 Epic 一样需要账号）
@@ -57,13 +57,13 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 
 配置一次，从此不必在每场活动前手动预填充。打开**管理 → 计划任务**，找到计划预填充卡片。卡片上有**全部运行**和**操作**菜单。**全部运行**会启动已启用的已保存计划。**操作**菜单打开**查看活动**和**容器设置**。
 
-每个服务都会用独立的行列出其已保存计划。一行上的**运行计划**只启动这一条。**编辑计划**打开这条记录。保存并关闭编辑窗口后，使用**运行此计划**。运行使用的是已保存的计划。
+每个服务都会用独立的行列出其已保存计划。一行上的**运行计划**只启动这一条。**编辑计划**打开这条记录。保存并关闭编辑窗口后，使用**运行计划**。运行使用的是已保存的计划。
 
-**添加计划**和**复制**都会打开一份草稿。只有选择**保存计划**后才会创建计划。删除已保存的计划不会停止服务容器，也不会删除已缓存的游戏。
+**添加计划**和**复制**都会打开一份草稿。只有选择**保存**后才会创建计划。删除已保存的计划不会停止服务容器，也不会删除已缓存的游戏。
 
 每个服务只有一个由其所有计划共享的容器。**启动**用来启动它，**管理**用来登录。计划运行只复用已经在运行的容器。Steam、Epic 或 Xbox 没有正在运行且已登录的容器时，该服务会被跳过，提示需要登录，其他服务仍会继续。Battle.net 和 Riot 不需要账号，但容器没有在运行时同样会被跳过。一次执行里如果什么都没跑，会报告为未成功，并在通知里写明原因。如果另有服务已经跑过，一次跳过不会把这次执行标成失败。
 
-**容器设置**保存所有服务容器的默认值，其中包括**登录与重启设置**。某个服务已保存的**重启后**覆盖仍然优先。**清除已保存的登录**会注销正在运行的容器，并删除已保存的 Steam、Epic 和 Xbox 登录。这些登录只能由保存它们的 LANCache 账号再次使用。
+**容器设置**保存所有服务容器的默认值，其中包括**登录**。某个服务已保存的**重启后**覆盖仍然优先。**清除已保存的登录**会注销正在运行的容器，并删除已保存的 Steam、Epic 和 Xbox 登录。这些登录只能由保存它们的 LANCache 账号再次使用。
 
 **查看活动**在同一视图中显示 Steam、Epic、Xbox、Battle.net 和 Riot。可以查看当前下载和运行历史，也可以取消当前下载。游戏选择属于确切的已保存计划。要删除已缓存的游戏内容，使用**管理 → 日志与缓存**里的**游戏缓存检测与移除**。删除计划不会删除已缓存的游戏。
 

@@ -22,9 +22,8 @@ Rust 测试（在 `rust-processor/` 目录下运行）：
 cargo test --no-fail-fast
 ```
 
-其中 15 个测试需要一个 PostgreSQL 服务器。将 `DATABASE_URL` 指向一个可用的服务器（例如
-`postgres://lancache:lancache@127.0.0.1:5432/lancache`），这些测试才会运行；否则它们会
-因连接错误而失败，而不是被静默跳过。
+其中 19 个测试需要一个 PostgreSQL 服务器。将 `LANCACHE_TEST_DATABASE_URL` 指向一个可用的服务器（例如
+`postgres://lancache:lancache@127.0.0.1:5432/lancache`），这些测试才会运行；未设置该变量时它们会被跳过。
 
 多架构 Docker 构建：
 

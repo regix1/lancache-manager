@@ -44,9 +44,9 @@ The mode decision and full compose examples live in [Choosing an Image and Datab
 |----------|---------|-------------|
 | `Security__EnableAuthentication` | `true` | Used only before a sign-in mode is saved. `true` selects **API key, username and password**. `false` selects **Unauthenticated**. A saved mode is not replaced by this variable. |
 | `Security__GuestSessionDurationHours` | `6` | Default guest session length (also configurable in the UI). |
-| `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. The UI toggle in Management → Integrations overrides this when set. |
+| `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. **Endpoint Access** under Management → Integrations overrides this when set. |
 | `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty means same-origin only (the safe default). `*` allows any origin without credentials; an explicit list allows those origins with credentials. |
-| `Security__ApiKeyPath` | `/data/security/api_key.txt` | Override the file path the admin API key is read from and written to. Useful if you bind-mount secrets from outside `/data`. |
+| `Security__ApiKeyPath` | `/data/security/api_key.txt` | Override the file path the installation API key is read from and written to. Useful if you bind-mount secrets from outside `/data`. |
 | `Security__KnownProxyNetworks` | (empty) | Comma-separated CIDR list of trusted proxy networks for `X-Forwarded-For` (e.g. `172.16.0.0/12,10.0.0.0/8`). Set this when nginx, Traefik, or another reverse proxy fronts the manager so client IPs are reported correctly. Loopback is always trusted. Leaving it empty behind a proxy on another host or container also means the sign-in rate limit counts every client against the proxy's address, so one person getting their password wrong repeatedly can lock everybody else out for a minute. |
 | `Security__TrustAllProxies` | `false` | Trust every upstream proxy unconditionally. Convenient for local dev. **Never enable on an internet-exposed host** - anyone can spoof a client IP. |
 | `Security__ForceSecureCookies` | `false` | Tells the manager that TLS ends at your reverse proxy. Every cookie it sets is then marked `Secure`, and the app treats the connection as HTTPS, which is what keeps the CSRF cookie policy from rejecting requests it would otherwise see arriving over plain HTTP. Turn it on only once HTTPS actually works in front of the app: with no TLS there, the browser stops sending the session cookie back and nobody can sign in. Setting `Security__KnownProxyNetworks` as well is still worth doing so client IPs and the sign-in rate limit stay accurate. |
@@ -57,12 +57,11 @@ Not every `/metrics` setting has an environment variable. The update interval, t
 
 | Level | What you can do | Examples |
 |-------|----------------|----------|
-| **Primary** | Owns the installation. The only account that can grant Admin, wipe every account, or regenerate the API key. Hidden from every other account, including its sessions. | Wipe accounts, regenerate the key, promote an admin |
-| **Admin** | Same app access as an Account, and can manage accounts. Cannot see or change the Primary account or its sessions, and cannot grant Admin. | Clear cache, process logs, manage accounts |
-| **Account** | Signed-in access to the app. Sees and manages only non-admin accounts. Cannot see the Primary account or its sessions. | Browse downloads, change own settings |
-| **Guest** | View access through a guest session. Prefill is separate: an admin can grant it per platform, including for one session. | Browse downloads, stats, events, client data |
+| **Primary** | Owns the installation. The only account that can wipe every account or regenerate the API key. Hidden from every other account, including its sessions. | Wipe accounts, regenerate the key |
+| **Account** | Signed-in access to the app. Sees and manages every other Account. Cannot see the Primary account or its sessions. | Browse downloads, change own settings |
+| **Guest** | View access through a guest session. Prefill is separate: Primary or an Account can grant it per platform, including for one session. | Browse downloads, stats, events, client data |
 
-To give someone access without sharing an account, make sure guest logins are **Unlocked** on the **Users** page. Your guest then clicks **Guest Mode** on the sign-in screen. Session length, and whether new guests receive Prefill, live under **Guest Defaults**. Every page and action needs a signed-in account or a guest session, with two exceptions: `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`, and the `/health` liveness probe always answers. Sign-in and first-run setup endpoints are public by necessity.
+To give someone access without sharing an account, make sure guest logins are **Unlocked** on the **Users** page. Your guest then clicks **Continue as Guest** on the sign-in screen. Session length, and whether new guests receive Prefill, live under **Guest Defaults**. Every page and action needs a signed-in account or a guest session, with two exceptions: `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`, and the `/health` liveness probe always answers. Sign-in and first-run setup endpoints are public by necessity.
 
 ### Prefill settings { #prefill-config }
 
@@ -82,9 +81,9 @@ Prefill auto-detects the right values for almost everything in this table. Three
 | `Prefill__BattlenetDockerImage` | `ghcr.io/regix1/battlenet-prefill-daemon:latest` | Docker image used for Battle.net prefill containers. |
 | `Prefill__RiotDockerImage` | `ghcr.io/regix1/riot-prefill-daemon:latest` | Docker image used for Riot prefill containers. |
 | `Prefill__XboxDockerImage` | `ghcr.io/regix1/xbox-prefill-daemon:latest` | Docker image used for Xbox prefill containers. |
-| `Prefill__SessionTimeoutMinutes` | `120` | Total lifetime of a non-persistent admin prefill session. Guest and persistent sessions use their own limits. |
-| `Prefill__StallTimeoutSeconds` | `180` | Advanced. No-progress time before a non-persistent session counts as stalled. Scheduled Prefill uses its own 30-minute cutoff. |
-| `Prefill__AbandonedLoginTimeoutSeconds` | `900` | Advanced. Seconds a prefill sign-in may sit waiting in the browser before the session is cleaned up. |
+| `Prefill__SessionTimeoutMinutes` | `120` | Total lifetime of a non-persistent prefill session. Guest and persistent sessions use their own limits. |
+| `Prefill__StallTimeoutSeconds` | `180` | Advanced. No-progress time before a prefill counts as stalled. |
+| `Prefill__AbandonedLoginTimeoutSeconds` | `900` | Advanced. Seconds a prefill sign-in may sit waiting in the browser before the app ends it. |
 | `Prefill__DaemonBasePath` | `/data/prefill` | Container path where prefill session state is stored. |
 | `Prefill__HostDataPath` | `auto` | Host path that maps to the manager's `/data` volume. Detected from the manager's mount config; set explicitly only when detection fails (unusual platforms, custom volume drivers). |
 | `Prefill__UseTcp` | `auto` | Communicate with the daemon over TCP instead of a Unix domain socket. `auto` resolves to `true` on Windows, `false` on Linux. *Linux users only need to set this if they want to force TCP mode.* |
@@ -180,7 +179,7 @@ services:
       # - Prefill__BattlenetDockerImage=ghcr.io/regix1/battlenet-prefill-daemon:latest
       # - Prefill__RiotDockerImage=ghcr.io/regix1/riot-prefill-daemon:latest
       # - Prefill__XboxDockerImage=ghcr.io/regix1/xbox-prefill-daemon:latest
-      # - Prefill__SessionTimeoutMinutes=120      # lifetime of a non-persistent admin session
+      # - Prefill__SessionTimeoutMinutes=120      # lifetime of a non-persistent prefill session
       # - Prefill__StallTimeoutSeconds=180        # advanced: stall cutoff for non-persistent sessions
       # - Prefill__AbandonedLoginTimeoutSeconds=900   # advanced: cleans up sign-ins nobody finishes
       # - Prefill__DaemonBasePath=/data/prefill   # must stay under /data

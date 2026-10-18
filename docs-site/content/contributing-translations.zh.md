@@ -34,18 +34,20 @@ Web/src/i18n/locales/
 // 简化示意——真实的键在 en.json 中
 {
   "dashboard": {
-    "title": "Dashboard",
-    "recentDownloads": "Recent Downloads",
-    "totalCache": "Total Cache: {{size}}"
+    "cards": {
+      "bandwidthSaved": "Bandwidth Saved",
+      "driveCapacityValue": "Drive: {{size}}"
+    }
   }
 }
 
 // 你的翻译（de.json）
 {
   "dashboard": {
-    "title": "Übersicht",
-    "recentDownloads": "Letzte Downloads",
-    "totalCache": "Gesamter Cache: {{size}}"
+    "cards": {
+      "bandwidthSaved": "Eingesparte Bandbreite",
+      "driveCapacityValue": "Laufwerk: {{size}}"
+    }
   }
 }
 ```

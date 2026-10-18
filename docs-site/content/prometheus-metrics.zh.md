@@ -29,7 +29,7 @@
 | `lancache_cache_miss_bytes_total` | 新下载的数据 |
 | `lancache_cache_hit_ratio` | 缓存命中率（0-1） |
 | `lancache_active_downloads` | 当前活跃下载数 |
-| `lancache_active_clients` | 近期活跃客户端数 |
+| `lancache_active_clients` | 有活跃下载的客户端 |
 | `lancache_service_downloads_total` | 按服务统计的下载量 |
 | `lancache_service_bytes_total` | 按服务统计的带宽 |
 | `lancache_service_hit_ratio` | 按服务统计的命中率 |

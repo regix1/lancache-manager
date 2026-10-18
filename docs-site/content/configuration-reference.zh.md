@@ -44,9 +44,9 @@
 |----------|---------|-------------|
 | `Security__EnableAuthentication` | `true` | 只在尚未保存登录模式时生效。`true` 选择**API 密钥、用户名和密码**。`false` 选择**无需身份验证**。已保存的模式不会被这个变量替换。 |
 | `Security__GuestSessionDurationHours` | `6` | 默认访客会话时长（也可在 UI 中配置）。 |
-| `Security__RequireAuthForMetrics` | `false` | `/metrics` 端点是否需要 API 密钥。管理 → 集成中的 UI 开关设置后会覆盖此值。 |
+| `Security__RequireAuthForMetrics` | `false` | `/metrics` 端点是否需要 API 密钥。管理 → 集成中的**端点访问**在设置后会覆盖此值。 |
 | `Security__AllowedOrigins` | （空） | 逗号分隔的 CORS 允许列表。为空表示仅允许同源访问（安全的默认值）。`*` 允许任意来源但不携带凭据；显式列表则允许所列来源并携带凭据。 |
-| `Security__ApiKeyPath` | `/data/security/api_key.txt` | 覆盖管理员 API 密钥的读写文件路径。当你从 `/data` 之外绑定挂载密钥时很有用。 |
+| `Security__ApiKeyPath` | `/data/security/api_key.txt` | 覆盖实例 API 密钥的读写文件路径。当你从 `/data` 之外绑定挂载密钥时很有用。 |
 | `Security__KnownProxyNetworks` | （空） | 用于 `X-Forwarded-For` 的可信代理网络 CIDR 列表，逗号分隔（例如 `172.16.0.0/12,10.0.0.0/8`）。当 nginx、Traefik 或其他反向代理位于管理器前面时设置此项，客户端 IP 才能被正确报告。回环地址始终受信任。如果代理位于另一台主机或另一个容器上而此项留空，登录限流会把所有客户端都算在代理的地址上，此时一个人反复输错密码就会把其他所有人锁在门外一分钟。 |
 | `Security__TrustAllProxies` | `false` | 无条件信任每一个上游代理。方便本地开发使用。**切勿在暴露于公网的主机上启用**——任何人都能伪造客户端 IP。 |
 | `Security__ForceSecureCookies` | `false` | 告知管理器 TLS 在你的反向代理处终止。启用后，应用设置的每个 Cookie 都会带上 `Secure` 标志，并且应用会将该连接视为 HTTPS，这样 CSRF 防护的 Cookie 策略就不会再拒绝那些在它看来是通过纯 HTTP 到达的请求。请仅在应用前面的 HTTPS 确实可用之后再开启：若前面没有 TLS，浏览器将不再回传会话 Cookie，任何人都无法登录。同时设置 `Security__KnownProxyNetworks` 仍然值得，这样客户端 IP 和登录速率限制才会准确。 |
@@ -57,12 +57,11 @@
 
 | 级别 | 可执行的操作 | 示例 |
 |-------|----------------|----------|
-| **主要** | 拥有此安装。唯一可以授予管理员、清空全部账户或重新生成 API 密钥的账户。对其他所有账户隐藏，包括其会话。 | 清空账户、重新生成密钥、提升为管理员 |
-| **管理员** | 与普通账户相同的应用访问，并可管理账户。不能查看或更改主要账户及其会话，也不能授予管理员。 | 清除缓存、处理日志、管理账户 |
-| **账户** | 登录后使用应用。只能查看和管理非管理员账户。不能看到主要账户及其会话。 | 浏览下载、更改自己的设置 |
-| **访客** | 通过访客会话查看。预填充是单独授予的：管理员可以按平台授予，也可以只授予某一个会话。 | 浏览下载、统计、事件、客户端数据 |
+| **主要** | 拥有此安装。唯一可以清空全部账户或重新生成 API 密钥的账户。对其他所有账户隐藏，包括其会话。 | 清空账户、重新生成密钥 |
+| **账户** | 登录后使用应用。可以查看并管理其他账户。不能看到主要账户及其会话。 | 浏览下载、更改自己的设置 |
+| **访客** | 通过访客会话查看。预填充是单独授予的：主要或账户可以按平台授予，也可以只授予某一个会话。 | 浏览下载、统计、事件、客户端数据 |
 
-要在不分享账户的情况下让别人进入，请在**用户**页面确认访客登录处于**未锁定**状态，访客随后在登录界面点击**访客模式**即可。会话时长，以及新访客是否获得预填充，都在**访客默认设置**中。每个页面和每项操作都需要已登录账户或一个访客会话，只有两个例外：除非你设置 `Security__RequireAuthForMetrics=true`，否则 `/metrics` 是公开的；`/health` 存活探针则始终会应答。登录和首次运行设置端点出于必要而公开。
+要在不分享账户的情况下让别人进入，请在**用户**页面确认访客登录处于**已解锁**状态，访客随后在登录界面点击**以访客身份继续**即可。会话时长，以及新访客是否获得预填充，都在**访客默认设置**中。每个页面和每项操作都需要已登录账户或一个访客会话，只有两个例外：除非你设置 `Security__RequireAuthForMetrics=true`，否则 `/metrics` 是公开的；`/health` 存活探针则始终会应答。登录和首次运行设置端点出于必要而公开。
 
 ### 预填充设置 { #prefill-config }
 
@@ -82,9 +81,9 @@
 | `Prefill__BattlenetDockerImage` | `ghcr.io/regix1/battlenet-prefill-daemon:latest` | Battle.net 预填充容器所用的 Docker 镜像。 |
 | `Prefill__RiotDockerImage` | `ghcr.io/regix1/riot-prefill-daemon:latest` | Riot 预填充容器所用的 Docker 镜像。 |
 | `Prefill__XboxDockerImage` | `ghcr.io/regix1/xbox-prefill-daemon:latest` | Xbox 预填充容器所用的 Docker 镜像。 |
-| `Prefill__SessionTimeoutMinutes` | `120` | 非持久管理员预填充会话的总生命周期。访客会话和持久会话使用各自独立的限制。 |
-| `Prefill__StallTimeoutSeconds` | `180` | 高级设置。非持久会话被判定为停滞前的无进展时长。计划预填充使用自己独立的 30 分钟超时。 |
-| `Prefill__AbandonedLoginTimeoutSeconds` | `900` | 高级设置。预填充登录可以在浏览器中等待的秒数，超时后该会话会被清理。 |
+| `Prefill__SessionTimeoutMinutes` | `120` | 非持久预填充会话的总生命周期。访客会话和持久会话使用各自独立的限制。 |
+| `Prefill__StallTimeoutSeconds` | `180` | 高级设置。预填充被判定为停滞前的无进展时长。 |
+| `Prefill__AbandonedLoginTimeoutSeconds` | `900` | 高级设置。预填充登录可以在浏览器中等待的秒数，超时后应用会结束这次登录。 |
 | `Prefill__DaemonBasePath` | `/data/prefill` | 存储预填充会话状态的容器内路径。 |
 | `Prefill__HostDataPath` | `auto` | 映射到管理器 `/data` 数据卷的主机路径。从管理器的挂载配置中检测；仅在检测失败时（不常见的平台、自定义数据卷驱动）才需要显式设置。 |
 | `Prefill__UseTcp` | `auto` | 使用 TCP 而非 Unix 域套接字与守护进程通信。`auto` 在 Windows 上解析为 `true`，在 Linux 上为 `false`。*Linux 用户只有在想强制使用 TCP 模式时才需要设置此项。* |
@@ -179,7 +178,7 @@ services:
       # - Prefill__BattlenetDockerImage=ghcr.io/regix1/battlenet-prefill-daemon:latest
       # - Prefill__RiotDockerImage=ghcr.io/regix1/riot-prefill-daemon:latest
       # - Prefill__XboxDockerImage=ghcr.io/regix1/xbox-prefill-daemon:latest
-      # - Prefill__SessionTimeoutMinutes=120      # 非持久管理员会话的生命周期
+      # - Prefill__SessionTimeoutMinutes=120      # 非持久预填充会话的生命周期
       # - Prefill__StallTimeoutSeconds=180        # 高级设置：非持久会话的停滞超时
       # - Prefill__AbandonedLoginTimeoutSeconds=900   # 高级设置：清理无人完成的登录
       # - Prefill__DaemonBasePath=/data/prefill   # 必须位于 /data 之下

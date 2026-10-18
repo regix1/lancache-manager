@@ -6,7 +6,7 @@ Before working through the entries below, open **Management → Status Check**. 
 
 1. Check the log path under **Management → Logs & Cache → Log Processing**.
 2. Confirm your volume mount lines up with `LanCache__LogPath`.
-3. Choose **Process All** from the `⋯` menu on that same page.
+3. Choose **Process All** from the **Actions** menu on that same page.
 4. Look at the container logs: `docker logs lancache-manager`.
 
 ### The web UI says "No log sources" (but the log file exists)
@@ -38,11 +38,11 @@ docker exec -it lancache-manager ls /cache
 
 1. Refresh the mappings: **Management → Schedules**, find the **Steam Game Mapping** row, and hit **Run Now** (the play icon at the end of the row).
 2. Add custom mappings for any private depots you care about.
-3. Re-import the history: in **Logs & Cache**, choose **Reposition** from the `⋯` menu on the **Log Processing** card to move the read position back to the start, then process again. Already-processed entries are skipped automatically, so reprocessing is safe.
+3. Re-import the history: in **Logs & Cache**, choose **Reposition** from the **Actions** menu on the **Log Processing** card to move the read position back to the start, then process again. Already-processed entries are skipped automatically, so reprocessing is safe.
 
 **Epic:**
 
-1. Sign in to Epic under **Management → Integrations**.
+1. Choose **Login with Epic Games** under **Management → Integrations**.
 2. Go to **Management → Schedules**, find the **Epic Game Mapping** row, and hit **Run Now**. The mapping service queries the Epic API to identify what's in your cache.
 3. Game names and cover art come down automatically.
 
@@ -79,7 +79,7 @@ ls -n /path/to/cache
 The checklist is the same for all five platforms. Work down the list:
 
 1. Confirm the Docker socket is mounted.
-2. Confirm you're authenticated as admin in lancache-manager.
+2. Confirm you're signed in as **Primary** or **Account**.
 3. Look in the container logs for the network diagnostics block (`═══ PREFILL CONTAINER NETWORK DIAGNOSTICS ═══`) - it tells you whether the container has internet and where CDN domains resolve to.
 4. **No internet inside the prefill container.** The container can't reach the platform's servers. Common fixes:
    - Set `Prefill__NetworkMode=bridge` (works for most setups).

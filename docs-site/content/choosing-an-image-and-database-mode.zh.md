@@ -6,8 +6,8 @@
 
 | 模式 | 含义 | 镜像标签 |
 |------|------|----------|
-| **内嵌**（默认） | PostgreSQL 17 在 lancache-manager 容器*内部*通过 Unix 套接字运行。单容器，无需额外配置。 | `:latest` |
-| **外部** | 你自己运行 PostgreSQL——边车容器、远程主机，或托管服务（RDS、Azure DB、Cloud SQL）。标准的 Docker 模式，升级也更省心。 | `:latest` 可用，也可用 `:latest-slim`（体积小约 150 MB，去掉了未使用的内嵌 Postgres）。需要设置 `POSTGRES_MODE=external`。 |
+| **内置**（默认） | PostgreSQL 17 在 lancache-manager 容器*内部*通过 Unix 套接字运行。单容器，无需额外配置。 | `:latest` |
+| **外部** | 你自己运行 PostgreSQL——边车容器、远程主机，或托管服务（RDS、Azure DB、Cloud SQL）。标准的 Docker 模式，升级也更省心。 | `:latest` 可用，也可用 `:latest-slim`（体积小约 150 MB，去掉了未使用的内置 Postgres）。需要设置 `POSTGRES_MODE=external`。 |
 
 CI 发布的每个标签系列都遵循相同的配对（均为多架构镜像，amd64 + arm64）：
 
@@ -19,14 +19,14 @@ CI 发布的每个标签系列都遵循相同的配对（均为多架构镜像�
 | `dev` / `dev-slim` | 最新开发版构建。仅用于测试——随时可能出问题。 |
 
 ```bash
-# 完整版——默认，同时支持内嵌和外部 Postgres
+# 完整版——默认，同时支持内置和外部 Postgres
 docker pull ghcr.io/regix1/lancache-manager:latest
 
 # 精简版——仅支持外部 Postgres
 docker pull ghcr.io/regix1/lancache-manager:latest-slim
 ```
 
-### 示例 1：内嵌（默认）
+### 示例 1：内置（默认）
 
 这就是[快速开始](quick-start.md#quick-start)中的 Compose 文件——单容器，无边车服务。可以选择性地加上一个数据库密码：
 
@@ -36,7 +36,7 @@ docker pull ghcr.io/regix1/lancache-manager:latest-slim
       - POSTGRES_PASSWORD=your-secure-password
 ```
 
-不设置 `POSTGRES_PASSWORD` 的话，首次运行的 UI 会提示输入。内嵌模式的全部设置就是这些。
+不设置 `POSTGRES_PASSWORD` 的话，首次运行的 UI 会提示输入。内置模式的全部设置就是这些。
 
 ### 示例 2：外部（边车 Postgres）
 

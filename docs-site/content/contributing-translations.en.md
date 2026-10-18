@@ -34,18 +34,20 @@ Web/src/i18n/locales/
 // simplified illustration - the real keys live in en.json
 {
   "dashboard": {
-    "title": "Dashboard",
-    "recentDownloads": "Recent Downloads",
-    "totalCache": "Total Cache: {{size}}"
+    "cards": {
+      "bandwidthSaved": "Bandwidth Saved",
+      "driveCapacityValue": "Drive: {{size}}"
+    }
   }
 }
 
 // your translation (de.json)
 {
   "dashboard": {
-    "title": "Übersicht",
-    "recentDownloads": "Letzte Downloads",
-    "totalCache": "Gesamter Cache: {{size}}"
+    "cards": {
+      "bandwidthSaved": "Eingesparte Bandbreite",
+      "driveCapacityValue": "Laufwerk: {{size}}"
+    }
   }
 }
 ```

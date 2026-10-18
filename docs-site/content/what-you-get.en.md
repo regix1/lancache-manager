@@ -18,7 +18,7 @@ A quick tour of the main pages. All screenshots use the default dark theme.
 <em>Downloads - every cached game with cover art, sizes, and per-client history</em>
 </div>
 
-Three view modes: **Normal** (cards, shown above), **Compact** (a dense list), and **Retro** (a per-depot table straight out of a 90s BBS). Hit/Miss and per-client filters narrow the list.
+Four view modes: **Compact**, **Card**, **Normal**, and **Retro**. **Hit** and **Miss**, and the client filter, narrow the list.
 
 ### Clients
 
@@ -38,7 +38,7 @@ Open it when you want to know which machines pull the most and whether their ins
 <em>Users - active sessions and guest access</em>
 </div>
 
-This is where guest access and signed-in accounts live: watch active sessions, create accounts and admins, and hand out a time-limited guest session without sharing an account. Guest Defaults can also grant Prefill per platform. The Primary account and its sessions are visible only to that account.
+This is where guest access and signed-in accounts live: watch **Sessions**, use **Create Account**, and hand out a time-limited **Guest Mode** session without sharing an account. **Guest Defaults** can also grant Prefill per platform. The **Primary** account and its sessions are visible only to that account.
 
 ### Events
 
@@ -61,11 +61,11 @@ Planning a LAN party? Put it on the calendar and see download activity in date c
 The Status Check tab (Management → Status Check) answers "is my LANCache actually working?" without touching a terminal. It checks that game domains resolve to your cache, that the cache answers, and that recent downloads really went through it - per domain, in plain language.
 
 <details markdown>
-<summary><strong>Why "From this device" says <em>inconclusive</em>, and how to fix it</strong></summary>
+<summary><strong>Why "From this device" says <em>Something answered, but the browser cannot confirm it is the cache.</em>, and how to fix it</strong></summary>
 
 Your browser runs that one probe, not the server, so it reports what your client sees. It requests `http://lancache.steamcontent.com/lancache-heartbeat`, and a real cache node answers `204` with an `X-LanCache-Processed-By` header naming itself.
 
-Browsers won't let a page read that header across origins unless the cache opts in. Current `lancachenet/monolithic` images have shipped that opt-in for years, so a definitive answer is the normal case. On an older image or a custom nginx config, the card falls back to a request that proves *something* answered but not *what*, reports **inconclusive**, and logs a CORS error in your browser console. Nothing is broken. Every other Status Check result comes from the server and is unaffected.
+Browsers won't let a page read that header across origins unless the cache opts in. Current `lancachenet/monolithic` images have shipped that opt-in for years, so a definitive answer is the normal case. On an older image or a custom nginx config, the card falls back to a request that proves *something* answered but not *what*, reports that result, and logs a CORS error in your browser console. Nothing is broken. Every other Status Check result comes from the server and is unaffected.
 
 To fix an older or custom cache, add these to the heartbeat location in its nginx config:
 
@@ -78,9 +78,9 @@ location /lancache-heartbeat {
 }
 ```
 
-`Access-Control-Expose-Headers` is the line people miss. Without it the request succeeds and the header is still unreadable, so the card stays inconclusive. `*` is safe here: the probe sends no cookies or credentials, and the response carries nothing but the node name.
+`Access-Control-Expose-Headers` is the line people miss. Without it the request succeeds and the header is still unreadable, so the card stays on that result. `*` is safe here: the probe sends no cookies or credentials, and the response carries nothing but the node name.
 
-Two caveats. If you serve this manager over **https**, the browser blocks the plain-http probe outright and the card cannot work regardless of CORS. And if the probe returns something other than `204` (a `403`, say), that is a real finding rather than a CORS problem: the domain resolved to something that is not your cache.
+Two caveats. If you serve this manager over **https**, the browser blocks the plain-http probe outright and the card cannot work regardless of CORS. A response other than `204` with the cache header, including a `403`, shows that same result.
 
 </details>
 
@@ -120,17 +120,17 @@ That covers the daily surface. Management has more tabs behind it - expand below
 #### Data
 
 <div align="center" markdown>
-<img alt="Data tab with the Steam game mapping card and the database import form" src="../images/management-data.png" />
+<img alt="Data tab showing Data Import and Database Management" src="../images/management-data.png" />
 
-<em>Data - Steam game mapping and database import.</em>
+<em>Data - **Data Import** and **Database Management**.</em>
 </div>
 
 #### Schedules
 
 <div align="center" markdown>
-<img alt="Schedules tab showing per-service schedule rows with intervals and Run Now controls" src="../images/management-schedules-system.png" />
+<img alt="Schedules tab showing per-service rows" src="../images/management-schedules-system.png" />
 
-<em>Schedules - every background service on its own interval, each with a Run Now control. The Scheduled Prefill card lives at the bottom of this page and is shown in the Prefill section below.</em>
+<em>Schedules - every background service on its own interval, with **Run Now** on each mapping row. The Scheduled Prefill card at the bottom uses **Run all**.</em>
 </div>
 
 #### Theme

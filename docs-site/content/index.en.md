@@ -2,9 +2,9 @@
 
 A web UI for [LANCache](https://lancache.net/). See what your cache is doing, and act on it, without touching a terminal.
 
-The dashboard is the live view: bandwidth saved, cache hit ratio, top clients, and per-service analytics. Behind it sits a full cache browser with every cached game, its cover art, size, and per-client history. Prometheus metrics are exposed out of the box, including per-game bandwidth and hit rates.
+The Dashboard is the live view: Bandwidth Saved, Cache Hit Ratio, Top Clients, and Service Analytics. Behind it sits Downloads, with every cached game, its cover art, size, and per-client history. Prometheus metrics are exposed out of the box, including per-game bandwidth and hit rates.
 
-It also acts on the cache. Prefill Steam, Epic, Battle.net, Riot, and Xbox games before guests arrive, by hand or on a schedule, and run the server from the browser: process logs, clear cache, detect corruption, and check DNS and cache health when something looks off.
+It also acts on the cache. Prefill Steam, Epic, Battle.net, Riot, and Xbox games before guests arrive, by hand or on a schedule, and run the server from the browser: Log Processing, Clear Cache, Corruption Detection and Removal, and Status Check when something looks off.
 
 !!! important "Always pull the `latest` tag"
 
@@ -19,7 +19,7 @@ It also acts on the cache. Prefill Steam, Epic, Battle.net, Riot, and Xbox games
 | If you want to | Read |
 |---|---|
 | Get it running | [Quick Start](quick-start.md) |
-| Choose how people sign in | [Sign-in and Access](sign-in.md) |
+| Choose how people sign in | [Access and sign-in](sign-in.md) |
 | Move up from an older version | [Upgrading](upgrading.md) |
 | See what each page does | [What You Get](what-you-get.md) |
 | Prefill games before an event | [Prefill](prefill.md) |

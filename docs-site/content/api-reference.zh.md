@@ -10,13 +10,13 @@ Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡
 
 ## 交互式浏览
 
-运行中的实例在 **`/scalar`** 提供交互式参考页面，端口即你所发布的端口。如果 compose 文件映射的是 `8081:80`，地址就是 `http://<主机>:8081/scalar`。每个端点都带有 **Test Request** 按钮，可以对你的实例发起真实调用。
+运行中的实例在 **`/scalar`** 提供交互式参考页面，端口即你所发布的端口。如果 compose 文件映射的是 `8081:80`，地址就是 `http://<主机>:8081/scalar`。每个端点都可以对你的实例发起真实调用。
 
-`/scalar` 仅限管理员访问。如果已登录应用，页面会直接加载，**Test Request** 按钮也会沿用同一个会话，无需再填写任何内容；如果尚未登录，则会跳转到登录界面。
+`/scalar` 需要已登录的账户。如果已登录应用，页面会直接加载，这些调用也会沿用同一个会话，无需再填写任何内容；如果尚未登录，则会跳转到登录界面。
 
-页面顶部的 **Authentication** 面板接受 API 密钥，密钥打开的正是这个参考页面及其背后的文档。该字段中灰色显示的内容只是占位示例，并非可用密钥。
+页面顶部的 API 密钥字段接受 API 密钥，密钥打开的正是这个参考页面及其背后的文档。该字段中灰色显示的内容只是占位示例，并非可用密钥。
 
-原始 OpenAPI 文档位于 **`/openapi/v1.json`**，同样仅限管理员访问，可供 Postman、Insomnia 或代码生成器使用。
+原始 OpenAPI 文档位于 **`/openapi/v1.json`**，同样需要已登录的账户，可供 Postman、Insomnia 或代码生成器使用。
 
 !!! warning "`/swagger` 与 `/scaler` 无法使用"
 
@@ -41,7 +41,7 @@ curl -b jar.txt -c jar.txt -X POST http://cache.lan:8080/api/auth/login \
 curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 ```
 
-使用 `docker exec lancache-manager cat /data/security/api_key.txt` 获取密钥，也可以在**管理 → 集成**中查看，并在那里重新生成。之后的容器日志只打印提示，完整密钥仅在首次创建或轮换时写入日志。用户名和密码来自在应用中创建的账户。
+使用 `docker exec lancache-manager cat /data/security/api_key.txt` 获取密钥。**管理 → 设置**中的**重新生成 API 密钥**会替换它。之后的容器日志只打印提示，完整密钥仅在首次创建或轮换时写入日志。用户名和密码来自在应用中创建的账户。
 
 如果主管理员密码丢失，请在主机上运行 `./data/scripts/reset-main-admin-password.sh`。[密码恢复](password-recovery.md)说明该脚本以及用于排查的 `open-main-admin-recovery` 和 `recover-main-admin` 请求；这两个端点都不需要已登录会话或防伪令牌。
 

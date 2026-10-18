@@ -1,4 +1,4 @@
-# Reset a Lost Admin Password { #password-recovery }
+# Password Recovery { #password-recovery }
 
 Use this procedure when the **main administrator** password was forgotten.
 
@@ -6,16 +6,16 @@ The reset:
 
 - keeps the account, settings, downloads, and database;
 - changes only the main administrator's password;
-- signs that administrator out of every existing session;
+- signs that account out of every existing session;
 - clears a sign-in lockout caused by failed attempts.
 
-It cannot reset a secondary administrator or regular user.
+It cannot reset another account.
 
 ## Docker Compose
 
 LANCache Manager places a recovery script in the persistent data folder every time the container starts. With the supplied Compose file, pick one of the two forms.
 
-Open the one-hour window and finish on the setup screen. The browser asks for the API key, the main administrator username, and a new password:
+Open the one-hour window and finish on the setup screen. The browser asks for the **Username**, **Password**, **Confirm Password**, and **API key**:
 
 ```bash
 ./data/scripts/reset-main-admin-password.sh

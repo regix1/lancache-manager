@@ -10,13 +10,13 @@ Every endpoint with its method, path, auth requirement, purpose, and request and
 
 ## Browse it interactively
 
-A running instance serves an interactive reference at **`/scalar`**, on whatever port you published. If your compose file maps `8081:80`, that is `http://<host>:8081/scalar`. Each endpoint has a **Test Request** button that calls your instance for real.
+A running instance serves an interactive reference at **`/scalar`**, on whatever port you published. If your compose file maps `8081:80`, that is `http://<host>:8081/scalar`. Each endpoint can call your instance for real.
 
-`/scalar` is admin-only. Signed in to the app already, it loads straight away, and the **Test Request** buttons run on that same session, so there is nothing to fill in. If you are not signed in, it sends you to the sign-in screen.
+`/scalar` requires a signed-in account. Signed in to the app already, it loads straight away, and those calls run on that same session, so there is nothing to fill in. If you are not signed in, it sends you to the sign-in screen.
 
-The **Authentication** panel at the top of the page takes the API key, which is what opens the reference and the document behind it. The greyed-out value in that field is placeholder text, not a working key.
+The API key field at the top of the page takes the API key, which is what opens the reference and the document behind it. The greyed-out value in that field is placeholder text, not a working key.
 
-The raw OpenAPI document is at **`/openapi/v1.json`**, also admin-only. Point Postman, Insomnia, or a client generator at it.
+The raw OpenAPI document is at **`/openapi/v1.json`**, and also requires a signed-in account. Point Postman, Insomnia, or a client generator at it.
 
 !!! warning "`/swagger` and `/scaler` do not work"
 
@@ -41,7 +41,7 @@ curl -b jar.txt -c jar.txt -X POST http://cache.lan:8080/api/auth/login \
 curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 ```
 
-Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`, or from **Management → Integrations**, where you can also regenerate it. Later container logs print only a hint; the full key is written to the logs only when it is first created or rotated. The username and password are those of an account created in the app.
+Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`. **Regenerate API Key** under **Management → Settings** replaces it. Later container logs print only a hint; the full key is written to the logs only when it is first created or rotated. The username and password are those of an account created in the app.
 
 If the main administrator password is lost, run `./data/scripts/reset-main-admin-password.sh` on the host. [Password Recovery](password-recovery.md) covers that script and the `open-main-admin-recovery` and `recover-main-admin` requests used for troubleshooting; neither endpoint needs a signed-in session or antiforgery token.
 
