@@ -44,11 +44,13 @@ import { isSkippedRun } from '@contexts/SignalRContext/types';
 import type { OperationStatus } from '@/types/operations';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
+import { useHeldValue } from '@hooks/useHeldValue';
 import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useRepairEnd } from '@hooks/useRepairEnd';
 import { useCacheScanBlocked } from '@hooks/useCacheScanBlocked';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
+import { DisabledActionGate } from '@components/features/management/DisabledActionGate';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import CardDirectoryNotice from '@components/features/management/CardDirectoryNotice';
 import { useSelectionSet, type SelectionSet, type SelectionAdapter } from '@/hooks/useSelectionSet';
@@ -313,6 +315,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
 
   // Evicted removal state (migrated from GameCacheDetector)
   const [evictedTarget, setEvictedTarget] = useState<GameCacheInfo | ServiceCacheInfo | null>(null);
+  // The dialog closes when `evictedTarget` clears; the held copy keeps its text on screen while
+  // it fades.
+  const shownEvicted = useHeldValue(evictedTarget);
+  const shownEvictedCount = shownEvicted?.evicted_downloads_count ?? 0;
+  const shownEvictedBytes = shownEvicted?.evicted_bytes ?? 0;
 
   // Both handlers route to the same evicted-records removal whatever is_evicted says. A row
   // flagged fully evicted is not proof its files are gone: the flag and the file count come from
@@ -440,6 +447,15 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // queues behind it - purple card feedback). Same-op only: scan already running or the
   // kick-off request in flight.
   const isEvictionScanRunning = isEvictionScanNotificationRunning || isStartingEvictionScan;
+  // The server refuses an orphan removal for the whole time an unmapped removal runs or is being
+  // stopped.
+  const isUnmappedRemovalRunning = useOperationBusy({
+    types: ['unmapped_file_removal'],
+    status: ['running', 'cancelling']
+  });
+  const unmappedRemovalReason = isUnmappedRemovalRunning
+    ? t('management.storage.unmappedRemovalRunning')
+    : '';
 
   const [evictedDataExpanded, setEvictedDataExpanded] = useSectionExpanded(
     MANAGEMENT_STORAGE_KEYS.EVICTED_DATA_EXPANDED,
@@ -481,6 +497,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const [orphanedLoadError, setOrphanedLoadError] = useState<string | null>(null);
   const [removingOrphaned, setRemovingOrphaned] = useState(false);
   const [confirmRemoveOrphaned, setConfirmRemoveOrphaned] = useState(false);
+  const [removeOrphanedError, setRemoveOrphanedError] = useState<string | null>(null);
   const orphanedSelection: SelectionSet<string> = useSelectionSet<string>();
 
   // "Remove All" state - sequential per-item eviction removal. One at a time
@@ -648,12 +665,12 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   }, [on, off, fetchOrphanedDownloads]);
 
   const handleRemoveSelectedOrphaned = useCallback(async () => {
-    setConfirmRemoveOrphaned(false);
     if (!isAdmin || selectedOrphanedGroups.length === 0) return;
     setRemovingOrphaned(true);
     try {
       const ids = selectedOrphanedGroups.flatMap((group) => group.downloadIds);
       const result = await ApiService.removeOrphanedDownloads(ids);
+      setConfirmRemoveOrphaned(false);
       orphanedSelection.clear();
       await fetchOrphanedDownloads();
       onSuccess(
@@ -661,7 +678,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       );
       onDataRefresh();
     } catch (err: unknown) {
-      onError(t('management.sections.data.orphanedDownloadsRemoveFailed'), err);
+      // The dialog stays open, so the failure shows beside the removal the person confirmed.
+      setRemoveOrphanedError(getErrorMessage(err));
     } finally {
       setRemovingOrphaned(false);
     }
@@ -671,7 +689,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     orphanedSelection,
     fetchOrphanedDownloads,
     onSuccess,
-    onError,
     onDataRefresh,
     t
   ]);
@@ -1237,17 +1254,28 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                     )}
                     {isAdmin && selectedOrphanedCount > 0 && (
                       <div className="flex justify-end">
-                        <Button
-                          onClick={() => setConfirmRemoveOrphaned(true)}
-                          variant="filled"
-                          color="red"
-                          loading={removingOrphaned}
-                          disabled={removingOrphaned}
-                        >
-                          {t('management.sections.data.orphanedDownloadsRemoveSelected', {
+                        <DisabledActionGate
+                          disabled={removingOrphaned || isUnmappedRemovalRunning}
+                          reason={unmappedRemovalReason}
+                          label={t('management.sections.data.orphanedDownloadsRemoveSelected', {
                             count: selectedOrphanedCount
                           })}
-                        </Button>
+                        >
+                          <Button
+                            onClick={() => {
+                              setRemoveOrphanedError(null);
+                              setConfirmRemoveOrphaned(true);
+                            }}
+                            variant="filled"
+                            color="red"
+                            loading={removingOrphaned}
+                            disabled={removingOrphaned || isUnmappedRemovalRunning}
+                          >
+                            {t('management.sections.data.orphanedDownloadsRemoveSelected', {
+                              count: selectedOrphanedCount
+                            })}
+                          </Button>
+                        </DisabledActionGate>
                       </div>
                     )}
                   </div>
@@ -1285,6 +1313,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
           count: selectedOrphanedCount
         })}
         loading={removingOrphaned}
+        confirmDisabled={selectedOrphanedCount === 0 || isUnmappedRemovalRunning}
       >
         <p className="text-themed-secondary">
           {t('management.sections.data.orphanedDownloadsRemoveConfirmMessage', {
@@ -1296,6 +1325,17 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
             {t('management.sections.data.orphanedDownloadsRemoveConfirmWarning')}
           </p>
         </Alert>
+        {/* A removal that starts while the dialog is already open. */}
+        {isUnmappedRemovalRunning && (
+          <Alert color="yellow">
+            <p className="text-sm">{unmappedRemovalReason}</p>
+          </Alert>
+        )}
+        {removeOrphanedError !== null && (
+          <Alert color="error" title={t('management.sections.data.orphanedDownloadsRemoveFailed')}>
+            {removeOrphanedError}
+          </Alert>
+        )}
       </ConfirmationModal>
 
       {/* Remove All Evicted Confirmation Modal */}
@@ -1331,31 +1371,32 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       </ConfirmationModal>
 
       {/* Evicted Records Removal Confirmation Modal */}
-      {evictedTarget !== null &&
-        (() => {
-          const isService = 'service_name' in evictedTarget;
-          const name = isService ? evictedTarget.service_name : evictedTarget.game_name;
-          const evictedCount = evictedTarget.evicted_downloads_count ?? 0;
-          const evictedBytes = evictedTarget.evicted_bytes ?? 0;
-          return (
-            <CacheRemovalModal
-              target={
-                isService
-                  ? { type: 'service', data: evictedTarget }
-                  : { type: 'game', data: evictedTarget }
-              }
-              onClose={() => setEvictedTarget(null)}
-              onConfirm={confirmEvictedRemoval}
-              titleOverride={t('modals.cacheRemoval.titleEvicted')}
-              descriptionOverride={t('modals.cacheRemoval.confirmEvicted', {
-                name,
-                count: evictedCount
-              })}
-              evictedCount={evictedCount}
-              evictedBytes={evictedBytes}
-            />
-          );
-        })()}
+      <CacheRemovalModal
+        target={
+          evictedTarget === null
+            ? null
+            : 'service_name' in evictedTarget
+              ? { type: 'service', data: evictedTarget }
+              : { type: 'game', data: evictedTarget }
+        }
+        onClose={() => setEvictedTarget(null)}
+        onConfirm={confirmEvictedRemoval}
+        titleOverride={t('modals.cacheRemoval.titleEvicted')}
+        descriptionOverride={
+          shownEvicted === null
+            ? undefined
+            : t('modals.cacheRemoval.confirmEvicted', {
+                name:
+                  'service_name' in shownEvicted
+                    ? shownEvicted.service_name
+                    : shownEvicted.game_name,
+                count: shownEvictedCount
+              })
+        }
+        evictedCount={shownEvictedCount}
+        evictedBytes={shownEvictedBytes}
+        fileBytes={null}
+      />
     </TabPanel>
   );
 };

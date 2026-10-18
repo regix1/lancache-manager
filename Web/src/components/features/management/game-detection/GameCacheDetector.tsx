@@ -64,6 +64,7 @@ import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import UnmappedServicesList from './UnmappedServicesList';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
+import UnmappedRemovalModal from '@components/modals/cache/UnmappedRemovalModal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { getActiveGames, getActiveServices } from './cacheEntityFilters';
@@ -97,6 +98,9 @@ interface GameCacheDetectorProps {
 
 /** How often the removal confirmation asks the running cache-file count where it has got to. */
 const COUNT_POLL_INTERVAL_MS = 1000;
+
+/** How long a failed count cancel waits before its one retry. */
+const COUNT_CANCEL_RETRY_MS = 2000;
 
 const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   mockMode = false,
@@ -181,6 +185,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     context: Record<string, string | number | boolean | null>;
   } | null>(null);
   const [countFailed, setCountFailed] = useState(false);
+  const [cacheFileBytes, setCacheFileBytes] = useState<number | null>(null);
+  // The unmapped dialog shares the count flow above. Its per-service breakdown comes with the same
+  // answer as the file count, and a Retry bumps the attempt to start the count again.
+  const [unmappedRemovalOpen, setUnmappedRemovalOpen] = useState(false);
+  const [countedUnmappedServices, setCountedUnmappedServices] = useState<UnmappedService[]>([]);
+  const [countAttempt, setCountAttempt] = useState(0);
+  const [unmappedRemovalError, setUnmappedRemovalError] = useState<string | null>(null);
+  const [unmappedRemoving, setUnmappedRemoving] = useState(false);
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [scanType, setScanType] = useState<'full' | 'incremental' | 'load' | null>(null);
   const datasources = config.dataSources;
@@ -461,7 +473,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
   }, [on, off, scheduleCachedDetectionSync]);
 
-  // Listen for GameRemovalComplete to immediately remove the game from the list
+  // Listen for the removal completions to immediately drop the removed entries from the lists
   useEffect(() => {
     const handleGameRemovalComplete = () => {
       scheduleCachedDetectionSync('Failed to reload after game removal');
@@ -469,9 +481,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     on('GameRemovalComplete', handleGameRemovalComplete);
     on('EvictionRemovalComplete', handleGameRemovalComplete);
+    on('UnmappedFileRemovalComplete', handleGameRemovalComplete);
     return () => {
       off('GameRemovalComplete', handleGameRemovalComplete);
       off('EvictionRemovalComplete', handleGameRemovalComplete);
+      off('UnmappedFileRemovalComplete', handleGameRemovalComplete);
     };
   }, [on, off, scheduleCachedDetectionSync]);
 
@@ -643,12 +657,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // tracked operation with progress rather than a request that blocks. Closing the dialog cancels
   // it, and the confirm button stays disabled until the real number lands, so the number a user
   // answers is the number the removal will delete rather than the last scan's snapshot.
+  // The server gives every start its own count, so a dialog cancels only the count it started and
+  // a Retry or reopen never waits on the one it replaced.
   useEffect(() => {
-    if (!gameToRemove && !serviceToRemove) return;
+    if (!gameToRemove && !serviceToRemove && !unmappedRemovalOpen) return;
 
     // One start call per removal route, chosen the same way the removal itself is routed, so the
     // count always walks the entity the confirm button will delete.
     const startCount = (game: GameCacheInfo | null) => {
+      if (unmappedRemovalOpen) {
+        return ApiService.startUnmappedCacheFileCount();
+      }
       if (!game) {
         return ApiService.startServiceCacheFileCount(serviceToRemove!.service_name);
       }
@@ -664,13 +683,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
 
     let stopped = false;
-    let settled = false;
-    let startedOperationId: string | null = null;
+    // True once the server reported the count over. A count whose last status request failed is
+    // not finished, so closing the dialog still cancels it.
+    let finished = false;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
     setCacheFileCount(null);
     setCountStage(null);
     setCountFailed(false);
+    setCacheFileBytes(null);
+    setCountedUnmappedServices([]);
+    setUnmappedRemovalError(null);
 
     const poll = async (operationId: string) => {
       try {
@@ -685,55 +708,93 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           return;
         }
 
-        settled = true;
+        finished = true;
         // Only the count this dialog started can answer for it. A number left behind by an
         // earlier count is exactly the stale figure this whole change exists to stop showing.
-        if (status.operationId === operationId && status.cacheFilesFound !== undefined) {
+        if (
+          status.operationId === operationId &&
+          status.cacheFilesFound !== undefined &&
+          status.bytesFound !== undefined
+        ) {
           setCacheFileCount(status.cacheFilesFound);
+          setCacheFileBytes(status.bytesFound);
+          setCountedUnmappedServices(status.unmappedServices ?? []);
         } else {
           setCountFailed(true);
         }
       } catch (err) {
         console.error('[GameCacheDetector] Cache file count failed:', err);
         if (!stopped) {
-          settled = true;
           setCountFailed(true);
         }
       }
     };
 
-    void (async () => {
-      try {
-        const started = await startCount(gameToRemove);
-        startedOperationId = started.operationId;
+    // A count draws no card, so a cancel that fails twice leaves a walk running that nobody can
+    // stop; the second try waits out a brief drop. Every cancel is of a count its dialog already
+    // left (closed, or replaced by a Retry), so a failure is logged, not shown in a dialog about
+    // another count.
+    const cancelCount = (operationId: string) => {
+      void ApiService.cancelOperation(operationId)
+        .catch(() =>
+          new Promise((resolve) => setTimeout(resolve, COUNT_CANCEL_RETRY_MS)).then(() =>
+            ApiService.cancelOperation(operationId)
+          )
+        )
+        .catch((err: unknown) => {
+          console.error('[GameCacheDetector] Could not cancel the cache file count:', err);
+        });
+    };
+
+    let startedOperationId: string | null = null;
+    startCount(gameToRemove).then(
+      (started) => {
         if (stopped) {
-          void ApiService.cancelOperation(started.operationId);
+          // The dialog closed before the start answered.
+          cancelCount(started.operationId);
           return;
         }
+        startedOperationId = started.operationId;
         void poll(started.operationId);
-      } catch (err) {
+      },
+      (err: unknown) => {
         console.error('[GameCacheDetector] Could not start the cache file count:', err);
         if (!stopped) {
-          settled = true;
           setCountFailed(true);
         }
       }
-    })();
+    );
 
     return () => {
       stopped = true;
       if (pollTimer) clearTimeout(pollTimer);
-      if (startedOperationId && !settled) {
-        void ApiService.cancelOperation(startedOperationId);
+      if (startedOperationId && !finished) {
+        cancelCount(startedOperationId);
       }
     };
-  }, [gameToRemove, serviceToRemove]);
+  }, [gameToRemove, serviceToRemove, unmappedRemovalOpen, countAttempt]);
 
   // Translated at render rather than inside the effect, so switching language cannot restart a
   // walk that has been running for minutes.
   const countStatusMessage = countFailed
     ? t('modals.cacheRemoval.countFailed')
     : translateRecoveryStage(countStage?.key, countStage?.context, 'modals.cacheRemoval.counting');
+
+  // The caps are the figures the person just read, so the server deletes nothing beyond them. The
+  // dialog closes only when the server accepts; a refusal stays inside it with its reason.
+  const confirmUnmappedRemoval = async () => {
+    if (unmappedRemoving || cacheFileCount === null || cacheFileBytes === null) return;
+
+    setUnmappedRemoving(true);
+    try {
+      await ApiService.removeUnmappedFiles(cacheFileCount, cacheFileBytes);
+      setUnmappedRemovalOpen(false);
+    } catch (err) {
+      setUnmappedRemovalError(getErrorMessage(err));
+    } finally {
+      setUnmappedRemoving(false);
+    }
+  };
 
   const confirmServiceRemoval = async () => {
     if (!serviceToRemove) return;
@@ -1325,7 +1386,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   </AccordionSection>
                 )}
 
-                {/* Unmapped Section (Accordion) - read-only. Absent means the last scan was
+                {/* Unmapped Section (Accordion). Absent means the last scan was
                     incremental and measured no unmapped set, so there is nothing to show. */}
                 {unmappedServices !== null && (
                   <AccordionSection
@@ -1336,7 +1397,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     onToggle={() => setUnmappedExpanded(!unmappedExpanded)}
                     surface="well"
                   >
-                    <UnmappedServicesList services={unmappedServices} />
+                    <UnmappedServicesList
+                      services={unmappedServices}
+                      isAdmin={isAdmin}
+                      diskActionBlocked={diskActionBlocked}
+                      onRemove={() => setUnmappedRemovalOpen(true)}
+                    />
                   </AccordionSection>
                 )}
 
@@ -1381,6 +1447,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         onClose={() => setGameToRemove(null)}
         onConfirm={confirmRemoval}
         fileCount={cacheFileCount ?? undefined}
+        fileBytes={cacheFileBytes}
         statusMessage={countStatusMessage}
         // Disabled only while the count is still running. A count that failed or was cancelled
         // leaves no number, and gating on that alone left the dialog with a message saying the
@@ -1396,6 +1463,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         onClose={() => setServiceToRemove(null)}
         onConfirm={confirmServiceRemoval}
         fileCount={cacheFileCount ?? undefined}
+        fileBytes={cacheFileBytes}
         statusMessage={countStatusMessage}
         // Disabled only while the count is still running. A count that failed or was cancelled
         // leaves no number, and gating on that alone left the dialog with a message saying the
@@ -1403,6 +1471,21 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // reader how much is about to go; not having it is a reason to warn, not to refuse.
         confirmDisabled={cacheFileCount === null && !countFailed}
         confirmBusy={cacheFileCount === null && !countFailed}
+      />
+
+      {/* Unmapped Files Removal Confirmation Modal */}
+      <UnmappedRemovalModal
+        opened={unmappedRemovalOpen}
+        onClose={() => setUnmappedRemovalOpen(false)}
+        onConfirm={confirmUnmappedRemoval}
+        onRetry={() => setCountAttempt(countAttempt + 1)}
+        files={cacheFileCount}
+        bytes={cacheFileBytes}
+        services={countedUnmappedServices}
+        failed={countFailed}
+        statusMessage={countStatusMessage}
+        confirming={unmappedRemoving}
+        error={unmappedRemovalError}
       />
 
       {/* Remove All Cached Games/Services Confirmation Modal */}

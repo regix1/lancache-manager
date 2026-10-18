@@ -377,6 +377,7 @@ public abstract partial class PrefillDaemonServiceBase
                 DesiredImageId = desiredImageId,
                 ExpiresAt = session.ExpiresAt,
                 Authenticated = session.AuthState == DaemonAuthState.Authenticated,
+                SigningInAgain = session.SignInAgainAfterDrop is { IsCompleted: false },
                 NeedsRelogin = session.NeedsRelogin
             };
 

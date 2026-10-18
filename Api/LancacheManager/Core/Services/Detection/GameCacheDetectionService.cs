@@ -814,19 +814,7 @@ public partial class GameCacheDetectionService : IDisposable
                 if (detectionResult.UnmappedServices is { } reportedUnmapped)
                 {
                     unmappedByService ??= new Dictionary<string, UnmappedService>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var unmapped in reportedUnmapped)
-                    {
-                        if (!unmappedByService.TryGetValue(unmapped.Service, out var existingUnmapped))
-                        {
-                            unmappedByService[unmapped.Service] = unmapped;
-                            continue;
-                        }
-
-                        existingUnmapped.FileCount += unmapped.FileCount;
-                        existingUnmapped.TotalSizeBytes += unmapped.TotalSizeBytes;
-                        existingUnmapped.SampleUrls.AddRange(
-                            unmapped.SampleUrls.Take(5 - existingUnmapped.SampleUrls.Count));
-                    }
+                    GameCacheInfoMergeHelper.MergeUnmapped(unmappedByService, reportedUnmapped);
                 }
 
                 _logger.LogInformation("[GameDetection] Datasource '{DatasourceName}' found {GameCount} games, {ServiceCount} services",
@@ -1811,6 +1799,32 @@ public partial class GameCacheDetectionService : IDisposable
 
         [System.Text.Json.Serialization.JsonPropertyName("services")]
         public List<ServiceCacheInfo> Services { get; set; } = new();
+
+        /// <summary>
+        /// Set only by an unmapped-files count run: the cache files a removal would delete now,
+        /// grouped by service.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("unmapped_eligible")]
+        public List<UnmappedService>? UnmappedEligible { get; set; }
+
+        /// <summary>Set only by an unmapped-files remove run: files it deleted.</summary>
+        [System.Text.Json.Serialization.JsonPropertyName("unmapped_removed_files")]
+        public long? UnmappedRemovedFiles { get; set; }
+
+        /// <summary>Set only by an unmapped-files remove run: bytes it freed.</summary>
+        [System.Text.Json.Serialization.JsonPropertyName("unmapped_removed_bytes")]
+        public long? UnmappedRemovedBytes { get; set; }
+
+        /// <summary>Set only by an unmapped-files remove run: files it found but could not delete.</summary>
+        [System.Text.Json.Serialization.JsonPropertyName("unmapped_remove_failures")]
+        public long? UnmappedRemoveFailures { get; set; }
+
+        /// <summary>
+        /// Set only by an unmapped-files remove run: true when more files qualified than the
+        /// limits allowed, so the run deleted nothing.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("unmapped_over_limit")]
+        public bool? UnmappedOverLimit { get; set; }
     }
 
     /// <summary>

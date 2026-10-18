@@ -235,6 +235,191 @@ public sealed class LogProcessingOperationOwnershipTests
     }
 
     [Fact]
+    public async Task ALivePassThatStallsIsStoppedAndTheNextPassRunsAsync()
+    {
+        var clock = new CacheStatusClock(DateTimeOffset.UtcNow);
+        await using var fixture = new ProcessorFixture(transport: true, clock: clock);
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 5
+        });
+        var before = clock.ActiveTimerCount;
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath, liveIngest: true));
+        var connection = await fixture.Pipe!.ConnectAsync();
+        fixture.AssertConnection(connection, "alpha", 5);
+        // The child writes one checkpoint at start; the stand-in writes none until a step is sent.
+        await fixture.Pipe.SendAsync(ProcessingCheckpoint(0));
+        await WaitForCheckpointAsync(connection, 0);
+        await clock.WaitForActiveTimersAsync(before + 1);
+
+        clock.Advance(TimeSpan.FromMinutes(2));
+        await clock.WaitForActiveTimersAsync(before + 1);
+        clock.Advance(TimeSpan.FromSeconds(5));
+
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        await fixture.Pipe.WaitForExitAsync();
+        Assert.False(fixture.Processor.IsProcessing);
+        Assert.Equal(
+            5,
+            fixture.State.GetLogSourcePositions("alpha")[LogSourceLayout.MonolithicStem]);
+
+        var nextRun = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath, liveIngest: true));
+        connection = await fixture.Pipe.ConnectAsync();
+        fixture.AssertConnection(connection, "alpha", 5);
+        await fixture.Pipe.SendAsync(
+            TerminalProgress(0, 0, "completed", sourcePosition: 5),
+            exitCode: 0);
+
+        Assert.True(await nextRun.WaitAsync(TimeSpan.FromSeconds(10)));
+        await fixture.Pipe.WaitForExitAsync();
+    }
+
+    [Fact]
+    public async Task ALivePassThatReportsProgressIsNotStoppedAsync()
+    {
+        var clock = new CacheStatusClock(DateTimeOffset.UtcNow);
+        await using var fixture = new ProcessorFixture(transport: true, clock: clock);
+        var before = clock.ActiveTimerCount;
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath, liveIngest: true));
+        var connection = await fixture.Pipe!.ConnectAsync();
+        await fixture.Pipe.SendAsync(ProcessingCheckpoint(5000));
+        await WaitForCheckpointAsync(connection, 5000);
+        await clock.WaitForActiveTimersAsync(before + 1);
+
+        // The window ends with new lines read, so the pass starts a new window instead of stopping.
+        clock.Advance(TimeSpan.FromMinutes(2));
+        await clock.WaitForActiveTimersAsync(before + 1);
+        clock.Advance(TimeSpan.FromSeconds(5));
+
+        Assert.False(run.IsCompleted);
+        Assert.Equal(before + 1, clock.ActiveTimerCount);
+
+        await fixture.Pipe.SendAsync(TerminalProgress(0, 5000, "completed"), exitCode: 0);
+        Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        await fixture.Pipe.WaitForExitAsync();
+    }
+
+    [Fact]
+    public async Task ALivePassStoppedAtAStallEndsCanceledAndKeepsItsPositionsAsync()
+    {
+        var clock = new CacheStatusClock(DateTimeOffset.UtcNow);
+        await using var fixture = new ProcessorFixture(transport: true, clock: clock);
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 5
+        });
+        var before = clock.ActiveTimerCount;
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath, liveIngest: true));
+        var connection = await fixture.Pipe!.ConnectAsync();
+        fixture.AssertConnection(connection, "alpha", 5);
+        await fixture.Pipe.SendAsync(ProcessingCheckpoint(0));
+        await WaitForCheckpointAsync(connection, 0);
+        await clock.WaitForActiveTimersAsync(before + 1);
+
+        clock.Advance(TimeSpan.FromMinutes(2));
+        // The grace timer exists only once the pass has decided to stop, so the child's own
+        // cancelled checkpoint cannot arrive before that decision.
+        await clock.WaitForActiveTimersAsync(before + 1);
+        var cancelled = TerminalProgress(0, 0, "cancelled", sourcePosition: 42);
+        cancelled.Status = OperationStatus.Cancelled.ToWireString();
+        cancelled.RiotHostsProcessed = 1;
+        await fixture.Pipe.SendAsync(cancelled, exitCode: 0);
+
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        await fixture.Pipe.WaitForExitAsync();
+        Assert.Equal(
+            5,
+            fixture.State.GetLogSourcePositions("alpha")[LogSourceLayout.MonolithicStem]);
+        Assert.False(fixture.Processor.IsProcessing);
+        Assert.DoesNotContain(fixture.Tracker.GetRuns().Runs, item => item.Status == "failed");
+        Assert.Empty(fixture.Tracker.GetActiveOperations(OperationType.LogProcessing));
+    }
+
+    [Fact]
+    public async Task AnInteractivePassHasNoStallWindowAsync()
+    {
+        var clock = new CacheStatusClock(DateTimeOffset.UtcNow);
+        await using var fixture = new ProcessorFixture(transport: true, clock: clock);
+        var before = clock.ActiveTimerCount;
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath));
+        var connection = await fixture.Pipe!.ConnectAsync();
+        await fixture.Pipe.SendAsync(ProcessingCheckpoint(0));
+        await WaitForCheckpointAsync(connection, 0);
+
+        clock.Advance(TimeSpan.FromMinutes(2) + TimeSpan.FromSeconds(5));
+        // A negative check: the wait for a timer that must not exist is a short real-time pause.
+        await Task.Delay(200);
+        Assert.Equal(before, clock.ActiveTimerCount);
+        Assert.False(run.IsCompleted);
+
+        await fixture.Pipe.SendAsync(TerminalProgress(0, 0, "completed"), exitCode: 0);
+        Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        await fixture.Pipe.WaitForExitAsync();
+    }
+
+    [Fact]
+    public async Task AnUnreadableProgressReadIsReadAgainNotTakenAsAStallAsync()
+    {
+        var clock = new CacheStatusClock(DateTimeOffset.UtcNow);
+        await using var fixture = new ProcessorFixture(transport: true, clock: clock);
+        var before = clock.ActiveTimerCount;
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath, liveIngest: true));
+        var connection = await fixture.Pipe!.ConnectAsync();
+        var progressPath = connection.GetProperty("progressPath").GetString()!;
+        await fixture.Pipe.SendAsync(ProcessingCheckpoint(5000));
+        await WaitForCheckpointAsync(connection, 5000);
+        await clock.WaitForActiveTimersAsync(before + 1);
+        clock.Advance(TimeSpan.FromMinutes(2));
+        await clock.WaitForActiveTimersAsync(before + 1);
+
+        // An empty file is a deterministic unreadable read.
+        await File.WriteAllTextAsync(progressPath, string.Empty);
+        clock.Advance(TimeSpan.FromMinutes(2));
+        await clock.WaitForActiveTimersAsync(before + 1);
+
+        await fixture.Pipe.SendAsync(ProcessingCheckpoint(6000));
+        await WaitForCheckpointAsync(connection, 6000);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await clock.WaitForActiveTimersAsync(before + 1);
+        clock.Advance(TimeSpan.FromSeconds(5));
+
+        Assert.False(run.IsCompleted);
+        Assert.Equal(before + 1, clock.ActiveTimerCount);
+
+        await fixture.Pipe.SendAsync(TerminalProgress(0, 6000, "completed"), exitCode: 0);
+        Assert.True(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        await fixture.Pipe.WaitForExitAsync();
+    }
+
+    [Fact]
+    public async Task ALivePassWhoseProgressFileNeverAppearsIsStoppedAsync()
+    {
+        var clock = new CacheStatusClock(DateTimeOffset.UtcNow);
+        await using var fixture = new ProcessorFixture(transport: true, clock: clock);
+        var before = clock.ActiveTimerCount;
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath, liveIngest: true));
+        await fixture.Pipe!.ConnectAsync();
+        // The child's own first write failed and it hangs, so every read of its progress file fails.
+        await clock.WaitForActiveTimersAsync(before + 1);
+
+        clock.Advance(TimeSpan.FromMinutes(2));
+        await clock.WaitForActiveTimersAsync(before + 1);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await clock.WaitForActiveTimersAsync(before + 1);
+        clock.Advance(TimeSpan.FromSeconds(5));
+
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        await fixture.Pipe.WaitForExitAsync();
+        Assert.False(fixture.Processor.IsProcessing);
+    }
+
+    [Fact]
     public async Task FailedCheckpointWithExitZeroStillKeepsItsConfirmedCountsAsync()
     {
         await using var fixture = new ProcessorFixture(transport: true);
@@ -264,6 +449,133 @@ public sealed class LogProcessingOperationOwnershipTests
             fixture.State.GetLogSourcePositions("alpha")[LogSourceLayout.MonolithicStem]);
         Assert.Empty(fixture.RepairOwner.GetPendingRepairs());
         Assert.False(fixture.RepairOwner.OwnsRepair(operationId));
+    }
+
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public async Task ReadToEndTrustsWhatThePassSaysItLeftUnreadAsync(int filesLeftUnread, bool readToEnd)
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+        var datasource = new ResolvedDatasource
+        {
+            Name = "alpha",
+            LogPath = Path.GetDirectoryName(fixture.LogFilePath)!
+        };
+
+        var read = fixture.Track(fixture.Processor.ReadToEndAsync(datasource, CancellationToken.None));
+        await fixture.Pipe!.ConnectAsync();
+        var partial = TerminalProgress(0, 4, "partial", sourcePosition: 4);
+        partial.FilesWithErrors = [Path.Combine(datasource.LogPath, "access.log.1") + ": unexpected end of file"];
+        partial.FilesLeftUnread = filesLeftUnread;
+        await fixture.Pipe.SendAsync(partial, exitCode: 0);
+
+        Assert.Equal(readToEnd, await read.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    // A pass with no position found no log: an empty or unmounted folder, with or without a
+    // position saved before, as after a reset. A saved series this pass did not find was moved
+    // away, including position zero, as when an access.log in the root stops the descent into http/.
+    [Theory]
+    [InlineData(false, "steam-access.log", 5L, false)]
+    [InlineData(false, "", 0L, false)]
+    [InlineData(true, "steam-access.log", 5L, false)]
+    [InlineData(true, "steam-access.log", 0L, false)]
+    [InlineData(true, LogSourceLayout.MonolithicStem, 5L, true)]
+    public async Task ReadToEndCountsEveryLogOnlyWhenEverySeriesReadBeforeIsFoundAsync(
+        bool passFoundAccessLog,
+        string savedStem,
+        long savedPosition,
+        bool readToEnd)
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+        if (savedStem.Length > 0)
+        {
+            fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+            {
+                [savedStem] = savedPosition
+            });
+        }
+        var datasource = new ResolvedDatasource
+        {
+            Name = "alpha",
+            LogPath = Path.GetDirectoryName(fixture.LogFilePath)!
+        };
+
+        var read = fixture.Track(fixture.Processor.ReadToEndAsync(datasource, CancellationToken.None));
+        await fixture.Pipe!.ConnectAsync();
+        await fixture.Pipe.SendAsync(
+            TerminalProgress(0, 0, "completed_with_warnings", sourcePosition: passFoundAccessLog ? 9 : null),
+            exitCode: 0);
+
+        Assert.Equal(readToEnd, await read.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    // A pass that resumes past a rotated log an earlier pass could not open ends completed with
+    // that log still unread.
+    [Theory]
+    [InlineData("completed")]
+    [InlineData("completed_with_warnings")]
+    [InlineData("partial")]
+    public async Task ReadToEndRefusesAPassThatLeftALogUnreadWhateverItsStatusAsync(string terminalStatus)
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+        var datasource = new ResolvedDatasource
+        {
+            Name = "alpha",
+            LogPath = Path.GetDirectoryName(fixture.LogFilePath)!
+        };
+
+        var read = fixture.Track(fixture.Processor.ReadToEndAsync(datasource, CancellationToken.None));
+        await fixture.Pipe!.ConnectAsync();
+        var pass = TerminalProgress(0, 4, terminalStatus, sourcePosition: 4);
+        pass.FilesLeftUnread = 1;
+        await fixture.Pipe.SendAsync(pass, exitCode: 0);
+
+        Assert.False(await read.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    [Fact]
+    public async Task ReadToEndReportsAPassThatFailedBeforeItsCheckpointAsync()
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+        var datasource = new ResolvedDatasource
+        {
+            Name = "alpha",
+            LogPath = Path.GetDirectoryName(fixture.LogFilePath)!
+        };
+        fixture.State.FailNextRepairWrite = true;
+
+        var read = fixture.Track(fixture.Processor.ReadToEndAsync(datasource, CancellationToken.None));
+
+        Assert.False(await read.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    [Theory]
+    [InlineData("completed", 0, true)]
+    [InlineData("completed_with_warnings", 0, true)]
+    [InlineData("partial", 0, true)]
+    [InlineData("partial", 2, false)]
+    [InlineData("completed", 1, false)]
+    [InlineData("completed_with_warnings", 1, false)]
+    [InlineData("failed", 0, false)]
+    [InlineData("cancelled", 0, false)]
+    public void ReadEveryLogFollowsTheTerminalStatus(string terminalStatus, int filesLeftUnread, bool readEveryLog)
+    {
+        var progress = TerminalProgress(0, 0, terminalStatus);
+        progress.FilesLeftUnread = filesLeftUnread;
+
+        Assert.Equal(readEveryLog, RustLogProcessorService.ReadEveryLog(progress));
+    }
+
+    [Fact]
+    public void ReadEveryLogRefusesAMissingOrUnversionedCheckpoint()
+    {
+        var unversioned = TerminalProgress(0, 0);
+        unversioned.SchemaVersion = 0;
+
+        Assert.False(RustLogProcessorService.ReadEveryLog(null));
+        Assert.False(RustLogProcessorService.ReadEveryLog(unversioned));
     }
 
     [Theory]
@@ -1263,6 +1575,43 @@ public sealed class LogProcessingOperationOwnershipTests
         };
     }
 
+    private static LogProcessingProgress ProcessingCheckpoint(long linesParsed)
+    {
+        return new LogProcessingProgress
+        {
+            SchemaVersion = 1,
+            RunId = Guid.NewGuid().ToString("N"),
+            Status = "processing",
+            LinesParsed = linesParsed,
+            TotalLines = linesParsed
+        };
+    }
+
+    private static async Task WaitForCheckpointAsync(JsonElement connection, long linesParsed)
+    {
+        var progressPath = connection.GetProperty("progressPath").GetString()!;
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(await File.ReadAllTextAsync(progressPath));
+                if (document.RootElement.TryGetProperty("lines_parsed", out var lines)
+                    && lines.GetInt64() == linesParsed)
+                {
+                    return;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or JsonException)
+            {
+                // The stand-in has not written the checkpoint yet, or is replacing the file.
+            }
+
+            Assert.True(DateTime.UtcNow < deadline, $"The progress file never read lines_parsed {linesParsed}");
+            await Task.Delay(10);
+        }
+    }
+
     private static LogProcessingProgress TerminalProgress(
         long entries,
         long lines,
@@ -1382,7 +1731,8 @@ public sealed class LogProcessingOperationOwnershipTests
             IUnifiedOperationTracker? tracker = null,
             bool transport = false,
             int datasourceCount = 1,
-            IEventsService? events = null)
+            IEventsService? events = null,
+            TimeProvider? clock = null)
         {
             if (datasourceCount is < 1 or > 2)
             {
@@ -1488,7 +1838,8 @@ public sealed class LogProcessingOperationOwnershipTests
                     pathResolver,
                     Tracker),
                 datasources,
-                Tracker);
+                Tracker,
+                clock ?? TimeProvider.System);
             if (transport)
             {
                 _postPassLock = Assert.IsType<SemaphoreSlim>(typeof(RustLogProcessorService)

@@ -322,7 +322,8 @@ const CANCEL_TOOLTIP = {
   riotGameMapping: 'common.notifications.cancelRiotGameMapping',
   bulkRemoval: 'common.notifications.cancelBulkRemoval',
   prefillLogin: 'common.notifications.cancelPrefillLogin',
-  downloadHistoryUpgrade: 'common.notifications.cancelDownloadHistoryUpgrade'
+  downloadHistoryUpgrade: 'common.notifications.cancelDownloadHistoryUpgrade',
+  unmappedFileRemoval: 'common.notifications.cancelUnmappedFileRemoval'
 } as const;
 
 export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
@@ -1647,6 +1648,16 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     type: 'download_history_upgrade',
     cancelKind: 'serverOp',
     cancelTooltipKey: CANCEL_TOOLTIP.downloadHistoryUpgrade,
+    recovery: { kind: 'none' }
+  },
+
+  // The server run row opens and ends this card. This entry gives the card a cancel action that
+  // posts to the operation endpoint; it needs no client recovery. The completion event only
+  // refreshes the unmapped list.
+  {
+    type: 'unmapped_file_removal',
+    cancelKind: 'serverOp',
+    cancelTooltipKey: CANCEL_TOOLTIP.unmappedFileRemoval,
     recovery: { kind: 'none' }
   }
 ];

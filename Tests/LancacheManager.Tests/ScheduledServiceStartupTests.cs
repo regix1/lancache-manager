@@ -183,7 +183,8 @@ public class ScheduledServiceStartupTests
                 new DatasourceCapabilityService(datasources),
                 CacheScanGateHarness.Idle(),
                 (OperationStateService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
-                    typeof(OperationStateService)));
+                    typeof(OperationStateService)),
+                null!);
             await using var services = new ServiceCollection().BuildServiceProvider();
             var service = new CacheSnapshotService(
                 services,

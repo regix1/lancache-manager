@@ -39,6 +39,19 @@ public static class ScheduledPrefillRunGates
     }
 
     /// <summary>
+    /// A person's cancel leaves this container signed out until they log in or the next connection
+    /// drop, including when the daemon still reports logged-in. The run reads this after the daemon
+    /// status, so a later drop can clear the mark before the run decides.
+    /// </summary>
+    public static bool PersonCanceledSignIn(DaemonSession session)
+    {
+        lock (session.PrefillLock)
+        {
+            return session.LoginCanceledByPerson;
+        }
+    }
+
+    /// <summary>
     /// Reason attached to the needs-login skip when the persistent container IS running but its
     /// account is logged out (e.g. a cancelled interactive login left the session active while the
     /// daemon logged everything out). Kept distinct from the no-container reason produced by

@@ -467,6 +467,14 @@ pub fn cache_path_for_digest(cache_dir: &Path, digest: u128) -> PathBuf {
     cache_dir.join(last_2).join(middle_2).join(&hash)
 }
 
+/// Total size of the files at `paths`. A path that is gone or unreadable adds nothing.
+pub fn total_size_from_filesystem<P: AsRef<Path>>(paths: impl IntoIterator<Item = P>) -> u64 {
+    paths
+        .into_iter()
+        .filter_map(|path| std::fs::metadata(path).ok().map(|metadata| metadata.len()))
+        .sum()
+}
+
 /// Visits the name of every regular file under one cache root and returns false when a folder of
 /// nginx's `levels=2:2` layout below it (or the root itself) could not be read, so a name missing
 /// from the visit proves nothing about this root. A 2-hex folder directly under the root that is a

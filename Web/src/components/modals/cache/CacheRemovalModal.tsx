@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Alert } from '@components/ui/Alert';
 import { formatBytes, formatCount } from '@utils/formatters';
+import { useHeldValue } from '@hooks/useHeldValue';
 import { useTranslation } from 'react-i18next';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../types';
 
@@ -23,6 +24,8 @@ interface CacheRemovalModalProps {
    * counts what the last scan saw, the removal reaches every URL the service ever logged.
    */
   fileCount?: number;
+  /** Total size of the counted files; null until a count has returned (or when none was run). */
+  fileBytes: number | null;
   /** What the count is doing, or why it produced no number. Shown until `fileCount` arrives. */
   statusMessage?: string;
   confirmDisabled?: boolean;
@@ -38,59 +41,97 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
   descriptionOverride,
   evictedCount,
   evictedBytes,
-  fileCount,
-  statusMessage,
-  confirmDisabled,
-  confirmBusy
+  fileCount: liveFileCount,
+  fileBytes: liveFileBytes,
+  statusMessage: liveStatusMessage,
+  confirmDisabled: liveConfirmDisabled,
+  confirmBusy: liveConfirmBusy
 }) => {
   const { t } = useTranslation();
+  // The dialog closes when `target` clears, and the parent resets the shared count figures when
+  // another removal dialog opens. The held copy keeps what it showed on screen while it fades.
+  const live = useMemo(
+    () => ({
+      shownTarget: target,
+      fileCount: liveFileCount,
+      fileBytes: liveFileBytes,
+      statusMessage: liveStatusMessage,
+      confirmDisabled: liveConfirmDisabled,
+      confirmBusy: liveConfirmBusy
+    }),
+    [target, liveFileCount, liveFileBytes, liveStatusMessage, liveConfirmDisabled, liveConfirmBusy]
+  );
+  const { shownTarget, fileCount, fileBytes, statusMessage, confirmDisabled, confirmBusy } =
+    useHeldValue(target ? live : null) ?? live;
 
-  if (!target) return null;
-
-  const isGame = target.type === 'game';
-  const name = isGame ? target.data.game_name : target.data.service_name;
-  const filesCount = target.data.cache_files_found;
-  const totalSize = target.data.total_size_bytes;
-  const depotCount = isGame ? target.data.depot_ids.length : 0;
+  const isGame = shownTarget?.type === 'game';
   const isEvictedRemoval = titleOverride !== undefined && evictedCount !== undefined;
 
   const modalTitle =
     titleOverride ??
     (isGame ? t('modals.cacheRemoval.titleGame') : t('modals.cacheRemoval.titleService'));
-  const modalDescription =
-    descriptionOverride ??
-    (isGame
-      ? t('modals.cacheRemoval.confirmGame', { name })
-      : t('modals.cacheRemoval.confirmService', { name }));
 
-  // A counted number describes exactly what the removal will delete, so it replaces the
-  // detection snapshot rather than sitting beside it. Until the count returns there is no
-  // honest number to show, only what the count is doing.
-  let summary: string;
-  if (isEvictedRemoval) {
-    summary = t('modals.cacheRemoval.summaryEvicted', {
-      count: evictedCount,
-      size: formatBytes(evictedBytes ?? 0)
-    });
-  } else if (fileCount !== undefined) {
-    summary = t(
-      isGame
-        ? 'modals.cacheRemoval.summaryGameCounted'
-        : 'modals.cacheRemoval.summaryServiceCounted',
-      { formattedCount: formatCount(fileCount) }
+  let body: React.ReactNode = null;
+  if (shownTarget) {
+    const name = isGame ? shownTarget.data.game_name : shownTarget.data.service_name;
+    const filesCount = shownTarget.data.cache_files_found;
+    const totalSize = shownTarget.data.total_size_bytes;
+    const depotCount = isGame ? shownTarget.data.depot_ids.length : 0;
+    const modalDescription =
+      descriptionOverride ??
+      (isGame
+        ? t('modals.cacheRemoval.confirmGame', { name })
+        : t('modals.cacheRemoval.confirmService', { name }));
+
+    // A counted number describes exactly what the removal will delete, so it replaces the
+    // detection snapshot rather than sitting beside it. Until the count returns there is no
+    // honest number to show, only what the count is doing.
+    let summary: string;
+    if (isEvictedRemoval) {
+      summary = t('modals.cacheRemoval.summaryEvicted', {
+        count: evictedCount,
+        size: formatBytes(evictedBytes ?? 0)
+      });
+    } else if (fileCount !== undefined && fileBytes !== null) {
+      summary = t(
+        isGame
+          ? 'modals.cacheRemoval.summaryGameCounted'
+          : 'modals.cacheRemoval.summaryServiceCounted',
+        { formattedCount: formatCount(fileCount), size: formatBytes(fileBytes) }
+      );
+    } else if (statusMessage !== undefined) {
+      summary = statusMessage;
+    } else {
+      summary = t(
+        isGame ? 'modals.cacheRemoval.summaryGame' : 'modals.cacheRemoval.summaryService',
+        {
+          formattedCount: formatCount(filesCount),
+          size: formatBytes(totalSize)
+        }
+      );
+    }
+
+    body = (
+      <>
+        <p className="text-themed-secondary">{modalDescription}</p>
+
+        {/* One sentence rather than the six bullets this used to be. The old list spelled out the
+            record tables and where progress appears, which is not what the reader is deciding. */}
+        <Alert color="yellow" icon={null}>
+          <p className="text-sm">
+            {summary}
+            {!isEvictedRemoval && isGame && depotCount > 0
+              ? ` ${t('modals.cacheRemoval.depotScope', { count: depotCount })}`
+              : null}
+          </p>
+        </Alert>
+      </>
     );
-  } else if (statusMessage !== undefined) {
-    summary = statusMessage;
-  } else {
-    summary = t(isGame ? 'modals.cacheRemoval.summaryGame' : 'modals.cacheRemoval.summaryService', {
-      formattedCount: formatCount(filesCount),
-      size: formatBytes(totalSize)
-    });
   }
 
   return (
     <ConfirmationModal
-      opened={true}
+      opened={target !== null}
       onClose={onClose}
       onConfirm={onConfirm}
       title={modalTitle}
@@ -102,18 +143,7 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
           : t('modals.cacheRemoval.removeButton')
       }
     >
-      <p className="text-themed-secondary">{modalDescription}</p>
-
-      {/* One sentence rather than the six bullets this used to be. The old list spelled out the
-          record tables and where progress appears, which is not what the reader is deciding. */}
-      <Alert color="yellow" icon={null}>
-        <p className="text-sm">
-          {summary}
-          {!isEvictedRemoval && isGame && depotCount > 0
-            ? ` ${t('modals.cacheRemoval.depotScope', { count: depotCount })}`
-            : null}
-        </p>
-      </Alert>
+      {body}
     </ConfirmationModal>
   );
 };

@@ -53,6 +53,10 @@ public sealed class CacheScanGate
     // second, and coarse enough that the longest possible wait costs fifty reads.
     private static readonly TimeSpan _answerPollInterval = TimeSpan.FromMilliseconds(100);
 
+    // How often WaitForDownloadAsync re-reads the tracker. The tracker keeps a download active for
+    // at least 15 seconds after its last bytes, so any interval well below that sees every one.
+    private static readonly TimeSpan _downloadWatchInterval = TimeSpan.FromSeconds(1);
+
     private readonly RustSpeedTrackerService _speedTracker;
     private readonly ILogger<CacheScanGate> _logger;
 
@@ -125,6 +129,56 @@ public sealed class CacheScanGate
         _logger.LogDebug("[CacheScanGate] {Reason}", reason);
         return reason;
     }
+
+    /// <summary>
+    /// Marks the start of a download watch: the tracker's count of stopped children, or null when
+    /// no child is reporting, so nothing can be watched.
+    /// </summary>
+    public long? StartDownloadWatch() => _speedTracker.ReadReportingChild();
+
+    /// <summary>
+    /// Completes as soon as a client download shows up, or as soon as the tracker child that was
+    /// reporting at <paramref name="watchStart"/> is no longer the one reporting. It checks every
+    /// second, well inside the tracker's 15-second activity floor, so a download between two checks
+    /// is not missed. A request shows up up to about 7 seconds after it ends: nginx buffers its log
+    /// line for up to 5 seconds, the tracker reads every 100 ms and publishes every 500 ms, and the
+    /// watch checks every second.
+    /// </summary>
+    /// <remarks>
+    /// Unlike a scan, a watch never reads a silent tracker as quiet: a step that holds the logs
+    /// stops the child, and the next child starts at the end of each log, so the lines written in
+    /// between are never counted.
+    /// </remarks>
+    public async Task<DownloadInProgressException> WaitForDownloadAsync(
+        long? watchStart,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var reporting = _speedTracker.ReadReportingChild();
+            if (reporting == null || reporting != watchStart)
+            {
+                return TrackerStopped();
+            }
+
+            if (CheckDownloadInProgress() is { } reason)
+            {
+                return new DownloadInProgressException(reason)
+                {
+                    StageKey = "errors.unmappedRemoval.downloadInProgress"
+                };
+            }
+
+            await Task.Delay(_downloadWatchInterval, cancellationToken);
+        }
+    }
+
+    /// <summary>The refusal for a removal while no tracker child reports, so no download can be seen.</summary>
+    internal static DownloadInProgressException TrackerStopped() => new(
+        "The download tracker stopped, so the removal cannot tell whether a client is reading the cache.")
+    {
+        StageKey = "errors.unmappedRemoval.trackerStopped"
+    };
 
     /// <summary>
     /// How many clients are pushing bytes through the cache right now. A caller naming what a

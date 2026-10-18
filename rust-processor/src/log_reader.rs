@@ -314,6 +314,7 @@ mod tests {
             records: 2,
             offset: Some(4),
             tail_crc: Some(crate::log_resume::tail_crc(&path, 4).expect("hash saved prefix")),
+            unread: false,
         };
         std::fs::write(&path, b"a\nb\nc\n").expect("append reader fixture");
         let counter = Arc::new(AtomicU64::new(0));
@@ -345,6 +346,7 @@ mod tests {
             records: 2,
             offset: Some(4),
             tail_crc: Some(crate::log_resume::tail_crc(&path, 4).expect("hash saved prefix")),
+            unread: false,
         };
         std::fs::write(&path, b"x\ny\nz\n").expect("rewrite reader fixture");
 

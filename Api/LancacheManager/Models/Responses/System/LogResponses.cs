@@ -20,6 +20,12 @@ public class LogPositionResponse
     public long Position { get; set; }
 }
 
+/// <summary>Whether a log position reset is in flight on the server.</summary>
+public sealed class LogResetRunningResponse
+{
+    public bool Running { get; set; }
+}
+
 /// <summary>
 /// Response for log service removal start
 /// </summary>

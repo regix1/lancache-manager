@@ -53,7 +53,7 @@ public class SignalRNotificationService : ISignalRNotificationService
         SignalREvents.CorruptionRemovalComplete, SignalREvents.ServiceRemovalComplete, SignalREvents.GameDetectionComplete,
         SignalREvents.GameRemovalComplete, SignalREvents.CacheClearingComplete, SignalREvents.CacheScanComplete,
         SignalREvents.EvictionScanComplete, SignalREvents.EvictionRemovalComplete, SignalREvents.DatabaseResetProgress,
-        SignalREvents.DownloadHistoryMergeComplete
+        SignalREvents.DownloadHistoryMergeComplete, SignalREvents.UnmappedFileRemovalComplete
     ];
 
     private IClientProxy ClientsFor(string eventName) =>

@@ -3,8 +3,10 @@ using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -44,12 +46,19 @@ public sealed class RemovalLogStepTests
             }
             await seed.SaveChangesAsync();
         }
-        // The live import adds a row of the target while each cache step runs.
+        // The live import adds a row of the target while each cache step runs; the log step keeps
+        // it and leaves its URL out of the purge.
         rust.OnRemoverRun = async run =>
         {
             await using var live = rust.Contexts.CreateDbContext();
             AddRow(live, run == 1 ? "alpha" : "beta", "steam", GameAppId, depotId: 2, "/live/" + run);
             await live.SaveChangesAsync();
+        };
+        var reads = new List<(string Datasource, int PurgesBefore)>();
+        harness.Importer.OnRead = datasource =>
+        {
+            reads.Add((datasource.Name, rust.Launches.Count(launch => launch.Purge)));
+            return Task.FromResult(true);
         };
         ulong logEntriesRemoved = 0;
         var config = harness.CreateConfig(type, Metrics(type), async (operationId, cancellationToken, report) =>
@@ -85,6 +94,15 @@ public sealed class RemovalLogStepTests
         Assert.Equal(
             new[] { (false, false), (true, true), (false, false), (true, true) },
             rust.Launches.Select(launch => (launch.Purge, launch.StepHeld)));
+        // Each purge counts read lines against the logs as they are now, so the importer reads that
+        // datasource to the end right before it.
+        Assert.Equal(new[] { ("alpha", 0), ("beta", 1) }, reads);
+        // A line past the importer's saved position is a download it has not imported yet, so the
+        // purge must leave it in the log. It reads the importer's resume record to place that position
+        // after logrotate deleted a log.
+        Assert.All(
+            rust.Launches.Where(launch => launch.Purge),
+            launch => Assert.Matches("--resume \"[^\"]*rust_resume_[^\"]+\\.json\" --keep-unread-lines", launch.Arguments));
         var purges = rust.Launches.Where(launch => launch.Purge).Select(launch => launch.PurgeInput!.Value).ToList();
         for (var index = 0; index < 2; index++)
         {
@@ -94,15 +112,13 @@ public sealed class RemovalLogStepTests
             if (type == OperationType.GameRemoval)
             {
                 // The stored depot already covers the lines of its rows, so their URLs stay out.
-                Assert.Equal(new HashSet<string?> { "/report/url", "/live/" + (index + 1) }, urls);
+                Assert.Equal(new HashSet<string?> { "/report/url" }, urls);
                 Assert.Equal(new[] { 1L }, depots);
                 Assert.False(purges[index].TryGetProperty("service", out _));
             }
             else
             {
-                Assert.Equal(
-                    new HashSet<string?> { "/report/url", "/depot/1/" + datasource, "/live/" + (index + 1) },
-                    urls);
+                Assert.Equal(new HashSet<string?> { "/report/url", "/depot/1/" + datasource }, urls);
                 Assert.Empty(depots);
                 Assert.Equal("steam", purges[index].GetProperty("service").GetString());
             }
@@ -110,10 +126,10 @@ public sealed class RemovalLogStepTests
 
         await using (var check = rust.Contexts.CreateDbContext())
         {
-            // Rows the import added while a cache step ran went with the lines the purge removed.
-            Assert.False(await check.Downloads.AnyAsync(download => download.Service == "steam"));
+            // Only the rows the import added while a cache step ran stay of the steam downloads.
+            Assert.Equal(2, await check.Downloads.CountAsync(download => download.Service == "steam"));
             Assert.Equal(2, await check.Downloads.CountAsync(download => download.Service == "epicgames"));
-            Assert.Equal(2, await check.LogEntries.CountAsync());
+            Assert.Equal(4, await check.LogEntries.CountAsync());
         }
         Assert.Equal(10UL, logEntriesRemoved);
         Assert.Equal(10UL, repair.Removal!.LogEntriesRemoved);
@@ -243,6 +259,141 @@ public sealed class RemovalLogStepTests
         harness.Tracker.CompleteOperation(other, true);
     }
 
+    [Theory]
+    [InlineData(OperationType.GameRemoval, true)]
+    [InlineData(OperationType.GameRemoval, false)]
+    [InlineData(OperationType.ServiceRemoval, true)]
+    [InlineData(OperationType.ServiceRemoval, false)]
+    public async Task ALogStepPurgesOnlyAfterAnImportThatReadEveryLogAsync(OperationType type, bool betaBehind)
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), type);
+        var rust = harness.Rust;
+        rust.BetaSucceeds = true;
+        rust.ReportUrls.Add("/report/url");
+        // The repair's redo purges by the rows of the target, as it has no report.
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            AddRow(seed, "alpha", "steam", GameAppId, depotId: 2, "/depot/2/alpha");
+            AddRow(seed, "beta", "steam", GameAppId, depotId: 2, "/depot/2/beta");
+            await seed.SaveChangesAsync();
+        }
+        // The live run's imports stop short on alpha, and on beta too when betaBehind; the repair's read to the end.
+        var behind = betaBehind ? 2 : 1;
+        var reads = new List<(string Datasource, bool ReadEveryLog, int PurgesBefore)>();
+        harness.Importer.OnRead = datasource =>
+        {
+            var readEveryLog = reads.Count >= behind;
+            reads.Add((datasource.Name, readEveryLog, rust.Launches.Count(launch => launch.Purge)));
+            return Task.FromResult(readEveryLog);
+        };
+        var config = harness.CreateConfig(type, Metrics(type), async (operationId, cancellationToken, report) =>
+        {
+            if (type == OperationType.GameRemoval)
+            {
+                var game = await harness.Manager.RemoveGameFromCacheAsync(
+                    GameAppId,
+                    cancellationToken,
+                    Progress(report),
+                    operationId);
+                return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
+            }
+
+            var service = await harness.Manager.RemoveServiceFromCacheAsync(
+                "steam",
+                cancellationToken,
+                Progress(report),
+                operationId);
+            return (service.CacheFilesDeleted, checked((long)service.TotalBytesFreed));
+        });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+        var repair = await harness.WaitForCompletedRepairAsync(operationId);
+
+        if (betaBehind)
+        {
+            // No datasource finished its log step, so the run fails with the first refusal.
+            Assert.Equal(OperationStatus.Failed, terminal.Status);
+            Assert.Equal("errors.unmappedRemoval.logsBehind", terminal.Message);
+            Assert.Equal(
+                new[] { ("alpha", false, 0), ("beta", false, 0), ("alpha", true, 0), ("beta", true, 1) },
+                reads);
+        }
+        else
+        {
+            // Beta finished, so the run ends as a partial removal that names alpha.
+            Assert.Equal(OperationStatus.Completed, terminal.Status);
+            Assert.Equal(
+                "alpha",
+                Assert.Single(
+                    terminal.Warnings,
+                    warning => warning.StageKey == "common.notifications.warnings.datasourcesFailed")
+                    .Context["datasources"]?.ToString());
+            Assert.Equal(new[] { ("alpha", false, 0), ("beta", true, 0), ("alpha", true, 1) }, reads);
+        }
+        // Each datasource is purged once, and only by the step whose import read every log.
+        Assert.Equal(2, rust.Launches.Count(launch => launch.Purge));
+        Assert.All(repair.Sources, source =>
+        {
+            Assert.True(source.LogRewriteStarted);
+            Assert.True(source.LogPositionsKept);
+        });
+    }
+
+    [Fact]
+    public async Task CancelDuringTheLogStepImportEndsTheRunWithoutWaitingForThePassAsync()
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), OperationType.GameRemoval);
+        var rust = harness.Rust;
+        rust.ReportUrls.Add("/report/url");
+        var pass = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var passStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        harness.Importer.OnRead = _ =>
+        {
+            passStarted.TrySetResult();
+            return pass.Task;
+        };
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            Metrics(OperationType.GameRemoval),
+            async (operationId, cancellationToken, report) =>
+            {
+                var game = await harness.Manager.RemoveGameFromCacheAsync(
+                    GameAppId,
+                    cancellationToken,
+                    Progress(report),
+                    operationId);
+                return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
+            });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        try
+        {
+            await passStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(operationId));
+            // The pass is still running when the run ends.
+            var terminal = await harness.WaitForTerminalAsync(operationId);
+            var repair = await harness.WaitForCompletedRepairAsync(operationId);
+
+            Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+            Assert.False(pass.Task.IsCompleted);
+            Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+            var alpha = repair.Sources.Single(source => source.Datasource == "alpha");
+            Assert.False(alpha.LogRewriteStarted);
+            Assert.DoesNotContain(rust.Launches, launch => launch.Purge);
+        }
+        finally
+        {
+            pass.TrySetResult(true);
+        }
+    }
+
     [Fact]
     public async Task ALogStepThatStartedIsRedoneByTheRepairWithTheStoredDepotsAsync()
     {
@@ -296,6 +447,181 @@ public sealed class RemovalLogStepTests
         Assert.Equal(5UL, repair.Removal!.LogEntriesRemoved);
         await using var check = rust.Contexts.CreateDbContext();
         Assert.False(await check.Downloads.AnyAsync(download => download.GameAppId == GameAppId));
+    }
+
+    [Fact]
+    public async Task APurgeThatRefusesBeforeItRewritesALogIsRedoneAfterAFreshImportAsync()
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), OperationType.GameRemoval);
+        var rust = harness.Rust;
+        // The binary refuses when a rotation left no log that shows where the importer stopped.
+        rust.RefusedPurges = 1;
+        rust.PurgeLinesRemoved = 5;
+        rust.ReportDepotIds.Add(1);
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            AddRow(seed, "alpha", "steam", GameAppId, depotId: 2, "/depot/2/alpha");
+            await seed.SaveChangesAsync();
+        }
+        var purgesBeforeRead = new List<int>();
+        harness.Importer.OnRead = _ =>
+        {
+            purgesBeforeRead.Add(rust.Launches.Count(launch => launch.Purge));
+            return Task.FromResult(true);
+        };
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            Metrics(OperationType.GameRemoval),
+            async (operationId, cancellationToken, report) =>
+            {
+                var game = await harness.Manager.RemoveGameFromCacheAsync(
+                    GameAppId,
+                    cancellationToken,
+                    Progress(report),
+                    operationId);
+                return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
+            });
+
+        // Beta's cache step fails too, so no datasource finished and the run fails.
+        harness.ReleaseRust();
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+        var repair = await harness.WaitForCompletedRepairAsync(operationId);
+
+        Assert.Equal(OperationStatus.Failed, terminal.Status);
+        // The redo imports again after the refusal, so its purge has a fresh read point.
+        Assert.Equal([0, 1], purgesBeforeRead);
+        Assert.Equal(2, rust.Launches.Count(launch => launch.Purge));
+        var alpha = repair.Sources.Single(source => source.Datasource == "alpha");
+        Assert.True(alpha.LogRewriteStarted);
+        Assert.True(alpha.LogPositionsKept);
+        Assert.Equal(5UL, repair.Removal!.LogEntriesRemoved);
+        await using var check = rust.Contexts.CreateDbContext();
+        Assert.False(await check.Downloads.AnyAsync(download => download.GameAppId == GameAppId));
+    }
+
+    [Theory]
+    [InlineData(OperationType.GameRemoval)]
+    [InlineData(OperationType.ServiceRemoval)]
+    public async Task ADownloadLoggedDuringTheCacheStepKeepsItsRowsAsync(OperationType type)
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), type);
+        var rust = harness.Rust;
+        rust.BetaSucceeds = true;
+        rust.PurgeLinesRemoved = 5;
+        if (type == OperationType.GameRemoval)
+        {
+            rust.ReportDepotIds.Add(1);
+        }
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            foreach (var datasource in new[] { "alpha", "beta" })
+            {
+                AddRow(seed, datasource, "steam", GameAppId, depotId: 1, "/old/" + datasource);
+            }
+            await seed.SaveChangesAsync();
+        }
+        // The live import logs two more downloads of the target while each cache step runs: one on a
+        // depot the record already covers and one with no depot.
+        rust.OnRemoverRun = async run =>
+        {
+            var datasource = run == 1 ? "alpha" : "beta";
+            await using var live = rust.Contexts.CreateDbContext();
+            AddRow(live, datasource, "steam", GameAppId, depotId: 1, "/late/covered/" + datasource);
+            AddRow(live, datasource, "steam", GameAppId, depotId: null, "/late/free/" + datasource);
+            await live.SaveChangesAsync();
+        };
+        var config = harness.CreateConfig(type, Metrics(type), async (operationId, cancellationToken, report) =>
+        {
+            if (type == OperationType.GameRemoval)
+            {
+                var game = await harness.Manager.RemoveGameFromCacheAsync(
+                    GameAppId,
+                    cancellationToken,
+                    Progress(report),
+                    operationId);
+                return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
+            }
+
+            var service = await harness.Manager.RemoveServiceFromCacheAsync(
+                "steam",
+                cancellationToken,
+                Progress(report),
+                operationId);
+            return (service.CacheFilesDeleted, checked((long)service.TotalBytesFreed));
+        });
+
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+        await harness.WaitForCompletedRepairAsync(operationId);
+
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        await using var check = rust.Contexts.CreateDbContext();
+        var keptUrls = await check.LogEntries.Select(logEntry => logEntry.Url).OrderBy(url => url).ToListAsync();
+        Assert.Equal(
+            new[] { "/late/covered/alpha", "/late/covered/beta", "/late/free/alpha", "/late/free/beta" },
+            keptUrls);
+        Assert.Equal(4, await check.Downloads.CountAsync(download => download.Service == "steam"));
+    }
+
+    [Fact]
+    public async Task ARepairedLogStepKeepsRowsLoggedAfterTheMarkAsync()
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), OperationType.GameRemoval);
+        var rust = harness.Rust;
+        rust.FailingPurges = 1;
+        rust.PurgeLinesRemoved = 5;
+        rust.ReportDepotIds.Add(1);
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            AddRow(seed, "alpha", "steam", GameAppId, depotId: 2, "/old/alpha");
+            await seed.SaveChangesAsync();
+        }
+        rust.OnRemoverRun = async run =>
+        {
+            if (run != 1)
+            {
+                return;
+            }
+
+            await using var live = rust.Contexts.CreateDbContext();
+            AddRow(live, "alpha", "steam", GameAppId, depotId: null, "/late/alpha");
+            await live.SaveChangesAsync();
+        };
+        var config = harness.CreateConfig(
+            OperationType.GameRemoval,
+            Metrics(OperationType.GameRemoval),
+            async (operationId, cancellationToken, report) =>
+            {
+                var game = await harness.Manager.RemoveGameFromCacheAsync(
+                    GameAppId,
+                    cancellationToken,
+                    Progress(report),
+                    operationId);
+                return (game.CacheFilesDeleted, checked((long)game.TotalBytesFreed));
+            });
+
+        harness.ReleaseRust();
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            harness.Tracker,
+            harness.NotificationService,
+            config);
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+        var repair = await harness.WaitForCompletedRepairAsync(operationId);
+
+        Assert.Equal(OperationStatus.Failed, terminal.Status);
+        Assert.True(repair.Sources.Single(source => source.Datasource == "alpha").LogPositionsKept);
+        await using var check = rust.Contexts.CreateDbContext();
+        Assert.Equal(
+            new[] { "/late/alpha" },
+            await check.LogEntries.Select(logEntry => logEntry.Url).ToListAsync());
+        Assert.Equal(1, await check.Downloads.CountAsync(download => download.GameAppId == GameAppId));
     }
 
     [Fact]
@@ -807,6 +1133,237 @@ public sealed class RemovalLogStepTests
         Assert.Equal(OperationStatus.Completed, terminal.Status);
         Assert.Equal(!betaSucceeds, Assert.IsType<SignalRNotifications.GameRemovalComplete>(complete).EntityKept);
         Assert.Equal(expectedDetectionRemovals, detectionRemovals.Count);
+    }
+
+    // Beta's cache step fails, so alpha's log step decides how the run ends. The import of alpha
+    // never reads every log: its log is behind, or its folder is empty with or without a series
+    // read before, or the read itself fails. A reset to the beginning, while the log is there or
+    // after it is gone, once or twice, still leaves the emptied folder's series missing. A reset
+    // to the end after that folder empties keeps the series stored at 0. A series stored at 0
+    // that disappears while another series remains is still missing.
+    [Theory]
+    [InlineData("behind", "errors.unmappedRemoval.logsBehind")]
+    [InlineData("empty", null)]
+    [InlineData("missing", "errors.unmappedRemoval.logsMissing")]
+    [InlineData("fault", "signalr.gameRemove.error.fatal")]
+    [InlineData("reset", "errors.unmappedRemoval.logsMissing")]
+    [InlineData("resetAll", "errors.unmappedRemoval.logsMissing")]
+    [InlineData("resetTwice", "errors.unmappedRemoval.logsMissing")]
+    [InlineData("goneAtReset", "errors.unmappedRemoval.logsMissing")]
+    [InlineData("ended", "errors.unmappedRemoval.logsMissing")]
+    [InlineData("zeroBeside", "errors.unmappedRemoval.logsMissing")]
+    public async Task AGameRemovalLogStepThatCannotReadEveryLogEndsByItsKeyAsync(string alphaLogs, string? failureKey)
+    {
+        var root = Root();
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(root, OperationType.GameRemoval);
+        var rust = harness.Rust;
+        harness.ReleaseRust();
+        rust.ReportUrls.Add("/report/url");
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            AddRow(seed, "alpha", "steam", GameAppId, depotId: 2, "/depot/2/alpha");
+            AddRow(seed, "beta", "steam", GameAppId, depotId: 2, "/depot/2/beta");
+            await seed.SaveChangesAsync();
+        }
+        if (alphaLogs is not ("behind" or "empty" or "fault"))
+        {
+            rust.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { [LogSourceLayout.MonolithicStem] = 5 });
+        }
+        if (alphaLogs == "zeroBeside")
+        {
+            File.WriteAllText(Path.Combine(root, "alpha-logs", "steam-access.log"), "GET /steam HTTP/1.1\n");
+        }
+        if (alphaLogs is "reset" or "resetTwice" or "ended" or "zeroBeside")
+        {
+            harness.CreateLogProcessor().ResetLogPosition("alpha");
+        }
+        if (alphaLogs is "reset" or "resetTwice")
+        {
+            // The reset keeps the series at 0, and a restart reads it back from disk.
+            var restarted = OperationRepairTests.CreateFailingStateService(Path.Combine(root, "retained"));
+            var kept = Assert.Single(restarted.GetLogSourcePositions("alpha"));
+            Assert.Equal((LogSourceLayout.MonolithicStem, 0L), (kept.Key, kept.Value));
+        }
+        if (alphaLogs == "resetAll")
+        {
+            harness.CreateLogProcessor().ResetLogPosition();
+        }
+        if (alphaLogs is not ("behind" or "fault" or "zeroBeside"))
+        {
+            File.Delete(Path.Combine(root, "alpha-logs", LogSourceLayout.MonolithicStem));
+        }
+        if (alphaLogs == "zeroBeside")
+        {
+            File.Delete(Path.Combine(root, "alpha-logs", "steam-access.log"));
+        }
+        if (alphaLogs is "resetTwice" or "goneAtReset")
+        {
+            harness.CreateLogProcessor().ResetLogPosition("alpha");
+        }
+        if (alphaLogs == "ended")
+        {
+            // The folder is empty, so a count finds no series. The reset-to-end map is the
+            // series saved before and not found now, including one stored at 0.
+            var positions = RustLogProcessorService.MissingSeriesPositions(
+                rust.State.GetLogSourcePositions("alpha"),
+                LogSourceLayout.EnumerateStems(Path.Combine(root, "alpha-logs")));
+            rust.State.SetLogSourcePositions("alpha", positions);
+            rust.State.SetLogPosition("alpha", 0);
+            rust.State.SetLogTotalLines("alpha", 0);
+            var kept = Assert.Single(rust.State.GetLogSourcePositions("alpha"));
+            Assert.Equal((LogSourceLayout.MonolithicStem, 0L), (kept.Key, kept.Value));
+        }
+        harness.Importer.OnRead = datasource =>
+        {
+            if (alphaLogs == "fault")
+            {
+                return Task.FromException<bool>(new InvalidOperationException("Injected read failure."));
+            }
+
+            if (alphaLogs == "zeroBeside"
+                && string.Equals(datasource.Name, "alpha", StringComparison.OrdinalIgnoreCase))
+            {
+                datasource.RefreshLogSources();
+                return Task.FromResult(!RustLogProcessorService.LogsOutOfSight(
+                    rust.State.GetLogSourcePositions(datasource.Name),
+                    datasource.LogSourceStems));
+            }
+
+            return Task.FromResult(false);
+        };
+        var controller = new GamesController(
+            gameCacheDetectionService: null!,
+            gameDetectionService: null!,
+            cacheManagementService: harness.Manager,
+            notifications: harness.NotificationService,
+            logger: NullLogger<GamesController>.Instance,
+            pathResolver: null!,
+            operationTracker: harness.Tracker,
+            conflictChecker: null!,
+            operationQueue: null!,
+            capabilityService: null!,
+            cacheScanGate: CacheScanGateHarness.Idle());
+        Func<Guid, CancellationToken, Func<double, string, Dictionary<string, object?>?, int, long, Task>,
+            Task<CacheManagementService.GameCacheRemovalReport>> removeFunc =
+            (operationId, cancellationToken, onProgress) => harness.Manager.RemoveGameFromCacheAsync(
+                GameAppId,
+                cancellationToken,
+                onProgress,
+                operationId);
+        Func<long, Task> onSuccess = _ => Task.CompletedTask;
+
+        var operationId = await (Task<Guid>)typeof(GamesController)
+            .GetMethod("StartRemovalAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(
+                controller,
+                [GameAppId.ToString(), "Dota 2", "Game Removal: Dota 2", GameAppId, "steam", null, null, removeFunc, onSuccess])!;
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+        SignalRNotifications.GameRemovalComplete? complete = null;
+        for (var attempt = 0; attempt < 400 && complete is null; attempt++)
+        {
+            complete = harness.ReadMessages()
+                .Select(message => message.Value)
+                .OfType<SignalRNotifications.GameRemovalComplete>()
+                .SingleOrDefault();
+            await Task.Delay(25);
+        }
+
+        Assert.NotNull(complete);
+        if (failureKey is null)
+        {
+            // Nothing to purge: the step ends, the target's rows go and beta's failure keeps the game listed.
+            Assert.Equal(OperationStatus.Completed, terminal.Status);
+            Assert.True(complete.EntityKept);
+            Assert.DoesNotContain(rust.Launches, launch => launch.Purge);
+            var alpha = harness.ReadRepair(operationId).Sources.Single(source => source.Datasource == "alpha");
+            Assert.True(alpha.LogRewriteStarted && alpha.LogPositionsKept);
+            await using var check = rust.Contexts.CreateDbContext();
+            Assert.False(await check.Downloads.AnyAsync(download => download.Datasource == "alpha"));
+            return;
+        }
+
+        Assert.Equal(OperationStatus.Failed, terminal.Status);
+        Assert.Equal(failureKey, complete.StageKey);
+        // A keyed refusal sends no English error, which the browser would show ahead of the key.
+        Assert.Equal(alphaLogs == "fault" ? "Injected read failure." : null, complete.Error);
+        // A card drawn from the run after a reload reads the refusal from the run's key.
+        Assert.Equal(alphaLogs == "fault" ? "Injected read failure." : failureKey, terminal.Message);
+        var progress = harness.ReadMessages()
+            .Select(message => message.Value)
+            .OfType<SignalRNotifications.GameRemovalProgress>()
+            .Last();
+        Assert.Equal(failureKey, progress.StageKey);
+        Assert.DoesNotContain(rust.Launches, launch => launch.Purge);
+    }
+
+    [Fact]
+    public async Task AServiceRemovalRefusedByItsLogStepEndsByTheRefusalKeyAsync()
+    {
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(Root(), OperationType.ServiceRemoval);
+        var rust = harness.Rust;
+        harness.ReleaseRust();
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            AddRow(seed, "alpha", "steam", GameAppId, depotId: 2, "/depot/2/alpha");
+            AddRow(seed, "beta", "steam", GameAppId, depotId: 2, "/depot/2/beta");
+            await seed.SaveChangesAsync();
+        }
+        // Alpha's import never reads its log to the end and beta's cache step fails, so the run fails
+        // with alpha's refusal.
+        harness.Importer.OnRead = _ => Task.FromResult(false);
+
+        var accepted = Assert.IsType<AcceptedResult>(await harness.CreateCacheController()
+            .ClearServiceCacheAsync("steam", CancellationToken.None, CacheRemovalScope.CacheFiles));
+        var operationId = Assert.IsType<CacheOperationResponse>(accepted.Value).OperationId!.Value;
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+        SignalRNotifications.ServiceRemovalComplete? complete = null;
+        for (var attempt = 0; attempt < 400 && complete is null; attempt++)
+        {
+            complete = harness.ReadMessages()
+                .Select(message => message.Value)
+                .OfType<SignalRNotifications.ServiceRemovalComplete>()
+                .SingleOrDefault();
+            await Task.Delay(25);
+        }
+
+        Assert.Equal(OperationStatus.Failed, terminal.Status);
+        Assert.NotNull(complete);
+        Assert.Equal("errors.unmappedRemoval.logsBehind", complete.StageKey);
+        // A keyed refusal sends no English error, which the browser would show ahead of the key.
+        Assert.Null(complete.Error);
+        var progress = harness.ReadMessages()
+            .Select(message => message.Value)
+            .OfType<SignalRNotifications.ServiceRemovalProgress>()
+            .Last();
+        Assert.Equal("errors.unmappedRemoval.logsBehind", progress.StageKey);
+        Assert.Equal("errors.unmappedRemoval.logsBehind", terminal.Message);
+    }
+
+    [Fact]
+    public async Task ALogStepWaitingForAnotherPassLogsNoRefusedStartAsync()
+    {
+        using var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
+        var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
+        var logger = new CapturingLogger<RustLogProcessorService>();
+        var processor = new RustLogProcessorService(
+            logger,
+            pathResolver: null!,
+            notifications: null!,
+            stateService: null!,
+            serviceProvider: null!,
+            rustProcessHelper: null!,
+            datasourceService: null!,
+            tracker,
+            TimeProvider.System);
+        var reservation = await processor.TryReserveProcessingGateAsync();
+        Assert.NotNull(reservation);
+        using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => processor.ReadToEndAsync(
+            new ResolvedDatasource { Name = "alpha", LogPath = Root() },
+            wait.Token));
+
+        Assert.DoesNotContain(logger.Entries, entry => entry.Message.Contains("already running", StringComparison.Ordinal));
     }
 
     private static string Root() =>

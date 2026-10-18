@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useOptimisticPending } from '@/hooks/useOptimisticPending';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useSelectionSet } from '@/hooks/useSelectionSet';
+import { useHeldValue } from '@hooks/useHeldValue';
 import { useTranslation } from 'react-i18next';
 import { FileText, RefreshCw, Trash2 } from 'lucide-react';
 import '../managementSectionContent.css';
@@ -10,6 +11,8 @@ import { type AuthMode } from '@services/auth.service';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { getErrorMessage } from '@utils/error';
 import { useNotifications } from '@contexts/notifications';
+import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
+import type { NotificationType } from '@contexts/notifications/types';
 import { useBulkRemoval, type LogBatchEntry } from '@contexts/BulkRemovalContext';
 import { useConfig } from '@contexts/useConfig';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -23,7 +26,6 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
-import { Tooltip } from '@components/ui/Tooltip';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import {
@@ -34,12 +36,20 @@ import {
 import { ActionMenuItem, ActionMenuDangerItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { formatCount } from '@utils/formatters';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
-import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
+import { DisabledActionGate } from '@components/features/management/DisabledActionGate';
 import type { DatasourceInfo, DatasourceServiceCounts } from '@/types';
 import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
 import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
 // Main services that should always be shown first
+const OTHER_REMOVAL_BUSY_TYPES: NotificationType[] = [
+  'cache_clearing',
+  'game_removal',
+  'service_removal',
+  'corruption_removal',
+  'log_removal'
+];
+
 const MAIN_SERVICES = [
   'steam',
   'epicgames',
@@ -69,7 +79,8 @@ const ServiceRow: React.FC<{
   onSelectToggle: () => void;
   selectLabel: string;
   selectDisabled: boolean;
-  clearTooltip?: string;
+  selectDisabledReason: string;
+  clearTooltip: string;
 }> = ({
   service,
   count,
@@ -84,35 +95,28 @@ const ServiceRow: React.FC<{
   onSelectToggle,
   selectLabel,
   selectDisabled,
+  selectDisabledReason,
   clearTooltip
 }) => {
-  const clearButton = (
-    <Button
-      onClick={onClick}
-      awaitPermissions
-      disabled={isDisabled}
-      variant="filled"
-      color="destructive"
-      size="sm"
-      loading={isRemoving}
-    >
-      {isRemoving ? removingLabel : clearLabel}
-    </Button>
-  );
-
   // No row-level click or keyboard action exists here - only the nested Checkbox and the
   // clear Button are interactive - so the row carries no hover/focus affordance suggesting
   // otherwise.
   return (
     <div className="mgmt-row">
       {selectable && (
-        <Checkbox
-          checked={selected}
-          onChange={onSelectToggle}
+        <DisabledActionGate
           disabled={selectDisabled}
-          aria-label={selectLabel}
-          className="flex-shrink-0"
-        />
+          reason={selectDisabledReason}
+          label={selectLabel}
+        >
+          <Checkbox
+            checked={selected}
+            onChange={onSelectToggle}
+            disabled={selectDisabled}
+            aria-label={selectLabel}
+            className="flex-shrink-0"
+          />
+        </DisabledActionGate>
       )}
       <div className="mgmt-row__body">
         {/* Display-only fold (xboxlive -> Xbox): the raw LogEntries.Service tag stays on keys
@@ -124,13 +128,19 @@ const ServiceRow: React.FC<{
         </p>
       </div>
       <div className="mgmt-row__actions">
-        {clearTooltip ? (
-          <Tooltip content={clearTooltip} position="top">
-            {clearButton}
-          </Tooltip>
-        ) : (
-          clearButton
-        )}
+        <DisabledActionGate disabled={isDisabled} reason={clearTooltip} label={clearLabel}>
+          <Button
+            onClick={onClick}
+            awaitPermissions
+            disabled={isDisabled}
+            variant="filled"
+            color="destructive"
+            size="sm"
+            loading={isRemoving}
+          >
+            {isRemoving ? removingLabel : clearLabel}
+          </Button>
+        </DisabledActionGate>
       </div>
     </div>
   );
@@ -146,6 +156,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const { t } = useTranslation();
   const { runs, isAnyRemovalRunning, addNotification } = useNotifications();
   const { runLogRemoval, isLogRemovalRunning: isBatchRunning } = useBulkRemoval();
+  const isUnmappedRemovalRunning = useOperationBusy({
+    types: ['unmapped_file_removal'],
+    status: ['running', 'cancelling']
+  });
+  const unmappedRemovalReason = t('management.storage.unmappedRemovalRunning');
   const { on, off, isConnected } = useSignalR();
   const { config } = useConfig();
 
@@ -165,7 +180,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     service: string;
   } | null>(null);
   const [pendingLogFileDeletion, setPendingLogFileDeletion] = useState<string | null>(null);
-  const [deletingLogFile, setDeletingLogFile] = useState<string | null>(null);
+  // Datasources whose log file delete is in flight; each busies only its own Delete button.
+  const deletingLogFiles = useSelectionSet<string>();
+  const shownLogFileDeletion = useHeldValue(pendingLogFileDeletion);
+  // Read when a delete answers, to learn whether the person closed the dialog while it waited.
+  const pendingLogFileDeletionRef = useRef(pendingLogFileDeletion);
+  pendingLogFileDeletionRef.current = pendingLogFileDeletion;
+  const [logFileDeleteError, setLogFileDeleteError] = useState<string | null>(null);
   const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -205,6 +226,35 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     types: ['log_removal'],
     status: ['running', 'waiting']
   });
+  // Cancelling leaves `running`. The batch queue stays busy, and Select all has to keep the
+  // same sentence it showed while the run was running.
+  const isLogRemovalCancelling = useOperationBusy({
+    types: ['log_removal'],
+    status: ['cancelling']
+  });
+  const logRemovalRowBusy = isLogRemovalActive || isLogRemovalCancelling;
+  const logRemovalActiveReason = logRemovalRowBusy ? t('management.logRemoval.removalRunning') : '';
+  const activeOtherRemoval = runs.find(
+    (n) => OTHER_REMOVAL_BUSY_TYPES.includes(n.type) && n.status === 'running'
+  );
+  const otherRemovalTitleKey = activeOtherRemoval
+    ? NOTIFICATION_TITLE_KEYS[activeOtherRemoval.type]
+    : null;
+  const otherRemovalReason =
+    otherRemovalTitleKey !== null
+      ? t('management.logRemoval.otherRemovalRunning', {
+          operation: t(otherRemovalTitleKey)
+        })
+      : '';
+  const selectAllLogRemovalBusy =
+    isLogRemovalActive || isLogRemovalCancelling || isBatchRunning || anyServiceRemovalPending;
+  const selectAllDisabled =
+    mockMode || authMode !== 'authenticated' || selectAllLogRemovalBusy || isAnyRemovalRunning;
+  const selectAllDisabledReason = selectAllLogRemovalBusy
+    ? t('management.logRemoval.removalRunning')
+    : isAnyRemovalRunning
+      ? otherRemovalReason
+      : '';
 
   useEffect(() => {
     if (!hasInitiallyLoaded) {
@@ -308,12 +358,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         clearServiceRemovalPending(key);
       }
     } catch (err: unknown) {
-      const errMsg = getErrorMessage(err);
+      // A read-only refusal carries its own stage key, translated with the datasource it names.
       onError?.(
         t('management.logRemoval.errors.removeServiceFailed', {
           service: getServiceDisplayName(serviceName)
         }),
-        errMsg.includes('read-only') ? t('management.logRemoval.errors.readOnly') : err
+        err
       );
       clearServiceRemovalPending(key);
     }
@@ -336,11 +386,14 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       return;
     }
 
-    setPendingLogFileDeletion(null);
-    setDeletingLogFile(datasourceName);
+    // A repeat press for a log whose delete runs is ignored; another datasource's delete is sent.
+    if (deletingLogFiles.isSelected(datasourceName)) return;
+    deletingLogFiles.setMany([datasourceName], true);
 
     try {
       const result = await ApiService.deleteLogFile(datasourceName);
+      // Only this delete's own dialog closes; one opened for another datasource stays.
+      setPendingLogFileDeletion((current) => (current === datasourceName ? null : current));
       if (result.reopenError) {
         addNotification({
           type: 'generic',
@@ -352,15 +405,18 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         });
       }
     } catch (err: unknown) {
-      const errMsg = getErrorMessage(err);
-      onError?.(
-        t('management.logRemoval.errors.deleteFailed'),
-        errMsg.includes('read-only') ? t('management.logRemoval.errors.readOnly') : err
-      );
+      // This delete's dialog, still open, shows the failure beside the delete the person
+      // confirmed; once closed, or replaced by another datasource's dialog, it is reported as a
+      // notification.
+      if (pendingLogFileDeletionRef.current === datasourceName) {
+        setLogFileDeleteError(getErrorMessage(err));
+      } else {
+        onError?.(t('management.logRemoval.errors.deleteFailed'), err);
+      }
     } finally {
       // A delete that fails partway has still removed files, so the counts reload either way.
       await loadData(true);
-      setDeletingLogFile(null);
+      deletingLogFiles.setMany([datasourceName], false);
     }
   };
 
@@ -456,6 +512,15 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const selectedNginxReopenMessage = selectedNginxReopenGate.messageKey
     ? t(selectedNginxReopenGate.messageKey)
     : '';
+  const removeSelectedDisabled =
+    selection.count === 0 ||
+    mockMode ||
+    authMode !== 'authenticated' ||
+    !selectedNginxReopenGate.available ||
+    isUnmappedRemovalRunning ||
+    isLogRemovalActive ||
+    anyServiceRemovalPending ||
+    isBatchRunning;
 
   // Header action cluster: everything lives in one overflow menu now (the count
   // still shows on the "Remove Selected" item's own label). flex-wrap keeps the
@@ -482,23 +547,20 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
               {t('common.refresh')}
             </ActionMenuItem>
             <ActionMenuDivider />
-            <NginxReopenActionGate
-              available={selectedNginxReopenGate.available}
-              tooltip={selectedNginxReopenMessage}
+            <DisabledActionGate
+              disabled={removeSelectedDisabled}
+              reason={
+                isUnmappedRemovalRunning
+                  ? unmappedRemovalReason
+                  : logRemovalActiveReason || selectedNginxReopenMessage
+              }
+              label={t('management.batchSelect.removeSelectedLabel')}
               position="left"
               className="block w-full"
             >
               <ActionMenuDangerItem
                 icon={<Trash2 className="w-3.5 h-3.5" />}
-                disabled={
-                  selection.count === 0 ||
-                  mockMode ||
-                  authMode !== 'authenticated' ||
-                  !selectedNginxReopenGate.available ||
-                  isLogRemovalActive ||
-                  anyServiceRemovalPending ||
-                  isBatchRunning
-                }
+                disabled={removeSelectedDisabled}
                 onClick={() => {
                   setShowBatchConfirm(true);
                   close();
@@ -506,7 +568,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
               >
                 {t('management.batchSelect.removeSelectedLabel')}
               </ActionMenuDangerItem>
-            </NginxReopenActionGate>
+            </DisabledActionGate>
           </>
         )}
       </SectionActionsMenu>
@@ -558,22 +620,26 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                   <div className="flex flex-wrap items-center gap-2">
                     {/* Select-all only. The selected count shows once in the section
                             header badge, so it is not repeated here. */}
-                    <Checkbox
-                      checked={allVisibleSelected}
-                      onChange={() => selection.setMany(selectableKeys, !allVisibleSelected)}
-                      disabled={
-                        mockMode ||
-                        authMode !== 'authenticated' ||
-                        isLogRemovalActive ||
-                        anyServiceRemovalPending ||
-                        isBatchRunning
-                      }
+                    <DisabledActionGate
+                      disabled={selectAllDisabled}
+                      reason={selectAllDisabledReason}
                       label={t(
                         allVisibleSelected
                           ? 'management.batchSelect.deselectAll'
                           : 'management.batchSelect.selectAll'
                       )}
-                    />
+                    >
+                      <Checkbox
+                        checked={allVisibleSelected}
+                        onChange={() => selection.setMany(selectableKeys, !allVisibleSelected)}
+                        disabled={selectAllDisabled}
+                        label={t(
+                          allVisibleSelected
+                            ? 'management.batchSelect.deselectAll'
+                            : 'management.batchSelect.selectAll'
+                        )}
+                      />
+                    </DisabledActionGate>
                   </div>
                 )}
                 {datasourceCounts.map((ds) => {
@@ -588,6 +654,15 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                   const nginxReopenMessage = nginxReopenGate.messageKey
                     ? t(nginxReopenGate.messageKey)
                     : '';
+                  const deleteLogFileDisabled =
+                    mockMode ||
+                    isAnyRemovalRunning ||
+                    isUnmappedRemovalRunning ||
+                    isLogRemovalActive ||
+                    anyServiceRemovalPending ||
+                    authMode !== 'authenticated' ||
+                    !ds.logsWritable ||
+                    !nginxReopenGate.available;
                   const isBareMetalLayout = layout === 'bare_metal' || layout === 'mixed';
                   const layoutLabel =
                     layout === 'bare_metal'
@@ -633,11 +708,21 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                               const selectionDisabled =
                                 mockMode ||
                                 anyServiceRemovalPending ||
-                                isLogRemovalActive ||
+                                logRemovalRowBusy ||
                                 authMode !== 'authenticated' ||
                                 !ds.logsWritable ||
                                 isBatchRunning;
-                              const rowDisabled = selectionDisabled || !nginxReopenGate.available;
+                              const selectionDisabledReason = selectionDisabled
+                                ? logRemovalRowBusy
+                                  ? t('management.logRemoval.removalRunning')
+                                  : ''
+                                : '';
+                              // Selecting stays open during an unmapped removal; only the
+                              // removal itself is refused by the server.
+                              const rowDisabled =
+                                selectionDisabled ||
+                                isUnmappedRemovalRunning ||
+                                !nginxReopenGate.available;
                               return (
                                 <ServiceRow
                                   key={key}
@@ -660,14 +745,18 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                     name: getServiceDisplayName(service)
                                   })}
                                   selectDisabled={selectionDisabled}
+                                  selectDisabledReason={selectionDisabledReason}
                                   clearTooltip={
                                     !ds.logsWritable
                                       ? t('management.directoryNotice.logsReadOnlyTitle')
-                                      : nginxReopenGate.messageKey
-                                        ? nginxReopenMessage
-                                        : isBareMetalLayout
-                                          ? t('management.logRemoval.bareMetal.clearTooltip')
-                                          : undefined
+                                      : isUnmappedRemovalRunning
+                                        ? unmappedRemovalReason
+                                        : logRemovalActiveReason ||
+                                          (nginxReopenGate.messageKey
+                                            ? nginxReopenMessage
+                                            : isBareMetalLayout
+                                              ? t('management.logRemoval.bareMetal.clearTooltip')
+                                              : '')
                                   }
                                 />
                               );
@@ -707,13 +796,18 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
                           {/* Delete entire log file button */}
                           <div className="flex justify-end pt-3 mt-3 border-t border-themed-secondary">
-                            <NginxReopenActionGate
-                              available={nginxReopenGate.available && ds.logsWritable}
-                              tooltip={
+                            <DisabledActionGate
+                              disabled={deleteLogFileDisabled}
+                              reason={
                                 !ds.logsWritable
                                   ? t('management.directoryNotice.logsReadOnlyTitle')
-                                  : nginxReopenMessage
+                                  : isUnmappedRemovalRunning
+                                    ? unmappedRemovalReason
+                                    : logRemovalActiveReason ||
+                                      otherRemovalReason ||
+                                      nginxReopenMessage
                               }
+                              label={t('management.logRemoval.buttons.deleteLogFile')}
                             >
                               <Button
                                 variant="filled"
@@ -721,25 +815,17 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                 color="destructive"
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  setLogFileDeleteError(null);
                                   setPendingLogFileDeletion(ds.datasource);
                                 }}
                                 awaitPermissions
-                                loading={deletingLogFile === ds.datasource}
-                                disabled={
-                                  mockMode ||
-                                  isAnyRemovalRunning ||
-                                  isLogRemovalActive ||
-                                  anyServiceRemovalPending ||
-                                  !!deletingLogFile ||
-                                  authMode !== 'authenticated' ||
-                                  !ds.logsWritable ||
-                                  !nginxReopenGate.available
-                                }
+                                loading={deletingLogFiles.isSelected(ds.datasource)}
+                                disabled={deleteLogFileDisabled}
                                 className="w-full sm:w-auto"
                               >
                                 {t('management.logRemoval.buttons.deleteLogFile')}
                               </Button>
-                            </NginxReopenActionGate>
+                            </DisabledActionGate>
                           </div>
                         </div>
                       ) : (
@@ -776,6 +862,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         title={t('management.logRemoval.modal.removeServiceLogs')}
         confirmLabel={t('management.logRemoval.buttons.removeLogs')}
         loading={anyServiceRemovalPending}
+        confirmDisabled={isUnmappedRemovalRunning}
       >
         <p className="text-themed-secondary">
           {t('management.logRemoval.modal.removeQuestion', {
@@ -795,6 +882,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
             })}
           </p>
         </Alert>
+
+        {isUnmappedRemovalRunning && (
+          <Alert color="yellow">
+            <p className="text-sm">{unmappedRemovalReason}</p>
+          </Alert>
+        )}
       </ConfirmationModal>
 
       {/* Delete Log File Confirmation Modal - a red trash marks this as the harsher of the two
@@ -810,15 +903,32 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         title={t('management.logRemoval.modal.deleteEntireLogFile')}
         icon={<Trash2 className="w-6 h-6 text-themed-error" />}
         confirmLabel={t('management.logRemoval.buttons.deleteLogFile')}
-        loading={!!deletingLogFile}
+        // Close stays live while the delete waits on the log lock; the answer still lands.
+        confirmBusy={
+          shownLogFileDeletion !== null && deletingLogFiles.isSelected(shownLogFileDeletion)
+        }
+        confirmDisabled={isUnmappedRemovalRunning}
       >
         <p className="text-themed-secondary">
-          {t('management.logRemoval.modal.deleteQuestion', { datasource: pendingLogFileDeletion })}
+          {t('management.logRemoval.modal.deleteQuestion', { datasource: shownLogFileDeletion })}
         </p>
 
         <Alert color="red" icon={null}>
           <p className="text-sm">{t('management.logRemoval.modal.fileSummary')}</p>
         </Alert>
+
+        {/* A removal that starts while the dialog is already open. */}
+        {isUnmappedRemovalRunning && (
+          <Alert color="yellow">
+            <p className="text-sm">{unmappedRemovalReason}</p>
+          </Alert>
+        )}
+
+        {logFileDeleteError !== null && (
+          <Alert color="error" title={t('management.logRemoval.errors.deleteFailed')}>
+            {logFileDeleteError}
+          </Alert>
+        )}
       </ConfirmationModal>
 
       {/* Batch Remove Selected Confirmation Modal */}
@@ -831,6 +941,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         title={t('management.batchSelect.confirmTitle')}
         confirmLabel={t('management.batchSelect.removeSelected', { count: selection.count })}
         loading={isBatchRunning}
+        confirmDisabled={isUnmappedRemovalRunning}
       >
         <p className="text-themed-secondary">
           {t('management.batchSelect.confirmBody', { count: selection.count })}
@@ -839,6 +950,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         <Alert color="yellow" icon={null}>
           <p className="text-sm">{t('management.logRemoval.modal.batchSummary')}</p>
         </Alert>
+
+        {isUnmappedRemovalRunning && (
+          <Alert color="yellow">
+            <p className="text-sm">{unmappedRemovalReason}</p>
+          </Alert>
+        )}
       </ConfirmationModal>
     </>
   );

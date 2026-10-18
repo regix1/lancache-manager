@@ -46,6 +46,7 @@ export type NotificationType =
   | 'bulk_removal'
   | 'prefill_login'
   | 'download_history_upgrade'
+  | 'unmapped_file_removal'
   | 'steam_session_error'
   | 'cache_repair'
   | 'generic';

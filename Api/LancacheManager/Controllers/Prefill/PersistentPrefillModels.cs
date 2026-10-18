@@ -136,6 +136,12 @@ public sealed class PersistentCancelLoginRequest
     /// </summary>
     public long? LoginAttempt { get; init; }
     public Guid? LoginId { get; init; }
+
+    /// <summary>
+    /// Set when the browser's sign-in clock ends the attempt. A person's Cancel leaves this empty,
+    /// which is what stores that cancel as theirs. The same key the abandoned-login sweep sends.
+    /// </summary>
+    public string? StopReason { get; init; }
 }
 
 /// <summary>Request body for stopping a persistent session.</summary>

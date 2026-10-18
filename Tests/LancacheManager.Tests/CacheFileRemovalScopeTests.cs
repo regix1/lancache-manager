@@ -49,6 +49,14 @@ public sealed partial class CacheFileRemovalScopeTests
         cacheScanGate: CacheScanGateHarness.Idle());
 
     [Fact]
+    public async Task RemoveUnmappedFiles_WithNoDeclaredScope_IsRefusedAsync()
+    {
+        var result = await NewCacheController().RemoveUnmappedFilesAsync(1, 1, CancellationToken.None);
+
+        AssertRefused(result);
+    }
+
+    [Fact]
     public async Task ClearServiceCache_WithEvictedRecordsScope_IsRefusedAsync()
     {
         var result = await NewCacheController().ClearServiceCacheAsync(
@@ -125,6 +133,7 @@ public sealed partial class CacheFileRemovalScopeTests
         AssertMatches(EpicGameRouteRegex(), source, "the Epic game route carrying that scope");
         AssertMatches(NamedGameRouteRegex(), source, "the named game route carrying that scope");
         AssertMatches(ServiceRouteRegex(), source, "the service route carrying that scope");
+        AssertMatches(UnmappedRouteRegex(), source, "the unmapped files route carrying that scope");
     }
 
     /// <summary>
@@ -172,4 +181,7 @@ public sealed partial class CacheFileRemovalScopeTests
 
     [GeneratedRegex(@"/cache/services/\$\{\s*encodeURIComponent\(\s*serviceName\s*\)\s*\}\?\$\{\s*CACHE_FILE_REMOVAL_SCOPE\s*\}")]
     private static partial Regex ServiceRouteRegex();
+
+    [GeneratedRegex(@"/cache/unmapped\?\$\{\s*CACHE_FILE_REMOVAL_SCOPE\s*\}")]
+    private static partial Regex UnmappedRouteRegex();
 }

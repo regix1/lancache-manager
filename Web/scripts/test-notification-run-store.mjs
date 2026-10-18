@@ -52,6 +52,8 @@ const TEMPLATES = {
   'common.notifications.runNameWithTarget': '{{title}}（{{target}}）',
   'common.notifications.cancelling': 'Cancelling...',
   'common.notifications.repairFailed': 'Repair failed: {{reason}}',
+  'errors.unmappedRemoval.logsBehind': '日志处理尚未读取所有访问日志。',
+  'errors.logs.windowsDockerUnsupported': '此实现不支持原生 Windows Manager 修改日志。',
   'common.notifications.warnings.datasourcesNotRepaired':
     'The repair finished but skipped these datasources because they were removed or their folders changed: {{datasources}}.',
   'common.notifications.warnings.logFilesSkipped':
@@ -2935,6 +2937,31 @@ test('a repair that fails out turns its card red with Retry, and Retry turns it 
   assert.equal(red.message, 'Repair failed: disk busy');
   assert.equal(red.details.repairFailed, true);
   assert.deepEqual(red.details.closeOperationIds, ['R']);
+
+  // A refusal reaches the card as its key, in the reader's language.
+  const refused = new Browser({ keepSuccessVisible: true });
+  refused.push(row('K'));
+  refused.push(repairingRow('K'));
+  refused.push(failedOutRow('K', { repairError: 'errors.unmappedRemoval.logsBehind' }));
+  assert.equal(refused.card('K').message, 'Repair failed: 日志处理尚未读取所有访问日志。');
+  // The Windows Docker writer refusal, which a removal's log step can raise.
+  refused.push(row('W'));
+  refused.push(repairingRow('W'));
+  refused.push(failedOutRow('W', { repairError: 'errors.logs.windowsDockerUnsupported' }));
+  assert.equal(
+    refused.card('W').message,
+    'Repair failed: 此实现不支持原生 Windows Manager 修改日志。'
+  );
+  // A removal it refused, drawn from its row after a reload, shows the same reason.
+  refused.push(row('G', { operationType: 'gameRemoval' }));
+  refused.push(
+    kept('G', {
+      operationType: 'gameRemoval',
+      status: 'failed',
+      error: 'errors.logs.windowsDockerUnsupported'
+    })
+  );
+  assert.equal(refused.card('G').error, '此实现不支持原生 Windows Manager 修改日志。');
 
   // Retry: the server runs the repair again under the same id.
   browser.push(repairingRow('R'));

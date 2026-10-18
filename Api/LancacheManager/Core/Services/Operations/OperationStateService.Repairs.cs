@@ -5,6 +5,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -676,6 +677,9 @@ public partial class OperationStateService
         await _admissionGate.WaitAsync(stoppingToken);
         try
         {
+            // The repair's log step would stop a running unmapped removal, so a person's Retry is
+            // refused like their other log actions; the flag is set under this gate.
+            EnsureNoUnmappedRemovalRunning();
             // While the failed run still holds its task entry, a claim would get that ending task
             // back and start nothing. A card closed elsewhere would leave the new run with no card.
             if (!_repairs.TryGetValue(operationId, out var repair)
@@ -1017,7 +1021,8 @@ public partial class OperationStateService
                         _logger.LogError(
                             "Repair for operation {OperationId} failed out and waits for a retry",
                             operationId);
-                        failure = ex.Message;
+                        // A refusal's key reaches the card, which shows it in the reader's language.
+                        failure = ex is ApiException { StageKey: { } refusalKey } ? refusalKey : ex.Message;
                         return;
                     }
 

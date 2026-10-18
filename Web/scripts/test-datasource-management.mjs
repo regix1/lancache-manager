@@ -204,8 +204,10 @@ test('a failed log file delete still reloads the counts', async () => {
     authMode: 'authenticated',
     onError: (message) => state.errors.push(message),
     t: (key) => key,
+    pendingLogFileDeletionRef: { current: 'alpha' },
     setPendingLogFileDeletion: () => undefined,
-    setDeletingLogFile: () => undefined,
+    deletingLogFiles: { isSelected: () => false, setMany: () => undefined },
+    setLogFileDeleteError: (message) => state.errors.push(message),
     ApiService: { deleteLogFile: () => Promise.reject(new Error('unlink failed')) },
     loadData: async () => {
       state.loads += 1;
@@ -215,13 +217,16 @@ test('a failed log file delete still reloads the counts', async () => {
 
   await executeDeleteLogFile('alpha');
   assert.equal(state.loads, 1);
-  assert.deepEqual(state.errors, ['management.logRemoval.errors.deleteFailed']);
+  // The failure shows inside the still-open delete dialog.
+  assert.deepEqual(state.errors, ['unlink failed']);
 });
 
 test('the delete dialog opens at once with text that holds for every log layout', () => {
   const source = parseSource(LOG_REMOVAL).text.replace(/\s+/g, '');
   assert.ok(
-    source.includes('e.stopPropagation();setPendingLogFileDeletion(ds.datasource);'),
+    source.includes(
+      'e.stopPropagation();setLogFileDeleteError(null);setPendingLogFileDeletion(ds.datasource);'
+    ),
     'the delete button opens the dialog without waiting for a fetch'
   );
   assert.equal(source.includes('refreshConfig'), false);

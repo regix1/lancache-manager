@@ -386,6 +386,26 @@ public class PrefillSessionService
     }
 
     /// <summary>
+    /// Stores whether a person canceled the session's last sign-in (<see cref="PrefillSession.LoginCanceledByPerson"/>)
+    /// and whether the daemon reached logged-in while that mark held
+    /// (<see cref="PrefillSession.LoggedInWhilePersonCanceled"/>).
+    /// </summary>
+    public async Task SetLoginCanceledByPersonAsync(string sessionId, bool canceled, bool loggedInWhileCanceled)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var session = await context.PrefillSessions
+            .FirstOrDefaultAsync(s => s.SessionId == sessionId);
+
+        if (session != null)
+        {
+            session.LoginCanceledByPerson = canceled;
+            session.LoggedInWhilePersonCanceled = loggedInWhileCanceled;
+            await context.SaveChangesAsync();
+        }
+    }
+
+    /// <summary>
     /// Updates the persisted validity window (<see cref="PrefillSession.ExpiresAtUtc"/>) for a session.
     /// Called when the admin changes the persistent login validity so the re-anchored expiry survives a
     /// manager restart: the re-adopt path prefers a future <c>dbRecord.ExpiresAtUtc</c>, so without this

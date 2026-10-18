@@ -5,6 +5,7 @@ import { Logs, PlayCircle, RotateCcw } from 'lucide-react';
 import '../managementSectionContent.css';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
@@ -15,11 +16,14 @@ import Badge from '@components/ui/Badge';
 import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
 import { SectionErrorChip, SectionHeaderActions } from '@components/ui/SectionHeaderActions';
 import { ActionMenuItem } from '@components/ui/ActionMenu';
+import { DisabledActionGate } from '@components/features/management/DisabledActionGate';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { API_BASE } from '@utils/constants';
 import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
 import { useConfig } from '@contexts/useConfig';
 import { useDirectoryPermissionsContext } from '@contexts/useDirectoryPermissionsContext';
 import { useSelectionSet } from '@hooks/useSelectionSet';
+import { useHeldValue } from '@hooks/useHeldValue';
 import { getErrorMessage } from '@utils/error';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useReconnectRefetch } from '@/hooks/useReconnectRefetch';
@@ -73,6 +77,25 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const [resetModal, setResetModal] = useState<{ datasource: string | null; all: boolean } | null>(
     null
   );
+  const shownResetModal = useHeldValue(resetModal);
+  // Read when a reset answers, to learn whether the person closed the dialog while it waited.
+  const resetModalRef = useRef(resetModal);
+  resetModalRef.current = resetModal;
+  // Resets in flight as `<target>:<position>`, the target being a datasource name or 'all'. Each
+  // target busies only its own opener, so a reset waiting on the log lock locks nothing else.
+  const runningResets = useSelectionSet<string>();
+  const isResetRunning = (target: string): boolean =>
+    runningResets.isSelected(`${target}:top`) || runningResets.isSelected(`${target}:bottom`);
+  const shownResetTarget = shownResetModal?.datasource || 'all';
+  const [resetError, setResetError] = useState<string | null>(null);
+  // The server refuses a log action for the whole time an unmapped removal runs or is being stopped.
+  const isUnmappedRemovalRunning = useOperationBusy({
+    types: ['unmapped_file_removal'],
+    status: ['running', 'cancelling']
+  });
+  const unmappedRemovalReason = isUnmappedRemovalRunning
+    ? t('management.storage.unmappedRemovalRunning')
+    : '';
   const [isExpanded, setIsExpanded] = useSectionExpanded(
     'management-datasources-expanded-v2',
     false
@@ -196,19 +219,78 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     await saveCacheSize(name, '', 'reset');
   };
   const signalR = useSignalR();
+  const [serverLogResetRunning, setServerLogResetRunning] = useState(false);
+  const [logResetRunningKnown, setLogResetRunningKnown] = useState(mockMode);
+  const logResetRunningPollRef = useRef(0);
+  const logResetRunningAppliedRef = useRef(0);
 
   // Check if processing is running or queued behind another operation
   const isProcessing = useOperationBusy({
     types: ['log_processing'],
     status: ['running', 'waiting']
   });
+  // A Start from End count holds the processing gate as a hidden log processing run, so this
+  // reason covers it as well as a processing pass.
+  const logsInUseReason = isProcessing ? t('management.datasources.logsInUse') : '';
+  const resetAllRunningReason = isResetRunning('all')
+    ? t('management.datasources.resetRunning')
+    : '';
+  const repositionRowReason = isUnmappedRemovalRunning ? unmappedRemovalReason : logsInUseReason;
+  const repositionAllReason = isUnmappedRemovalRunning
+    ? unmappedRemovalReason
+    : resetAllRunningReason ||
+      (logResetRunningKnown && serverLogResetRunning
+        ? t('management.datasources.resetRunning')
+        : '') ||
+      logsInUseReason ||
+      (!logResetRunningKnown ? t('management.datasources.resetRunningUnknown') : '');
+  const repositionAllDisabled =
+    loading ||
+    isResetRunning('all') ||
+    serverLogResetRunning ||
+    (!logResetRunningKnown && !mockMode) ||
+    isProcessing ||
+    isUnmappedRemovalRunning ||
+    mockMode ||
+    !isAdmin ||
+    checkingPermissions;
+  const processAllDisabled =
+    loading ||
+    actionLoading !== null ||
+    isProcessing ||
+    mockMode ||
+    !isAdmin ||
+    checkingPermissions;
+
+  const refreshLogResetRunning = useCallback(async () => {
+    if (mockMode) {
+      setServerLogResetRunning(false);
+      setLogResetRunningKnown(true);
+      return;
+    }
+    const request = ++logResetRunningPollRef.current;
+    try {
+      const res = await fetch(
+        `${API_BASE}/logs/reset-running`,
+        ApiService.getFetchOptions({ signal: AbortSignal.timeout(10000) })
+      );
+      if (!res.ok) return;
+      const body = (await res.json()) as { running?: boolean };
+      if (request <= logResetRunningAppliedRef.current) return;
+      logResetRunningAppliedRef.current = request;
+      setLogResetRunningKnown(true);
+      setServerLogResetRunning(body.running === true);
+    } catch {
+      // A failed or non-OK read does not retire an older success.
+    }
+  }, [mockMode]);
 
   const loadData = useCallback(async () => {
     const request = ++positionsRequestRef.current;
     setLoading(true);
     setLoadError(null);
     try {
-      const positionsData = await fetchLogPositions();
+      const [positionsData] = await Promise.all([fetchLogPositions(), refreshLogResetRunning()]);
       if (request !== positionsRequestRef.current) return;
       setLogPositions(positionsData);
     } catch (err) {
@@ -218,7 +300,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       // Background refreshes never raise the skeleton, so a superseded load still lowers it.
       setLoading(false);
     }
-  }, []);
+  }, [refreshLogResetRunning]);
 
   // Load log positions
   useEffect(() => {
@@ -235,7 +317,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const refreshPositions = useCallback(async () => {
     const request = ++positionsRequestRef.current;
     try {
-      const positions = await fetchLogPositions();
+      const [positions] = await Promise.all([fetchLogPositions(), refreshLogResetRunning()]);
       if (request !== positionsRequestRef.current) return;
       setLogPositions(positions);
       setLoadError(null);
@@ -243,7 +325,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       if (request !== positionsRequestRef.current) return;
       setLoadError(getErrorMessage(err));
     }
-  }, []);
+  }, [refreshLogResetRunning]);
 
   // Listen for processing complete events to refresh positions
   useEffect(() => {
@@ -276,6 +358,18 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     void refreshPositions();
   });
 
+  // The header action is on screen for the whole time this section is mounted, collapsed or not.
+  // A reset started on another page sets no event this section listens for, so the flag has to
+  // be read on a timer before it has ever been true. A failed read leaves the last answer.
+  useEffect(() => {
+    if (mockMode) return;
+    void refreshLogResetRunning();
+    const id = setInterval(() => {
+      void refreshLogResetRunning();
+    }, 2000);
+    return () => clearInterval(id);
+  }, [mockMode, refreshLogResetRunning]);
+
   const handleProcessAll = async () => {
     if (!isAdmin || isProcessing) return;
 
@@ -305,11 +399,18 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     }
   };
 
-  const handleResetPosition = async (datasourceName: string | null, position: 'top' | 'bottom') => {
-    if (!isAdmin) return;
+  // A press during the dialog's fade has no datasource to read (resetModal is already null) and
+  // must not fall through to resetting every datasource. A repeat press for a target whose reset
+  // runs is ignored. A reset of another target is sent, and the server's refusal shows like any
+  // other.
+  const handleResetPosition = async (position: 'top' | 'bottom') => {
+    if (!isAdmin || resetModal === null) return;
 
+    const datasourceName = resetModal.datasource;
     const targetName = datasourceName || 'all';
-    setActionLoading(`reset-${targetName}`);
+    if (isResetRunning(targetName)) return;
+    const resetKey = `${targetName}:${position}`;
+    runningResets.setMany([resetKey], true);
     try {
       if (datasourceName) {
         await ApiService.resetDatasourceLogPosition(datasourceName, position);
@@ -320,15 +421,28 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         await ApiService.resetLogPosition(position);
         onSuccess?.(t('management.datasources.messages.positionResetAll'));
       }
+      // Only this reset's own dialog closes; one opened for another target stays.
+      setResetModal((current) => (current?.datasource === datasourceName ? null : current));
       // Refresh positions
       await refreshPositions();
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.(t('management.datasources.errors.resetFailed'), err);
+      // This reset's dialog, still open, shows the refusal beside the choice the person made; once
+      // closed, or replaced by another target's dialog, it is reported the way the success is.
+      if (resetModalRef.current?.datasource === datasourceName) {
+        setResetError(getErrorMessage(err));
+      } else {
+        onError?.(t('management.datasources.errors.resetFailed'), err);
+      }
     } finally {
-      setActionLoading(null);
-      setResetModal(null);
+      runningResets.setMany([resetKey], false);
     }
+  };
+
+  // Closing never waits on the request: the server can hold it on the log lock for a whole
+  // import pass, and the opener for that target shows the reset busy until it answers.
+  const closeResetModal = () => {
+    setResetModal(null);
   };
 
   const getPositionForDatasource = (name: string): DatasourceLogPosition | undefined => {
@@ -408,40 +522,49 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       <SectionActionsMenu label={t('management.actions.menuLabel')}>
         {(close) => (
           <>
-            <ActionMenuItem
-              icon={<RotateCcw className="w-3.5 h-3.5" />}
-              disabled={
-                loading ||
-                actionLoading !== null ||
-                isProcessing ||
-                mockMode ||
-                !isAdmin ||
-                checkingPermissions
-              }
-              onClick={() => {
-                setResetModal({ datasource: null, all: true });
-                close();
-              }}
+            <DisabledActionGate
+              disabled={repositionAllDisabled}
+              reason={repositionAllReason}
+              label={t('management.datasources.reposition')}
+              position="left"
+              className="block w-full"
             >
-              {t('management.datasources.reposition')}
-            </ActionMenuItem>
-            <ActionMenuItem
-              icon={<PlayCircle className="w-3.5 h-3.5" />}
-              disabled={
-                loading ||
-                actionLoading !== null ||
-                isProcessing ||
-                mockMode ||
-                !isAdmin ||
-                checkingPermissions
-              }
-              onClick={() => {
-                handleProcessAll();
-                close();
-              }}
+              <ActionMenuItem
+                icon={
+                  isResetRunning('all') ? (
+                    <LoadingSpinner inline size="xs" />
+                  ) : (
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  )
+                }
+                disabled={repositionAllDisabled}
+                onClick={() => {
+                  setResetError(null);
+                  setResetModal({ datasource: null, all: true });
+                  close();
+                }}
+              >
+                {t('management.datasources.reposition')}
+              </ActionMenuItem>
+            </DisabledActionGate>
+            <DisabledActionGate
+              disabled={processAllDisabled}
+              reason={logsInUseReason}
+              label={t('common.processAll')}
+              position="left"
+              className="block w-full"
             >
-              {t('common.processAll')}
-            </ActionMenuItem>
+              <ActionMenuItem
+                icon={<PlayCircle className="w-3.5 h-3.5" />}
+                disabled={processAllDisabled}
+                onClick={() => {
+                  handleProcessAll();
+                  close();
+                }}
+              >
+                {t('common.processAll')}
+              </ActionMenuItem>
+            </DisabledActionGate>
           </>
         )}
       </SectionActionsMenu>
@@ -506,6 +629,15 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
               // "access.log" title is inaccurate. Show the source-set count instead.
               const isMultiSource = ds.layout === 'bare_metal' || ds.layout === 'mixed';
               const sourceCount = position?.sourceCount ?? ds.sourceCount ?? 0;
+              const repositionDisabled =
+                isProcessing || isUnmappedRemovalRunning || mockMode || !isAdmin || !ds.enabled;
+              const processDisabled =
+                actionLoading !== null ||
+                isProcessing ||
+                mockMode ||
+                !isAdmin ||
+                !ds.enabled ||
+                position?.totalLines === 0;
 
               return (
                 <DatasourceListItem
@@ -658,48 +790,54 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                         <p className="mgmt-row__meta">{formatPosition(position)}</p>
                       </div>
                       <div className="mgmt-row__actions">
-                        <Button
-                          variant="filled"
-                          color="run"
-                          size="sm"
-                          className="datasource-row-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setResetModal({ datasource: ds.name, all: false });
-                          }}
-                          awaitPermissions
-                          disabled={
-                            actionLoading !== null ||
-                            isProcessing ||
-                            mockMode ||
-                            !isAdmin ||
-                            !ds.enabled
-                          }
+                        <DisabledActionGate
+                          disabled={repositionDisabled}
+                          reason={repositionRowReason}
+                          label={t('management.datasources.reposition')}
                         >
-                          {t('management.datasources.reposition')}
-                        </Button>
-                        <Button
-                          variant="filled"
-                          color="run"
-                          size="sm"
-                          className="datasource-row-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleProcessDatasource(ds.name);
-                          }}
-                          awaitPermissions
-                          disabled={
-                            actionLoading !== null ||
-                            isProcessing ||
-                            mockMode ||
-                            !isAdmin ||
-                            !ds.enabled ||
-                            position?.totalLines === 0
+                          <Button
+                            variant="filled"
+                            color="run"
+                            size="sm"
+                            className="datasource-row-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setResetError(null);
+                              setResetModal({ datasource: ds.name, all: false });
+                            }}
+                            awaitPermissions
+                            loading={isResetRunning(ds.name)}
+                            disabled={repositionDisabled}
+                          >
+                            {t('management.datasources.reposition')}
+                          </Button>
+                        </DisabledActionGate>
+                        <DisabledActionGate
+                          disabled={processDisabled}
+                          reason={
+                            logsInUseReason ||
+                            (position?.totalLines === 0
+                              ? t('management.datasources.noLogLines')
+                              : '')
                           }
-                          loading={actionLoading === `access-${ds.name}`}
+                          label={t('common.process')}
                         >
-                          {t('common.process')}
-                        </Button>
+                          <Button
+                            variant="filled"
+                            color="run"
+                            size="sm"
+                            className="datasource-row-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleProcessDatasource(ds.name);
+                            }}
+                            awaitPermissions
+                            disabled={processDisabled}
+                            loading={actionLoading === `access-${ds.name}`}
+                          >
+                            {t('common.process')}
+                          </Button>
+                        </DisabledActionGate>
                       </div>
                     </div>
                   </div>
@@ -740,12 +878,12 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       {/* Reposition Log Modal */}
       <Modal
         opened={resetModal !== null}
-        onClose={() => setResetModal(null)}
+        onClose={closeResetModal}
         title={
-          resetModal?.all
+          shownResetModal?.all
             ? t('management.datasources.modal.repositionAll')
             : t('management.datasources.modal.repositionSingle', {
-                datasource: resetModal?.datasource
+                datasource: shownResetModal?.datasource
               })
         }
       >
@@ -764,33 +902,42 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
             </p>
           </div>
 
+          {resetError !== null && (
+            <Alert color="error" title={t('management.datasources.errors.resetFailed')}>
+              {resetError}
+            </Alert>
+          )}
+
+          {/* A removal that starts while the dialog is already open. */}
+          {isUnmappedRemovalRunning && (
+            <Alert color="yellow">
+              <p className="text-sm">{unmappedRemovalReason}</p>
+            </Alert>
+          )}
+
           <div className="flex flex-col gap-3">
             <Button
               variant="filled"
               color="run"
-              onClick={() => handleResetPosition(resetModal?.datasource || null, 'top')}
+              onClick={() => handleResetPosition('top')}
               awaitPermissions
-              loading={actionLoading?.startsWith('reset-')}
+              loading={runningResets.isSelected(`${shownResetTarget}:top`)}
+              disabled={isUnmappedRemovalRunning}
               fullWidth
             >
               {t('management.datasources.modal.startFromBeginning')}
             </Button>
             <Button
               variant="default"
-              onClick={() => handleResetPosition(resetModal?.datasource || null, 'bottom')}
+              onClick={() => handleResetPosition('bottom')}
               awaitPermissions
-              loading={actionLoading?.startsWith('reset-')}
+              loading={runningResets.isSelected(`${shownResetTarget}:bottom`)}
+              disabled={isUnmappedRemovalRunning}
               fullWidth
             >
               {t('management.datasources.modal.startFromEnd')}
             </Button>
-            <Button
-              variant="filled"
-              color="secondary"
-              onClick={() => setResetModal(null)}
-              disabled={actionLoading !== null}
-              fullWidth
-            >
+            <Button variant="filled" color="secondary" onClick={closeResetModal} fullWidth>
               {t('common.cancel')}
             </Button>
           </div>

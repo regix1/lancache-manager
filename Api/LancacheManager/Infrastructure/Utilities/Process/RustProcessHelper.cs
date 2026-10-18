@@ -955,8 +955,7 @@ public partial class RustProcessHelper
         return new LogLineCountResult(
             progress.LinesProcessed,
             progress.FilesProcessed,
-            progress.SourceLineCounts ?? new Dictionary<string, long>(),
-            progress.FilesWithErrors ?? 0)
+            progress.SourceLineCounts ?? new Dictionary<string, long>())
         {
             FileLineCounts = progress.FileLineCounts ?? new Dictionary<string, long>(),
             StaleReadRecords = progress.StaleReadRecords ?? new Dictionary<string, StaleReadRecords>()
@@ -1164,13 +1163,6 @@ public partial class RustProcessHelper
         /// <summary>Read records of removed files per stem with a resume record (count-lines --resume only).</summary>
         [System.Text.Json.Serialization.JsonPropertyName("stale_read_records")]
         public Dictionary<string, StaleReadRecords>? StaleReadRecords { get; init; }
-
-        /// <summary>
-        /// Count of source files whose count stopped at an unreadable member (count-lines only).
-        /// Absent or zero means every source read cleanly and the totals are authoritative.
-        /// </summary>
-        [System.Text.Json.Serialization.JsonPropertyName("files_with_errors")]
-        public long? FilesWithErrors { get; init; }
     }
 
     /// <summary>
@@ -1185,6 +1177,7 @@ public partial class RustProcessHelper
         string? evidenceFile = null,
         string? progressFile = null,
         string? stemPositionsFile = null,
+        string? resumeFile = null,
         CancellationToken cancellationToken = default,
         Guid? operationId = null,
         Func<RustProgressEvent, Task>? onProgressEvent = null,
@@ -1198,6 +1191,7 @@ public partial class RustProcessHelper
             evidenceFile,
             progressFile,
             stemPositionsFile,
+            resumeFile,
             cancellationToken,
             operationId,
             onProgressEvent,
@@ -1212,6 +1206,7 @@ public partial class RustProcessHelper
         string? evidenceFile,
         string? progressFile,
         string? stemPositionsFile,
+        string? resumeFile,
         CancellationToken cancellationToken,
         Guid? operationId,
         Func<RustProgressEvent, Task>? onProgressEvent,
@@ -1249,7 +1244,8 @@ public partial class RustProcessHelper
                 progressArg,
                 keyScheme,
                 stemPositionsFile,
-                operationId);
+                operationId,
+                resumeFile);
 
             _logger.LogInformation("[corruption_manager] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
@@ -1343,7 +1339,8 @@ public partial class RustProcessHelper
         string? progressFile,
         string keyScheme,
         string? stemPositionsFile = null,
-        Guid? operationId = null) => command switch
+        Guid? operationId = null,
+        string? resumeFile = null) => command switch
         {
             "remove" when !string.IsNullOrEmpty(service)
                 && !string.IsNullOrEmpty(cachePath)
@@ -1358,7 +1355,8 @@ public partial class RustProcessHelper
                 && !string.IsNullOrEmpty(progressFile)
                 && !string.IsNullOrEmpty(keyScheme) =>
                 $"remove-logs \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme}"
-                    + (string.IsNullOrEmpty(stemPositionsFile) ? "" : $" --stem-positions \"{stemPositionsFile}\""),
+                    + (string.IsNullOrEmpty(stemPositionsFile) ? "" : $" --stem-positions \"{stemPositionsFile}\"")
+                    + (string.IsNullOrEmpty(resumeFile) ? "" : $" --resume \"{resumeFile}\""),
             "remove-structural" when !string.IsNullOrEmpty(cachePath)
                 && !string.IsNullOrEmpty(evidenceFile)
                 && !string.IsNullOrEmpty(progressFile)

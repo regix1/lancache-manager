@@ -87,6 +87,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     private async Task OnStatusChangeAsync(DaemonSession session, DaemonStatus status)
     {
+        Exception? cancelMarkWriteFailure = null;
         try
         {
             // Post-detach/replace/terminate guard: daemon event callbacks are dispatched fire-and-forget,
@@ -102,6 +103,8 @@ public abstract partial class PrefillDaemonServiceBase
 
             DaemonAuthState previousAuthState;
             DaemonAuthState newAuthState;
+            var cancelMarkCleared = false;
+            var witnessArmed = false;
             lock (session.PrefillLock)
             {
                 if (!IsSessionLive(session) || session.AdmissionClosed)
@@ -110,7 +113,7 @@ public abstract partial class PrefillDaemonServiceBase
                 }
 
                 previousAuthState = session.AuthState;
-                newAuthState = status.Status switch
+                var reportedAuthState = status.Status switch
                 {
                     "awaiting-login" => DaemonAuthState.NotAuthenticated,
                     "not-logged-in" when status.SupportsConcurrentPrefill && Platform.RequiresLogin() => DaemonAuthState.NotAuthenticated,
@@ -118,29 +121,105 @@ public abstract partial class PrefillDaemonServiceBase
                     _ => session.AuthState
                 };
 
-                session.AuthState = newAuthState;
-                // The daemon reports a refused sign-in as "awaiting-login" with a "Login failed:" message.
-                // Record it before the auth-state change below ends the tracked sign-in, so that sign-in
-                // ends as a failure rather than a cancel.
-                if (newAuthState == DaemonAuthState.NotAuthenticated && TryGetLoginFailureMessage(status, out var failureMessage))
+                // The stored mark is the keep, including before the in-memory set is filled. A logged-in
+                // report must not sign the container in, count a sign-in, end the drop retry, settle the
+                // login, or clear the mark. A report after this cancel has settled remembers that the
+                // daemon reached signed-in, so a later connection drop can clear the mark and sign in once.
+                // Message "Initialized" is the daemon's startup snapshot (GetStatus maps isInitialized to
+                // that text). It is not a finished sign-in, so it never arms the drop for this cancel.
+                // A logged-in report while this cancel is still running is the cancel's own sign-in,
+                // including one with no message, so it does not arm either. Once LoginCanceling is
+                // clear, a later logged-in report does, and a drop after that can sign in once.
+                var keepPersonCancel = session.LoginCanceledByPerson
+                    && reportedAuthState == DaemonAuthState.Authenticated;
+                if (keepPersonCancel)
                 {
-                    session.LastLoginFailureMessage = failureMessage;
-                    // A refused sign-in answers no prompt it left open, so the next start begins a new sign-in
-                    // instead of resuming this one.
-                    ClearPendingLoginChallenge(session);
+                    var initializedSnapshot = string.Equals(status.Message, "Initialized", StringComparison.Ordinal);
+                    if (!session.LoggedInWhilePersonCanceled && !initializedSnapshot && !session.LoginCanceling)
+                    {
+                        session.LoggedInWhilePersonCanceled = true;
+                        witnessArmed = true;
+                    }
+                    newAuthState = DaemonAuthState.NotAuthenticated;
+                    session.AuthState = newAuthState;
                 }
-                if (newAuthState == DaemonAuthState.Authenticated
-                    && session.LoginOperationId is null
-                    && !session.SuppressLoginChallengePublication)
+                else
                 {
-                    session.LoginSettled = true;
+                    newAuthState = reportedAuthState;
+                    session.AuthState = newAuthState;
+                    // Any sign-in ends the retry for the drop before it. A retry still waiting returns at its
+                    // next wake, and the next drop starts its own retry with the first wait.
+                    if (newAuthState == DaemonAuthState.Authenticated)
+                    {
+                        session.SignInCount++;
+                        session.SignInAgainAfterDrop = null;
+                        cancelMarkCleared = session.LoginCanceledByPerson || session.LoggedInWhilePersonCanceled;
+                        session.LoginCanceledByPerson = false;
+                        session.LoggedInWhilePersonCanceled = false;
+                        _canceledAutomaticSignIn.TryRemove(session.Id, out _);
+                    }
+
+                    // The daemon reports a refused sign-in as "awaiting-login" with a "Login failed:" message.
+                    // Record it before the auth-state change below ends the tracked sign-in, so that sign-in
+                    // ends as a failure rather than a cancel.
+                    if (newAuthState == DaemonAuthState.NotAuthenticated && TryGetLoginFailureMessage(status, out var failureMessage))
+                    {
+                        session.LastLoginFailureMessage = failureMessage;
+                        // A refused sign-in answers no prompt it left open, so the next start begins a new sign-in
+                        // instead of resuming this one.
+                        ClearPendingLoginChallenge(session);
+                    }
+
+                    if (newAuthState == DaemonAuthState.Authenticated
+                        && session.LoginOperationId is null
+                        && !session.SuppressLoginChallengePublication)
+                    {
+                        session.LoginSettled = true;
+                    }
+                    else if (newAuthState == DaemonAuthState.NotAuthenticated
+                        && session.LoginOperationId is null
+                        && session.PendingLoginChallenge is null
+                        && !session.SuppressLoginChallengePublication)
+                    {
+                        session.LoginSettled = true;
+                    }
                 }
-                else if (newAuthState == DaemonAuthState.NotAuthenticated
-                    && session.LoginOperationId is null
-                    && session.PendingLoginChallenge is null
-                    && !session.SuppressLoginChallengePublication)
+
+                // A drop after the daemon had reached signed-in is not the drop already in flight for this
+                // cancel. Clear the mark so the one retry below can start.
+                if (!keepPersonCancel
+                    && newAuthState == DaemonAuthState.NotAuthenticated
+                    && status.ErrorCode == "auth-lost"
+                    && session.IsPersistent
+                    && session.LoginCanceledByPerson
+                    && session.LoggedInWhilePersonCanceled)
                 {
-                    session.LoginSettled = true;
+                    session.LoggedInWhilePersonCanceled = false;
+                    session.LoginCanceledByPerson = false;
+                    _canceledAutomaticSignIn.TryRemove(session.Id, out _);
+                    cancelMarkCleared = true;
+                }
+            }
+
+            if (cancelMarkCleared || witnessArmed)
+            {
+                try
+                {
+                    await SaveLoginCanceledByPersonAsync(session);
+                }
+                catch (Exception ex)
+                {
+                    // This read's witness never reached the row, so the in-memory flag goes back to clear.
+                    if (witnessArmed)
+                    {
+                        lock (session.PrefillLock)
+                        {
+                            session.LoggedInWhilePersonCanceled = false;
+                        }
+                    }
+
+                    cancelMarkWriteFailure = ex;
+                    throw;
                 }
             }
 
@@ -205,6 +284,13 @@ public abstract partial class PrefillDaemonServiceBase
                 return;
             }
 
+            // Status reads carry the daemon's drop code too, so whichever report lands first starts
+            // the one retry for this drop, including the first status read after a manager restart.
+            if (newAuthState == DaemonAuthState.NotAuthenticated && status.ErrorCode == "auth-lost" && session.IsPersistent)
+            {
+                StartSignInAgain(session);
+            }
+
             if (session.AuthState != previousAuthState)
             {
                 await NotifyAuthStateChangeAsync(session);
@@ -246,7 +332,7 @@ public abstract partial class PrefillDaemonServiceBase
             if (session.AuthState == newAuthState)
                 await NotifyStatusChangeAsync(session, status);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!ReferenceEquals(ex, cancelMarkWriteFailure))
         {
             _logger.LogWarning(ex, "Error handling socket status change for session {SessionId}", session.Id);
         }
@@ -1060,6 +1146,15 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 if (!session.Runs.IsEmpty) session.Recovering = true;
                 return;
+            }
+            // A drop pushed while the socket to the daemon was down reaches the app only through a read.
+            // Only an always-on Steam session acts on it; applying it to other sessions would send them a
+            // status message every sweep.
+            if (session.IsPersistent
+                && Platform == PrefillPlatform.Steam
+                && (session.LoginOperationId is null || status.Status == "logged-in"))
+            {
+                await OnStatusChangeAsync(session, status);
             }
             await RecoverRunsAsync(session, status, cancellationToken);
         }

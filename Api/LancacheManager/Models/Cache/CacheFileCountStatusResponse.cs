@@ -32,4 +32,10 @@ public sealed class CacheFileCountStatusResponse
     /// a number smaller than what the removal reaches.
     /// </summary>
     public int? CacheFilesFound { get; set; }
+
+    /// <summary>Bytes of the files found. Present with <see cref="CacheFilesFound"/>.</summary>
+    public long? BytesFound { get; set; }
+
+    /// <summary>The unmapped count's files by service. Present only for the unmapped count once it finished.</summary>
+    public IReadOnlyList<UnmappedService>? UnmappedServices { get; set; }
 }

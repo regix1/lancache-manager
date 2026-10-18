@@ -19,4 +19,12 @@ public interface IOperationConflictChecker
     /// describing the blocking active operation.
     /// </summary>
     Task<OperationConflictResponse?> CheckAsync(OperationType newType, ConflictScope newScope, CancellationToken ct);
+
+    /// <summary>
+    /// Keeps a run that registers one operation per step in the check as one operation over all of
+    /// <paramref name="scopes"/>, also between its steps, until the returned handle is disposed.
+    /// A conflict names <paramref name="currentOperationId"/>, the step running now (empty before the
+    /// first step registers). Disposing lets parked operations check again.
+    /// </summary>
+    IDisposable HoldRun(OperationType type, IReadOnlyList<ConflictScope> scopes, Func<Guid> currentOperationId);
 }

@@ -24,6 +24,7 @@ use lancache_processor::cancel;
 use lancache_processor::db;
 use lancache_processor::log_layout;
 use lancache_processor::log_purge;
+use lancache_processor::log_resume;
 use lancache_processor::progress_events;
 use lancache_processor::progress_utils::{self, write_progress, ProgressData};
 use log_purge::{ExactLogMatcher, ExactLogObservation};
@@ -149,6 +150,10 @@ enum Commands {
         /// the log purge split removed lines at the read position so the adjustment is exact.
         #[arg(long = "stem-positions")]
         stem_positions: Option<String>,
+        /// The importer's resume record. It names the logs logrotate deleted since the last pass,
+        /// which the saved positions still count.
+        #[arg(long)]
+        resume: Option<String>,
         #[arg(short, long)]
         progress: bool,
     },
@@ -175,6 +180,7 @@ struct RemovalEvidenceEnvelope {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     threshold: Option<usize>,
     datasource: String,
+    scan_started_utc: String,
     candidates: Vec<RemovalCandidate>,
 }
 
@@ -193,6 +199,7 @@ struct ValidatedRemovalEvidence {
     scan_id: Uuid,
     threshold: usize,
     datasource: String,
+    scan_started_utc: DateTime<Utc>,
     candidates: Vec<CorruptionCandidate>,
     exact_paths: Vec<ExactRemovalPath>,
     observations: Vec<ExactLogObservation>,
@@ -225,6 +232,7 @@ struct ExactPathRemovalOutcome {
     deleted_files: usize,
     already_missing: usize,
     key_verification_skipped: usize,
+    changed_since_scan: usize,
     bytes_freed: u64,
 }
 
@@ -480,6 +488,7 @@ fn load_and_validate_removal_evidence(
     if envelope.datasource.trim().is_empty() {
         bail!("evidence datasource is required");
     }
+    let scan_started_utc = parse_scan_started_utc(Some(&envelope.scan_started_utc))?;
     if envelope.candidates.is_empty() {
         bail!("evidence file contains no removal candidates");
     }
@@ -633,6 +642,7 @@ fn load_and_validate_removal_evidence(
         scan_id,
         threshold,
         datasource: envelope.datasource,
+        scan_started_utc,
         candidates,
         exact_paths: paths
             .into_iter()
@@ -648,6 +658,7 @@ fn delete_exact_paths_with<F>(
     progress_path: &Path,
     reporter: &ProgressReporter,
     key_scheme: cache_utils::CacheKeyScheme,
+    scan_started: DateTime<Utc>,
     mut remove_file: F,
 ) -> Result<ExactPathRemovalOutcome>
 where
@@ -689,6 +700,14 @@ where
         if !metadata.is_file() {
             bail!("exact path is not a regular file: {}", path.display());
         }
+        // A file written after the scan started was fetched again since the scan judged it.
+        let modified = metadata
+            .modified()
+            .with_context(|| format!("failed to read modified time of {}", path.display()))?;
+        if DateTime::<Utc>::from(modified) > scan_started {
+            outcome.changed_since_scan += 1;
+            continue;
+        }
         let key_matches = candidate
             .expected_key
             .as_deref()
@@ -719,6 +738,7 @@ fn delete_exact_paths(
     paths: &[ExactRemovalPath],
     progress_path: &Path,
     reporter: &ProgressReporter,
+    scan_started: DateTime<Utc>,
 ) -> Result<ExactPathRemovalOutcome> {
     delete_exact_paths_with(
         cache_dir,
@@ -726,6 +746,7 @@ fn delete_exact_paths(
         progress_path,
         reporter,
         cache_utils::active_key_scheme(),
+        scan_started,
         |path| std::fs::remove_file(path),
     )
 }
@@ -910,6 +931,7 @@ fn load_and_validate_structural_evidence(
     if envelope.datasource.trim().is_empty() {
         bail!("evidence datasource is required");
     }
+    parse_scan_started_utc(Some(&envelope.scan_started_utc))?;
     if envelope.candidates.is_empty() {
         bail!("evidence file contains no removal candidates");
     }
@@ -1182,8 +1204,13 @@ fn run_remove(
     if !evidence.exact_paths.is_empty() {
         cache_repair::prepare_receipt(cache_dir, operation_id)?;
     }
-    let cache_outcome =
-        delete_exact_paths(cache_dir, &evidence.exact_paths, progress_path, reporter)?;
+    let cache_outcome = delete_exact_paths(
+        cache_dir,
+        &evidence.exact_paths,
+        progress_path,
+        reporter,
+        evidence.scan_started_utc,
+    )?;
     let removed_count = completed_exact_removal_count(&cache_outcome)?;
 
     // The host's locked `remove-logs` step finishes the removal and owns the counted completion.
@@ -1198,6 +1225,7 @@ fn run_remove(
             "files": cache_outcome.deleted_files,
             "alreadyMissing": cache_outcome.already_missing,
             "keyVerificationSkipped": cache_outcome.key_verification_skipped,
+            "changedSinceScan": cache_outcome.changed_since_scan,
             "bytesFreed": cache_outcome.bytes_freed
         }),
         100.0,
@@ -1214,6 +1242,7 @@ async fn run_remove_logs(
     progress_path: &Path,
     evidence_path: &Path,
     stem_positions: Option<&std::collections::HashMap<String, u64>>,
+    resume: Option<&log_resume::ResumeFile>,
     reporter: &ProgressReporter,
 ) -> Result<()> {
     let evidence = load_and_validate_removal_evidence(evidence_path, cache_dir, service)?;
@@ -1259,6 +1288,7 @@ async fn run_remove_logs(
         |entry| matcher.matches(entry),
         Some(&filter_callback),
         stem_positions,
+        resume,
     )?;
     if log_outcome.permission_errors > 0 || log_outcome.other_errors > 0 {
         // The strict rewrite succeeds file by file, so lines are already gone from the files
@@ -1549,12 +1579,16 @@ async fn main() -> Result<()> {
             progress_json,
             evidence_file,
             stem_positions,
+            resume,
             progress,
         } => {
             let reporter = ProgressReporter::new(progress);
             let stem_positions = stem_positions
                 .as_deref()
                 .and_then(log_purge::read_stem_positions);
+            let resume = resume
+                .as_deref()
+                .map(|path| log_resume::load(Path::new(path)));
             let result = run_remove_logs(
                 Path::new(&log_dir),
                 Path::new(&cache_dir),
@@ -1562,6 +1596,7 @@ async fn main() -> Result<()> {
                 Path::new(&progress_json),
                 Path::new(&evidence_file),
                 stem_positions.as_ref(),
+                resume.as_ref(),
                 &reporter,
             )
             .await;
@@ -1601,6 +1636,13 @@ mod tests {
     use super::*;
     use cache_corruption_detector::CandidateObservation;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Later than any file a test writes, so a fixture file is never "changed since the scan".
+    const FIXTURE_SCAN_START: &str = "2100-01-01T00:00:00Z";
+
+    fn fixture_scan_start() -> DateTime<Utc> {
+        parse_scan_started_utc(Some(FIXTURE_SCAN_START)).unwrap()
+    }
 
     fn make_candidate(cache_dir: &Path, datasource: &str, threshold: usize) -> RemovalCandidate {
         let raw_url = "/depot/file.bin".to_string();
@@ -1658,6 +1700,7 @@ mod tests {
             detection_method: DetectionMethod::RepeatedMiss,
             threshold: Some(threshold),
             datasource: datasource.to_string(),
+            scan_started_utc: FIXTURE_SCAN_START.to_string(),
             candidates,
         };
         std::fs::write(&path, serde_json::to_vec_pretty(&envelope).unwrap()).unwrap();
@@ -1715,6 +1758,7 @@ mod tests {
             detection_method: DetectionMethod::Structural,
             threshold: None,
             datasource: datasource.to_string(),
+            scan_started_utc: FIXTURE_SCAN_START.to_string(),
             candidates,
         };
         std::fs::write(&path, serde_json::to_vec_pretty(&envelope).unwrap()).unwrap();
@@ -2275,6 +2319,7 @@ mod tests {
             &progress,
             &ProgressReporter::new(false),
             cache_utils::CacheKeyScheme::Monolithic,
+            fixture_scan_start(),
             |path| std::fs::remove_file(path),
         )
         .unwrap();
@@ -2317,6 +2362,7 @@ mod tests {
             &fixture.path().join("progress.json"),
             &ProgressReporter::new(false),
             cache_utils::CacheKeyScheme::BareMetal,
+            fixture_scan_start(),
             |candidate_path| std::fs::remove_file(candidate_path),
         )
         .unwrap();
@@ -2344,6 +2390,7 @@ mod tests {
             &fixture.path().join("progress.json"),
             &ProgressReporter::new(false),
             cache_utils::CacheKeyScheme::BareMetal,
+            fixture_scan_start(),
             |candidate_path| {
                 remove_calls.fetch_add(1, Ordering::SeqCst);
                 std::fs::remove_file(candidate_path)
@@ -2443,6 +2490,7 @@ mod tests {
             &fixture.path().join("progress.json"),
             &ProgressReporter::new(false),
             cache_utils::CacheKeyScheme::Monolithic,
+            fixture_scan_start(),
             |path| {
                 if calls.fetch_add(1, Ordering::SeqCst) == 0 {
                     std::fs::remove_file(path)
@@ -2496,6 +2544,75 @@ mod tests {
     }
 
     #[test]
+    fn exact_removal_skips_a_file_changed_after_the_scan() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let older = cache_dir.join("older");
+        let newer = cache_dir.join("newer");
+        std::fs::write(&older, b"older").unwrap();
+        std::fs::write(&newer, b"newer").unwrap();
+        let scan_started = Utc::now();
+        let modified_before_scan = scan_started - chrono::Duration::hours(1);
+        std::fs::File::options()
+            .write(true)
+            .open(&older)
+            .unwrap()
+            .set_modified(modified_before_scan.into())
+            .unwrap();
+        let modified_after_scan = scan_started + chrono::Duration::hours(1);
+        std::fs::File::options()
+            .write(true)
+            .open(&newer)
+            .unwrap()
+            .set_modified(modified_after_scan.into())
+            .unwrap();
+
+        let outcome = delete_exact_paths_with(
+            &cache_dir,
+            &[
+                ExactRemovalPath {
+                    path: older.clone(),
+                    expected_key: None,
+                },
+                ExactRemovalPath {
+                    path: newer.clone(),
+                    expected_key: None,
+                },
+            ],
+            &fixture.path().join("progress.json"),
+            &ProgressReporter::new(false),
+            cache_utils::CacheKeyScheme::Monolithic,
+            scan_started,
+            |path| std::fs::remove_file(path),
+        )
+        .unwrap();
+
+        assert_eq!(outcome.deleted_files, 1);
+        assert_eq!(outcome.changed_since_scan, 1);
+        assert!(!older.exists());
+        assert!(newer.exists());
+    }
+
+    #[test]
+    fn removal_evidence_requires_scan_started_utc() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let candidate = make_candidate(&cache_dir, "default", 3);
+        let evidence_path = write_evidence(fixture.path(), "default", 3, vec![candidate]);
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&evidence_path).unwrap()).unwrap();
+        value.as_object_mut().unwrap().remove("scan_started_utc");
+        std::fs::write(&evidence_path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+
+        let error = load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam")
+            .expect_err("evidence without a scan start must be rejected");
+
+        assert!(format!("{error:#}").contains("scan_started_utc"));
+    }
+
+    #[test]
     fn streamed_pretty_json_matches_serde_serialization() {
         let fixture = tempfile::tempdir().unwrap();
         let cache_dir = fixture.path().join("cache");
@@ -2506,6 +2623,7 @@ mod tests {
             detection_method: DetectionMethod::RepeatedMiss,
             threshold: Some(3),
             datasource: "default".to_string(),
+            scan_started_utc: FIXTURE_SCAN_START.to_string(),
             candidates: vec![candidate],
         };
         let path = fixture.path().join("pretty.json");

@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using LancacheManager.Core.Services;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 
 namespace LancacheManager.Tests;
@@ -492,6 +493,77 @@ public sealed class LogFileLockTests : IDisposable
 
         await waiterContext.RunNextAsync();
         Assert.True(stepStarted.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task APersonsStepWaitingWhenAnUnmappedRemovalStartsIsRefusedAsync()
+    {
+        await using var harness = await CreateHarnessAsync();
+        var owner = harness.Owner;
+
+        var pass = await LockAsync(owner, LogFileLockKind.Ingest);
+        // Delete log file passed its refusal check before the removal started, then waits here.
+        owner.EnsureNoUnmappedRemovalRunning();
+        var delete = owner.LockLogFilesAsync(
+            null,
+            OperationType.LogProcessing,
+            LogFileLockKind.Rewrite,
+            CancellationToken.None,
+            personLogAction: true);
+        Assert.False(delete.IsCompleted);
+
+        owner.SetUnmappedRemovalRunning(true);
+
+        var refusal = await Assert.ThrowsAsync<ConflictException>(() => delete.WaitAsync(_wait));
+        Assert.Equal("errors.logs.unmappedRemovalRunning", refusal.StageKey);
+        // The refused step no longer waits, so the removal's own import pass goes next.
+        await pass.DisposeAsync();
+        await using var next = await LockAsync(owner, LogFileLockKind.Ingest).WaitAsync(_wait);
+    }
+
+    // A Retry starts the repair's log step, which would stop a running removal. [T24b]
+    [Fact]
+    public async Task APersonsRetryIsRefusedWhileAnUnmappedRemovalRunsAsync()
+    {
+        // Started, since a Retry first waits for startup recovery to finish.
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(_root);
+        harness.Owner.SetUnmappedRemovalRunning(true);
+
+        var refusal = await Assert.ThrowsAsync<ConflictException>(() => harness.Owner.RetryRepairAsync(Guid.NewGuid()).WaitAsync(_wait));
+
+        Assert.Equal("errors.logs.unmappedRemovalRunning", refusal.StageKey);
+    }
+
+    // A repair whose log step would stop the removal keeps the removal from starting, and the
+    // refused start leaves no flag behind to refuse a person's log action.
+    [Fact]
+    public async Task AnUnmappedRemovalDoesNotStartWhileARepairRunsAsync()
+    {
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(
+            _root,
+            apply: (_, cancellationToken) => release.Task.WaitAsync(cancellationToken));
+        var repair = new OperationRepair
+        {
+            Id = harness.Tracker.RegisterOperation(
+                OperationType.GameRemoval, "Cache removal", new CancellationTokenSource(), ownerCompletes: true),
+            Type = OperationType.GameRemoval,
+            Name = "Cache removal",
+            StartedAt = DateTime.UtcNow,
+            Sources = [new OperationRepairSource { Datasource = "alpha", LogRoot = "logs/alpha", CacheRoot = "cache/alpha" }],
+            Target = new CacheRepairTarget { SteamAppId = 480 },
+            Removal = new RemovalRepair { EntityKey = "selected", EntityName = "Selected cache", EntityKind = "game" }
+        };
+        await harness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
+        await harness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
+        await harness.Owner.FinishRepairAsync(repair.Id, false, false, "owner failure").WaitAsync(_wait);
+        Assert.Equal(repair.Id, harness.Owner.GetBlockingRepair()?.Id);
+
+        var refusal = Assert.Throws<ConflictException>(() => harness.Owner.SetUnmappedRemovalRunning(true));
+
+        Assert.Equal("errors.unmappedRemoval.repairRunning", refusal.StageKey);
+        harness.Owner.EnsureNoUnmappedRemovalRunning();
+        release.SetResult();
     }
 
     private Task<OperationRepairTests.RepairHarness> CreateHarnessAsync() =>

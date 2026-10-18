@@ -45,7 +45,8 @@ public enum OperationType
     PrefillLogin,
     CacheFileCount,
     // One-time rewrite of download history that older versions wrote; global in OperationConflictChecker.
-    DownloadHistoryUpgrade
+    DownloadHistoryUpgrade,
+    UnmappedFileRemoval
 }
 
 /// <summary>
@@ -118,6 +119,7 @@ public static class OperationTypeExtensions
         OperationType.PrefillLogin => "prefillLogin",
         OperationType.CacheFileCount => "cacheFileCount",
         OperationType.DownloadHistoryUpgrade => "downloadHistoryUpgrade",
+        OperationType.UnmappedFileRemoval => "unmappedFileRemoval",
         _ => JsonNamingPolicy.CamelCase.ConvertName(type.ToString())
     };
 

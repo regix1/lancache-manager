@@ -46,6 +46,13 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     /// </summary>
     private const int MaxHandoffDepth = 8;
 
+    /// <summary>
+    /// True for a run whose card is drawn from its row alone, with no progress event beside it. Its
+    /// row message is its stage key at every step, each progress update sends the row, and a
+    /// success keeps the last stage key instead of the generic completion text.
+    /// </summary>
+    private static bool DrawsCardFromRow(OperationType type) => type == OperationType.UnmappedFileRemoval;
+
     private readonly ProcessManager _processManager;
     private readonly ILogger<UnifiedOperationTracker> _logger;
     private readonly ISignalRNotificationService? _notifications;
@@ -110,7 +117,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             ScanThreshold = scanThreshold,
             ScanLookbackDays = scanLookbackDays,
             Status = initialStatus,
-            Message = $"Starting {name}...",
+            Message = DrawsCardFromRow(type) ? "signalr.unmappedRemove.running" : $"Starting {name}...",
             StartedAt = startedAt ?? DateTime.UtcNow,
             CancellationTokenSource = cts,
             Metadata = metadata,
@@ -434,9 +441,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                 if (operation.CompletedFlag != 0 || operation.Status.IsTerminal()) return;
                 operation.AssociatedProcess = process;
             }
+            // A small pass can finish before its child is linked here, and ProcessName throws
+            // once the child has exited; Id stays readable until the Process is disposed.
             _logger.LogDebug(
-                "Associated process {ProcessName} (PID: {Pid}) with operation {Id}",
-                process.ProcessName, process.Id, operationId);
+                "Associated process (PID: {Pid}) with operation {Id}",
+                process.Id, operationId);
         }
     }
 
@@ -821,7 +830,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                 ? (skipped ? OperationStatus.Skipped : OperationStatus.Completed)
                 : (cancelled ? OperationStatus.Cancelled : OperationStatus.Failed);
             operation.Message = success
-                ? (skipped ? (error ?? ScheduledRunReporter.NothingToDoStageKey) : "Operation completed successfully")
+                ? (skipped ? (error ?? ScheduledRunReporter.NothingToDoStageKey) : (DrawsCardFromRow(operation.Type) ? operation.Message : "Operation completed successfully"))
                 : (error ?? (cancelled ? "Operation cancelled" : "Operation failed"));
             operation.Success = success;
             operation.CompletedAt = DateTime.UtcNow;
@@ -1204,7 +1213,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                 operation.PercentComplete = Math.Clamp(percent, 0, 100);
                 operation.Message = message;
                 onProgress?.Invoke(operation);
+                if (DrawsCardFromRow(operation.Type)) Publish(operation);
             }
+
+            if (DrawsCardFromRow(operation.Type)) _ = DrainRunsAsync();
         }
         else
         {

@@ -1244,7 +1244,9 @@ function drawRun(entry: RunEntry): UnifiedNotification {
               }[run.status]
             )
         : repairFailed
-          ? i18n.t('common.notifications.repairFailed', { reason: run.repairError })
+          ? i18n.t('common.notifications.repairFailed', {
+              reason: translateStageKeyMessage(run.repairError)
+            })
           : waitsForAnotherJob(run)
             ? // A background row prints the run's name beside its message, so it names only the blocker.
               controlOnly

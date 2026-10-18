@@ -32,6 +32,7 @@ public partial class CacheManagementService
     private readonly IOperationConflictChecker _conflictChecker;
     private readonly CacheScanGate _cacheScanGate;
     private readonly OperationStateService _operationStateService;
+    private readonly RustLogProcessorService _logProcessor;
     private readonly DockerClient? _dockerClient;
 
     // Legacy single-path fields (for backward compatibility)
@@ -96,8 +97,10 @@ public partial class CacheManagementService
         IOperationConflictChecker conflictChecker,
         DatasourceCapabilityService capabilityService,
         CacheScanGate cacheScanGate,
-        OperationStateService operationStateService)
+        OperationStateService operationStateService,
+        RustLogProcessorService logProcessor)
     {
+        _logProcessor = logProcessor;
         _capabilityService = capabilityService;
         _cacheScanGate = cacheScanGate;
         _operationStateService = operationStateService;

@@ -2,19 +2,25 @@ import { useMemo } from 'react';
 import { useNotifications } from '@contexts/notifications/useNotifications';
 import type { NotificationType } from '@contexts/notifications/types';
 
-/** The three per-item removal types that share the game-cache domain's backend lock. */
+/** The four per-item removal types that share the game-cache domain's backend lock. */
 function isCacheRemovalType(type: NotificationType): boolean {
-  return type === 'game_removal' || type === 'service_removal' || type === 'eviction_removal';
+  return (
+    type === 'game_removal' ||
+    type === 'service_removal' ||
+    type === 'eviction_removal' ||
+    type === 'unmapped_file_removal'
+  );
 }
 
 /**
  * True while any cache-entity removal is running OR queued (purple waiting card):
- * a single game/service remove, an evicted-item remove, the batched evicted
- * Remove All, or a bulk Remove All run whose own items are cache removals. These
+ * a single game/service remove, an evicted-item remove, an unmapped-file remove,
+ * the batched evicted Remove All, or a bulk Remove All run whose own items are
+ * cache removals. These
  * ops all mutate the same cache/log files behind one backend lock, so every
  * remove trigger in the game-cache domain (Game Cache Detector + Evicted Items)
  * disables together. A `bulk_removal` card only counts when its `itemTypes`
- * names one of the three types above, so an unrelated batch (log removal) does
+ * names one of the four types above, so an unrelated batch (log removal) does
  * not disable these controls. The removals come from the server's run list
  * (Hidden runs included); a bulk card is the browser's own, so it comes from the
  * drawn cards.

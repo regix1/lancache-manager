@@ -317,6 +317,8 @@ public class LogRemovalProgressTests
 
         var launch = Assert.Single(harness.Rust.Launches);
         Assert.StartsWith($"remove \"{harness.LogPath}\" \"steam\" ", launch, StringComparison.Ordinal);
+        // The removal reads the importer's resume record to take the logs logrotate deleted off the position.
+        Assert.Matches("--resume \"[^\"]*rust_resume_[^\"]+\\.json\"", launch);
         Assert.True(Assert.Single(harness.ReadRepair(repairId).Sources).LogPositionsKept);
     }
 

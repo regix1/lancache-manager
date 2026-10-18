@@ -55,6 +55,18 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     // stopped child cannot report a download that is still running, so aging waits for the next
     // child rather than letting the rows expire and the scan gate read the cache as quiet.
     private bool _childStoppedForStep;
+    // Counts the children that stopped reporting, for a step or because they ended; guarded by
+    // _snapshotLock. A child started after a step reads the logs from their end, so the lines
+    // written while none ran are never seen, and only a change in this count shows that gap.
+    private long _childStops;
+    // The moment past which the running child counts as silent; guarded by _snapshotLock. Each
+    // snapshot moves it on, and each new child starts silent until its first snapshot, because a
+    // child that has not published yet, or has stopped publishing (a stalled log mount or a
+    // database lookup that never returns), is not reading the lines nginx writes.
+    private DateTime _reportDueUtc;
+    // The child publishes every 500 ms; the rest leaves room for a database lookup it waits on
+    // while a removal's own claim queries load the database.
+    private static readonly TimeSpan _reportGap = TimeSpan.FromSeconds(5);
     private string _visibilityMark = string.Empty;
     private bool _previousHadActivity = false;
     // Tracks the same edge as _previousHadActivity but over the unfiltered set, so the end of the
@@ -255,6 +267,19 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         if (!stoppingToken.IsCancellationRequested)
         {
             await AnnounceScanBlockedIfChangedAsync();
+        }
+    }
+
+    /// <summary>
+    /// The number of children that have stopped reporting so far, or null while no child reports.
+    /// </summary>
+    public long? ReadReportingChild()
+    {
+        lock (_snapshotLock)
+        {
+            return _unreportedSinceUtc == null && !_childStoppedForStep && UtcNow() <= _reportDueUtc
+                ? _childStops
+                : null;
         }
     }
 
@@ -1055,6 +1080,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             merged.AddRange(previous.Where(existing => existing.RunId != runId));
             _nativeRevision = snapshot.Revision;
             _unreportedSinceUtc = null;
+            _reportDueUtc = nowUtc + _reportGap;
             RebuildLocked(merged, snapshot.TimestampUtc, isAvailable: true);
             if (SameContents(previousSnapshot, _currentSnapshot))
             {
@@ -1169,6 +1195,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         {
             _currentRunId = runId;
             _nativeRevision = 0;
+            _reportDueUtc = DateTime.MinValue;
             _runSources[runId] = new Dictionary<string, string>(sources, StringComparer.OrdinalIgnoreCase);
             if (_childStoppedForStep)
             {
@@ -1215,6 +1242,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             }
 
             _unreportedSinceUtc = UtcNow();
+            _childStops++;
             if (_currentSnapshot.IsAvailable)
             {
                 _revision++;
@@ -1472,6 +1500,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                             lock (_snapshotLock)
                             {
                                 _childStoppedForStep = true;
+                                _childStops++;
                             }
                         }
                         await childStop.CancelAsync();

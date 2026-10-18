@@ -1202,6 +1202,39 @@ public abstract partial class PrefillDaemonServiceBase
             involuntaryRecreate,
             imageChange);
 
+        // A person's cancel of the last sign-in keeps the container signed out across a manager restart, read from
+        // the adopted container's own row, across an image update, read from the session it replaces, and across a
+        // recreate that keeps the saved login, read from the life it replaces. The witness that the daemon had
+        // reached logged-in is loaded with the mark. Loaded before registration, so no status the daemon reports
+        // can start a sign-in first.
+        if (isReconnect)
+        {
+            var stored = await _sessionService.GetSessionAsync(sessionId);
+            session.LoginCanceledByPerson = stored?.LoginCanceledByPerson == true;
+            session.LoggedInWhilePersonCanceled = stored?.LoggedInWhilePersonCanceled == true;
+        }
+        else if (imageChange is not null)
+        {
+            lock (imageChange.Session.PrefillLock)
+            {
+                session.LoginCanceledByPerson = imageChange.Session.LoginCanceledByPerson;
+                session.LoggedInWhilePersonCanceled = imageChange.Session.LoggedInWhilePersonCanceled;
+            }
+        }
+        else if (volumeLoginPreserved)
+        {
+            var stored = await _sessionService.GetLatestPersistentSessionAsync(Platform);
+            session.LoginCanceledByPerson = stored?.LoginCanceledByPerson == true;
+            session.LoggedInWhilePersonCanceled = stored?.LoggedInWhilePersonCanceled == true;
+        }
+
+        // The in-memory keep is filled from the stored mark before the session is registered, so a
+        // logged-in status cannot arrive first and treat the cancel as already over.
+        if (session.LoginCanceledByPerson)
+        {
+            _canceledAutomaticSignIn.TryAdd(session.Id, 0);
+        }
+
         // Creation gate: if shutdown began after this create started, do NOT register the session -
         // StopAsync's one-time _sessions snapshot has already passed, so registering here would let the
         // session escape teardown, AND because it was never registered StopAsync cannot clean it up
@@ -1270,6 +1303,12 @@ public abstract partial class PrefillDaemonServiceBase
                 containerName,
                 session.ExpiresAt,
                 ServiceName);
+            // The new row starts unmarked. A mark carried over from the life this one replaces, or set by a person's
+            // Cancel after registration whose write found no row yet, is stored now, so a manager restart keeps it.
+            if (session.LoginCanceledByPerson)
+            {
+                await SaveLoginCanceledByPersonAsync(session);
+            }
         }
 
         if (guestStart != null)
@@ -1288,7 +1327,7 @@ public abstract partial class PrefillDaemonServiceBase
         // (NotAuthenticated for account services). Reconcile once with the daemon's LIVE status,
         // routed through the same OnStatusChangeAsync transition every socket status push uses, so
         // a still-logged-in container immediately reads as Authenticated (and broadcasts
-        // AuthStateChanged) instead of showing needs-login until the next interactive login.
+        // AuthStateChanged) unless a person's cancel is still stored, in which case it stays signed out.
         // Best-effort: an unresponsive daemon leaves the conservative NotAuthenticated default.
         if (isPersistent || !isReconnect)
         {
@@ -1297,6 +1336,8 @@ public abstract partial class PrefillDaemonServiceBase
                 var liveStatus = await daemonClient.GetStatusAsync(cancellationToken);
                 if (liveStatus is not null)
                 {
+                    // A person's cancel keeps a logged-in report from signing the container in. The
+                    // status is still applied so that report can arm the next connection drop.
                     await OnStatusChangeAsync(session, liveStatus);
                     await RecoverRunsAsync(session, liveStatus, cancellationToken);
                 }
@@ -1350,9 +1391,48 @@ public abstract partial class PrefillDaemonServiceBase
         // pushed - login-modal visibility stays anchored to the user's own action.
         if (volumeLoginPreserved)
         {
-            LastHeadlessSelfAuthAttempt = InvokeSafeAsync(
-                () => AttemptHeadlessPersistentSelfAuthAsync(session),
-                nameof(AttemptHeadlessPersistentSelfAuthAsync));
+            LastHeadlessSelfAuthAttempt = InvokeSafeAsync(async () =>
+            {
+                // A container recreated while Steam is unreachable (after a reboot, an error or an image
+                // update during a retry) keeps trying its saved login on the same waits as a dropped sign-in.
+                // The token is the one a person's cancel of a Log in recorded during this try cancels, so
+                // the try stops instead of signing in and clearing that cancel.
+                CancellationTokenSource? installed = null;
+                CancellationToken takeOver;
+                lock (session.PrefillLock)
+                {
+                    var stop = session.SignInAgainCancel;
+                    if (stop is null)
+                    {
+                        installed = new CancellationTokenSource();
+                        session.SignInAgainCancel = installed;
+                        stop = installed;
+                    }
+                    takeOver = stop.Token;
+                }
+                try
+                {
+                    if (await AttemptHeadlessPersistentSelfAuthAsync(session, takeOver) == LoginAttemptOutcome.NoResponse
+                        && Platform == PrefillPlatform.Steam)
+                    {
+                        StartSignInAgain(session);
+                    }
+                }
+                finally
+                {
+                    if (installed is not null)
+                    {
+                        lock (session.PrefillLock)
+                        {
+                            // A drop during this try reuses this source for its retry. Clearing it
+                            // here would leave that retry with a token a person's Cancel cannot see.
+                            if (ReferenceEquals(session.SignInAgainCancel, installed)
+                                && session.SignInAgainAfterDrop is null)
+                                session.SignInAgainCancel = null;
+                        }
+                    }
+                }
+            }, nameof(AttemptHeadlessPersistentSelfAuthAsync));
         }
 
         return session;
@@ -1549,7 +1629,7 @@ public abstract partial class PrefillDaemonServiceBase
                 "Preserving the named-volume login for persistent {ServiceName} session {SessionId} during a planned image update",
                 ServiceName,
                 session.Id);
-            return imageChange.Authenticated;
+            return imageChange.Authenticated || imageChange.SigningInAgain;
         }
 
         if (await ShouldPreserveVolumeLoginAsync(session, involuntaryRecreate))

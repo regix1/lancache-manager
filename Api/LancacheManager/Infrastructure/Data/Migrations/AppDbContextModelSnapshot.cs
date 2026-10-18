@@ -1157,6 +1157,12 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<bool>("IsPrefilling")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("LoggedInWhilePersonCanceled")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("LoginCanceledByPerson")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Platform")
                         .IsRequired()
                         .ValueGeneratedOnAdd()

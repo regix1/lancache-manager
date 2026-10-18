@@ -134,6 +134,29 @@ public sealed class OperationRunPublishingTests
     }
 
     [Fact]
+    public async Task AnUnmappedRemovalSendsItsStageKeyAtEveryStepAndEndsOnTheLastOne()
+    {
+        var (tracker, recorder) = CreateRecordingTracker();
+        var id = tracker.RegisterOperation(
+            OperationType.UnmappedFileRemoval, "Unmapped File Removal", new CancellationTokenSource());
+        tracker.UpdateProgress(id, 40, "signalr.unmappedRemove.running");
+        tracker.UpdateProgress(id, 100, "signalr.unmappedRemove.complete");
+        tracker.CompleteOperation(id, success: true);
+
+        var rows = await WaitForRowsAsync(recorder, 4);
+
+        Assert.Equal(
+            new[]
+            {
+                "signalr.unmappedRemove.running", "signalr.unmappedRemove.running",
+                "signalr.unmappedRemove.complete", "signalr.unmappedRemove.complete"
+            },
+            rows.Select(row => row.Message));
+        Assert.Equal(new[] { 0.0, 40.0, 100.0, 100.0 }, rows.Select(row => row.PercentComplete));
+        Assert.Equal("completed", rows[^1].Status);
+    }
+
+    [Fact]
     public async Task RowsFromTwoThreadsLeaveInRevisionOrder()
     {
         var (tracker, recorder) = CreateRecordingTracker();

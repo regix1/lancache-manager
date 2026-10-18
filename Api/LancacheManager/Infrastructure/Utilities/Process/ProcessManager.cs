@@ -126,9 +126,10 @@ public class ProcessManager : IHostedService, IDisposable
 
             if (log)
             {
+                // ProcessName throws for a child that exits after the running check above, which
+                // would drop this warning; the id was read before that check.
                 _logger.LogWarning(
-                    "Killing process tree {ProcessName} (PID: {ProcessId}): {Reason}",
-                    process.ProcessName,
+                    "Killing process tree (PID: {ProcessId}): {Reason}",
                     processId,
                     reason);
             }

@@ -1580,7 +1580,7 @@ impl LinuxRootedAccess {
     }
 }
 
-fn stable_age(metadata: &Metadata, now: SystemTime) -> bool {
+pub fn stable_age(metadata: &Metadata, now: SystemTime) -> bool {
     metadata
         .modified()
         .ok()

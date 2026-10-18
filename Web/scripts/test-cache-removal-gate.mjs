@@ -91,7 +91,12 @@ test('a running evicted batch gates the controls', async () => {
 });
 
 test('a single running, queued or cancelling removal still gates the controls', async () => {
-  for (const type of ['game_removal', 'service_removal', 'eviction_removal']) {
+  for (const type of [
+    'game_removal',
+    'service_removal',
+    'eviction_removal',
+    'unmapped_file_removal'
+  ]) {
     for (const status of ['running', 'waiting', 'cancelling']) {
       const active = await activeFor([], [{ id: 'x', type, status, details: {} }]);
       assert.equal(active, true, `${type} ${status} should gate`);

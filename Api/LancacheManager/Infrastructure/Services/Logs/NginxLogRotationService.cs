@@ -449,7 +449,7 @@ public class NginxLogRotationService
         {
             throw new ValidationException(WindowsDockerUnsupportedMessage)
             {
-                StageKey = "management.nginxReopen.windowsDockerUnsupported"
+                StageKey = "errors.logs.windowsDockerUnsupported"
             };
         }
         IReadOnlyList<NginxHeldProof> proofs = Array.Empty<NginxHeldProof>();

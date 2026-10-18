@@ -337,9 +337,15 @@ export function usePersistentPrefillAuth(
         const loginAttempt = isPersistentLoginCredentialChallenge(response)
           ? (response.loginAttempt ?? null)
           : null;
-        await ApiService.cancelPersistentLogin(service, sessionId, { loginId, loginAttempt }).catch(
-          () => undefined
-        );
+        // The open-tab clock ends this wait with the expiry reason. This follow-up has to name
+        // that same reason; omitting it is stored as the person's Cancel. Cancel, close, and
+        // Logout still go through endPersistentLogin and omit the reason.
+        await ApiService.cancelPersistentLogin(
+          service,
+          sessionId,
+          { loginId, loginAttempt },
+          'common.notifications.warnings.signInExpired'
+        ).catch(() => undefined);
       };
       // Captured AFTER the synchronous writes above: every reset path (container stop/start, the
       // cleanup retire, an explicit cancel, the overall timeout) bumps the store's login epoch, so

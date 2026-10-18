@@ -6,6 +6,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -1196,15 +1197,15 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
     // Builds the shared per-recreate-test scenario: FullPersistence + Steam enabled, one prior persistent
     // Active row (with the given expiry) that cleanup will orphan, and an empty container inventory.
     private (DbContextOptions<AppDbContext> Options, TestSteamDaemon Daemon, RecordingContainerGateway Gateway, string PriorSessionId)
-        SetupRecreateScenario(DateTime priorExpiry, int validityDays = 90, Func<IDaemonClient>? clientFactory = null, ISignalRNotificationService? notifications = null, ILogger<SteamDaemonService>? logger = null)
+        SetupRecreateScenario(DateTime priorExpiry, int validityDays = 90, Func<IDaemonClient>? clientFactory = null, ISignalRNotificationService? notifications = null, ILogger<SteamDaemonService>? logger = null, TimeProvider? cacheStatusClock = null, IInterceptor[]? interceptors = null)
     {
-        var (options, dbFactory) = NewDatabase();
+        var (options, dbFactory) = NewDatabase(interceptors ?? []);
         var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
         var priorSessionId = SeedActivePersistentRowAsync(sessionService, priorExpiry).GetAwaiter().GetResult();
 
         var gateway = new RecordingContainerGateway();
         var config = Config(PersistenceMode.FullPersistence, steamEnabled: true);
-        var daemon = new TestSteamDaemon(MakeDeps(dbFactory, sessionService, config, validityDays, notifications), gateway, clientFactory, logger);
+        var daemon = new TestSteamDaemon(MakeDeps(dbFactory, sessionService, config, validityDays, notifications, cacheStatusClock: cacheStatusClock), gateway, clientFactory, logger);
         return (options, daemon, gateway, priorSessionId);
     }
 
@@ -1222,7 +1223,8 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
     private DaemonDeps MakeDeps(
         IDbContextFactory<AppDbContext> dbFactory, PrefillSessionService sessionService, ScheduledPrefillConfigDto config, int validityDays = 90,
         ISignalRNotificationService? notifications = null,
-        string? image = null)
+        string? image = null,
+        TimeProvider? cacheStatusClock = null)
     {
         notifications ??= FakeInterface<ISignalRNotificationService>();
         var stateService = OrchestrationStateService.New(config, validityDays);
@@ -1237,7 +1239,7 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
             })
             .Build();
         var networkOptions = new StaticOptionsMonitor(new PrefillNetworkOptions { NetworkMode = "bridge" });
-        return new DaemonDeps(notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator());
+        return new DaemonDeps(notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), cacheStatusClock);
     }
 
     private static ScheduledPrefillConfigDto Config(PersistenceMode global, bool steamEnabled)
@@ -1324,7 +1326,8 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
         PrefillSessionService SessionService,
         PrefillCacheService CacheService,
         IOptionsMonitor<PrefillNetworkOptions> NetworkOptions,
-        ILancacheServerLocator Locator);
+        ILancacheServerLocator Locator,
+        TimeProvider? CacheStatusClock = null);
 
     private sealed class TestSteamDaemon : SteamDaemonService
     {
@@ -1334,7 +1337,7 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
         // login client for the session the recreate path builds; everything else keeps the default
         // reconnect fake. The optional logger lets a test capture the warning/error contract.
         public TestSteamDaemon(DaemonDeps d, IPrefillContainerGateway g, Func<IDaemonClient>? clientFactory = null, ILogger<SteamDaemonService>? logger = null)
-            : base(logger ?? NullLogger<SteamDaemonService>.Instance, d.Notifications, d.Configuration, d.PathResolver, d.StateService, d.SessionService, d.CacheService, d.NetworkOptions, d.Locator, new SingleContainerGatewayFactory(g))
+            : base(logger ?? NullLogger<SteamDaemonService>.Instance, d.Notifications, d.Configuration, d.PathResolver, d.StateService, d.SessionService, d.CacheService, d.NetworkOptions, d.Locator, new SingleContainerGatewayFactory(g), cacheStatusClock: d.CacheStatusClock)
             => _clientFactory = clientFactory;
 
         protected override IDaemonClient CreateDaemonClient(bool useTcpMode, int? tcpHostPort, string socketPath, string socketSecret)
@@ -1343,6 +1346,27 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
         // Direct-injection seam for the concurrency/cancel scenarios that need a session without a
         // full create round-trip (mirrors the InjectSession seam in PersistentEraseOnStopTests.cs).
         public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
+
+        // Set by a test that drives a person's "Use my saved login": the saved login is available, and its
+        // import waits on this until the test releases it.
+        public TaskCompletionSource? HeldSavedLogin { get; set; }
+        public TaskCompletionSource SavedLoginEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId, IntegrationCaller? caller = null)
+            => HeldSavedLogin is null ? base.GetIntegrationLoginAvailability(accountId, caller) : new(true, "saved-account", null);
+
+        protected override async Task<bool> ReuseIntegrationLoginAsync(
+            DaemonSession session, Guid? accountId, Action onCommandDispatched, CancellationToken cancellationToken, IntegrationLease? lease = null)
+        {
+            if (HeldSavedLogin is null)
+            {
+                return await base.ReuseIntegrationLoginAsync(session, accountId, onCommandDispatched, cancellationToken, lease);
+            }
+            onCommandDispatched();
+            SavedLoginEntered.TrySetResult();
+            await HeldSavedLogin.Task.WaitAsync(cancellationToken);
+            return false;
+        }
     }
 
     // The Epic/Xbox mapping service is a game-catalog dependency the startup re-adopt path never touches

@@ -432,6 +432,31 @@
   gap: 1rem;
 }
 
+/* The unmapped removal count has one height in every state, so the dialog does not grow and
+   re-center when the count returns. The per-service list scrolls inside it, since a cache can
+   hold any number of services. */
+.unmapped-removal-count {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  height: 8rem;
+}
+
+.unmapped-removal-count__list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* The rows keep the summary's left edge; the right inset is the rail's gutter. */
+.unmapped-removal-count__list > .csb-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding-right: 1rem;
+}
+
 .confirmation-modal__actions {
   display: flex;
   flex-wrap: wrap;

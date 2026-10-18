@@ -1,4 +1,5 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Utilities;
@@ -204,9 +205,12 @@ internal static class TrackedRemovalOperationRunner
 
                 config.LogFailure?.Invoke(operationId, ex);
 
+                // A refusal names its reason by key, so a card drawn from the run after a reload
+                // shows that reason in the reader's language.
+                var reason = ex is ApiException { StageKey: { } refusalKey } ? refusalKey : ex.Message;
                 var errorAccepted = false;
                 operationTracker.UpdateProgress(operationId,
-                    operationTracker.GetOperation(operationId)?.PercentComplete ?? 0, ex.Message,
+                    operationTracker.GetOperation(operationId)?.PercentComplete ?? 0, reason,
                     onProgress: _ => errorAccepted = true);
                 if (errorAccepted)
                 {
@@ -216,7 +220,7 @@ internal static class TrackedRemovalOperationRunner
                 }
 
                 // Capture the exception so the onTerminalEmit closure can build the error Complete payload.
-                operationTracker.CompleteOperation(operationId, success: false, error: ex.Message,
+                operationTracker.CompleteOperation(operationId, success: false, error: reason,
                     onCompleting: _ => capturedException = ex);
             }
             // The tracker owns cancellation-source disposal.

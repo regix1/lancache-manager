@@ -293,7 +293,8 @@ public class ScheduledPrefillAnonymousRunPathTests
     }
 
     [Theory]
-    [InlineData("auth-lost", "errors.steam.signInLost")]
+    // A drop's card reads as the run row: the app may sign the always-on container in again by itself.
+    [InlineData("auth-lost", "errors.prefill.signInLost")]
     [InlineData("game-details-unavailable", "errors.steam.gameDetailsUnavailable")]
     [InlineData(null, "errors.prefill.requestFailed")]
     public async Task RunAndStampServiceAsync_ThrownFailurePreservesSafeStage(string? code, string stageKey)
@@ -321,6 +322,36 @@ public class ScheduledPrefillAnonymousRunPathTests
         Assert.Equal(stageKey, terminal.GetType().GetProperty("stageKey")!.GetValue(terminal));
         Assert.DoesNotContain("Remote.JobFailure", (string)terminal.GetType().GetProperty("error")!.GetValue(terminal)!, StringComparison.Ordinal);
         Assert.False((bool)terminal.GetType().GetProperty("success")!.GetValue(terminal)!);
+        // The run row keeps the key, so a card drawn from it after a reload reads in the reader's language.
+        var complete = Assert.Single(((RecordingNotificationsProxy)(object)tracker).Calls,
+            c => c.Method == nameof(IUnifiedOperationTracker.CompleteOperation));
+        Assert.Equal(stageKey, complete.Args[2]);
+    }
+
+    // A failed line that needs its counts keeps the English sentence on the run row: a reloaded card
+    // translates the row's error with no values.
+    [Fact]
+    public async Task RunAndStampServiceAsync_FailedLineWithCountsKeepsItsSentenceOnTheRunRow()
+    {
+        var (daemon, _) = CreateRunnablePersistentDaemon(
+            PrefillPlatform.BattleNet, failedApps: 2, totalApps: 2, transferredBytes: 0);
+        using var daemons = BuildProviderWithDaemon(PrefillPlatform.BattleNet, daemon);
+        using var schedulerServices = new ServiceCollection().BuildServiceProvider();
+        var state = DispatchProxy.Create<IStateService, RecordingNotificationsProxy>();
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RecordingNotificationsProxy>();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+        using var scheduler = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
+            schedulerServices.GetRequiredService<IServiceScopeFactory>(), state);
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        var serviceConfig = config.GetSchedulesInRunOrder().First(s => s.ServiceId == PrefillPlatform.BattleNet);
+        var method = typeof(ScheduledPrefillService).GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var result = await (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
+            new object[] { MakeServiceRun(serviceConfig), tracker, daemons, notifications, config, CancellationToken.None, true })!;
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
+        var complete = Assert.Single(((RecordingNotificationsProxy)(object)tracker).Calls,
+            c => c.Method == nameof(IUnifiedOperationTracker.CompleteOperation));
+        Assert.Equal("2 of 2 games failed to download", complete.Args[2]);
     }
 
     /// <summary>

@@ -22,6 +22,10 @@ pub struct FileMark {
     pub offset: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tail_crc: Option<u32>,
+    /// The member would not open, so none of its records were imported. A pass that resumes
+    /// past it never opens it again, so the mark carries that forward.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unread: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -50,6 +54,10 @@ pub struct ResumePoint {
 pub fn load(path: &Path) -> ResumeFile {
     let contents = match std::fs::read_to_string(path) {
         Ok(contents) => contents,
+        // A first pass and a reset log position both leave no file, so its absence is normal.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return ResumeFile::default();
+        }
         Err(error) => {
             eprintln!(
                 "Warning: resume file {} unreadable ({}); using the line position",
@@ -177,7 +185,16 @@ pub fn target_matches(entry: &StemResume, path: &Path, identity: &FileIdentity, 
 }
 
 /// Returns the saved record count that is proven absent before the earliest surviving anchor.
+/// With no anchor left, a rotation may have deleted read records and renamed unread ones, so
+/// none of the position is proven and the whole of it counts: readers start from the series
+/// start and the duplicate check absorbs the records read again.
 pub fn deleted_prefix_records(entry: &StemResume, files: &[PathBuf]) -> u64 {
+    proven_deleted_records(entry, files).unwrap_or(entry.position)
+}
+
+/// Returns the saved record count proven absent before the earliest surviving anchor, or None
+/// when no saved log or saved current log is left to prove where the importer stopped.
+pub fn proven_deleted_records(entry: &StemResume, files: &[PathBuf]) -> Option<u64> {
     let current: Vec<(&Path, FileIdentity, u64)> = files
         .iter()
         .filter_map(|path| {
@@ -193,18 +210,17 @@ pub fn deleted_prefix_records(entry: &StemResume, files: &[PathBuf]) -> u64 {
             .iter()
             .any(|(path, identity, len)| mark_matches(mark, path, identity, *len))
     }) {
-        return entry.older_files[..first_present]
-            .iter()
-            .map(|mark| mark.records)
-            .sum();
+        return Some(
+            entry.older_files[..first_present]
+                .iter()
+                .map(|mark| mark.records)
+                .sum(),
+        );
     }
-    if current
+    current
         .iter()
         .any(|(path, identity, len)| target_matches(entry, path, identity, *len))
-    {
-        return entry.older_files.iter().map(|mark| mark.records).sum();
-    }
-    0
+        .then(|| entry.older_files.iter().map(|mark| mark.records).sum())
 }
 
 /// Returns a saved record count only when the observed member proves the saved boundary.
@@ -253,6 +269,7 @@ mod tests {
             records: contents.iter().filter(|byte| **byte == b'\n').count() as u64,
             offset: None,
             tail_crc: None,
+            unread: false,
         }
     }
 
@@ -396,7 +413,47 @@ mod tests {
         std::fs::write(&older, b"old-a\nold-b\n").expect("replace older fixture");
         std::fs::write(&current, b"current-a\ncurrent-b\n").expect("replace current fixture");
 
-        assert_eq!(deleted_prefix_records(&saved, &[older, current]), 0);
+        assert_eq!(
+            deleted_prefix_records(&saved, &[older, current]),
+            saved.position
+        );
+    }
+
+    #[test]
+    fn deleted_prefix_counts_the_whole_position_after_a_rotation_leaves_no_anchor() {
+        let directory = tempfile::tempdir().expect("create resume fixture");
+        let older = directory.path().join("access.log.1");
+        let current = directory.path().join("access.log");
+        let compressed = directory.path().join("access.log.1.gz");
+        let older_mark = write(&older, b"a1\na2\na3\n");
+        std::fs::write(&current, b"t1\nt2\n").expect("write current fixture");
+        let mut saved = entry(&current, 5, 6);
+        saved.older_files = vec![older_mark];
+
+        // rotate 1 + compress without delaycompress: the read rotation is deleted, the read
+        // current log becomes a new compressed file, and nginx starts a new current log.
+        std::fs::remove_file(&older).expect("delete read rotation");
+        std::fs::write(&compressed, b"t1\nt2\nu1\nu2\n").expect("write compressed rotation");
+        std::fs::remove_file(&current).expect("rename current fixture");
+        std::fs::write(&current, b"n1\nn2\n").expect("write new current fixture");
+        assert_eq!(
+            deleted_prefix_records(&saved, &[compressed.clone(), current.clone()]),
+            5
+        );
+
+        // copytruncate + rotate 1: the read rotation is replaced by a copy, and the current log
+        // keeps its identity but is cut below the saved offset.
+        let copytruncate = tempfile::tempdir().expect("create copytruncate fixture");
+        let older = copytruncate.path().join("access.log.1");
+        let current = copytruncate.path().join("access.log");
+        let older_mark = write(&older, b"a1\na2\na3\na4\n");
+        std::fs::write(&current, b"t1\nt2\n").expect("write current fixture");
+        let mut saved = entry(&current, 6, 6);
+        saved.older_files = vec![older_mark];
+        std::fs::remove_file(&older).expect("delete read rotation");
+        std::fs::write(&older, b"t1\nt2\nu1\n").expect("write copied rotation");
+        std::fs::write(&current, b"n1\n").expect("truncate current fixture");
+        assert_eq!(deleted_prefix_records(&saved, &[older, current]), 6);
     }
 
     #[test]
@@ -417,7 +474,7 @@ mod tests {
 
         assert_eq!(
             deleted_prefix_records(&saved, &[replacement.clone(), current]),
-            0
+            saved.position
         );
         assert_eq!(
             mark_records(
@@ -447,7 +504,7 @@ mod tests {
 
         assert_eq!(deleted_prefix_records(&saved, &[older.clone(), current]), 0);
         std::fs::write(&older, b"changed-prefix\nlate\n").expect("rewrite older fixture");
-        assert_eq!(deleted_prefix_records(&saved, &[older]), 0);
+        assert_eq!(deleted_prefix_records(&saved, &[older]), saved.position);
     }
 
     #[test]

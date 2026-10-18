@@ -5,13 +5,16 @@ namespace LancacheManager.Core.Services;
 
 /// <summary>
 /// Concrete checker - implements the overlap matrix for cache eviction and cleanup.
-/// Policy-only: no disk / DB side effects. Uses the tracker as its sole source of state.
+/// Policy-only: no disk / DB side effects. Reads the tracker, the pending repair and the runs held
+/// through <see cref="HoldRun"/>.
 /// </summary>
 public sealed class OperationConflictChecker : IOperationConflictChecker
 {
     private readonly IUnifiedOperationTracker _tracker;
     private readonly OperationStateService _operationStateService;
     private readonly ILogger<OperationConflictChecker> _logger;
+    private readonly object _heldRunsLock = new();
+    private readonly List<HeldRun> _heldRuns = new();
 
     public OperationConflictChecker(
         IUnifiedOperationTracker tracker,
@@ -47,7 +50,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         }
 
         // Snapshot active ops once. Iterate ALL types (pass null) - the matrix spans multiple types per new op.
-        var active = _tracker.GetActiveOperations(null);
+        var active = _tracker.GetActiveOperations(null).Concat(HeldSteps());
         OperationConflictResponse? conflict = null;
 
         foreach (var op in active)
@@ -74,6 +77,59 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         return conflict;
     }
 
+    public IDisposable HoldRun(OperationType type, IReadOnlyList<ConflictScope> scopes, Func<Guid> currentOperationId)
+    {
+        var run = new HeldRun(this, type, scopes, currentOperationId);
+        lock (_heldRunsLock)
+        {
+            _heldRuns.Add(run);
+        }
+        return run;
+    }
+
+    private void Release(HeldRun run)
+    {
+        lock (_heldRunsLock)
+        {
+            _heldRuns.Remove(run);
+        }
+        // The run's last step ended while the hold still stood, so the promotion pass its terminal
+        // started kept the parked operations waiting; nothing else would wake them.
+        _tracker.NotifyBlockerCleared();
+    }
+
+    /// <summary>
+    /// Each scope of a held run, as the step that will run it. Only the check reads these; they are
+    /// never registered, and the id is the run's step running now, so a waiting card names it.
+    /// </summary>
+    private List<OperationInfo> HeldSteps()
+    {
+        lock (_heldRunsLock)
+        {
+            return _heldRuns
+                .SelectMany(run => run.Scopes.Select(scope => new OperationInfo
+                {
+                    Id = run.CurrentOperationId(),
+                    Type = run.Type,
+                    Name = $"{run.Type}: {scope.Key}",
+                    Metadata = new RemovalMetrics { EntityKind = scope.Kind, EntityKey = scope.Key, EntityName = scope.Key }
+                }))
+                .ToList();
+        }
+    }
+
+    private sealed class HeldRun(
+        OperationConflictChecker owner,
+        OperationType type,
+        IReadOnlyList<ConflictScope> scopes,
+        Func<Guid> currentOperationId) : IDisposable
+    {
+        public OperationType Type => type;
+        public IReadOnlyList<ConflictScope> Scopes => scopes;
+        public Guid CurrentOperationId() => currentOperationId();
+        public void Dispose() => owner.Release(this);
+    }
+
     private static bool RepairBlocks(OperationType type) => type is
         OperationType.LogRemoval
         or OperationType.CacheClearing
@@ -86,7 +142,8 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         or OperationType.EvictionScan
         or OperationType.EvictionRemoval
         or OperationType.DatabaseReset
-        or OperationType.DownloadHistoryUpgrade;
+        or OperationType.DownloadHistoryUpgrade
+        or OperationType.UnmappedFileRemoval;
 
     /// <summary>
     /// Pure decision function for ONE active op. Returns the 409 body if the new op must be
@@ -196,6 +253,27 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 {
                     ["activeType"] = activeOp.Type.ToString()
                 });
+        }
+
+        // The unmapped removal deletes files that any other removal or per-entity count may be
+        // walking. Without this rule the second job would start and wait on the cache lock with no
+        // card naming its blocker. Two heavy jobs never reach it: section 1a answers them first.
+        if (newType == OperationType.UnmappedFileRemoval
+            && (IsCacheMutatingRemoval(activeOp.Type) || activeOp.Type == OperationType.CacheFileCount))
+        {
+            return BuildResponse(activeOp, activeScope,
+                stageKey: "errors.conflict.overlappingEntity",
+                englishError: $"Cannot start {newType}: an active {activeOp.Type} is using cache files.",
+                context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
+        }
+
+        if (activeOp.Type == OperationType.UnmappedFileRemoval
+            && (IsCacheMutatingRemoval(newType) || newType == OperationType.CacheFileCount))
+        {
+            return BuildResponse(activeOp, activeScope,
+                stageKey: "errors.conflict.overlappingEntity",
+                englishError: $"Cannot start {newType}: an unmapped file removal is deleting cache files.",
+                context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
         }
 
         // ---- 1b. Log removal vs removals ----
@@ -596,7 +674,8 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
 
     /// <summary>
     /// Full-sweep data operations that must run one at a time (section 1a). Each spawns a
-    /// Rust worker over the whole log file / cache tree. CorruptionDetection is always a bulk scan.
+    /// Rust worker over the whole log file / cache tree. CorruptionDetection and CacheFileCount are
+    /// heavy only as a bulk scan (the unmapped count); the four per-entity counts stay light.
     /// Global operations are excluded only because section 1 blocks them earlier.
     /// </summary>
     private static bool IsHeavyDataOp(OperationType type, ConflictScope scope) => type switch
@@ -607,6 +686,8 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         OperationType.CacheSizeScan => true,
         OperationType.EvictionScan => true,
         OperationType.CorruptionDetection => scope.Kind == "bulk",
+        OperationType.CacheFileCount => scope.Kind == "bulk",
+        OperationType.UnmappedFileRemoval => true,
         _ => false
     };
 
@@ -626,7 +707,8 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         type is OperationType.GameRemoval
             or OperationType.ServiceRemoval
             or OperationType.CorruptionRemoval
-            or OperationType.EvictionRemoval;
+            or OperationType.EvictionRemoval
+            or OperationType.UnmappedFileRemoval;
 
     internal static bool IsGlobal(OperationType type) =>
         type is OperationType.DatabaseReset

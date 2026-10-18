@@ -356,6 +356,8 @@ interface CacheFileCountStatus {
   stageKey?: string;
   context?: Record<string, string | number | boolean | null>;
   cacheFilesFound?: number;
+  bytesFound?: number;
+  unmappedServices?: UnmappedService[];
 }
 
 const NAMED_SCHEDULES_VERSION = 6;
@@ -1611,7 +1613,7 @@ class ApiService {
   static async removeAllCorruptedChunks(
     scanId: string,
     services?: string[]
-  ): Promise<{ message: string; started: boolean }> {
+  ): Promise<{ message: string; started: boolean; operationId?: string }> {
     try {
       const params = new URLSearchParams();
       params.set('scanId', scanId);
@@ -1626,11 +1628,30 @@ class ApiService {
           headers: { 'Content-Type': 'application/json' }
         })
       );
-      // 202 Accepted = an operation was started (or queued); 200 OK = a no-op response
-      // (no corruption data / no matching services) with no SignalR event to follow.
+      // 202 Accepted = an operation was started or queued. Its body carries that
+      // operation's id. 200 OK is a no-op with no run to follow.
       const started = res.status === 202;
-      const body = await this.handleResponse<{ message?: string }>(res);
-      return { message: body?.message ?? '', started };
+      const body = await this.handleResponse<{ message?: string; operationId?: string }>(res);
+      const reportedId = body?.operationId;
+      let operationId: string | undefined;
+      if (
+        typeof reportedId === 'string' &&
+        reportedId.length > 0 &&
+        reportedId !== '00000000-0000-0000-0000-000000000000'
+      ) {
+        operationId = reportedId;
+      }
+      const result: { message: string; started: boolean; operationId?: string } = {
+        message: '',
+        started
+      };
+      if (typeof body?.message === 'string') {
+        result.message = body.message;
+      }
+      if (operationId !== undefined) {
+        result.operationId = operationId;
+      }
+      return result;
     } catch (error: unknown) {
       console.error('removeAllCorruptedChunks error:', error);
       throw error;
@@ -1898,6 +1919,24 @@ class ApiService {
     }
   }
 
+  // Remove the cache files no detected game or service claims (fire-and-forget, requires auth).
+  // The caps are the counted figures the person confirmed; the server deletes nothing beyond them.
+  static async removeUnmappedFiles(
+    maxFiles: number,
+    maxBytes: number
+  ): Promise<{ operationId: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/unmapped?${CACHE_FILE_REMOVAL_SCOPE}&maxFiles=${maxFiles}&maxBytes=${maxBytes}`,
+        this.getFetchOptions({ method: 'DELETE' })
+      );
+      return await this.handleResponse<{ operationId: string }>(res);
+    } catch (error: unknown) {
+      console.error('removeUnmappedFiles error:', error);
+      throw error;
+    }
+  }
+
   // Start the background count of the cache files a removal would delete (requires auth). The
   // count walks the same URLs and probes the same slices the removal walks, so it costs minutes
   // on a large entity, which is why it is a tracked operation the caller can cancel rather than
@@ -1930,6 +1969,13 @@ class ApiService {
     return this.startCacheFileCount(
       `${API_BASE}/cache/count/game/named/${encodeURIComponent(service)}/${encodeURIComponent(gameName)}`,
       'startNamedGameCacheFileCount'
+    );
+  }
+
+  static async startUnmappedCacheFileCount(): Promise<CacheFileCountStart> {
+    return this.startCacheFileCount(
+      `${API_BASE}/cache/count/unmapped`,
+      'startUnmappedCacheFileCount'
     );
   }
 
@@ -3903,12 +3949,16 @@ class ApiService {
   static async cancelPersistentLogin(
     service: PersistentPrefillServiceId,
     sessionId: string,
-    identity: PersistentLoginCancelIdentity
+    identity: PersistentLoginCancelIdentity,
+    stopReason?: string
   ): Promise<void> {
     try {
+      const body = stopReason
+        ? { service, sessionId, ...identity, stopReason }
+        : { service, sessionId, ...identity };
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/cancel-login`,
-        this.getJsonFetchOptions({ service, sessionId, ...identity }, { method: 'POST' })
+        this.getJsonFetchOptions(body, { method: 'POST' })
       );
       // A sessionId or loginAttempt mismatch here is an idempotent 200 no-op (it must NOT cancel a
       // replacement session's or a newer attempt's login). A 409 means the daemon did not confirm

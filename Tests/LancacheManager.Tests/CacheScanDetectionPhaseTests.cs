@@ -12,6 +12,7 @@ using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
@@ -366,7 +367,7 @@ public sealed class CacheScanDetectionPhaseTests
             await seed.SaveChangesAsync();
         }
 
-        ctx.State.SetLogSourcePositions(source.Name, new Dictionary<string, long> { ["access"] = 10 });
+        ctx.State.SetLogSourcePositions(source.Name, new Dictionary<string, long> { ["access.log"] = 10 });
         ctx.State.SetLogTotalLines(source.Name, 20);
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(
@@ -446,7 +447,8 @@ public sealed class CacheScanDetectionPhaseTests
             services,
             rust,
             ctx.Datasources,
-            tracker);
+            tracker,
+            TimeProvider.System);
         corruptionDetection = new CorruptionDetectionService(
             NullLogger<CorruptionDetectionService>.Instance,
             configuration,
@@ -477,7 +479,8 @@ public sealed class CacheScanDetectionPhaseTests
             conflicts,
             capability,
             gate,
-            operationState);
+            operationState,
+            null!);
         var reconciliation = new CacheReconciliationService(
             services,
             purgeLog,
@@ -573,7 +576,9 @@ public sealed class CacheScanDetectionPhaseTests
             // not compared with the first file here, because Linux can reuse its inode for the second one.
             Assert.DoesNotContain("/remove", await File.ReadAllTextAsync(target), StringComparison.Ordinal);
             Assert.Contains("/keep", await File.ReadAllTextAsync(target), StringComparison.Ordinal);
-            Assert.Empty(ctx.State.GetLogSourcePositions(source.Name));
+            Assert.Equal(
+                new Dictionary<string, long> { ["access.log"] = 0 },
+                ctx.State.GetLogSourcePositions(source.Name));
             Assert.Equal(0, ctx.State.GetLogTotalLines(source.Name));
             await AssertRemovalRowsAsync(database, removed: false);
 
@@ -584,7 +589,9 @@ public sealed class CacheScanDetectionPhaseTests
             var kept = Assert.Single(ctx.State.LoadOperationRepairs().Single(repair => repair.Id == firstId).Sources);
             Assert.True(kept.LogPositionsKept);
             await AssertRemovalRowsAsync(database, removed: true);
-            Assert.Empty(ctx.State.GetLogSourcePositions(source.Name));
+            Assert.Equal(
+                new Dictionary<string, long> { ["access.log"] = 0 },
+                ctx.State.GetLogSourcePositions(source.Name));
             Assert.Equal(0, ctx.State.GetLogTotalLines(source.Name));
             Assert.Equal(2, rust.Runs);
             Assert.Equal(2, rust.PublicationCount);
@@ -1973,7 +1980,7 @@ public sealed class CacheScanDetectionPhaseTests
         using var ctx = new PhaseContext();
         var source = Assert.Single(ctx.Datasources.GetDatasources());
         await File.WriteAllLinesAsync(Path.Combine(source.LogPath, "access.log"), ["GET /a HTTP/1.1"]);
-        ctx.State.SetLogSourcePositions(source.Name, new Dictionary<string, long> { ["access"] = 10 });
+        ctx.State.SetLogSourcePositions(source.Name, new Dictionary<string, long> { ["access.log"] = 10 });
         ctx.State.SetLogTotalLines(source.Name, 20);
         var paths = new TempDirPathResolver(ctx.Root) { DockerSocketAvailable = true };
         var rust = new CapturingPurgeRust(paths);
@@ -1982,7 +1989,7 @@ public sealed class CacheScanDetectionPhaseTests
         var nginx = new SaveNginxLogRotationService(source.LogPath, paths, () =>
         {
             reopenedWithReportUnread = File.Exists(rust.OutputPath);
-            positionAtReopen = ctx.State.GetLogSourcePositions(source.Name)["access"];
+            positionAtReopen = ctx.State.GetLogSourcePositions(source.Name)["access.log"];
         });
         // Urls and depots as the eviction collectors build them; a service purge takes no depots.
         IReadOnlyList<string> urls = service is null ? ["/a", "/b"] : ["/a"];
@@ -2007,7 +2014,7 @@ public sealed class CacheScanDetectionPhaseTests
                 ctx.State,
                 ctx._operationStateService,
                 NullLogger.Instance)
-            .RunAsync(repair.Id, source, new LogPurgeTargets(urls, depotIds, service), null, CancellationToken.None);
+            .RunAsync(repair.Id, source, new LogPurgeTargets(urls, depotIds, service), keepUnreadLines: false, null, CancellationToken.None);
 
         // The input the eviction purge wrote before the runner existed, byte for byte.
         var evictionInput = JsonSerializer.Serialize(
@@ -2019,14 +2026,14 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Equal(System.Text.Encoding.UTF8.GetBytes(expectedInput), rust.Input);
         var arguments = Regex.Match(
             rust.Arguments,
-            "^\"(?<logs>[^\"]+)\" \"[^\"]+\" \"[^\"]+\" --progress-json \"[^\"]+\" --progress --stem-positions \"[^\"]+\"$");
+            "^\"(?<logs>[^\"]+)\" \"[^\"]+\" \"[^\"]+\" --progress-json \"[^\"]+\" --progress --stem-positions \"[^\"]+\" --resume \"[^\"]*rust_resume_[^\"]+\\.json\"$");
         Assert.True(arguments.Success, rust.Arguments);
         Assert.Equal(source.LogPath, arguments.Groups["logs"].Value);
         Assert.True(reopenedWithReportUnread);
         Assert.Equal(10, positionAtReopen);
         Assert.False(File.Exists(rust.OutputPath));
         Assert.Equal(2, report.LinesRemoved);
-        Assert.Equal(9, ctx.State.GetLogSourcePositions(source.Name)["access"]);
+        Assert.Equal(9, ctx.State.GetLogSourcePositions(source.Name)["access.log"]);
         // The step was marked started once its reopen check passed.
         Assert.True(Assert.Single(ctx._operationStateService.GetPendingRepairs()
             .Single(pending => pending.Id == repair.Id).Sources).LogRewriteStarted);
@@ -2037,7 +2044,7 @@ public sealed class CacheScanDetectionPhaseTests
     {
         await using var run = await RepairRun.CreateAsync(("alpha", ["access.log"], false));
         await SeedEvictedDownloadAsync(run.Database, "alpha", "/remove", depotId: 7);
-        run.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access"] = 10 });
+        run.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 10 });
         run.State.SetLogTotalLines("alpha", 20);
         var importId = run.Tracker.RegisterOperation(
             OperationType.LogProcessing,
@@ -2089,7 +2096,7 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Equal("/remove", Assert.Single(input.RootElement.GetProperty("urls").EnumerateArray()).GetString());
         Assert.True(lockedWhileDeleting);
         // Kept, so no reset: the position came back only by the line the purge removed below it.
-        Assert.Equal(9, run.State.GetLogSourcePositions("alpha")["access"]);
+        Assert.Equal(9, run.State.GetLogSourcePositions("alpha")["access.log"]);
         await run.Repairs.WaitForLogStepAsync(active: false, CancellationToken.None)
             .WaitAsync(TimeSpan.FromSeconds(5));
         await using var verify = new AppDbContext(run.Database.Options);
@@ -2102,7 +2109,7 @@ public sealed class CacheScanDetectionPhaseTests
     {
         await using var run = await RepairRun.CreateAsync(("alpha", ["access.log"], false));
         await SeedEvictedDownloadAsync(run.Database, "alpha", "/remove");
-        run.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access"] = 10 });
+        run.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 10 });
         var importId = run.Tracker.RegisterOperation(
             OperationType.LogProcessing,
             "Log import",
@@ -2123,7 +2130,7 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
         Assert.False(Assert.Single(repair.Sources).LogRewriteStarted);
         Assert.Empty(run.Rust.Runs);
-        Assert.Equal(10, run.State.GetLogSourcePositions("alpha")["access"]);
+        Assert.Equal(10, run.State.GetLogSourcePositions("alpha")["access.log"]);
         await using var verify = new AppDbContext(run.Database.Options);
         Assert.True(await verify.Downloads.AnyAsync(download => download.IsEvicted));
     }
@@ -2133,7 +2140,7 @@ public sealed class CacheScanDetectionPhaseTests
     {
         await using var run = await RepairRun.CreateAsync(("alpha", ["access.log"], false));
         await SeedEvictedDownloadAsync(run.Database, "alpha", "/remove");
-        run.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access"] = 10 });
+        run.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 10 });
         var logs = run.Datasources.GetDatasource("alpha")!.LogPath;
         // logrotate renames access.log while the step looks for its writer, so the check cannot read the
         // file it bound and refuses the step before any child starts.
@@ -2149,7 +2156,7 @@ public sealed class CacheScanDetectionPhaseTests
         var repair = await run.WaitForCompletedRepairAsync(removalId);
         Assert.Empty(run.Rust.Runs);
         Assert.False(Assert.Single(repair.Sources).LogRewriteStarted);
-        Assert.Equal(10, run.State.GetLogSourcePositions("alpha")["access"]);
+        Assert.Equal(10, run.State.GetLogSourcePositions("alpha")["access.log"]);
         await using var verify = new AppDbContext(run.Database.Options);
         Assert.True(await verify.Downloads.AnyAsync(download => download.IsEvicted));
     }
@@ -2166,7 +2173,7 @@ public sealed class CacheScanDetectionPhaseTests
         foreach (var name in names)
         {
             await SeedEvictedDownloadAsync(run.Database, name, $"/{name}-evicted");
-            run.State.SetLogSourcePositions(name, new Dictionary<string, long> { ["access"] = 10 });
+            run.State.SetLogSourcePositions(name, new Dictionary<string, long> { ["access.log"] = 10 });
             run.State.SetLogTotalLines(name, 20);
         }
         bool? secondStartedWhenRedone = null;
@@ -2216,14 +2223,17 @@ public sealed class CacheScanDetectionPhaseTests
             Assert.False(await verify.Downloads.AnyAsync());
             Assert.False(await verify.LogEntries.AnyAsync());
         }
-        // The first log was rewritten when the step stopped, so its datasource imports from the
-        // start; a datasource first purged by the repair keeps its position, moved by its own purge.
-        Assert.Empty(run.State.GetLogSourcePositions("alpha"));
+        // The first log was rewritten when the step stopped, so its repair reset stores the
+        // found series at 0 and that datasource imports from the start. A datasource first
+        // purged by the repair keeps its position, moved by its own purge.
+        Assert.Equal(
+            new Dictionary<string, long> { ["access.log"] = 0 },
+            run.State.GetLogSourcePositions("alpha"));
         Assert.Equal(0, run.State.GetLogTotalLines("alpha"));
         if (datasourceCount == 2)
         {
             Assert.False(secondStartedWhenRedone);
-            Assert.Equal(9, run.State.GetLogSourcePositions("beta")["access"]);
+            Assert.Equal(9, run.State.GetLogSourcePositions("beta")["access.log"]);
         }
     }
 
@@ -2354,6 +2364,28 @@ public sealed class CacheScanDetectionPhaseTests
         await run.WaitForCompletedRepairAsync(removalId);
         await using var verify = new AppDbContext(run.Database.Options);
         Assert.False(await verify.Downloads.AnyAsync());
+    }
+
+    [Fact]
+    public async Task RemovingOrphanedDownloadsDuringAnUnmappedRemovalIsRefused()
+    {
+        await using var run = await RepairRun.CreateAsync(("alpha", ["access.log"], false));
+        long orphanId;
+        await using (var seed = new AppDbContext(run.Database.Options))
+        {
+            var orphan = ClearedDownload("orphan", "alpha", DateTime.UtcNow.AddHours(-1));
+            seed.Downloads.Add(orphan);
+            await seed.SaveChangesAsync();
+            orphanId = orphan.Id;
+        }
+        run.Repairs.SetUnmappedRemovalRunning(true);
+        await using var context = new AppDbContext(run.Database.Options);
+
+        var refusal = await Assert.ThrowsAsync<ConflictException>(
+            () => run.Scan.RemoveOrphanedDownloadsAsync(context, [orphanId], CancellationToken.None));
+
+        Assert.Equal("errors.logs.unmappedRemovalRunning", refusal.StageKey);
+        Assert.True(await context.Downloads.AnyAsync(download => download.Id == orphanId));
     }
 
     [Fact]
@@ -3593,10 +3625,10 @@ public sealed class CacheScanDetectionPhaseTests
             var report = Runs switch
             {
                 1 => """
-                     {"success":true,"lines_removed":3,"log_lines_removed_by_source":{"access":3},"log_lines_removed_before_position_by_source":{"access":2},"permission_errors":0,"error":null}
+                     {"success":true,"lines_removed":3,"log_lines_removed_by_source":{"access.log":3},"log_lines_removed_before_position_by_source":{"access.log":2},"permission_errors":0,"error":null}
                      """,
                 2 => """
-                     {"success":true,"lines_removed":4,"log_lines_removed_by_source":{"access":3,"steam":1},"log_lines_removed_before_position_by_source":{"access":2,"steam":1},"permission_errors":0,"error":null}
+                     {"success":true,"lines_removed":4,"log_lines_removed_by_source":{"access.log":3,"steam-access.log":1},"log_lines_removed_before_position_by_source":{"access.log":2,"steam-access.log":1},"permission_errors":0,"error":null}
                      """,
                 _ => """
                      {"success":true,"lines_removed":0,"log_lines_removed_by_source":{},"log_lines_removed_before_position_by_source":{},"permission_errors":0,"error":null}
@@ -3777,7 +3809,7 @@ public sealed class CacheScanDetectionPhaseTests
             await File.WriteAllTextAsync(
                 OutputPath,
                 $$"""
-                {"success":true,"lines_removed":2,"log_lines_removed_by_source":{"access":2},"log_lines_removed_before_position_by_source":{"access":1},"permission_errors":{{PermissionErrors}},"error":null}
+                {"success":true,"lines_removed":2,"log_lines_removed_by_source":{"access.log":2},"log_lines_removed_before_position_by_source":{"access.log":1},"permission_errors":{{PermissionErrors}},"error":null}
                 """,
                 cancellationToken);
             if (OnRun is not null)
@@ -3998,7 +4030,8 @@ public sealed class CacheScanDetectionPhaseTests
                 new OperationConflictChecker(tracker, operationState, NullLogger<OperationConflictChecker>.Instance),
                 capability,
                 Idle(),
-                operationState));
+                operationState,
+                null!));
             registrations.AddSingleton(container => new RustLogProcessorService(
                 NullLogger<RustLogProcessorService>.Instance,
                 paths,
@@ -4007,7 +4040,8 @@ public sealed class CacheScanDetectionPhaseTests
                 container,
                 rust,
                 datasourceService,
-                tracker));
+                tracker,
+                TimeProvider.System));
             registrations.AddSingleton(container => new CacheReconciliationService(
                 container,
                 NullLogger<CacheReconciliationService>.Instance,
@@ -4218,7 +4252,8 @@ public sealed class CacheScanDetectionPhaseTests
                 conflictChecker: null!,
                 capabilityService,
                 Idle(),
-                operationStateService));
+                operationStateService,
+                null!));
             _services = registrations.BuildServiceProvider();
             _lifetime = new TestHostApplicationLifetime();
             _operationStateService = operationStateService = new OperationStateService(

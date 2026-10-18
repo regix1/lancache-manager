@@ -615,6 +615,39 @@ public sealed class ScheduledPrefillRecoveryTests
     }
 
     /// <summary>
+    /// A Steam run a drop cut off before any game finished ends red with the prefill text on its card and on its
+    /// run row: the app may sign the always-on container in again by itself, which the Steam text does not say.
+    /// </summary>
+    [Fact]
+    public async Task ASteamRunADropEndsBeforeAnyGameReadsAsTheRunRowAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        var daemon = CreateDaemon(fixture, PrefillPlatform.Steam);
+        using var services = new ServiceCollection().AddSingleton(typeof(SteamDaemonService), daemon).BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        var serviceRun = MakeRun("20", ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam), PrefillPlatform.Steam);
+        serviceRun.ServiceConfig.SelectedAppIds.Add("30");
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        Assert.True(tracker.TryRestoreOperation(serviceRun.OperationId, OperationType.ScheduledPrefill, serviceRun.State.Name,
+            new CancellationTokenSource(), serviceRun.State));
+        var task = (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
+            .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(scheduler, [serviceRun, tracker, services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(),
+                CancellationToken.None, true])!;
+        await daemon.RefreshRunsAsync(fixture.Session.Id);
+        var run = daemon.GetRun(fixture.Session.Id, serviceRun.OperationId)!;
+
+        FinishFailedRun(fixture, run, "auth-lost", ["failed", "skipped"]);
+        await daemon.RefreshRunsAsync(fixture.Session.Id);
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, await task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal("errors.steam.signInLost", run.ErrorStageKey);
+        Assert.Equal("errors.prefill.signInLost", serviceRun.State.Snapshot.StageKey);
+        Assert.Equal("errors.prefill.signInLost",
+            tracker.GetRuns().Runs.Single(row => row.OperationId == serviceRun.OperationId).Error);
+    }
+
+    /// <summary>
     /// A run that could not start because something it needs is missing ends red with its own reason; a
     /// run that was only put off (the container is busy) ends skipped.
     /// </summary>
@@ -651,6 +684,189 @@ public sealed class ScheduledPrefillRecoveryTests
 
         Assert.Equal(status, tracker.GetOperation(run.OperationId)!.Status);
         Assert.Equal(stageKey, run.State.Snapshot.StageKey);
+    }
+
+    // ---------- Scheduled Steam run after a dropped sign-in ----------
+    // The daemon reports the drop code only after a dropped connection, so a scheduled Steam run signs in
+    // with the saved login on that code alone; a log-off or a person's Log out leaves it signed out.
+
+    [Fact]
+    public async Task AScheduledSteamRunSignsInWithTheSavedLoginFirstAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = new ServiceCollection().AddSingleton(fixture.Daemon).BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        fixture.Session.AuthState = DaemonAuthState.NotAuthenticated;
+        fixture.Client.Status = SignedOutStatus(fixture, "auth-lost");
+        fixture.Client.SignInOnStartLogin = true;
+        var serviceRun = MakeRun("20");
+
+        var result = StartGatedRun(scheduler, services, serviceRun, new CancellationTokenSource());
+        await WaitUntilAsync(() => fixture.Client.StartCount == 1);
+        await fixture.RefreshAsync();
+        var run = fixture.Daemon.GetRun(fixture.Session.Id, serviceRun.OperationId)!;
+
+        Assert.Equal(1, fixture.Client.StartLoginCalls);
+        fixture.Client.Set(run, "completed", 100, "success");
+        await fixture.RefreshAsync();
+        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, await result.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task AScheduledSteamRunWaitsForASignInAlreadyRunningAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = new ServiceCollection().AddSingleton(fixture.Daemon).BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        fixture.Session.AuthState = DaemonAuthState.NotAuthenticated;
+        fixture.Client.Status = SignedOutStatus(fixture, "auth-lost");
+        var serviceRun = MakeRun("20");
+        // Stands for a retry's sign-in holding the lock.
+        await fixture.Session.LoginLock.WaitAsync();
+
+        var result = StartGatedRun(scheduler, services, serviceRun, new CancellationTokenSource());
+        await Task.WhenAny(result, Task.Delay(TimeSpan.FromSeconds(2)));
+        Assert.False(result.IsCompleted);
+
+        // The other sign-in finishes and the run goes on with its result.
+        fixture.Session.AuthState = DaemonAuthState.Authenticated;
+        fixture.Client.Status = null;
+        fixture.Session.LoginLock.Release();
+        await WaitUntilAsync(() => fixture.Client.StartCount == 1);
+        await fixture.RefreshAsync();
+        var run = fixture.Daemon.GetRun(fixture.Session.Id, serviceRun.OperationId)!;
+
+        Assert.Equal(0, fixture.Client.StartLoginCalls);
+        fixture.Client.Set(run, "completed", 100, "success");
+        await fixture.RefreshAsync();
+        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, await result.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task AScheduledRunCanceledDuringItsSignInEndsCanceledAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = new ServiceCollection().AddSingleton(fixture.Daemon).BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        fixture.Session.AuthState = DaemonAuthState.NotAuthenticated;
+        fixture.Client.Status = SignedOutStatus(fixture, "auth-lost");
+        using var cancel = new CancellationTokenSource();
+        var serviceRun = MakeRun("20") with { Token = cancel.Token };
+        await fixture.Session.LoginLock.WaitAsync();
+
+        var result = StartGatedRun(scheduler, services, serviceRun, cancel);
+        // The status read before the wait starts the background retry.
+        await WaitUntilAsync(() => fixture.Session.SignInAgainAfterDrop is not null);
+        await cancel.CancelAsync();
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Cancelled, await result.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.NotEqual("signalr.scheduledPrefill.needsPersistentLogin", serviceRun.State.Snapshot.StageKey);
+        fixture.Session.LoginLock.Release();
+    }
+
+    [Fact]
+    public async Task AScheduledRunWhoseSignInIsRefusedStillEndsNeedsLoginAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = new ServiceCollection().AddSingleton(fixture.Daemon).BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        fixture.Session.AuthState = DaemonAuthState.NotAuthenticated;
+        fixture.Client.Status = SignedOutStatus(fixture, "auth-lost");
+        // A person's cancel of an earlier sign-in is still finishing, so the sign-in is refused.
+        fixture.Session.LoginCanceling = true;
+        var serviceRun = MakeRun("20");
+
+        var result = StartGatedRun(scheduler, services, serviceRun, new CancellationTokenSource());
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.NeedsLogin, await result.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal("signalr.scheduledPrefill.needsPersistentLogin", serviceRun.State.Snapshot.StageKey);
+    }
+
+    [Fact]
+    public async Task AScheduledRunCanceledWhileItsSignInStepFailsEndsCanceledAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = new ServiceCollection().AddSingleton(fixture.Daemon).BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        fixture.Session.AuthState = DaemonAuthState.NotAuthenticated;
+        using var cancel = new CancellationTokenSource();
+        var serviceRun = MakeRun("20") with { Token = cancel.Token };
+        // The person cancels the run while the daemon status read fails with something other than a cancel.
+        fixture.Client.StatusRead = async () =>
+        {
+            await cancel.CancelAsync();
+            throw new IOException("Connection to the daemon was lost");
+        };
+
+        var result = StartGatedRun(scheduler, services, serviceRun, cancel);
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Cancelled, await result.WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+
+    [Fact]
+    public async Task AScheduledRunOnAnotherPlatformStartsNoSignInAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = new ServiceCollection()
+            .AddSingleton(typeof(BattleNetDaemonService), CreateDaemon(fixture, PrefillPlatform.BattleNet))
+            .BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        fixture.Session.AuthState = DaemonAuthState.NotAuthenticated;
+        fixture.Session.Capabilities = null;
+        fixture.Client.Status = new DaemonStatus { Status = "awaiting-login", ErrorCode = "auth-lost" };
+        var serviceRun = MakeRun("20", platform: PrefillPlatform.BattleNet);
+
+        var result = StartGatedRun(scheduler, services, serviceRun, new CancellationTokenSource());
+        await result.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(0, fixture.Client.StartLoginCalls);
+        Assert.Equal("signalr.scheduledPrefill.skippedContainerNotReady", serviceRun.State.Snapshot.StageKey);
+    }
+
+    [Fact]
+    public async Task AScheduledSteamRunAfterALogOffTriesNoSignInAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = new ServiceCollection().AddSingleton(fixture.Daemon).BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        fixture.Session.AuthState = DaemonAuthState.NotAuthenticated;
+        fixture.Client.Status = SignedOutStatus(fixture, null);
+        fixture.Client.SignInOnStartLogin = true;
+        var serviceRun = MakeRun("20");
+
+        var result = StartGatedRun(scheduler, services, serviceRun, new CancellationTokenSource());
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.NeedsLogin, await result.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal("signalr.scheduledPrefill.needsPersistentLogin", serviceRun.State.Snapshot.StageKey);
+        Assert.Equal(0, fixture.Client.StartLoginCalls);
+    }
+
+    [Fact]
+    public async Task AScheduledSteamRunStartsTheRetryForADropTheAppMissedAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = new ServiceCollection().AddSingleton(fixture.Daemon).BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        // The app still reads signed in although the daemon dropped the sign-in.
+        fixture.Session.AuthState = DaemonAuthState.Authenticated;
+        fixture.Client.Status = SignedOutStatus(fixture, "auth-lost");
+        var serviceRun = MakeRun("20");
+        await fixture.Session.LoginLock.WaitAsync();
+
+        var result = StartGatedRun(scheduler, services, serviceRun, new CancellationTokenSource());
+        await WaitUntilAsync(() => fixture.Session.SignInAgainAfterDrop is not null);
+        Assert.Equal(DaemonAuthState.NotAuthenticated, fixture.Session.AuthState);
+
+        fixture.Session.AuthState = DaemonAuthState.Authenticated;
+        fixture.Client.Status = null;
+        fixture.Session.LoginLock.Release();
+        await WaitUntilAsync(() => fixture.Client.StartCount == 1);
+        await fixture.RefreshAsync();
+        var run = fixture.Daemon.GetRun(fixture.Session.Id, serviceRun.OperationId)!;
+        fixture.Client.Set(run, "completed", 100, "success");
+        await fixture.RefreshAsync();
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, await result.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
     [Fact]
@@ -1023,6 +1239,29 @@ public sealed class ScheduledPrefillRecoveryTests
             },
             Items = items
         };
+    }
+
+    // The fixture's protocol-2 status for a signed-out Steam container. The code is "auth-lost" after a
+    // dropped connection and null after a log-off or a person's Log out.
+    private static DaemonStatus SignedOutStatus(RunFixture fixture, string? errorCode)
+    {
+        var status = RunClient.Capabilities(fixture.Client.InstanceId);
+        status.Status = "not-logged-in";
+        status.ErrorCode = errorCode;
+        return status;
+    }
+
+    // Starts one scheduled service run the way the scheduler does, with the operation tracked under
+    // the same cancellation source the run carries.
+    private static Task<ScheduledPrefillServiceRunResult> StartGatedRun(
+        ScheduledPrefillService scheduler, IServiceProvider services, ScheduledPrefillServiceRun run, CancellationTokenSource source)
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        Assert.True(tracker.TryRestoreOperation(run.OperationId, OperationType.ScheduledPrefill, run.State.Name, source, run.State));
+        return (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
+            .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(scheduler, [run, tracker, services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(),
+                CancellationToken.None, true])!;
     }
 
     private static void Restore(ScheduledPrefillService scheduler, ScheduledPrefillConfigDto config)

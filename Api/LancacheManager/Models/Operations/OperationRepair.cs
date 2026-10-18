@@ -73,6 +73,11 @@ public sealed class OperationRepairSource
     public string? KeyScheme { get; set; }
     public bool NativeLaunchAuthorized { get; set; }
     public bool NativeCompletionAccepted { get; set; }
+    /// <summary>
+    /// The newest LogEntries id when this datasource's cache step began. Only a game or service
+    /// removal sets it; null selects every download of the target.
+    /// </summary>
+    public long? NewestLogEntryIdBefore { get; set; }
     public bool LogRewriteStarted { get; set; }
     public bool LogPositionsKept { get; set; }
     public string? ReceiptPath { get; set; }

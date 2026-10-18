@@ -287,6 +287,9 @@ struct Progress {
     /// "path: error" for every file that failed mid-run. Non-empty ⇒ terminal is at best
     /// `partial`, never plain `completed`.
     files_with_errors: Vec<String>,
+    /// How many of `files_with_errors` still hold records this run did not read. A rotated member
+    /// read up to a damaged or unfinished part is not counted: the position moves past it.
+    files_left_unread: usize,
     /// The database error that stopped the run, or null. A partial run that carries one read no file
     /// after it, so the host fails the run with this error instead of naming a log file.
     database_error: Option<String>,
@@ -317,6 +320,7 @@ fn seed_progress(run_id: &str, status: &str, terminal_status: &str, message: &st
         riot_hosts_processed: 0,
         riot_hosts_mapped: 0,
         files_with_errors: Vec::new(),
+        files_left_unread: 0,
         database_error: None,
     }
 }
@@ -367,6 +371,10 @@ struct Processor {
     incomplete_final_records: u64,
     files_with_errors: Vec<String>,
     rotated_member_errors: usize,
+    /// Rotated members read up to a damaged or unfinished part, which the position then moves past.
+    rotated_members_read_partway: usize,
+    /// Per stem, the members an earlier pass could not open and this pass resumed past unread.
+    unread_members_resumed_past: HashMap<String, usize>,
     database_error: Option<String>,
     parser: LogParser,
     detailed_parser: HttpDetailedParser,
@@ -427,6 +435,11 @@ struct Processor {
     open_attempts: HashMap<PathBuf, u64>,
     #[cfg(test)]
     parsed_records: u64,
+    // `write_progress` takes `&self`, so the count is atomic.
+    #[cfg(test)]
+    progress_writes: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    lock_retries: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -521,6 +534,8 @@ impl Processor {
             incomplete_final_records: 0,
             files_with_errors: Vec::new(),
             rotated_member_errors: 0,
+            rotated_members_read_partway: 0,
+            unread_members_resumed_past: HashMap::new(),
             database_error: None,
             parser: LogParser::new(local_tz),
             detailed_parser: HttpDetailedParser::new(local_tz),
@@ -558,6 +573,10 @@ impl Processor {
             open_attempts: HashMap::new(),
             #[cfg(test)]
             parsed_records: 0,
+            #[cfg(test)]
+            progress_writes: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            lock_retries: 0,
         }
     }
 
@@ -608,11 +627,15 @@ impl Processor {
             riot_hosts_processed: self.riot_mapping.processed(),
             riot_hosts_mapped: self.riot_mapping.mapped(),
             files_with_errors: self.files_with_errors.clone(),
+            files_left_unread: self.files_with_errors.len() - self.rotated_members_read_partway
+                + self.unread_members_resumed_past.values().sum::<usize>(),
             database_error: self.database_error.clone(),
         }
     }
 
     fn write_progress(&self, status: &str, message: &str) -> Result<()> {
+        #[cfg(test)]
+        self.progress_writes.fetch_add(1, Ordering::Relaxed);
         let progress = self.make_progress(status, "", message);
         // Use shared progress writing utility with retry logic
         progress_utils::write_progress_with_retry(&self.progress_path, &progress, 5)
@@ -756,6 +779,20 @@ impl Processor {
             let saved_point = stem_entry
                 .as_ref()
                 .and_then(|entry| log_resume::resume_point(entry, start_offset, &paths));
+            // A rotated log that would not open added nothing to the position. A removal can move
+            // the position away from the saved record, but the record still names that log.
+            let never_opened: Vec<log_purge::FileIdentity> = resume_file
+                .stems
+                .get(&source.stem)
+                .map(|entry| {
+                    entry
+                        .older_files
+                        .iter()
+                        .filter(|mark| mark.unread)
+                        .map(|mark| mark.identity.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
             let mut use_saved_point = saved_point.is_some();
             let mut stop_sources = false;
 
@@ -776,6 +813,10 @@ impl Processor {
                 let mut marks = point
                     .map(|value| value.older_files.clone())
                     .unwrap_or_default();
+                self.unread_members_resumed_past.insert(
+                    source.stem.clone(),
+                    marks.iter().filter(|mark| mark.unread).count(),
+                );
                 let mut resumed_counts_pending = point.is_some();
                 let mut frozen_source_position: Option<u64> = None;
                 let mut last_reached: Option<(usize, FileResume, u64)> = None;
@@ -823,6 +864,17 @@ impl Processor {
                         } else {
                             FileResume::default()
                         };
+                    // The line skip counts only lines in the position, so it passes over a log
+                    // that never opened and that log is read from its start.
+                    let skip_held_for_unopened = if point.is_none()
+                        && lines_to_skip > 0
+                        && log_purge::file_identity(&log_file.path)
+                            .is_ok_and(|identity| never_opened.contains(&identity))
+                    {
+                        std::mem::take(&mut lines_to_skip)
+                    } else {
+                        0
+                    };
                     if point.is_none()
                         && lines_to_skip > 0
                         && !matches!(
@@ -854,7 +906,9 @@ impl Processor {
                             &mut file_resume,
                         )
                         .await;
-                    lines_to_skip = lines_to_skip.saturating_add(file_resume.held_skip);
+                    lines_to_skip = lines_to_skip
+                        .saturating_add(file_resume.held_skip)
+                        .saturating_add(skip_held_for_unopened);
                     file_resume.held_skip = 0;
 
                     if matches!(&file_result, Ok(FileProcessingOutcome::ResumeTargetChanged)) {
@@ -922,6 +976,11 @@ impl Processor {
                             records: file_records,
                             offset: proof.map(|value| value.0),
                             tail_crc: proof.map(|value| value.1),
+                            unread: matches!(
+                                &file_result,
+                                Ok(FileProcessingOutcome::RotatedMemberUnreadable(problem))
+                                    if problem.kind == RotatedMemberProblemKind::Open
+                            ),
                         });
                     }
                     last_reached = Some((file_index, file_resume.clone(), file_records));
@@ -966,6 +1025,12 @@ impl Processor {
                                 }
                             }
                             self.rotated_member_errors += 1;
+                            // A member that would not open was not read at all, so its records
+                            // stay unread. After any other problem the position moves on past
+                            // the member, keeping only the records read before the problem.
+                            if problem.kind != RotatedMemberProblemKind::Open {
+                                self.rotated_members_read_partway += 1;
+                            }
                             self.files_with_errors.push(format!(
                                 "{}: {}",
                                 log_file.path.display(),
@@ -1330,6 +1395,10 @@ impl Processor {
         // UTF-8 lossiness is confined to the classifier's text handling.
         let mut record_buf: Vec<u8> = Vec::with_capacity(LINE_BUFFER_CAPACITY);
 
+        // A pass that reads no entries to save still reports progress, so the host can tell a
+        // working child from a stuck one.
+        let mut records_since_progress = 0usize;
+
         // Skip records if we haven't reached the start position for this stem yet
         if *lines_to_skip > 0 {
             eprintln!(
@@ -1382,6 +1451,14 @@ impl Processor {
                 *records_consumed += 1;
                 resume.offset += bytes_read as u64;
                 self.lines_parsed.fetch_add(1, Ordering::Relaxed);
+                records_since_progress += 1;
+                if records_since_progress >= BULK_BATCH_SIZE {
+                    records_since_progress = 0;
+                    self.write_progress(
+                        "processing",
+                        &format!("Reading {}...", log_file.path.display()),
+                    )?;
+                }
             }
         }
 
@@ -1465,6 +1542,14 @@ impl Processor {
             *records_consumed += 1;
             resume.offset += bytes_read as u64;
             self.lines_parsed.fetch_add(1, Ordering::Relaxed);
+            records_since_progress += 1;
+            if records_since_progress >= BULK_BATCH_SIZE {
+                records_since_progress = 0;
+                self.write_progress(
+                    "processing",
+                    &format!("Reading {}...", log_file.path.display()),
+                )?;
+            }
 
             match outcome {
                 ParseOutcome::Parsed(entry) => {
@@ -1551,8 +1636,38 @@ impl Processor {
             return Ok(());
         }
 
+        // Every statement in a batch waits at most 1 s for a lock. On a lock timeout the transaction
+        // rolls back and the batch runs again, so a stop request is seen while another session holds a
+        // conflicting table or row lock, and no backend is left waiting after this process ends.
+        loop {
+            match self.try_process_batch(entries).await {
+                Err(error)
+                    if error
+                        .downcast_ref::<sqlx::Error>()
+                        .and_then(|error| error.as_database_error())
+                        .and_then(|error| error.code())
+                        .as_deref()
+                        == Some("55P03") =>
+                {
+                    #[cfg(test)]
+                    {
+                        self.lock_retries += 1;
+                    }
+                    if cancel::is_cancelled() {
+                        anyhow::bail!("Stopped while waiting for a Downloads lock");
+                    }
+                }
+                result => return result,
+            }
+        }
+    }
+
+    async fn try_process_batch(&mut self, entries: &[LogEntry]) -> Result<()> {
         // Begin a transaction
         let mut tx = self.pool.begin().await?;
+        sqlx::query("SET LOCAL lock_timeout = '1s'")
+            .execute(&mut *tx)
+            .await?;
         // The upgrade merge takes the stronger table lock. Taking the lock used by this batch
         // before its lookups makes an already-started pass wait and then see the merged rows.
         sqlx::query("LOCK TABLE \"Downloads\" IN ROW EXCLUSIVE MODE")
@@ -3064,6 +3179,7 @@ mod classification_tests {
             directory.path(),
             "xboxlive",
             Some(&saved_positions),
+            None,
         )
         .expect("remove xboxlive log records");
         assert_eq!(removal.lines_removed, 3);
@@ -3232,6 +3348,75 @@ mod classification_tests {
         assert_eq!(progress["source_positions"]["fallback-access.log"], 2);
         assert_eq!(progress["lines_parsed"], 2);
         assert_eq!(progress["files_with_errors"].as_array().unwrap().len(), 1);
+        assert_eq!(progress["files_left_unread"], 0);
+    }
+
+    #[tokio::test]
+    async fn an_unopened_rotated_member_counts_as_left_unread() {
+        let tmp = tempfile::tempdir().expect("create fixture directory");
+        let rotated = tmp.path().join("fallback-access.log.1");
+        std::fs::write(&rotated, b"a\nb\n").expect("write rotation");
+        std::fs::write(tmp.path().join("fallback-access.log"), b"c\n").expect("write live log");
+        let progress_path = tmp.path().join("progress.json");
+        let positions = HashMap::from([("fallback-access.log".to_string(), 0)]);
+        let mut processor =
+            test_processor(tmp.path().to_path_buf(), progress_path.clone(), positions);
+        processor.open_failure = Some(rotated);
+        processor.entries_saved.store(1, Ordering::Relaxed);
+
+        processor.process().await.expect("finish partial run");
+
+        let progress = read_progress(&progress_path);
+        assert_eq!(progress["terminal_status"], "partial");
+        assert_eq!(progress["files_left_unread"], 1);
+    }
+
+    #[tokio::test]
+    async fn a_rotated_member_that_would_not_open_stays_unread_on_the_next_pass() {
+        let tmp = tempfile::tempdir().expect("create fixture directory");
+        let resume_path = tmp.path().join("resume.json");
+        let rotated = tmp.path().join("fallback-access.log.1");
+        let current = tmp.path().join("fallback-access.log");
+        std::fs::write(&rotated, b"a\nb\n").expect("write rotation");
+        std::fs::write(&current, b"c\n").expect("write live log");
+        let positions = HashMap::from([("fallback-access.log".to_string(), 0)]);
+        let mut first = test_processor(
+            tmp.path().to_path_buf(),
+            tmp.path().join("first.json"),
+            positions,
+        );
+        first.resume_path = Some(resume_path.clone());
+        first.open_failure = Some(rotated);
+        first.entries_saved.store(1, Ordering::Relaxed);
+        first.process().await.expect("finish partial run");
+        let position = read_progress(&tmp.path().join("first.json"))["source_positions"]
+            ["fallback-access.log"]
+            .as_u64()
+            .expect("read saved position");
+
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&current)
+            .expect("open current fixture")
+            .write_all(b"d\n")
+            .expect("append current record");
+        let positions = HashMap::from([("fallback-access.log".to_string(), position)]);
+        let mut second = test_processor(
+            tmp.path().to_path_buf(),
+            tmp.path().join("second.json"),
+            positions,
+        );
+        second.resume_path = Some(resume_path);
+        second.entries_saved.store(1, Ordering::Relaxed);
+        second
+            .process()
+            .await
+            .expect("resume past the unopened member");
+
+        // The second pass resumes in the live file and never opens the member again, so its
+        // records are still not imported.
+        let progress = read_progress(&tmp.path().join("second.json"));
+        assert_eq!(progress["files_left_unread"], 1);
     }
 
     #[tokio::test]
@@ -3519,6 +3704,7 @@ mod classification_tests {
             records: 2,
             offset: Some(4),
             tail_crc: Some(log_resume::tail_crc(&rotated, 4).expect("hash saved prefix")),
+            unread: false,
         };
         std::fs::write(&rotated, b"a\nb\nc\n").expect("grow prefix fixture");
         let changed_path = rotated.clone();
@@ -3630,6 +3816,7 @@ mod classification_tests {
             .as_str()
             .unwrap()
             .contains("fallback-access.log.2"));
+        assert_eq!(progress["files_left_unread"], 0);
     }
 
     #[tokio::test]
@@ -3923,6 +4110,7 @@ mod classification_tests {
         assert_eq!(first_progress["terminal_status"], "partial");
         assert_eq!(first_progress["source_positions"]["access.log"], 4);
         assert_eq!(first_progress["unparsed_lines"], 4);
+        assert_eq!(first_progress["files_left_unread"], 0);
 
         std::fs::OpenOptions::new()
             .append(true)
@@ -4097,6 +4285,49 @@ mod classification_tests {
 
         assert_eq!(outcome, FileProcessingOutcome::Cancelled);
         assert_eq!(records_consumed, 0);
+    }
+
+    /// Reads one fallback-source file of `lines` ignored records, skipping the first
+    /// `lines_to_skip`, and returns how many progress checkpoints the read wrote.
+    async fn progress_writes_for(lines: usize, lines_to_skip: u64) -> usize {
+        let tmp = tempfile::tempdir().expect("create fixture directory");
+        let log_path = tmp.path().join("fallback-access.log");
+        let contents = "ignored\n".repeat(lines);
+        std::fs::write(&log_path, contents.as_bytes()).expect("write log fixture");
+        let progress_path = tmp.path().join("progress.json");
+        let mut processor = test_processor(tmp.path().to_path_buf(), progress_path, HashMap::new());
+        let log_file = LogFile::from_path(log_path);
+        let mut lines_to_skip = lines_to_skip;
+        let mut records_consumed = 0;
+        let mut resume = FileResume::default();
+
+        let outcome = processor
+            .process_single_file_with_cancel(
+                &log_file,
+                contents.len() as u64,
+                &mut lines_to_skip,
+                &SourceKind::Fallback,
+                &mut records_consumed,
+                &mut resume,
+                || false,
+            )
+            .await
+            .expect("read the fixture");
+
+        assert_eq!(outcome, FileProcessingOutcome::Completed);
+        assert_eq!(records_consumed, lines as u64);
+        processor.progress_writes.load(Ordering::Relaxed)
+    }
+
+    #[tokio::test]
+    async fn progress_is_written_while_skipping_to_the_start_position() {
+        // The file-start write alone is 1; 12,000 skipped records add one write per 5,000.
+        assert_eq!(progress_writes_for(12_001, 12_000).await, 1 + 2);
+    }
+
+    #[tokio::test]
+    async fn progress_is_written_through_long_runs_of_ignored_lines() {
+        assert_eq!(progress_writes_for(12_000, 0).await, 1 + 2);
     }
 
     #[test]
@@ -4360,13 +4591,13 @@ mod session_continuity_tests {
         assert!(log_resume::resume_point(remount_entry, 3, &remount_paths).is_none());
         assert_eq!(
             log_resume::deleted_prefix_records(remount_entry, &remount_paths),
-            0
+            3
         );
 
         let (remount_second, remount_parsed) =
             run_counted(pool, remount.path(), 3, "a2-second", "resume-a2").await;
         assert_eq!(remount_second["source_positions"]["access.log"], 4);
-        assert_eq!(remount_parsed, 1);
+        assert_eq!(remount_parsed, 4);
         assert_eq!(
             stored_rows(pool, "resume-a2").await,
             vec![
@@ -5187,6 +5418,50 @@ mod session_continuity_tests {
         );
         assert_eq!(unreadable_third.parsed_records, 0);
         assert_eq!(stored_totals(pool, "resume-unreadable").await, (3, 240, 0));
+
+        // The log opens again, and a removal drops a line the importer had read, so the saved
+        // position moves and the next pass falls back to the line skip.
+        std::fs::write(
+            &unreadable_current,
+            [
+                log_line(
+                    "steam",
+                    "10.0.6.7",
+                    "07/Jan/2026:18:00:02",
+                    "/resume/unreadable/02-current",
+                    80,
+                    "unreadable-2",
+                ),
+                log_line(
+                    "steam",
+                    "10.0.6.7",
+                    "07/Jan/2026:18:00:03",
+                    "/resume/unreadable/03-new",
+                    90,
+                    "unreadable-3",
+                ),
+            ]
+            .concat(),
+        )
+        .expect("rewrite unreadable current member");
+        let mut unreadable_fourth = Processor::new(
+            pool.clone(),
+            unreadable.path().to_path_buf(),
+            unreadable.path().join("unreadable-fourth.json"),
+            false,
+            "resume-unreadable".to_string(),
+            HashMap::from([("access.log".to_string(), 2)]),
+            "unreadable-fourth".to_string(),
+        );
+        unreadable_fourth.resume_path =
+            Some(unreadable.path().join("resume-unreadable-resume.json"));
+        unreadable_fourth
+            .process()
+            .await
+            .expect("line skip past a member that once would not open");
+        assert!(stored_rows(pool, "resume-unreadable")
+            .await
+            .contains(&("/resume/unreadable/00-old".to_string(), 5)));
     }
 
     #[cfg(unix)]
@@ -5353,6 +5628,134 @@ mod session_continuity_tests {
             assert_eq!(second.parsed_records, 1);
             assert_eq!(third.parsed_records, 0);
         }
+    }
+
+    fn parsed_entry(processor: &Processor, time: &str, url: &str) -> LogEntry {
+        let line = log_line("steam", "10.0.0.1", time, url, 10, "bytes=0-9");
+        match processor.classify_record(line.as_bytes(), true, &SourceKind::Monolithic) {
+            ParseOutcome::Parsed(entry) => entry,
+            _ => panic!("the fixture line must parse into an entry"),
+        }
+    }
+
+    /// Holds a lock on a second connection into the test schema, releases it after 2.5 s, and
+    /// runs the batch meanwhile. The batch must wait in 1 s tries and then finish.
+    async fn batch_through_a_held_lock(
+        processor: &mut Processor,
+        options: &PgConnectOptions,
+        schema: &str,
+        lock_sql: &str,
+        entries: &[LogEntry],
+    ) {
+        use sqlx::Connection;
+
+        let scoped = options.clone().options([("search_path", schema)]);
+        let mut blocker = sqlx::PgConnection::connect_with(&scoped)
+            .await
+            .expect("connect the lock holder");
+        let mut held = blocker
+            .begin()
+            .await
+            .expect("open the lock holder transaction");
+        sqlx::query(lock_sql)
+            .fetch_optional(&mut *held)
+            .await
+            .expect("take the lock");
+
+        let release = async {
+            tokio::time::sleep(Duration::from_millis(2_500)).await;
+            held.commit().await.expect("release the lock");
+        };
+        let (_, result) = tokio::join!(release, processor.process_batch(entries));
+        result.expect("the batch finishes once the lock is released");
+    }
+
+    fn lock_test_processor(pool: &PgPool, directory: &Path) -> Processor {
+        Processor::new(
+            pool.clone(),
+            directory.to_path_buf(),
+            directory.join("progress.json"),
+            false,
+            "locks".to_string(),
+            HashMap::new(),
+            "locks-run".to_string(),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_batch_waits_for_the_downloads_lock_in_short_tries() {
+        let name = "a_batch_waits_for_the_downloads_lock_in_short_tries";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create database fixture");
+        let mut processor = lock_test_processor(&pool, directory.path());
+        let entry = parsed_entry(&processor, "01/Jan/2026:12:00:00", "/depot/101/chunk/a");
+
+        batch_through_a_held_lock(
+            &mut processor,
+            &options,
+            &schema,
+            r#"LOCK TABLE "Downloads" IN SHARE ROW EXCLUSIVE MODE"#,
+            &[entry],
+        )
+        .await;
+
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(r#"SELECT COUNT(*) FROM "LogEntries""#)
+                .fetch_one(&pool)
+                .await
+                .expect("count saved entries"),
+            1
+        );
+        assert!(
+            processor.lock_retries >= 2,
+            "a 2.5 s hold must cost at least two 1 s tries, got {}",
+            processor.lock_retries
+        );
+        drop_schema(pool, &schema, options).await;
+    }
+
+    #[tokio::test]
+    async fn a_batch_waits_for_a_downloads_row_lock_in_short_tries() {
+        let name = "a_batch_waits_for_a_downloads_row_lock_in_short_tries";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create database fixture");
+        let mut processor = lock_test_processor(&pool, directory.path());
+        let first = parsed_entry(&processor, "01/Jan/2026:12:00:00", "/depot/101/chunk/a");
+        processor
+            .process_batch(&[first])
+            .await
+            .expect("create the active download");
+        assert_eq!(processor.lock_retries, 0);
+
+        let second = parsed_entry(&processor, "01/Jan/2026:12:01:00", "/depot/101/chunk/b");
+        batch_through_a_held_lock(
+            &mut processor,
+            &options,
+            &schema,
+            r#"SELECT "Id" FROM "Downloads" WHERE "ClientIp" = '10.0.0.1' FOR UPDATE"#,
+            &[second],
+        )
+        .await;
+
+        let row = sqlx::query(
+            r#"SELECT COUNT(*)::bigint AS "Rows", COALESCE(SUM("CacheHitBytes"), 0)::bigint AS "Bytes" FROM "Downloads" WHERE "ClientIp" = $1"#,
+        )
+        .bind("10.0.0.1")
+        .fetch_one(&pool)
+        .await
+        .expect("read the extended download");
+        assert_eq!(row.get::<i64, _>("Rows"), 1);
+        assert_eq!(row.get::<i64, _>("Bytes"), 20);
+        assert!(
+            processor.lock_retries >= 2,
+            "a 2.5 s row lock must cost at least two 1 s tries, got {}",
+            processor.lock_retries
+        );
+        drop_schema(pool, &schema, options).await;
     }
 
     #[tokio::test]
@@ -6307,6 +6710,9 @@ mod session_continuity_tests {
                 "/depot/402/chunk/old-a".to_string(),
                 "/depot/402/chunk/old-b".to_string(),
                 "/depot/402/chunk/old-c".to_string(),
+                format!("/depot/402/chunk/rewrite-d-{}", "x".repeat(800)),
+                "/depot/402/chunk/rewrite-e".to_string(),
+                "/depot/402/chunk/rewrite-f".to_string(),
                 "/depot/402/chunk/rewrite-g".to_string(),
                 "/depot/402/chunk/rewrite-h".to_string(),
             ]
@@ -6386,6 +6792,303 @@ mod session_continuity_tests {
         #[cfg(unix)]
         verify_unix_open_denial(&pool).await;
 
+        drop_schema(pool, &schema, options).await;
+    }
+
+    #[tokio::test]
+    async fn a_rotation_that_leaves_no_anchor_imports_every_unread_line() {
+        let name = "a_rotation_that_leaves_no_anchor_imports_every_unread_line";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create rotation fixture");
+        let older = directory.path().join("access.log.1");
+        let current = directory.path().join("access.log");
+        let line = |time: &str, url: &str, bytes: i64| {
+            log_line("steam", "10.0.7.1", time, url, bytes, url)
+        };
+        std::fs::write(&older, line("08/Jan/2026:12:00:00", "/rotate/01-a", 10))
+            .expect("write read rotation");
+        std::fs::write(
+            &current,
+            [
+                line("08/Jan/2026:12:00:01", "/rotate/02-t1", 20),
+                line("08/Jan/2026:12:00:02", "/rotate/03-t2", 30),
+            ]
+            .concat(),
+        )
+        .expect("write read current log");
+        let (first, _) = run_counted(&pool, directory.path(), 0, "rotate-first", "rotate").await;
+        assert_eq!(first["source_positions"]["access.log"], 3);
+
+        // nginx writes u1 after the pass; then rotate 1 + compress without delaycompress deletes
+        // the read rotation, compresses the current log into a new file and starts a new one.
+        let unread = line("08/Jan/2026:12:00:03", "/rotate/04-u1", 40);
+        append(&current, &unread);
+        let rotated = std::fs::read(&current).expect("read current log before rotation");
+        std::fs::remove_file(&older).expect("delete read rotation");
+        super::classification_tests::write_gzip(
+            &directory.path().join("access.log.1.gz"),
+            &rotated,
+            Compression::default(),
+        );
+        std::fs::remove_file(&current).expect("move current log");
+        std::fs::write(
+            &current,
+            [
+                line("08/Jan/2026:12:00:04", "/rotate/05-n1", 50),
+                line("08/Jan/2026:12:00:05", "/rotate/06-n2", 60),
+            ]
+            .concat(),
+        )
+        .expect("write new current log");
+
+        let (second, _) = run_counted(&pool, directory.path(), 3, "rotate-second", "rotate").await;
+        assert_eq!(second["source_positions"]["access.log"], 5);
+        assert_eq!(
+            stored_rows(&pool, "rotate").await,
+            vec![
+                ("/rotate/01-a".to_string(), 10),
+                ("/rotate/02-t1".to_string(), 20),
+                ("/rotate/03-t2".to_string(), 30),
+                ("/rotate/04-u1".to_string(), 40),
+                ("/rotate/05-n1".to_string(), 50),
+                ("/rotate/06-n2".to_string(), 60),
+            ]
+        );
+        drop_schema(pool, &schema, options).await;
+    }
+
+    /// Imports x0, y0 (access.log.1) and x1, y1 (access.log) at position 4, then x2 and y2 arrive
+    /// unread and rotate 1 + compress without delaycompress leaves no log with a saved identity:
+    /// access.log.1.gz holds x1, y1, x2, y2 and the new access.log holds x3, y3. x lines are Steam
+    /// depot 501, y lines are Epic.
+    async fn import_then_rotate_without_anchor(pool: &PgPool, directory: &Path, datasource: &str) {
+        let older = directory.join("access.log.1");
+        let current = directory.join("access.log");
+        let line = |second: u32, name: &str| {
+            let (service, url) = if name.starts_with('x') {
+                ("steam", format!("/depot/501/chunk/{name}"))
+            } else {
+                ("epicgames", format!("/epic/chunk/{name}"))
+            };
+            log_line(
+                service,
+                "10.0.8.1",
+                &format!("09/Jan/2026:12:00:{second:02}"),
+                &url,
+                1,
+                name,
+            )
+        };
+        std::fs::write(&older, [line(0, "x0"), line(1, "y0")].concat())
+            .expect("write read rotation");
+        std::fs::write(&current, [line(2, "x1"), line(3, "y1")].concat())
+            .expect("write read current log");
+        let (first, _) = run_counted(pool, directory, 0, "rotation-first", datasource).await;
+        assert_eq!(first["source_positions"]["access.log"], 4);
+
+        append(&current, &[line(4, "x2"), line(5, "y2")].concat());
+        let rotated = std::fs::read(&current).expect("read current log before rotation");
+        std::fs::remove_file(&older).expect("delete read rotation");
+        super::classification_tests::write_gzip(
+            &directory.join("access.log.1.gz"),
+            &rotated,
+            Compression::default(),
+        );
+        std::fs::remove_file(&current).expect("move current log");
+        std::fs::write(&current, [line(6, "x3"), line(7, "y3")].concat())
+            .expect("write new current log");
+    }
+
+    async fn stored_urls(pool: &PgPool, datasource: &str) -> Vec<String> {
+        stored_rows(pool, datasource)
+            .await
+            .into_iter()
+            .map(|(url, _)| url)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn a_game_removal_after_a_rotation_that_leaves_no_anchor_keeps_its_rows_removed() {
+        let name = "a_game_removal_after_a_rotation_that_leaves_no_anchor_keeps_its_rows_removed";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create removal fixture");
+        import_then_rotate_without_anchor(&pool, directory.path(), "removal").await;
+        let mark = removal_mark(&pool).await;
+
+        let lowered = remove_game_501_log_lines(&pool, directory.path(), "removal", 4, mark).await;
+
+        run_counted(&pool, directory.path(), lowered, "removal-next", "removal").await;
+        // x0 and x1 were removed; x2 and x3 were logged during the removal, so they stay as rows.
+        assert_eq!(
+            stored_urls(&pool, "removal").await,
+            vec![
+                "/depot/501/chunk/x2".to_string(),
+                "/depot/501/chunk/x3".to_string(),
+                "/epic/chunk/y0".to_string(),
+                "/epic/chunk/y1".to_string(),
+                "/epic/chunk/y2".to_string(),
+                "/epic/chunk/y3".to_string(),
+            ]
+        );
+        drop_schema(pool, &schema, options).await;
+    }
+
+    /// The newest row before a removal; the removal deletes its target's rows up to it.
+    async fn removal_mark(pool: &PgPool) -> i64 {
+        sqlx::query_scalar(r#"SELECT MAX("Id") FROM "LogEntries""#)
+            .fetch_one(pool)
+            .await
+            .expect("read the removal mark")
+    }
+
+    /// A removal's log step for game 501: reads every log to the end from `position`, purges the
+    /// game keeping unread lines, deletes its rows up to `mark` and returns the lowered position.
+    async fn remove_game_501_log_lines(
+        pool: &PgPool,
+        directory: &Path,
+        datasource: &str,
+        position: u64,
+        mark: i64,
+    ) -> u64 {
+        let (read, _) = run_counted(pool, directory, position, "removal-read", datasource).await;
+        let position = read["source_positions"]["access.log"]
+            .as_u64()
+            .expect("read position after the import");
+        let resume = log_resume::load(&directory.join(format!("{datasource}-resume.json")));
+        let purged = log_purge::remove_log_entries_for_game(
+            directory,
+            &HashSet::new(),
+            &HashSet::from([501]),
+            None,
+            Some(&HashMap::from([("access.log".to_string(), position)])),
+            Some(&resume),
+            true,
+        )
+        .expect("purge game 501");
+        sqlx::query(
+            r#"DELETE FROM "LogEntries" WHERE "Datasource" = $1 AND "Url" LIKE '/depot/501/%' AND "Id" <= $2"#,
+        )
+        .bind(datasource)
+        .bind(mark)
+        .execute(pool)
+        .await
+        .expect("delete the removed game's rows");
+        position - purged.lines_removed_before_position_by_stem["access.log"]
+    }
+
+    #[tokio::test]
+    async fn a_removal_redone_after_a_crash_mid_purge_keeps_its_rows_removed() {
+        let name = "a_removal_redone_after_a_crash_mid_purge_keeps_its_rows_removed";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create redo fixture");
+        import_then_rotate_without_anchor(&pool, directory.path(), "redo").await;
+        let mark = removal_mark(&pool).await;
+
+        // The app stopped after the purge started. The startup repair resets the position and drops
+        // the importer's record before it redoes the log step.
+        std::fs::remove_file(directory.path().join("redo-resume.json"))
+            .expect("drop the importer's record");
+        let lowered = remove_game_501_log_lines(&pool, directory.path(), "redo", 0, mark).await;
+
+        run_counted(&pool, directory.path(), lowered, "redo-next", "redo").await;
+        assert_eq!(
+            stored_urls(&pool, "redo").await,
+            vec![
+                "/depot/501/chunk/x2".to_string(),
+                "/depot/501/chunk/x3".to_string(),
+                "/epic/chunk/y0".to_string(),
+                "/epic/chunk/y1".to_string(),
+                "/epic/chunk/y2".to_string(),
+                "/epic/chunk/y3".to_string(),
+            ]
+        );
+        drop_schema(pool, &schema, options).await;
+    }
+
+    #[tokio::test]
+    async fn a_log_delete_after_a_rotation_that_leaves_no_anchor_duplicates_nothing() {
+        let name = "a_log_delete_after_a_rotation_that_leaves_no_anchor_duplicates_nothing";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create log delete fixture");
+        import_then_rotate_without_anchor(&pool, directory.path(), "delete").await;
+
+        // The delete counts the read records no surviving log proves, deletes access.log, and
+        // keeps the position less those records, capped by the lines of the surviving logs.
+        let gzip = directory.path().join("access.log.1.gz");
+        let current = directory.path().join("access.log");
+        let resume = log_resume::load(&directory.path().join("delete-resume.json"));
+        let stale = log_resume::deleted_prefix_records(
+            resume
+                .stems
+                .get("access.log")
+                .expect("read delete resume entry"),
+            &[gzip, current.clone()],
+        );
+        std::fs::remove_file(&current).expect("delete access.log");
+        let kept = (4 - stale).min(4);
+
+        let (next, _) = run_counted(&pool, directory.path(), kept, "delete-next", "delete").await;
+        assert_eq!(next["source_positions"]["access.log"], 4);
+        // x2 and y2 were unread in the surviving log; x3 and y3 went with the deleted file.
+        assert_eq!(
+            stored_urls(&pool, "delete").await,
+            vec![
+                "/depot/501/chunk/x0".to_string(),
+                "/depot/501/chunk/x1".to_string(),
+                "/depot/501/chunk/x2".to_string(),
+                "/epic/chunk/y0".to_string(),
+                "/epic/chunk/y1".to_string(),
+                "/epic/chunk/y2".to_string(),
+            ]
+        );
+        drop_schema(pool, &schema, options).await;
+    }
+
+    #[tokio::test]
+    async fn a_service_log_removal_after_a_rotation_that_leaves_no_anchor_keeps_its_rows_removed() {
+        let name =
+            "a_service_log_removal_after_a_rotation_that_leaves_no_anchor_keeps_its_rows_removed";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create service removal fixture");
+        import_then_rotate_without_anchor(&pool, directory.path(), "service").await;
+
+        // The removal takes every Epic line out of the logs, deletes the Epic rows and lowers the
+        // position by the removed lines it counts as read.
+        let resume = log_resume::load(&directory.path().join("service-resume.json"));
+        let removed = log_purge::remove_all_log_entries_for_service(
+            directory.path(),
+            "epicgames",
+            Some(&HashMap::from([("access.log".to_string(), 4)])),
+            Some(&resume),
+        )
+        .expect("remove Epic lines");
+        assert_eq!(removed.lines_removed, 3);
+        sqlx::query(r#"DELETE FROM "LogEntries" WHERE "Datasource" = 'service' AND "Service" = 'epicgames'"#)
+            .execute(&pool)
+            .await
+            .expect("delete the Epic rows");
+        let lowered = 4 - removed.lines_removed_before_position_by_stem["access.log"];
+
+        run_counted(&pool, directory.path(), lowered, "service-next", "service").await;
+        assert_eq!(
+            stored_urls(&pool, "service").await,
+            vec![
+                "/depot/501/chunk/x0".to_string(),
+                "/depot/501/chunk/x1".to_string(),
+                "/depot/501/chunk/x2".to_string(),
+                "/depot/501/chunk/x3".to_string(),
+            ]
+        );
         drop_schema(pool, &schema, options).await;
     }
 

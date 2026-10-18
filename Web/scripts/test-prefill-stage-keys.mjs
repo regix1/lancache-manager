@@ -31,7 +31,7 @@ const cacheStatusUrl = await compileToUrl('../src/components/features/prefill/ca
 const { markCacheAppsUnknown } = await import(cacheStatusUrl);
 
 const recoveryMessages = {
-  'errors.steam.signInLost': 'Steam is no longer signed in. Sign in again, then retry the prefill.',
+  'errors.steam.signInLost': 'Steam is no longer signed in. Log in again, then try again.',
   'errors.steam.gameDetailsUnavailable': 'Steam did not return game details. Try again.',
   'errors.prefill.requestFailed': 'The prefill daemon could not complete the request. Try again.',
   'signalr.steamSession.savedSignInPreserved':
@@ -81,6 +81,32 @@ test('recovery keys exist in both locales and production translations do not hid
     }
   }
   assert.equal(affectedCalls, 3);
+});
+
+test('the signed-out texts promise no automatic sign-in and name no guest session', () => {
+  // A person's Cancel, an errored session and a refused saved login all leave the container signed out.
+  // The Steam text is for interactive prefill; a scheduled run's card and its run row both use the prefill
+  // text, which allows for the automatic sign-in after a drop. Epic and Xbox runs reach the prefill text too,
+  // so it names no platform.
+  assert.equal(
+    en.errors.steam.signInLost,
+    'Steam is no longer signed in. Log in again, then try again.'
+  );
+  assert.equal(zh.errors.steam.signInLost, 'Steam 已退出登录。请重新登录，然后重试。');
+  assert.equal(
+    en.errors.prefill.signInLost,
+    'The service account was signed out before this finished. An always-on container may sign in again by itself with its saved login. If it is still signed out, log in again, then run it again.'
+  );
+  assert.equal(
+    zh.errors.prefill.signInLost,
+    '服务账户在完成前已退出登录。常驻容器可能会使用已保存的登录信息自行重新登录。如果仍未登录，请重新登录，然后再次运行。'
+  );
+  for (const text of [en.errors.steam.signInLost, en.errors.prefill.signInLost]) {
+    assert.doesNotMatch(text, /signs in again by itself|guest/i);
+  }
+  for (const text of [zh.errors.steam.signInLost, zh.errors.prefill.signInLost]) {
+    assert.doesNotMatch(text, /会自行重新登录|访客/);
+  }
 });
 
 const translator = i18next.createInstance();
@@ -252,6 +278,7 @@ test('both picker load failures translate typed reasons and expose missing requi
       'errors.steam.signInLost',
       'errors.steam.gameDetailsUnavailable',
       'errors.prefill.requestFailed',
+      'errors.prefill.runLimit',
       undefined,
       null
     ]) {

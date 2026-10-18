@@ -42,6 +42,7 @@ internal sealed class LogPurgeRunner
         Guid operationId,
         ResolvedDatasource datasource,
         LogPurgeTargets targets,
+        bool keepUnreadLines,
         Func<PurgeLogProgressData, Task>? onProgress,
         CancellationToken cancellationToken)
     {
@@ -74,6 +75,13 @@ internal sealed class LogPurgeRunner
             if (stemPositionsPath != null)
             {
                 args += $" --stem-positions \"{stemPositionsPath}\"";
+            }
+
+            // The resume record names the logs logrotate deleted, which the saved position still counts.
+            args += $" --resume \"{RustLogProcessorService.ResumePath(_pathResolver, datasource.Name)}\"";
+            if (keepUnreadLines)
+            {
+                args += " --keep-unread-lines";
             }
 
             // With no log file left there is nothing to purge, so no log step starts and no child runs.

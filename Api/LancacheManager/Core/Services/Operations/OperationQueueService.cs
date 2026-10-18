@@ -1,5 +1,7 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Scheduling;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
@@ -41,7 +43,11 @@ public sealed class OperationQueueService : IOperationQueue
     {
         public required Guid WaitingId { get; init; }
         public required OperationType Type { get; init; }
-        public required ConflictScope Scope { get; init; }
+        /// <summary>
+        /// The scope this waiter re-checks. A start that found another of its scopes busy parks it again
+        /// on that one. Mutates only under <see cref="_gate"/>.
+        /// </summary>
+        public required ConflictScope Scope { get; set; }
         public required string Name { get; init; }
         public required Func<Task<Guid?>> Start { get; init; }
         public required long Sequence { get; init; }
@@ -54,6 +60,12 @@ public sealed class OperationQueueService : IOperationQueue
     }
 
     private const int MaxPromotionRefusals = 300;
+
+    /// <summary>
+    /// Invoked when a parked operation ends, including a cancel. The cache controller drops the queued
+    /// Remove all whose id this is. Synchronous, on the completion stack.
+    /// </summary>
+    internal static Action<Guid>? QueuedRemoveAllEnded;
     private static readonly TimeSpan _promotionRetryDelay = TimeSpan.FromMilliseconds(100);
 
     private readonly IUnifiedOperationTracker _tracker;
@@ -102,8 +114,14 @@ public sealed class OperationQueueService : IOperationQueue
             // as-is (never two queued copies of the same destructive work).
             lock (_sync)
             {
+                // A count is read-only and belongs to the dialog that asked for it, so each request
+                // waits on its own: a joined count would end when any one of its dialogs closed.
                 var duplicateWaiter = _waiters.FirstOrDefault(w =>
                     w.Type == type
+                    && type != OperationType.CacheFileCount
+                    // A corruption removal with no target covers a set of services and parks on whichever is
+                    // busy, so its scope does not name it: its endpoint matches it by scan and services.
+                    && (type != OperationType.CorruptionRemoval || target != null)
                     && w.Scope.Matches(scope)
                     // A waiter being canceled leaves this list a moment later, on another thread; a new
                     // request that joined it would end with it.
@@ -136,6 +154,7 @@ public sealed class OperationQueueService : IOperationQueue
             // committed - in that case start immediately instead of parking forever.
             var conflict = await _conflictChecker.CheckAsync(type, scope, ct);
 
+            var parkScope = scope;
             var retryAfterParking = false;
             if (conflict == null)
             {
@@ -191,6 +210,14 @@ public sealed class OperationQueueService : IOperationQueue
 
                     throw;
                 }
+                catch (OperationBlockedException blocked)
+                {
+                    // The start touches more than this scope and another of them is busy: the request
+                    // waits on that one like any other parked request.
+                    startedId = null;
+                    parkScope = blocked.Scope;
+                    conflict = blocked.Conflict;
+                }
 
                 if (startedId.HasValue)
                 {
@@ -203,11 +230,14 @@ public sealed class OperationQueueService : IOperationQueue
                     };
                 }
 
-                // A local service gate can briefly outlive the tracker operation that owned it.
-                // Preserve this request as a real waiter and let the bounded promotion retry
-                // acquire that gate after the previous worker finishes unwinding.
-                retryAfterParking = true;
-                conflict = await _conflictChecker.CheckAsync(type, scope, ct);
+                if (conflict == null)
+                {
+                    // A local service gate can briefly outlive the tracker operation that owned it.
+                    // Preserve this request as a real waiter and let the bounded promotion retry
+                    // acquire that gate after the previous worker finishes unwinding.
+                    retryAfterParking = true;
+                    conflict = await _conflictChecker.CheckAsync(type, scope, ct);
+                }
             }
             // Identical op already ACTIVE -> idempotent accept (never rejected, never doubled).
             // Refused: the running duplicate turned Cancelling after GetDuplicateId read it. The request parks
@@ -233,7 +263,11 @@ public sealed class OperationQueueService : IOperationQueue
                 type,
                 displayName,
                 cts,
-                onTerminalCleanup: () => RemoveWaiter(waitingId),
+                onTerminalCleanup: () =>
+                {
+                    RemoveWaiter(waitingId);
+                    QueuedRemoveAllEnded?.Invoke(waitingId);
+                },
                 initialStatus: OperationStatus.Waiting,
                 metadata: new Dictionary<string, object?> { ["waiting"] = true },
                 blockedByName: blocker?.Name,
@@ -276,7 +310,7 @@ public sealed class OperationQueueService : IOperationQueue
                 {
                     WaitingId = waitingId,
                     Type = type,
-                    Scope = scope,
+                    Scope = parkScope,
                     Name = displayName,
                     Start = start,
                     Sequence = Interlocked.Increment(ref _nextSequence),
@@ -471,6 +505,8 @@ public sealed class OperationQueueService : IOperationQueue
                     Guid? startedId = null;
                     string? startError = null;
                     var startDeclined = false;
+                    var nothingToDo = false;
+                    OperationBlockedException? stillBlocked = null;
                     if (duplicateId is { } runningId)
                     {
                         // A run of the same work is already going: the waiting card closes into it as a join, so
@@ -515,11 +551,57 @@ public sealed class OperationQueueService : IOperationQueue
                                 "Queued {Type} '{Name}' declined at promotion: {Reason}",
                                 waiter.Type, waiter.Name, ex.Message);
                         }
+                        catch (OperationBlockedException blocked)
+                        {
+                            stillBlocked = blocked;
+                        }
+                        catch (NothingToDoException)
+                        {
+                            // The work was done while the request waited: the card ends skipped on the
+                            // nothing-to-do line, not red.
+                            nothingToDo = true;
+                            startError = ScheduledRunReporter.NothingToDoStageKey;
+                        }
                         catch (Exception ex)
                         {
-                            startError = ex.Message;
+                            // A refusal's key reaches the card, which shows it in the reader's language. The card
+                            // carries no values, so a refusal that needs some keeps its filled-in sentence.
+                            startError = ex is ApiException { StageKey: { } refusalKey, Context: null } ? refusalKey : ex.Message;
                             _logger.LogError(ex, "Queued {Type} '{Name}' failed to start at promotion", waiter.Type, waiter.Name);
                         }
+                    }
+
+                    if (stillBlocked != null)
+                    {
+                        // The start touches more than the scope this waiter re-checked and another of them is
+                        // busy: it parks again on that scope and waits for that blocker's end, with no retry
+                        // limit, like any parked request. A cancel that landed during the start left the
+                        // ending to this pass.
+                        var reparked = false;
+                        lock (_sync)
+                        {
+                            if (_tracker.GetOperation(waiter.WaitingId)?.Status == OperationStatus.Waiting)
+                            {
+                                waiter.Scope = stillBlocked.Scope;
+                                _waiters.Add(waiter);
+                                _waiters.Sort(static (left, right) => left.Sequence.CompareTo(right.Sequence));
+                                reparked = true;
+                            }
+                        }
+
+                        if (reparked)
+                        {
+                            AnnounceBlockerChange(waiter, stillBlocked.Conflict);
+                            _logger.LogInformation(
+                                "Queued {Type} '{Name}' parked again on {Scope} behind {ActiveType} ({ActiveId})",
+                                waiter.Type, waiter.Name, stillBlocked.Scope.ToTrackerKey(),
+                                stillBlocked.Conflict.ActiveOperationType, stillBlocked.Conflict.ActiveOperationId);
+                        }
+                        else
+                        {
+                            _tracker.CompleteOperation(waiter.WaitingId, success: false, cancelled: true);
+                        }
+                        continue;
                     }
 
                     if (startedId == waiter.WaitingId)
@@ -627,9 +709,9 @@ public sealed class OperationQueueService : IOperationQueue
                         // reason on a skipped card, everything else on a failed one.
                         _tracker.CompleteOperation(
                             waiter.WaitingId,
-                            success: startDeclined,
+                            success: startDeclined || nothingToDo,
                             error: startError,
-                            skipped: startDeclined,
+                            skipped: startDeclined || nothingToDo,
                             onCompleting: startDeclined ? MarkSkippedForDownload : null);
                     }
                 }
@@ -650,3 +732,19 @@ public sealed class OperationQueueService : IOperationQueue
         }
     }
 }
+
+/// <summary>
+/// Thrown by a start path that touches more than one scope when a scope other than the one its request
+/// waited on is busy. The queue parks the request again on <see cref="Scope"/> instead of starting it.
+/// </summary>
+public sealed class OperationBlockedException(ConflictScope scope, OperationConflictResponse conflict) : Exception
+{
+    public ConflictScope Scope => scope;
+    public OperationConflictResponse Conflict => conflict;
+}
+
+/// <summary>
+/// Thrown by a start path that finds the work it was asked for already done. A request started from the
+/// queue ends skipped; a direct request answers 404 like any other missing resource.
+/// </summary>
+public sealed class NothingToDoException(string resource) : NotFoundException(resource);

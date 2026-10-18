@@ -589,7 +589,7 @@ async fn main() -> Result<()> {
             reporter: &reporter,
             stage_key: "signalr.serviceRemove.counting.progress",
         };
-        let cache_files_found = collect_cache_digests(
+        let digests = collect_cache_digests(
             &cache_dir,
             service,
             &urls,
@@ -598,14 +598,20 @@ async fn main() -> Result<()> {
             &|folders| {
                 removal_core::report_sweep_progress(&collection_progress, SERVICE_SWEEP_STAGE_KEY, folders)
             },
-        )?
-        .len();
+        )?;
+        let cache_files_found = digests.len();
+        let bytes_found = cache_utils::total_size_from_filesystem(
+            digests
+                .iter()
+                .map(|(digest, _)| cache_utils::cache_path_for_digest(&cache_dir, *digest)),
+        );
 
         fs::write(
             &output_json,
             serde_json::to_string_pretty(&removal_core::CacheFileCount {
                 entity: service.to_string(),
                 cache_files_found,
+                bytes_found,
             })?,
         )?;
         removal_core::write_progress(&progress_path, &reporter, "completed", "signalr.serviceRemove.counting.complete", json!({ "files": cache_files_found, "service": service }), 100.0, cache_files_found, cache_files_found)?;

@@ -203,6 +203,26 @@ public sealed class CorruptionRemovalContractTests
     }
 
     [Fact]
+    public void RemovalEvidence_CarriesTheScanStart()
+    {
+        var selection = Selection(
+            CorruptionDetectionMethod.Structural,
+            new StructuralCorruptionEvidence());
+        var envelope = new CorruptionRemovalEvidence
+        {
+            ContractVersion = 4,
+            DetectionMethod = CorruptionDetectionMethod.Structural,
+            ScanId = selection.ScanId,
+            ScanStartedUtc = selection.ScanStartedUtc,
+            Datasource = "default"
+        };
+
+        var json = JsonSerializer.Serialize(envelope);
+
+        Assert.Contains("\"scan_started_utc\":\"2026-09-26T18:01:00Z\"", json);
+    }
+
+    [Fact]
     public void StructuralRemovalEvidence_OmitsThresholdAndKeepsServerDatasource()
     {
         var selection = Selection(
@@ -214,6 +234,7 @@ public sealed class CorruptionRemovalContractTests
             ContractVersion = 4,
             DetectionMethod = CorruptionDetectionMethod.Structural,
             ScanId = selection.ScanId,
+            ScanStartedUtc = selection.ScanStartedUtc,
             Threshold = null,
             Datasource = "default",
             Candidates =
@@ -560,8 +581,9 @@ public sealed class CorruptionRemovalContractTests
                 error: outcome == OperationStatus.Failed ? "external failure" : null,
                 cancelled: outcome == OperationStatus.Cancelled);
         };
-        await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
         var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(startedId, fixture.Messages.Started.First());
         Assert.Equal("all", aggregate.Service);
         Assert.Equal(method.ToWireString(), aggregate.DetectionMethod);
         Assert.Equal(outcome == OperationStatus.Completed, aggregate.Success);
@@ -593,10 +615,10 @@ public sealed class CorruptionRemovalContractTests
                 fixture.Tracker.CompleteOperation(id, success: true);
             }
         };
-        await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
         var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.True(aggregate.Cancelled);
-        Assert.Single(fixture.Messages.Started);
+        Assert.Equal(startedId, Assert.Single(fixture.Messages.Started));
         fixture.Messages.Resume.TrySetResult();
     }
 
@@ -615,8 +637,9 @@ public sealed class CorruptionRemovalContractTests
                 fixture.Tracker.CompleteOperation(id, success: false, error: "Could not reopen nginx", cancelled: false);
             }
         };
-        await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
         var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(startedId, Assert.Single(fixture.Messages.Started));
         Assert.False(aggregate.Cancelled);
         Assert.False(aggregate.Success);
         Assert.Equal(method == CorruptionDetectionMethod.Structural
@@ -627,6 +650,918 @@ public sealed class CorruptionRemovalContractTests
         Assert.Equal(2, aggregate.Context!["serviceCount"]);
         Assert.Single(fixture.Messages.Started);
         fixture.Messages.Resume.TrySetResult();
+    }
+
+    [Fact]
+    public async Task AllServices_HoldTheCheckBetweenServicesAndUntilTheRunEndsAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var registrationGate = (SemaphoreSlim)typeof(CacheController)
+            .GetField("_corruptionSnapshotMutationGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var firstStarted = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Messages.OnStarted = id =>
+        {
+            // The next service registers under this gate, so holding it keeps the run between its services.
+            if (fixture.Messages.Started.Count == 1)
+            {
+                registrationGate.Wait();
+                firstStarted.TrySetResult(id);
+            }
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
+        var firstStep = await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(startedId, firstStep);
+        OperationConflictResponse? betweenServices;
+        try
+        {
+            await fixture.WaitForCompletedRepairAsync(firstStep);
+            betweenServices = await fixture.Checker.CheckAsync(
+                OperationType.UnmappedFileRemoval, ConflictScope.Bulk(), CancellationToken.None);
+        }
+        finally
+        {
+            registrationGate.Release();
+        }
+        await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var lastStep = fixture.Messages.Started.Last();
+        await fixture.WaitForCompletedRepairAsync(lastStep);
+        var whileSummarizing = await fixture.Checker.CheckAsync(
+            OperationType.UnmappedFileRemoval, ConflictScope.Bulk(), CancellationToken.None);
+        fixture.Messages.Resume.TrySetResult();
+
+        // A pending repair would answer with the same id, so the scope proves the hold answered.
+        Assert.Equal(firstStep, betweenServices?.ActiveOperationId);
+        Assert.StartsWith("service:", betweenServices?.ActiveOperationScope);
+        Assert.Equal(lastStep, whileSummarizing?.ActiveOperationId);
+        Assert.StartsWith("service:", whileSummarizing?.ActiveOperationScope);
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+    }
+
+    [Theory]
+    [InlineData(OperationStatus.Failed, false)]
+    [InlineData(OperationStatus.Cancelled, false)]
+    [InlineData(OperationStatus.Completed, true)]
+    public async Task AllServices_ReleaseTheHoldWhenTheRunFailsStopsOrThrowsAsync(OperationStatus outcome, bool summaryThrows)
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        fixture.Messages.OnStarted = id =>
+        {
+            if (outcome == OperationStatus.Cancelled) fixture.Tracker.ForceKillOperation(id);
+            fixture.Tracker.CompleteOperation(id, outcome == OperationStatus.Completed,
+                error: outcome == OperationStatus.Failed ? "external failure" : null,
+                cancelled: outcome == OperationStatus.Cancelled);
+        };
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
+        await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(startedId, fixture.Messages.Started.First());
+        var whileSummarizing = await fixture.Checker.CheckAsync(
+            OperationType.CacheFileCount, ConflictScope.Service("steam"), CancellationToken.None);
+        if (summaryThrows) fixture.Messages.Resume.TrySetException(new IOException("summary not sent"));
+        else fixture.Messages.Resume.TrySetResult();
+
+        Assert.Equal(fixture.Messages.Started.Last(), whileSummarizing?.ActiveOperationId);
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+    }
+
+    [Fact]
+    public async Task AllServices_ParkAgainOnAServiceStillBusyWhenTheFirstBlockerEndsAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var blockers = new[] { "steam", "epicgames" }.ToDictionary(
+            service => service,
+            service => fixture.Tracker.RegisterOperation(
+                OperationType.ServiceRemoval,
+                $"ServiceRemoval: {service}",
+                new CancellationTokenSource(),
+                new RemovalMetrics { EntityKind = "service", EntityKey = service, EntityName = service }));
+        OperationConflictResponse? otherServiceDuringStep = null;
+        fixture.Messages.OnStarted = id =>
+        {
+            if (fixture.Messages.Started.Count == 1)
+            {
+                // A request for the service the run has not reached yet, arriving after the run's own check.
+                var stepService = ((RemovalMetrics)fixture.Tracker.GetOperation(id)!.Metadata!).Service;
+                otherServiceDuringStep = fixture.Checker.CheckAsync(
+                    OperationType.ServiceRemoval,
+                    ConflictScope.Service(blockers.Keys.Single(service => service != stepService)),
+                    CancellationToken.None).GetAwaiter().GetResult();
+            }
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+
+        var response = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+        var waitingId = response.OperationId;
+        var firstBlocked = blockers.Single(blocker =>
+            fixture.Tracker.GetOperation(waitingId)!.BlockedByName == $"ServiceRemoval: {blocker.Key}");
+        var later = blockers.Single(blocker => blocker.Key != firstBlocked.Key);
+        fixture.Tracker.CompleteOperation(firstBlocked.Value, success: true);
+
+        var waiting = await OperationConflictCheckerTests.WaitForBlockerAsync(
+            fixture.Tracker, waitingId, $"ServiceRemoval: {later.Key}");
+        Assert.Equal(OperationStatus.Waiting, waiting.Status);
+        Assert.Empty(fixture.Messages.Started);
+        fixture.Tracker.CompleteOperation(later.Value, success: true);
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        fixture.Messages.Resume.TrySetResult();
+
+        Assert.True(aggregate.Success);
+        Assert.Equal(2, fixture.Messages.Started.Count);
+        Assert.Equal("errors.conflict.serviceWideActive", otherServiceDuringStep?.StageKey);
+    }
+
+    [Fact]
+    public async Task AllServices_StartedFromTheQueue_NamesItsFirstStepOnTheNextWaitingCardAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var registrationGate = CorruptionSnapshotGate();
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        var firstStep = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishSteps = new ManualResetEventSlim();
+        fixture.Messages.OnStarted = id =>
+        {
+            firstStep.TrySetResult(id);
+            finishSteps.Wait();
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        var removeAll = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+        var unmapped = await EnqueueUnmappedRemovalAsync(fixture);
+        await OperationConflictCheckerTests.WaitForBlockerAsync(fixture.Tracker, unmapped, "Service removal: steam");
+
+        // The first step registers under this gate, so a pass that does not wait for it checks the next card first.
+        await registrationGate.WaitAsync();
+        fixture.Tracker.CompleteOperation(blocker, success: true);
+        await WaitForHoldAsync(fixture.Checker);
+        await Task.Delay(300);
+        registrationGate.Release();
+        var step = await firstStep.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var named = await OperationConflictCheckerTests.WaitForBlockerAsync(
+            fixture.Tracker, unmapped, fixture.Tracker.GetOperation(step)!.Name);
+        var statusWhenNamed = named.Status;
+        finishSteps.Set();
+        fixture.Tracker.CancelOperation(unmapped);
+        await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(removeAll.Queued);
+        Assert.Equal(OperationStatus.Waiting, statusWhenNamed);
+    }
+
+    [Fact]
+    public async Task AllServices_NameEachNewStepOnARequestParkedBehindTheRunAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var registrationGate = CorruptionSnapshotGate();
+        var steps = Channel.CreateUnbounded<Guid>();
+        var finishFirst = new ManualResetEventSlim();
+        var finishSecond = new ManualResetEventSlim();
+        fixture.Messages.OnStarted = id =>
+        {
+            steps.Writer.TryWrite(id);
+            if (fixture.Messages.Started.Count == 1)
+            {
+                finishFirst.Wait();
+                // The next service registers under this gate, so holding it keeps the run between its services.
+                registrationGate.Wait();
+            }
+            else
+            {
+                finishSecond.Wait();
+            }
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
+        var first = await steps.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(startedId, first);
+        var unmapped = await EnqueueUnmappedRemovalAsync(fixture);
+        await OperationConflictCheckerTests.WaitForBlockerAsync(fixture.Tracker, unmapped, fixture.Tracker.GetOperation(first)!.Name);
+
+        finishFirst.Set();
+        await fixture.WaitForCompletedRepairAsync(first);
+        // The passes the first step's end started finish while the next service cannot register.
+        await Task.Delay(300);
+        registrationGate.Release();
+        var second = await steps.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+        var named = await OperationConflictCheckerTests.WaitForBlockerAsync(
+            fixture.Tracker, unmapped, fixture.Tracker.GetOperation(second)!.Name);
+        finishSecond.Set();
+        fixture.Tracker.CancelOperation(unmapped);
+        await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.NotEqual(fixture.Tracker.GetOperation(first)!.Name, named.BlockedByName);
+    }
+
+    [Fact]
+    public async Task AllServices_ACancelWhileTheQueueStartsTheRunStopsTheRunAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var registrationGate = CorruptionSnapshotGate();
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        fixture.Messages.OnStarted = id => fixture.Tracker.CompleteOperation(id, success: true);
+        var removeAll = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+
+        await registrationGate.WaitAsync();
+        fixture.Tracker.CompleteOperation(blocker, success: true);
+        await WaitForHoldAsync(fixture.Checker);
+        // X on the waiting card while the start waits for its first service to register.
+        fixture.Tracker.CancelOperation(removeAll.OperationId);
+        registrationGate.Release();
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        fixture.Messages.Resume.TrySetResult();
+
+        Assert.True(removeAll.Queued);
+        Assert.True(aggregate.Cancelled);
+        Assert.True(fixture.Messages.Started.Count <= 1);
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+        Assert.False(RunKeepsScan(fixture.ScanId));
+    }
+
+    [Fact]
+    public async Task AllServices_ASecondRequestJoinsTheWaitingRunWhereverItParkedAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var blockers = new[] { "steam", "epicgames" }.ToDictionary(
+            service => service,
+            service => OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, service));
+        var first = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+        var firstBlocked = blockers.Single(blocker =>
+            fixture.Tracker.GetOperation(first.OperationId)!.BlockedByName == $"Service removal: {blocker.Key}");
+        var later = blockers.Single(blocker => blocker.Key != firstBlocked.Key);
+        fixture.Tracker.CompleteOperation(firstBlocked.Value, success: true);
+        await OperationConflictCheckerTests.WaitForBlockerAsync(fixture.Tracker, first.OperationId, $"Service removal: {later.Key}");
+
+        // The service the first request left is busy again, so the next request parks on it.
+        OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, firstBlocked.Key);
+        var second = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+        var oneService = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId, firstBlocked.Key)).Value!;
+        // With the first request gone, a request for every service parks on the service the one-service request
+        // waits on, and must not join it.
+        fixture.Tracker.CancelOperation(first.OperationId);
+        await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, first.OperationId, OperationStatus.Cancelled);
+        var everyService = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+        fixture.Tracker.CancelOperation(oneService.OperationId);
+        fixture.Tracker.CancelOperation(everyService.OperationId);
+
+        Assert.Equal(first.OperationId, second.OperationId);
+        Assert.True(second.AlreadyRunning);
+        Assert.True(oneService.Queued);
+        Assert.NotEqual(first.OperationId, oneService.OperationId);
+        Assert.True(everyService.Queued);
+        Assert.False(everyService.AlreadyRunning);
+        Assert.NotEqual(oneService.OperationId, everyService.OperationId);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AllServices_ARequestSentDuringARunRemovesOnlyWhatIsLeftAsync(bool everythingRemoved)
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var firstRunStep = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishFirstRun = new ManualResetEventSlim();
+        fixture.Messages.OnStarted = id =>
+        {
+            firstRunStep.TrySetResult(id);
+            finishFirstRun.Wait();
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId, "steam"));
+        var step = await firstRunStep.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(startedId, step);
+        // The first run holds steam until its summary is sent, so this request parks behind it.
+        var second = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+        finishFirstRun.Set();
+        await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await fixture.WaitForCompletedRepairAsync(step);
+        // What the first run removed, and with everythingRemoved what a single-service removal took meanwhile.
+        await fixture.Detection.ApplyRemovalSuccessAsync(fixture.ScanId,
+            everythingRemoved ? ["default:steam", "default:epicgames"] : ["default:steam"]);
+        fixture.Messages.Resume.TrySetResult();
+
+        if (everythingRemoved)
+        {
+            await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, second.OperationId, OperationStatus.Skipped);
+            Assert.Equal(ScheduledRunReporter.NothingToDoStageKey, fixture.Tracker.GetOperation(second.OperationId)!.Message);
+            Assert.Single(fixture.Messages.Started);
+        }
+        else
+        {
+            await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, second.OperationId, OperationStatus.Completed);
+            for (var attempt = 0; attempt < 400 && fixture.Messages.Completions.Count < 2; attempt++) await Task.Delay(25);
+            Assert.Equal(2, fixture.Messages.Completions.Count);
+            Assert.Equal(1, fixture.Messages.Completions.Last().Context!["serviceCount"]);
+            Assert.Equal("Corruption removal: epicgames", fixture.Tracker.GetOperation(fixture.Messages.Started.Last())!.Name);
+        }
+        Assert.True(second.Queued);
+    }
+
+    [Fact]
+    public async Task AllServices_AStartWhoseFirstServiceCannotRegisterReportsTheFailureAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var registrationGate = CorruptionSnapshotGate();
+        await registrationGate.WaitAsync();
+        var request = fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        await WaitForHoldAsync(fixture.Checker);
+        await using (var db = await fixture.Contexts.CreateDbContextAsync())
+        {
+            // A newer scan replaced this one before the first service registered.
+            (await db.CachedCorruptionScans.SingleAsync(scan => scan.ScanId == fixture.ScanId)).IsCurrent = false;
+            await db.SaveChangesAsync();
+        }
+        fixture.Messages.Resume.TrySetResult();
+        registrationGate.Release();
+
+        await Assert.ThrowsAnyAsync<LancacheManager.Middleware.ApiException>(() => request);
+        Assert.Empty(fixture.Messages.Started);
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+        Assert.False(RunKeepsScan(fixture.ScanId));
+    }
+
+    [Fact]
+    public async Task AllServices_AQueuedRunWhoseServicesAllRefuseEndsItsWaitingCardAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, schemeOverride: DatasourceSchemeOverrideValues.Auto);
+        fixture.Messages.Resume.TrySetResult();
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        var removeAll = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+        // The datasource loses the log that showed its key scheme while the request waits.
+        File.Delete(Path.Combine(fixture.Datasources[0].LogPath, "access.log"));
+        fixture.Tracker.CompleteOperation(blocker, success: true);
+
+        await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, removeAll.OperationId, OperationStatus.Failed);
+        Assert.Equal("errors.corruption.keySchemeUnavailable", fixture.Tracker.GetOperation(removeAll.OperationId)!.Message);
+        Assert.Empty(fixture.Messages.Started);
+        Assert.Empty(fixture.Messages.Completions);
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+        Assert.False(RunKeepsScan(fixture.ScanId));
+        await WaitUntilAsync(() => !QueuedRemoveAllKeepsScan(fixture.ScanId));
+    }
+
+    [Fact]
+    public async Task AllServices_ALaterServiceThatCannotRegisterFailsTheSummaryAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, schemeOverride: DatasourceSchemeOverrideValues.Auto);
+        fixture.Messages.OnStarted = id =>
+        {
+            if (fixture.Messages.Started.Count == 1)
+                File.Delete(Path.Combine(fixture.Datasources[0].LogPath, "access.log"));
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        fixture.Messages.Resume.TrySetResult();
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+
+        Assert.Equal(startedId, Assert.Single(fixture.Messages.Started));
+        Assert.False(aggregate.Success);
+        Assert.Equal(1, aggregate.Context!["failedCount"]);
+        Assert.Equal(2, aggregate.Context!["serviceCount"]);
+        Assert.Equal("signalr.corruptionRemove.allCompleteWithFailuresStructural", aggregate.StageKey);
+        Assert.Single(fixture.Messages.Started);
+    }
+
+    [Fact]
+    public async Task AllServices_AWaitingRunRefusesScanDeletionAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        fixture.Messages.OnStarted = id => fixture.Tracker.CompleteOperation(id, success: true);
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        var removeAll = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+
+        var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() =>
+            fixture.Controller.DeleteCorruptionHistoryAsync(fixture.ScanId));
+        fixture.Tracker.CompleteOperation(blocker, success: true);
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        fixture.Messages.Resume.TrySetResult();
+
+        Assert.Equal("errors.corruption.deleteBlockedByRemoval", refusal.StageKey);
+        Assert.True(removeAll.Queued);
+        Assert.True(aggregate.Success);
+        Assert.Equal(2, fixture.Messages.Started.Count);
+        await WaitUntilAsync(() => !QueuedRemoveAllKeepsScan(fixture.ScanId));
+    }
+
+    [Fact]
+    public async Task AllServices_ADeleteDuringTheStartRefusesTheHeldScanAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        fixture.Messages.OnStarted = id => fixture.Tracker.CompleteOperation(id, success: true);
+        var registrationGate = CorruptionSnapshotGate();
+        await registrationGate.WaitAsync();
+        var request = fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        await WaitUntilAsync(() => RunKeepsScan(fixture.ScanId));
+        Assert.Empty(fixture.Messages.Started);
+        var delete = fixture.Controller.DeleteCorruptionHistoryAsync(fixture.ScanId);
+        registrationGate.Release();
+
+        var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() => delete);
+        var startedId = RequireImmediateRemoval(await request);
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        fixture.Messages.Resume.TrySetResult();
+
+        Assert.Equal(startedId, fixture.Messages.Started.First());
+        Assert.Equal("errors.corruption.deleteBlockedByRemoval", refusal.StageKey);
+        Assert.True(aggregate.Success);
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+        Assert.False(RunKeepsScan(fixture.ScanId));
+    }
+
+    [Fact]
+    public async Task AllServices_ADirectRunWhoseServicesAllRefuseAnswersTheRefusalAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, schemeOverride: DatasourceSchemeOverrideValues.Auto);
+        fixture.Messages.Resume.TrySetResult();
+        var queueGate = QueueGate(fixture.Queue);
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        await queueGate.WaitAsync();
+        var request = fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        // The request passed its own checks and waits to enqueue; the queue then finds steam free and starts it at once.
+        var requestGate = (SemaphoreSlim)typeof(CacheController)
+            .GetField("_queuedRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        await WaitUntilAsync(() => requestGate.CurrentCount == 0);
+        File.Delete(Path.Combine(fixture.Datasources[0].LogPath, "access.log"));
+        fixture.Tracker.CompleteOperation(blocker, success: true);
+        queueGate.Release();
+
+        var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ValidationException>(() => request);
+        Assert.Equal("errors.corruption.keySchemeUnavailable", refusal.StageKey);
+        Assert.Empty(fixture.Messages.Started);
+        Assert.Empty(fixture.Messages.Completions);
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+    }
+
+    [Fact]
+    public async Task AllServices_AReadOnlyFolderRefusesADirectRunWithItsKeyAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        fixture.Datasources[0].CacheWritable = false;
+
+        var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ValidationException>(() =>
+            fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
+
+        Assert.Equal("errors.corruption.datasourceNotWritable", refusal.StageKey);
+    }
+
+    [Fact]
+    public async Task AllServices_AReadOnlyFolderFoundWhenTheQueueStartsTheRunShowsItsKeyAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        var removeAll = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+        // The cache mount turns read-only while the request waits.
+        fixture.Datasources[0].CacheWritable = false;
+        fixture.Tracker.CompleteOperation(blocker, success: true);
+
+        await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, removeAll.OperationId, OperationStatus.Failed);
+        Assert.Equal("errors.corruption.datasourceNotWritable", fixture.Tracker.GetOperation(removeAll.OperationId)!.Message);
+        Assert.Empty(fixture.Messages.Started);
+    }
+
+    [Fact]
+    public async Task AQueuedStartRefusedWithValuesKeepsItsSentenceAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        var parked = await fixture.Queue.EnqueueAsync(
+            OperationType.CorruptionRemoval,
+            ConflictScope.Service("steam"),
+            "Corruption Removal",
+            () => Task.FromException<Guid?>(new LancacheManager.Middleware.ValidationException("The filled-in sentence")
+            {
+                StageKey = "errors.corruption.datasourceNotWritable",
+                Context = new Dictionary<string, object?> { ["datasource"] = "default" }
+            }),
+            CancellationToken.None);
+        fixture.Tracker.CompleteOperation(blocker, success: true);
+
+        await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, parked.OperationId, OperationStatus.Failed);
+        Assert.Equal("The filled-in sentence", fixture.Tracker.GetOperation(parked.OperationId)!.Message);
+    }
+
+    [Fact]
+    public async Task AllServices_TwoRequestsAtOnceShareOneWaitingCardAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        var queueGate = QueueGate(fixture.Queue);
+        await queueGate.WaitAsync();
+        var first = fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        var second = fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        // Both requests reach the waiting-card lookup before either card exists.
+        await Task.Delay(300);
+        queueGate.Release();
+        var responses = (await Task.WhenAll(first, second))
+            .Select(result => (QueuedOperationResponse)((AcceptedResult)result).Value!)
+            .ToList();
+        foreach (var response in responses) fixture.Tracker.CancelOperation(response.OperationId);
+        fixture.Tracker.CancelOperation(blocker);
+
+        Assert.Equal(responses[0].OperationId, responses[1].OperationId);
+        Assert.Single(responses, response => response.AlreadyRunning);
+    }
+
+    [Fact]
+    public async Task AllServices_ARequestDroppedWhileWaitingForTheCardLookupLeavesTheLookupFreeAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        var requestGate = (SemaphoreSlim)typeof(CacheController)
+            .GetField("_queuedRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        await requestGate.WaitAsync();
+        using var dropped = new CancellationTokenSource();
+        var request = fixture.Controller.RemoveAllCorruptedChunksAsync(dropped.Token, fixture.ScanId);
+        // The request reaches the lookup and waits there; the browser then drops it.
+        var waiters = typeof(SemaphoreSlim).GetField("m_asyncHead", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await WaitUntilAsync(() => waiters.GetValue(requestGate) != null);
+        dropped.Cancel();
+        // Released only after the request ended: a release that lands first hands the gate to the dropped request.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
+        requestGate.Release();
+
+        Assert.Equal(1, requestGate.CurrentCount);
+        fixture.Tracker.CancelOperation(blocker);
+    }
+
+    [Fact]
+    public async Task AllServices_ACanceledGateWaitDropsTheUnrecordedClaimAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        var requestGate = (SemaphoreSlim)typeof(CacheController)
+            .GetField("_queuedRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        await requestGate.WaitAsync();
+        var released = false;
+        try
+        {
+            using var dropped = new CancellationTokenSource();
+            var request = fixture.Controller.RemoveAllCorruptedChunksAsync(dropped.Token, fixture.ScanId);
+            var waiters = typeof(SemaphoreSlim).GetField("m_asyncHead", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            await WaitUntilAsync(() => RunKeepsScan(fixture.ScanId) && waiters.GetValue(requestGate) != null);
+            dropped.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
+
+            Assert.False(RunKeepsScan(fixture.ScanId));
+            Assert.False(QueuedRemoveAllKeepsScan(fixture.ScanId));
+            requestGate.Release();
+            released = true;
+
+            // The refusal check has already passed. The in-memory store then rejects ExecuteDelete.
+            var deleteFailure = await Record.ExceptionAsync(() =>
+                fixture.Controller.DeleteCorruptionHistoryAsync(fixture.ScanId));
+            Assert.True(deleteFailure is null or InvalidOperationException);
+        }
+        finally
+        {
+            if (!released && requestGate.CurrentCount == 0)
+                requestGate.Release();
+            fixture.Tracker.CancelOperation(blocker);
+        }
+    }
+
+    [Fact]
+    public async Task AllServices_ASecondRequestKeepsItsClaimUntilItRecordsAWaiterAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        fixture.Messages.OnStarted = id => fixture.Tracker.CompleteOperation(id, success: true);
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        var first = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+        Assert.True(first.Queued);
+        Assert.False(RunKeepsScan(fixture.ScanId));
+
+        var requestGate = (SemaphoreSlim)typeof(CacheController)
+            .GetField("_queuedRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        await requestGate.WaitAsync();
+        var released = false;
+        try
+        {
+            var second = fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+            var waiters = typeof(SemaphoreSlim).GetField("m_asyncHead", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            await WaitUntilAsync(() => RunKeepsScan(fixture.ScanId) && waiters.GetValue(requestGate) != null);
+            fixture.Tracker.CancelOperation(first.OperationId);
+            await WaitUntilAsync(() => !QueuedRemoveAllKeepsScan(fixture.ScanId));
+            Assert.True(RunKeepsScan(fixture.ScanId));
+
+            var delete = fixture.Controller.DeleteCorruptionHistoryAsync(fixture.ScanId);
+            requestGate.Release();
+            released = true;
+            var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() => delete);
+            var secondResult = (QueuedOperationResponse)((AcceptedResult)await second).Value!;
+
+            Assert.Equal("errors.corruption.deleteBlockedByRemoval", refusal.StageKey);
+            Assert.True(secondResult.Queued);
+            fixture.Tracker.CancelOperation(secondResult.OperationId);
+            await WaitUntilAsync(() => !QueuedRemoveAllKeepsScan(fixture.ScanId));
+            Assert.False(RunKeepsScan(fixture.ScanId));
+        }
+        finally
+        {
+            if (!released && requestGate.CurrentCount == 0)
+                requestGate.Release();
+            fixture.Tracker.CancelOperation(blocker);
+            fixture.Messages.Resume.TrySetResult();
+        }
+    }
+
+    [Fact]
+    public async Task AllServices_AParkedRequestLeavesTheClaimTheRunPublishedAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        using var releaseRun = new ManualResetEventSlim(false);
+        fixture.Messages.OnStarted = id =>
+        {
+            releaseRun.Wait();
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        var publication = (SemaphoreSlim)typeof(CacheController)
+            .GetField("_removeAllRunPublication", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var pausing = DispatchProxy.Create<IOperationConflictChecker, HeldRunCheck>();
+        var held = (HeldRunCheck)(object)pausing;
+        held.Inner = fixture.Checker;
+        held.BlockerId = blocker;
+        held.Tracker = fixture.Tracker;
+        held.Publication = publication;
+        typeof(CacheController).GetField("_conflictChecker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(fixture.Controller, pausing);
+        var delaying = DispatchProxy.Create<IUnifiedOperationTracker, ParkedRemovalRead>();
+        var read = (ParkedRemovalRead)(object)delaying;
+        read.Inner = fixture.Tracker;
+        held.ReleaseParkedRead = () => read.Release.Set();
+        typeof(CacheController).GetField("_operationTracker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(fixture.Controller, delaying);
+        Task<IActionResult>? request = null;
+        try
+        {
+            // The request blocks on its own thread at the waiting-card read. The test thread stays free
+            // to end the blocker, so the promoted run can publish while that read still holds the claim.
+            request = Task.Run(() => fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
+            await read.AtRead.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            fixture.Tracker.CompleteOperation(blocker, success: true);
+            await held.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var result = (QueuedOperationResponse)((AcceptedResult)await request.WaitAsync(TimeSpan.FromSeconds(10))).Value!;
+
+            Assert.True(result.Queued);
+            Assert.True(RunKeepsScan(fixture.ScanId));
+            releaseRun.Set();
+            await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            fixture.Messages.Resume.TrySetResult();
+            await WaitUntilAsync(() => !RunKeepsScan(fixture.ScanId));
+            fixture.Tracker.CancelOperation(result.OperationId);
+        }
+        finally
+        {
+            releaseRun.Set();
+            read.Release.Set();
+            fixture.Messages.Resume.TrySetResult();
+            if (request != null)
+            {
+                try { await request.WaitAsync(TimeSpan.FromSeconds(10)); }
+                catch (Exception) when (request.IsCompleted) { }
+            }
+            fixture.Tracker.CancelOperation(blocker);
+        }
+    }
+
+    [Fact]
+    public async Task AllServices_AParkedRequestLeavesTheClaimWhileSelectionAwaitsAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        fixture.Messages.OnStarted = id => fixture.Tracker.CompleteOperation(id, success: true);
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        var delaying = DispatchProxy.Create<IUnifiedOperationTracker, ParkedRemovalRead>();
+        var read = (ParkedRemovalRead)(object)delaying;
+        read.Inner = fixture.Tracker;
+        typeof(CacheController).GetField("_operationTracker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(fixture.Controller, delaying);
+        var contextField = typeof(CorruptionDetectionService).GetField(
+            "_dbContextFactory", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var pausing = DispatchProxy.Create<IDbContextFactory<AppDbContext>, PausingSelection>();
+        var selection = (PausingSelection)(object)pausing;
+        selection.Inner = (IDbContextFactory<AppDbContext>)contextField.GetValue(fixture.Detection)!;
+        selection.ReleaseParkedRead = () => read.Release.Set();
+        contextField.SetValue(fixture.Detection, pausing);
+        Task<IActionResult>? request = null;
+        try
+        {
+            request = Task.Run(() => fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
+            await read.AtRead.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            // The first start has published and parked. The next selection open is the promoted start.
+            selection.Arm();
+            fixture.Tracker.CompleteOperation(blocker, success: true);
+            await selection.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var result = (QueuedOperationResponse)((AcceptedResult)await request.WaitAsync(TimeSpan.FromSeconds(10))).Value!;
+
+            Assert.True(result.Queued);
+            Assert.True(RunKeepsScan(fixture.ScanId));
+            var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() =>
+                fixture.Controller.DeleteCorruptionHistoryAsync(fixture.ScanId));
+            Assert.Equal("errors.corruption.deleteBlockedByRemoval", refusal.StageKey);
+            Assert.True(RunKeepsScan(fixture.ScanId));
+
+            selection.Release.TrySetResult(true);
+            await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            fixture.Messages.Resume.TrySetResult();
+            await WaitUntilAsync(() => !RunKeepsScan(fixture.ScanId));
+            fixture.Tracker.CancelOperation(result.OperationId);
+        }
+        finally
+        {
+            read.Release.Set();
+            selection.Release.TrySetResult(true);
+            fixture.Messages.Resume.TrySetResult();
+            if (request != null)
+            {
+                try { await request.WaitAsync(TimeSpan.FromSeconds(10)); }
+                catch (Exception) when (request.IsCompleted) { }
+            }
+            fixture.Tracker.CancelOperation(blocker);
+        }
+    }
+
+    [Fact]
+    public async Task AllServices_ASecondImmediateRequestSeesTheFirstAndDoesNotStartAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        using var releaseRun = new ManualResetEventSlim(false);
+        fixture.Messages.OnStarted = id =>
+        {
+            if (fixture.Messages.Started.Count == 1)
+                releaseRun.Wait();
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        var pausing = DispatchProxy.Create<IOperationConflictChecker, PausingChecker>();
+        var gate = (PausingChecker)(object)pausing;
+        gate.Inner = fixture.Checker;
+        typeof(CacheController).GetField("_conflictChecker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(fixture.Controller, pausing);
+        var publication = (SemaphoreSlim)typeof(CacheController)
+            .GetField("_removeAllRunPublication", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        Task<IActionResult>? first = null;
+        Task<IActionResult>? second = null;
+        try
+        {
+            first = fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+            await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            second = fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+            var waiters = typeof(SemaphoreSlim).GetField("m_asyncHead", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            await WaitUntilAsync(() => waiters.GetValue(publication) != null);
+            Assert.Equal(1, gate.CheckCount);
+            Assert.Empty(fixture.Messages.Started);
+
+            gate.Release.TrySetResult(true);
+            var secondResult = (QueuedOperationResponse)((AcceptedResult)await second.WaitAsync(TimeSpan.FromSeconds(10))).Value!;
+            await WaitUntilAsync(() => fixture.Messages.Started.Count >= 1);
+            Assert.Single(fixture.Messages.Started);
+            Assert.True(secondResult.Queued || secondResult.AlreadyRunning);
+            if (secondResult.Queued)
+                fixture.Tracker.CancelOperation(secondResult.OperationId);
+            releaseRun.Set();
+            var firstId = RequireImmediateRemoval(await first.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(firstId, fixture.Messages.Started.First());
+            await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            gate.Release.TrySetResult(true);
+            releaseRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+            if (first != null)
+            {
+                try { await first.WaitAsync(TimeSpan.FromSeconds(10)); }
+                catch (Exception) when (first.IsCompleted) { }
+            }
+            if (second != null)
+            {
+                try { await second.WaitAsync(TimeSpan.FromSeconds(10)); }
+                catch (Exception) when (second.IsCompleted) { }
+            }
+        }
+    }
+
+    [Fact]
+    public async Task AllServices_KeepTheScanFromADeleteBetweenTwoServicesAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var registrationGate = CorruptionSnapshotGate();
+        var firstStarted = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishFirst = new ManualResetEventSlim();
+        fixture.Messages.OnStarted = id =>
+        {
+            if (fixture.Messages.Started.Count == 1)
+            {
+                // The next service registers under this gate, so holding it keeps the run between its services.
+                registrationGate.Wait();
+                firstStarted.TrySetResult(id);
+                finishFirst.Wait();
+            }
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
+        var firstStep = await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(startedId, firstStep);
+        // Queued on the gate ahead of the next service, so it is checked while no step is registered.
+        var delete = fixture.Controller.DeleteCorruptionHistoryAsync(fixture.ScanId);
+        finishFirst.Set();
+        await fixture.WaitForCompletedRepairAsync(firstStep);
+        registrationGate.Release();
+
+        var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() => delete);
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        fixture.Messages.Resume.TrySetResult();
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+
+        Assert.Equal("errors.corruption.deleteBlockedByRemoval", refusal.StageKey);
+        Assert.True(aggregate.Success);
+        Assert.Equal(2, fixture.Messages.Started.Count);
+        Assert.False(RunKeepsScan(fixture.ScanId));
+    }
+
+    private static Guid RequireImmediateRemoval(IActionResult result)
+    {
+        var started = Assert.IsType<CacheOperationResponse>(Assert.IsType<AcceptedResult>(result).Value);
+        Assert.Equal("Corruption removal started for all services", started.Message);
+        var operationId = Assert.IsType<Guid>(started.OperationId);
+        Assert.NotEqual(Guid.Empty, operationId);
+        return operationId;
+    }
+
+    // The scans a Remove all run still needs; the scan-history delete refuses these.
+    private static bool RunKeepsScan(Guid scanId) => ((System.Collections.IDictionary)typeof(CacheController)
+        .GetField("_removeAllRunScans", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!)
+        .Values.Cast<Guid>().Contains(scanId);
+
+    private static bool QueuedRemoveAllKeepsScan(Guid scanId)
+    {
+        var requests = (System.Collections.IDictionary)typeof(CacheController)
+            .GetField("_queuedRemoveAllRequests", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var prefix = $"{scanId}:";
+        foreach (System.Collections.DictionaryEntry entry in requests)
+        {
+            if (entry.Key is string key && key.StartsWith(prefix, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static SemaphoreSlim QueueGate(OperationQueueService queue) => (SemaphoreSlim)typeof(OperationQueueService)
+        .GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(queue)!;
+
+    private static SemaphoreSlim CorruptionSnapshotGate() => (SemaphoreSlim)typeof(CacheController)
+        .GetField("_corruptionSnapshotMutationGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+
+    // An unmapped removal conflicts with every corruption removal step, so it parks behind the run.
+    private static async Task<Guid> EnqueueUnmappedRemovalAsync(RemovalRun fixture)
+    {
+        var parked = await fixture.Queue.EnqueueAsync(
+            OperationType.UnmappedFileRemoval,
+            ConflictScope.Bulk(),
+            "Unmapped File Removal",
+            () => Task.FromResult<Guid?>(fixture.Tracker.RegisterOperation(
+                OperationType.UnmappedFileRemoval, "Unmapped File Removal", new CancellationTokenSource())),
+            CancellationToken.None);
+        Assert.True(parked.Queued);
+        return parked.OperationId;
+    }
+
+    private static async Task WaitForHoldAsync(OperationConflictChecker checker)
+    {
+        for (var attempt = 0; attempt < 400; attempt++)
+        {
+            if (await checker.CheckAsync(OperationType.CacheFileCount, ConflictScope.Service("steam"), CancellationToken.None) != null)
+            {
+                return;
+            }
+            await Task.Delay(10);
+        }
+        throw new TimeoutException("The run never held its services.");
+    }
+
+    // Probed with a count, which no pending repair blocks, so only the run's hold can answer.
+    private static async Task<bool> HoldReleasedAsync(OperationConflictChecker checker)
+    {
+        for (var attempt = 0; attempt < 400; attempt++)
+        {
+            if (await checker.CheckAsync(OperationType.CacheFileCount, ConflictScope.Service("steam"), CancellationToken.None) == null)
+            {
+                return true;
+            }
+            await Task.Delay(25);
+        }
+        return false;
     }
 
     [Theory]
@@ -795,7 +1730,7 @@ public sealed class CorruptionRemovalContractTests
         CorruptionDetectionMethod method, bool failSecond)
     {
         await using var fixture = new RemovalRun(method, transport: true, datasourceCount: 2);
-        await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
         Guid lastId = default;
         for (var serviceIndex = 1; serviceIndex <= 2; serviceIndex++)
         {
@@ -803,6 +1738,7 @@ public sealed class CorruptionRemovalContractTests
             await fixture.Pipe.SendAsync(Live("service", 25, 3, 20));
             var progress = await fixture.Messages.WaitProgressAsync("service");
             lastId = progress.OperationId;
+            if (serviceIndex == 1) Assert.Equal(startedId, lastId);
             Assert.Equal(serviceIndex, progress.Context!["serviceIndex"]);
             Assert.Equal(2, progress.Context["serviceCount"]);
             await CompleteDatasourceAsync(fixture.Pipe, method, second: false);
@@ -849,7 +1785,7 @@ public sealed class CorruptionRemovalContractTests
     public async Task ProcessAggregate_AFailedFirstServiceTurnsTheSummaryCardAmber(CorruptionDetectionMethod method)
     {
         await using var fixture = new RemovalRun(method, transport: true, datasourceCount: 2);
-        await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
         Guid firstId = default;
         Guid lastId = default;
         for (var serviceIndex = 1; serviceIndex <= 2; serviceIndex++)
@@ -858,7 +1794,11 @@ public sealed class CorruptionRemovalContractTests
             await fixture.Pipe.SendAsync(Live("service", 25, 3, 20));
             var progress = await fixture.Messages.WaitProgressAsync("service");
             lastId = progress.OperationId;
-            if (serviceIndex == 1) firstId = lastId;
+            if (serviceIndex == 1)
+            {
+                firstId = lastId;
+                Assert.Equal(startedId, firstId);
+            }
             await CompleteDatasourceAsync(fixture.Pipe, method, second: false);
             await fixture.Pipe.ConnectAsync();
             if (serviceIndex == 1)
@@ -1271,6 +2211,9 @@ public sealed class CorruptionRemovalContractTests
         public UnifiedOperationTracker Tracker { get; }
         public CorruptionDetectionService Detection { get; }
         public CacheController Controller { get; }
+        public OperationConflictChecker Checker { get; }
+        public OperationQueueService Queue { get; }
+        public TestDbContextFactory Contexts { get; }
         public RemovalMessages Messages { get; }
         public OperationStateService States => _operationStateService;
         public OperationRepairTests.FailingStateService State { get; }
@@ -1282,7 +2225,8 @@ public sealed class CorruptionRemovalContractTests
         private readonly OperationStateService _operationStateService;
         private readonly HostLifetime _lifetime = new();
 
-        public RemovalRun(CorruptionDetectionMethod method, bool transport = false, int datasourceCount = 1)
+        public RemovalRun(CorruptionDetectionMethod method, bool transport = false, int datasourceCount = 1,
+            string schemeOverride = DatasourceSchemeOverrideValues.Monolithic)
         {
             Directory.CreateDirectory(_root);
             Directory.CreateDirectory(Path.Combine(_root, "cache"));
@@ -1303,7 +2247,7 @@ public sealed class CorruptionRemovalContractTests
                 settings[$"LanCache:DataSources:{index}:CachePath"] = cachePath;
                 settings[$"LanCache:DataSources:{index}:LogPath"] = logPath;
                 settings[$"LanCache:DataSources:{index}:Enabled"] = "true";
-                settings[$"LanCache:DataSources:{index}:SchemeOverride"] = DatasourceSchemeOverrideValues.Monolithic;
+                settings[$"LanCache:DataSources:{index}:SchemeOverride"] = schemeOverride;
             }
             if (transport)
             {
@@ -1324,6 +2268,7 @@ public sealed class CorruptionRemovalContractTests
                 .UseInMemoryDatabase("corruption-terminal-" + ScanId)
                 .ConfigureWarnings(warnings => warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
                 .Options);
+            Contexts = contexts;
             using (var db = contexts.CreateDbContext())
             {
                 var time = DateTime.Parse("2026-07-12T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal);
@@ -1406,10 +2351,12 @@ public sealed class CorruptionRemovalContractTests
                 paths, rust, nginx, sources, State, contexts, null!, Tracker, notifications,
                 DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
                 DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), capability, CacheScanGateHarness.Idle(),
-                _operationStateService);
+                _operationStateService, null!);
+            Checker = new OperationConflictChecker(Tracker, _operationStateService, NullLogger<OperationConflictChecker>.Instance);
+            Queue = new OperationQueueService(Tracker, Checker, NullLogger<OperationQueueService>.Instance);
             Controller = new CacheController(cache, null!, Detection, NullLogger<CacheController>.Instance,
                 paths, notifications, rust, nginx, Tracker, sources, contexts, null!,
-                DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), null!, capability, CacheScanGateHarness.Idle(), null!, _operationStateService);
+                Checker, Queue, capability, CacheScanGateHarness.Idle(), null!, _operationStateService);
         }
 
         public async Task<bool> RunAsync(string service = "steam", object? bulk = null)
@@ -1511,6 +2458,150 @@ public sealed class CorruptionRemovalContractTests
         protected override Task RestoreOwnerAsync(OperationRepair repair, CancellationToken stoppingToken) =>
             (Service ?? throw new InvalidOperationException("The corruption detection service is not initialized."))
                 .RestoreRepairAsync(repair, stoppingToken);
+    }
+
+    public class PausingChecker : DispatchProxy
+    {
+        public OperationConflictChecker Inner { get; set; } = null!;
+        public TaskCompletionSource<bool> Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int CheckCount;
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod!.Name == nameof(IOperationConflictChecker.CheckAsync))
+            {
+                return CheckAsync((OperationType)args![0]!, (ConflictScope)args[1]!, (CancellationToken)args[2]!);
+            }
+
+            return targetMethod.Invoke(Inner, args);
+        }
+
+        private async Task<OperationConflictResponse?> CheckAsync(
+            OperationType type,
+            ConflictScope scope,
+            CancellationToken cancellationToken)
+        {
+            if (type == OperationType.CorruptionRemoval && Interlocked.Increment(ref CheckCount) == 1)
+            {
+                Entered.TrySetResult(true);
+                await Release.Task;
+            }
+
+            return await Inner.CheckAsync(type, scope, cancellationToken);
+        }
+    }
+
+    public class HeldRunCheck : DispatchProxy
+    {
+        public OperationConflictChecker Inner { get; set; } = null!;
+        public IUnifiedOperationTracker Tracker { get; set; } = null!;
+        public SemaphoreSlim Publication { get; set; } = null!;
+        public Guid BlockerId { get; set; }
+        public TaskCompletionSource<bool> Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Action? ReleaseParkedRead { get; set; }
+        private int _paused;
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod!.Name == nameof(IOperationConflictChecker.CheckAsync))
+            {
+                return CheckAsync((OperationType)args![0]!, (ConflictScope)args[1]!, (CancellationToken)args[2]!);
+            }
+
+            return targetMethod.Invoke(Inner, args);
+        }
+
+        private async Task<OperationConflictResponse?> CheckAsync(
+            OperationType type,
+            ConflictScope scope,
+            CancellationToken cancellationToken)
+        {
+            // The admission check is the one that already holds the publication lock, after the blocker ended.
+            if (type == OperationType.CorruptionRemoval
+                && Publication.CurrentCount == 0
+                && Tracker.GetOperation(BlockerId)?.Status.IsTerminal() == true
+                && Interlocked.Exchange(ref _paused, 1) == 0)
+            {
+                Entered.TrySetResult(true);
+                ReleaseParkedRead?.Invoke();
+                var waiters = typeof(SemaphoreSlim).GetField("m_asyncHead", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                var arrived = false;
+                for (var attempt = 0; attempt < 400 && !arrived; attempt++)
+                {
+                    arrived = waiters.GetValue(Publication) != null;
+                    if (!arrived)
+                    {
+                        await Task.Delay(25);
+                    }
+                }
+                Assert.True(arrived);
+            }
+
+            return await Inner.CheckAsync(type, scope, cancellationToken);
+        }
+    }
+
+    public class ParkedRemovalRead : DispatchProxy
+    {
+        public IUnifiedOperationTracker Inner { get; set; } = null!;
+        public TaskCompletionSource<bool> AtRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ManualResetEventSlim Release { get; } = new(false);
+        private int _reads;
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod!.Name == nameof(IUnifiedOperationTracker.GetOperation))
+            {
+                var operation = (OperationInfo?)targetMethod.Invoke(Inner, args);
+                if (operation is { Status: OperationStatus.Waiting, Type: OperationType.CorruptionRemoval }
+                    && Interlocked.Exchange(ref _reads, 1) == 0)
+                {
+                    AtRead.TrySetResult(true);
+                    Assert.True(Release.Wait(TimeSpan.FromSeconds(10)));
+                }
+
+                return operation;
+            }
+
+            return targetMethod.Invoke(Inner, args);
+        }
+    }
+
+    public class PausingSelection : DispatchProxy
+    {
+        public IDbContextFactory<AppDbContext> Inner { get; set; } = null!;
+        public Action? ReleaseParkedRead { get; set; }
+        public TaskCompletionSource<bool> Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _arm;
+        private int _paused;
+
+        public void Arm() => Interlocked.Exchange(ref _arm, 1);
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod!.Name == nameof(IDbContextFactory<AppDbContext>.CreateDbContextAsync)
+                && Volatile.Read(ref _arm) == 1)
+            {
+                return OpenAsync(targetMethod, args);
+            }
+
+            return targetMethod.Invoke(Inner, args);
+        }
+
+        // GetRemovalSelectionAsync is suspended on this open. The parked finally runs before it resumes.
+        private async Task<AppDbContext> OpenAsync(MethodInfo targetMethod, object?[]? args)
+        {
+            if (Interlocked.Exchange(ref _paused, 1) == 0)
+            {
+                Entered.TrySetResult(true);
+                ReleaseParkedRead?.Invoke();
+                await Release.Task;
+            }
+
+            return await (Task<AppDbContext>)targetMethod.Invoke(Inner, args)!;
+        }
     }
 
     public class RemovalMessages : DispatchProxy
@@ -1684,6 +2775,7 @@ public sealed class CorruptionRemovalContractTests
         return new CorruptionRemovalSelection
         {
             ScanId = Guid.NewGuid(),
+            ScanStartedUtc = "2026-09-26T18:01:00Z",
             DetectionMethod = method,
             ContractVersion = 4,
             Threshold = 3,

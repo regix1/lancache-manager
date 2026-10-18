@@ -179,7 +179,8 @@ public sealed class DatabaseResetRepairAdmissionTests
                 conflictChecker,
                 new DatasourceCapabilityService(datasources),
                 CacheScanGateHarness.Idle(),
-                harness.Owner);
+                harness.Owner,
+                null!);
             await using var serviceContext = database.Factory.CreateDbContext();
             // The full wipe clears Downloads and LogEntries, so it takes the log lock from the owner.
             await using var resetServices = new ServiceCollection()

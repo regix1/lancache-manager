@@ -5,11 +5,13 @@ using System.Text.RegularExpressions;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -88,6 +90,7 @@ public sealed partial class CacheFileCountContractTests
     [InlineData("StartGameCacheFileCountAsync", typeof(HttpPostAttribute), "count/game/{appId:long}")]
     [InlineData("StartEpicGameCacheFileCountAsync", typeof(HttpPostAttribute), "count/game/epic/{gameName}")]
     [InlineData("StartNamedGameCacheFileCountAsync", typeof(HttpPostAttribute), "count/game/named/{service}/{gameName}")]
+    [InlineData("StartUnmappedCacheFileCountAsync", typeof(HttpPostAttribute), "count/unmapped")]
     [InlineData("GetCacheFileCountStatus", typeof(HttpGetAttribute), "count/{operationId:guid}/status")]
     public void CountRoutes_MatchTheUrlsTheFrontendBuilds(string methodName, Type attributeType, string expectedRoute)
     {
@@ -174,12 +177,12 @@ public sealed partial class CacheFileCountContractTests
         var first = Guid.NewGuid();
         var second = Guid.NewGuid();
 
-        service.PublishCount(new CacheManagementService.CacheFileCountState(first, null, 5));
+        service.PublishCount(new CacheManagementService.CacheFileCountState(first, null, 5, null, null));
 
         // A second confirmation opens and registers its count. `_cacheLock` serializes the counts
         // themselves but not their registration, so this lands while the first dialog may not have
         // polled yet.
-        service.PublishCount(new CacheManagementService.CacheFileCountState(second, null, null));
+        service.PublishCount(new CacheManagementService.CacheFileCountState(second, null, null, null, null));
 
         // The first dialog's next poll must still find its answer. Losing it here is not a wrong
         // number, it is the dialog reporting a failed count and refusing to confirm a removal that
@@ -198,7 +201,7 @@ public sealed partial class CacheFileCountContractTests
         var finished = Guid.NewGuid();
         var running = Guid.NewGuid();
 
-        service.PublishCount(new CacheManagementService.CacheFileCountState(finished, null, 12));
+        service.PublishCount(new CacheManagementService.CacheFileCountState(finished, null, 12, null, null));
 
         // A long count publishes a tick per percent. Only the first publish of an id may age
         // anything out, or a single big walk would evict every answer queued behind it.
@@ -207,6 +210,8 @@ public sealed partial class CacheFileCountContractTests
             service.PublishCount(new CacheManagementService.CacheFileCountState(
                 running,
                 new Dictionary<string, object?> { ["n"] = percent },
+                null,
+                null,
                 null));
         }
 
@@ -214,19 +219,272 @@ public sealed partial class CacheFileCountContractTests
     }
 
     [Fact]
-    public void RetainedCounts_AreBounded()
+    public void AFinishedCount_SurvivesNewerCountsOfOtherGames()
     {
         var service = NewServiceForCountState();
+        var unmapped = Guid.NewGuid();
+        service.PublishCount(new CacheManagementService.CacheFileCountState(unmapped, null, 4, 400, null));
 
-        // One more than RetainedCacheFileCounts, which is 8.
-        var ids = Enumerable.Range(0, 9).Select(_ => Guid.NewGuid()).ToArray();
-        foreach (var id in ids)
+        // The confirmation for the unmapped count may poll late, after other counts finished.
+        for (var game = 0; game < 9; game++)
         {
-            service.PublishCount(new CacheManagementService.CacheFileCountState(id, null, 1));
+            service.PublishCount(new CacheManagementService.CacheFileCountState(
+                Guid.NewGuid(), null, 1, null, null));
         }
 
-        Assert.Null(service.GetCacheFileCount(ids[0]));
-        Assert.NotNull(service.GetCacheFileCount(ids[^1]));
+        Assert.Equal(4, service.GetCacheFileCount(unmapped)?.CacheFilesFound);
+    }
+
+    [Fact]
+    public void ANewerFinishedCountOfTheSameGame_KeepsTheOlderAnswerUntilItsDialogReadsIt()
+    {
+        var service = NewServiceForCountState();
+        var older = Guid.NewGuid();
+        var newer = Guid.NewGuid();
+
+        service.PublishCount(new CacheManagementService.CacheFileCountState(older, null, 1, null, null));
+        service.PublishCount(new CacheManagementService.CacheFileCountState(newer, null, 2, null, null));
+
+        // The first dialog's next poll still gets its number, then stops asking.
+        Assert.Equal(1, service.GetCacheFileCount(older)?.CacheFilesFound);
+        Assert.Null(service.GetCacheFileCount(older));
+        Assert.Equal(2, service.GetCacheFileCount(newer)?.CacheFilesFound);
+    }
+
+    [Fact]
+    public void AnUnreadAnswer_SurvivesManyNewerCountsOfTheSameGame()
+    {
+        var service = NewServiceForCountState();
+        var counts = Enumerable.Range(0, 50).Select(_ => Guid.NewGuid()).ToList();
+
+        for (var number = 0; number < counts.Count; number++)
+        {
+            service.PublishCount(new CacheManagementService.CacheFileCountState(counts[number], null, number, null, null));
+        }
+
+        // Every dialog reads its own number once, oldest first, then stops asking.
+        for (var number = 0; number < counts.Count; number++)
+        {
+            Assert.Equal(number, service.GetCacheFileCount(counts[number])?.CacheFilesFound);
+            Assert.Null(service.GetCacheFileCount(counts[number]));
+        }
+    }
+
+    [Fact]
+    public void ReadingTheNewestAnswer_DropsOnlyThatAnswer()
+    {
+        var service = NewServiceForCountState();
+        var older = Guid.NewGuid();
+        var newest = Guid.NewGuid();
+        var otherGame = Guid.NewGuid();
+        service.PublishCount(new CacheManagementService.CacheFileCountState(older, null, 1, null, null));
+        service.PublishCount(new CacheManagementService.CacheFileCountState(newest, null, 2, null, null));
+        service.PublishCount(new CacheManagementService.CacheFileCountState(otherGame, null, 3, null, null));
+
+        Assert.Equal(2, service.GetCacheFileCount(newest)?.CacheFilesFound);
+        Assert.Null(service.GetCacheFileCount(newest));
+
+        // A count of the same game after the read replaces nothing the read already dropped.
+        service.PublishCount(new CacheManagementService.CacheFileCountState(Guid.NewGuid(), null, 4, null, null));
+        Assert.Equal(1, service.GetCacheFileCount(older)?.CacheFilesFound);
+        Assert.Equal(3, service.GetCacheFileCount(otherGame)?.CacheFilesFound);
+    }
+
+    [Fact]
+    public void AnswersNobodyReads_AreDroppedOldestFirstPastTheLimit()
+    {
+        var service = NewServiceForCountState();
+        var counts = Enumerable.Range(0, CacheManagementService.MaxUnreadCounts + 1)
+            .Select(_ => Guid.NewGuid())
+            .ToList();
+
+        // One more unread answer than the limit holds.
+        for (var number = 0; number < counts.Count; number++)
+        {
+            service.PublishCount(new CacheManagementService.CacheFileCountState(counts[number], null, 1, null, null));
+        }
+
+        Assert.Null(service.GetCacheFileCount(counts[0]));
+        Assert.Equal(1, service.GetCacheFileCount(counts[1])?.CacheFilesFound);
+        Assert.Equal(1, service.GetCacheFileCount(counts[^1])?.CacheFilesFound);
+    }
+
+    [Fact]
+    public void AQueuedCountsAnswerReadByEitherId_DropsBothIds()
+    {
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, LookupHookTracker>();
+        var service = NewServiceForCountState(tracker);
+        var waiting = Guid.NewGuid();
+        var running = Guid.NewGuid();
+        ((LookupHookTracker)(object)tracker).OnGetOperation = id => new OperationInfo
+        {
+            Id = id,
+            Type = OperationType.CacheFileCount,
+            Name = "Count",
+            PreviousOperationId = id == running ? waiting : null
+        };
+
+        service.PublishCount(new CacheManagementService.CacheFileCountState(running, null, 7, 700, null));
+
+        // The browser polls the waiting id; the read drops the running id's copy as well.
+        Assert.Equal(7, service.GetCacheFileCount(waiting)?.CacheFilesFound);
+        Assert.Null(service.GetCacheFileCount(running));
+
+        // The same holds for an answer a newer count replaced, read by the running id.
+        var replacedRunning = Guid.NewGuid();
+        var replacedWaiting = Guid.NewGuid();
+        ((LookupHookTracker)(object)tracker).OnGetOperation = id => new OperationInfo
+        {
+            Id = id,
+            Type = OperationType.CacheFileCount,
+            Name = "Count",
+            PreviousOperationId = id == replacedRunning ? replacedWaiting : null
+        };
+        service.PublishCount(new CacheManagementService.CacheFileCountState(replacedRunning, null, 8, 800, null));
+        service.PublishCount(new CacheManagementService.CacheFileCountState(Guid.NewGuid(), null, 9, 900, null));
+        Assert.Equal(8, service.GetCacheFileCount(replacedRunning)?.CacheFilesFound);
+        Assert.Null(service.GetCacheFileCount(replacedWaiting));
+    }
+
+    [Fact]
+    public void APollThatSeesTheAnswerBeingPublished_StillDropsIt()
+    {
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, LookupHookTracker>();
+        var service = NewServiceForCountState(tracker);
+        var count = Guid.NewGuid();
+        CacheManagementService.CacheFileCountState? polled = null;
+        Thread? poll = null;
+        // The tracker is asked for the waiting id after the answer is stored and before it is
+        // listed. A poll arriving then sees the answer and must wait for the listing.
+        ((LookupHookTracker)(object)tracker).OnGetOperation = id =>
+        {
+            if (id == count && poll == null)
+            {
+                poll = new Thread(() => polled = service.GetCacheFileCount(count));
+                poll.Start();
+                SpinWait.SpinUntil(() => poll.ThreadState is ThreadState.WaitSleepJoin or ThreadState.Stopped);
+            }
+
+            return null;
+        };
+
+        service.PublishCount(new CacheManagementService.CacheFileCountState(count, null, 5, null, null));
+        poll!.Join();
+
+        Assert.Equal(5, polled?.CacheFilesFound);
+        Assert.Null(service.GetCacheFileCount(count));
+    }
+
+    [Fact]
+    public void ACountThatEndedWithoutAnAnswer_IsDroppedWhenTheNextCountStarts()
+    {
+        // The null tracker knows no operation, which is how a cancelled or failed count looks once
+        // its operation is gone.
+        var service = NewServiceForCountState();
+        var stopped = Guid.NewGuid();
+
+        service.PublishCount(new CacheManagementService.CacheFileCountState(stopped, null, null, null, null));
+        service.PublishCount(new CacheManagementService.CacheFileCountState(Guid.NewGuid(), null, null, null, null));
+
+        Assert.Null(service.GetCacheFileCount(stopped));
+    }
+
+    [Fact]
+    public void AnAnswerPublishedWhileTheNextCountSweeps_IsKept()
+    {
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, LookupHookTracker>();
+        var service = NewServiceForCountState(tracker);
+        var first = Guid.NewGuid();
+        service.PublishCount(new CacheManagementService.CacheFileCountState(first, null, null, null, null));
+        // The first count answers and its operation ends between the sweep reading its progress
+        // value and asking the tracker about it.
+        ((LookupHookTracker)(object)tracker).OnGetOperation = id =>
+        {
+            ((LookupHookTracker)(object)tracker).OnGetOperation = null;
+            service.PublishCount(new CacheManagementService.CacheFileCountState(id, null, 12, null, null));
+            return new OperationInfo
+            {
+                Id = id,
+                Type = OperationType.CacheFileCount,
+                Name = "Count",
+                CompletedAt = DateTime.UtcNow
+            };
+        };
+
+        service.PublishCount(new CacheManagementService.CacheFileCountState(Guid.NewGuid(), null, null, null, null));
+
+        Assert.Equal(12, service.GetCacheFileCount(first)?.CacheFilesFound);
+    }
+
+    internal class LookupHookTracker : NullReturningProxy
+    {
+        public Func<Guid, OperationInfo?>? OnGetOperation { get; set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args) =>
+            targetMethod?.Name == nameof(IUnifiedOperationTracker.GetOperation) && OnGetOperation is { } onGetOperation
+                ? onGetOperation((Guid)args![0]!)
+                : base.Invoke(targetMethod, args);
+    }
+
+    [Fact]
+    public void CountStatus_CarriesFilesBytesAndServices()
+    {
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>();
+        var service = NewServiceForCountState(tracker);
+        var operationId = Guid.NewGuid();
+        var unmapped = new UnmappedService { Service = "wsus", FileCount = 3, TotalSizeBytes = 4096 };
+        service.PublishCount(new CacheManagementService.CacheFileCountState(
+            operationId, null, 3, 4096, [unmapped]));
+
+        var response = Status(NewCountController(service, tracker), operationId);
+
+        Assert.False(response.IsProcessing);
+        Assert.Equal(3, response.CacheFilesFound);
+        Assert.Equal(4096, response.BytesFound);
+        Assert.Equal("wsus", Assert.Single(response.UnmappedServices!).Service);
+    }
+
+    [Fact]
+    public void CountStatus_AnswersAQueuedCountBeforeAndAfterItsRunIsReaped()
+    {
+        using var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
+        var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
+        var service = NewServiceForCountState(tracker);
+        var controller = NewCountController(service, tracker);
+        var metrics = new RemovalMetrics { EntityKey = string.Empty, EntityName = "unmapped files", EntityKind = "bulk" };
+
+        // The queue's order: the waiting count W registers, the promotion registers the running
+        // count R, W hands off to R and ends, and W is reaped while R still runs.
+        var waiting = tracker.RegisterOperation(
+            OperationType.CacheFileCount, "Cache File Count (unmapped files)", new CancellationTokenSource(), metrics);
+        Guid running;
+        using (tracker.BeginPromotion(waiting, OperationType.CacheFileCount))
+        {
+            running = tracker.RegisterOperation(
+                OperationType.CacheFileCount, "Cache file count: unmapped files", new CancellationTokenSource(), metrics);
+        }
+        tracker.RecordHandoff(waiting, running);
+        tracker.CompleteOperation(waiting, success: true);
+        Reap(tracker, waiting);
+
+        tracker.UpdateProgress(running, 40, "signalr.unmappedRemove.counting.starting");
+        service.PublishCount(new CacheManagementService.CacheFileCountState(running, null, null, null, null));
+
+        var whileRunning = Status(controller, waiting);
+        Assert.True(whileRunning.IsProcessing);
+        Assert.Equal(40, whileRunning.PercentComplete);
+        Assert.Equal(waiting, whileRunning.OperationId);
+
+        service.PublishCount(new CacheManagementService.CacheFileCountState(running, null, 7, 700, null));
+        tracker.CompleteOperation(running, success: true);
+        Reap(tracker, running);
+
+        // The tracker has dropped both operations, as it does 10 s after the count ends.
+        Assert.Null(tracker.GetOperation(waiting, followHandoff: true));
+        var afterReap = Status(controller, waiting);
+        Assert.False(afterReap.IsProcessing);
+        Assert.Equal(7, afterReap.CacheFilesFound);
+        Assert.Equal(waiting, afterReap.OperationId);
     }
 
     [Fact]
@@ -245,35 +503,45 @@ public sealed partial class CacheFileCountContractTests
     /// A service wired only far enough to exercise the count-state map. Every dependency the count
     /// state does not touch is left null, in the shape SteamGameRemovalCacheSweepTests already uses.
     /// </summary>
-    private static CacheManagementService NewServiceForCountState(
+    internal static CacheManagementService NewServiceForCountState(
         IUnifiedOperationTracker? tracker = null,
-        ISignalRNotificationService? notifications = null)
+        ISignalRNotificationService? notifications = null,
+        IPathResolver? pathResolver = null,
+        RustProcessHelper? rustProcessHelper = null,
+        GameCacheDetectionService? gameCacheDetectionService = null,
+        IStateService? stateService = null,
+        CacheScanGate? cacheScanGate = null,
+        OperationStateService? operationStateService = null,
+        ILogger<CacheManagementService>? logger = null,
+        DatasourceService? datasourceService = null,
+        RustLogProcessorService? logProcessor = null)
     {
         var configuration = new ConfigurationBuilder().Build();
-        var pathResolver = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
-        var datasourceService = new DatasourceService(
+        pathResolver ??= DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+        datasourceService ??= new DatasourceService(
             configuration,
             pathResolver,
             NullLogger<DatasourceService>.Instance);
 
         return new CacheManagementService(
             configuration,
-            NullLogger<CacheManagementService>.Instance,
+            logger ?? NullLogger<CacheManagementService>.Instance,
             pathResolver,
-            rustProcessHelper: null!,
+            rustProcessHelper: rustProcessHelper!,
             nginxLogRotationService: null!,
             datasourceService,
-            DispatchProxy.Create<IStateService, NullReturningProxy>(),
+            stateService ?? DispatchProxy.Create<IStateService, NullReturningProxy>(),
             dbContextFactory: null!,
-            gameCacheDetectionService: null!,
+            gameCacheDetectionService: gameCacheDetectionService!,
             tracker ?? DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>(),
             notifications ?? DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
             DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
             DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
             new DatasourceCapabilityService(datasourceService),
-            CacheScanGateHarness.Idle(),
-            (OperationStateService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
-                typeof(OperationStateService)));
+            cacheScanGate ?? CacheScanGateHarness.Idle(),
+            operationStateService ?? (OperationStateService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
+                typeof(OperationStateService)),
+            logProcessor!);
     }
 
     [Fact]
@@ -305,6 +573,36 @@ public sealed partial class CacheFileCountContractTests
         Assert.Equal(count, notifications.Events.Count);
         tracker.CompleteOperation(next, true);
     }
+
+    private static CacheController NewCountController(CacheManagementService service, IUnifiedOperationTracker tracker) =>
+        new(
+            cacheService: service,
+            cacheClearingService: null!,
+            corruptionDetectionService: null!,
+            logger: NullLogger<CacheController>.Instance,
+            pathResolver: null!,
+            notifications: null!,
+            rustProcessHelper: null!,
+            nginxLogRotationService: null!,
+            operationTracker: tracker,
+            datasourceService: null!,
+            dbContextFactory: null!,
+            reconciliationService: null!,
+            conflictChecker: null!,
+            operationQueue: null!,
+            capabilityService: null!,
+            cacheScanGate: CacheScanGateHarness.Idle(),
+            cacheSizeScan: null!,
+            operationStateService: null!);
+
+    private static CacheFileCountStatusResponse Status(CacheController controller, Guid operationId) =>
+        Assert.IsType<CacheFileCountStatusResponse>(
+            Assert.IsType<OkObjectResult>(controller.GetCacheFileCountStatus(operationId)).Value);
+
+    private static void Reap(UnifiedOperationTracker tracker, Guid operationId) =>
+        typeof(UnifiedOperationTracker)
+            .GetMethod("ReapOperation", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(tracker, [operationId]);
 
     /// <summary>
     /// Matches with whitespace tolerance wherever the formatter can rewrap a line, so reformatting

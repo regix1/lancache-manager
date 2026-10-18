@@ -624,10 +624,12 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
         Notifications notificationState,
         RemovalRustProcessHelper? rust,
         CacheManagementService manager,
+        UnmappedFileRemovalTests.ScriptedImporter importer,
         OperationStateService owner,
         UnifiedOperationTracker tracker,
         ISignalRNotificationService notifications)
     {
+        Importer = importer;
         _root = root;
         _services = services;
         _lifetime = lifetime;
@@ -643,6 +645,7 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
     }
 
     internal CacheManagementService Manager { get; }
+    internal UnmappedFileRemovalTests.ScriptedImporter Importer { get; }
     internal OperationStateService Owner { get; }
     internal UnifiedOperationTracker Tracker { get; }
     internal ISignalRNotificationService NotificationService { get; }
@@ -731,6 +734,7 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             processManager,
             tracker);
         RemovalRustProcessHelper? rust = null;
+        var importer = new UnmappedFileRemovalTests.ScriptedImporter();
         if (producerType.HasValue)
         {
             File.WriteAllText(paths.GetRustSteamRemoverPath(), string.Empty);
@@ -765,7 +769,8 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
                 DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
                 capability,
                 CacheScanGateHarness.Idle(),
-                owner);
+                owner,
+                importer);
         }
         else
         {
@@ -786,9 +791,54 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             notificationState,
             rust,
             manager!,
+            importer,
             owner,
             tracker,
             notificationService);
+    }
+
+    /// <summary>A log processor over this harness's datasources and state, for its position resets.</summary>
+    internal RustLogProcessorService CreateLogProcessor()
+    {
+        var paths = DispatchProxy.Create<IPathResolver, Paths>();
+        ((Paths)(object)paths).Root = _root;
+        Directory.CreateDirectory(paths.GetOperationsDirectory());
+        return new RustLogProcessorService(
+            NullLogger<RustLogProcessorService>.Instance,
+            paths,
+            NotificationService,
+            _state,
+            _services,
+            rustProcessHelper: null!,
+            _datasources,
+            Tracker,
+            TimeProvider.System);
+    }
+
+    /// <summary>A cache controller whose service removal runs on this harness's manager and tracker.</summary>
+    internal CacheController CreateCacheController()
+    {
+        var paths = DispatchProxy.Create<IPathResolver, Paths>();
+        ((Paths)(object)paths).Root = _root;
+        return new CacheController(
+            cacheService: Manager,
+            cacheClearingService: null!,
+            corruptionDetectionService: null!,
+            logger: NullLogger<CacheController>.Instance,
+            pathResolver: paths,
+            notifications: NotificationService,
+            rustProcessHelper: null!,
+            nginxLogRotationService: null!,
+            operationTracker: Tracker,
+            datasourceService: _datasources,
+            dbContextFactory: null!,
+            reconciliationService: null!,
+            conflictChecker: DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
+            operationQueue: null!,
+            capabilityService: _capability,
+            cacheScanGate: CacheScanGateHarness.Idle(),
+            cacheSizeScan: null!,
+            operationStateService: Owner);
     }
 
     internal RemovalOperationConfig<(int Files, long Bytes)> CreateConfig(
@@ -849,7 +899,7 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             BindingFlags.Instance | BindingFlags.NonPublic)!;
         await (Task)method.Invoke(
             Manager,
-            [operationId, datasource, filesDeleted, bytesFreed, Array.Empty<uint>()])!;
+            [operationId, datasource, filesDeleted, bytesFreed, Array.Empty<uint>(), long.MaxValue])!;
         // A source's log step runs right after its cache step is accepted, so a source this
         // harness accepts has finished both and owes the repair no log step.
         await Owner.MarkLogRewriteStartedAsync(operationId, datasource);
@@ -1114,6 +1164,9 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
 
         /// <summary>The first this many purge launches run until the cancel and publish nothing, as a killed child does.</summary>
         internal int HeldPurges { get; set; }
+
+        /// <summary>The first this many purge launches refuse before they touch a log: they exit with a failure and publish nothing.</summary>
+        internal int RefusedPurges { get; set; }
         internal long PurgeLinesRemoved { get; set; }
 
         /// <summary>The permission_errors count a publishing purge reports, as cache_purge_log_entries writes it.</summary>
@@ -1154,7 +1207,7 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             // The cache step neither rewrites a log nor publishes a replaced one.
             Assert.DoesNotContain("--stem-positions", start.Arguments, StringComparison.Ordinal);
             Assert.False(start.Environment.ContainsKey("LANCACHE_LOG_CHECK"));
-            Launches.Enqueue(new RemovalLaunch(Purge: false, stepHeld, PurgeInput: null));
+            Launches.Enqueue(new RemovalLaunch(Purge: false, stepHeld, PurgeInput: null, start.Arguments));
             var run = Interlocked.Increment(ref _runs);
             Assert.InRange(run, 1, 2);
             try
@@ -1240,13 +1293,14 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             var quoted = Regex.Matches(start.Arguments, "\"([^\"]*)\"")
                 .Select(match => match.Groups[1].Value)
                 .ToArray();
-            // A fifth path is the stored positions file, which the state service writes to the system temp folder.
+            // Later paths are the stored positions file, which the state service writes to the system
+            // temp folder, and the importer's resume record.
             foreach (var path in quoted.Take(4))
             {
                 AssertOwnedPath(path);
             }
             using var input = JsonDocument.Parse(await File.ReadAllTextAsync(quoted[1], cancellationToken));
-            Launches.Enqueue(new RemovalLaunch(Purge: true, stepHeld, input.RootElement.Clone()));
+            Launches.Enqueue(new RemovalLaunch(Purge: true, stepHeld, input.RootElement.Clone(), start.Arguments));
             var purge = Interlocked.Increment(ref _purges);
             if (purge <= HeldPurges)
             {
@@ -1261,6 +1315,10 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
                     JsonSerializer.Serialize(new { success = true, lines_removed = 0 }),
                     cancellationToken);
                 return new ProcessExecutionResult { ExitCode = 0 };
+            }
+            if (purge <= RefusedPurges)
+            {
+                return new ProcessExecutionResult { ExitCode = 1, Error = "Injected purge refusal." };
             }
             await WritePublicationAsync(start, replaced: null, cancellationToken);
             if (purge <= FailingPurges)
@@ -1287,11 +1345,11 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             var text = await File.ReadAllTextAsync(accessLog, cancellationToken);
             long removed = text.Length > 0 ? 1 : 0;
             var removedBefore = removed;
-            if (quoted.Length > 4)
+            if (Regex.Match(start.Arguments, "--stem-positions \"([^\"]*)\"") is { Success: true } positionsArgument)
             {
                 var positions = Assert.IsType<Dictionary<string, long>>(
                     JsonSerializer.Deserialize<Dictionary<string, long>>(
-                        await File.ReadAllTextAsync(quoted[4], cancellationToken)));
+                        await File.ReadAllTextAsync(positionsArgument.Groups[1].Value, cancellationToken)));
                 removedBefore = positions["access.log"] > 0 ? removed : 0;
             }
             // Written outside the log folder, so a replacement a cancel leaves behind is never read as a log.
@@ -1398,7 +1456,7 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
         }
 
         /// <summary>One child launch: the purge or the remover, and whether a log step held the logs.</summary>
-        internal sealed record RemovalLaunch(bool Purge, bool StepHeld, JsonElement? PurgeInput);
+        internal sealed record RemovalLaunch(bool Purge, bool StepHeld, JsonElement? PurgeInput, string Arguments);
     }
 
     private sealed class Lifetime : IHostApplicationLifetime
@@ -1431,7 +1489,9 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             {
                 return Assert.IsType<string>(args![0]);
             }
-            if (targetMethod.Name == nameof(IPathResolver.IsDirectoryWritable))
+            if (targetMethod.Name is nameof(IPathResolver.IsDirectoryWritable)
+                or nameof(IPathResolver.IsCacheWritable)
+                or nameof(IPathResolver.IsLogsWritable))
             {
                 return true;
             }

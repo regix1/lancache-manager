@@ -1,6 +1,8 @@
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
@@ -68,7 +70,11 @@ public partial class CacheManagementService
             await RunRemovalLogStepAsync(
                 repair.Id,
                 _datasourceService.GetDatasource(source.Datasource)!,
-                selection with { DatasourceNames = [source.Datasource] },
+                selection with
+                {
+                    DatasourceNames = [source.Datasource],
+                    NewestLogEntryIdBefore = source.NewestLogEntryIdBefore
+                },
                 [],
                 onProgress: null,
                 cancellationToken);
@@ -211,12 +217,19 @@ public partial class CacheManagementService
             error);
     }
 
+    private async Task<long> ReadNewestLogEntryIdAsync(CancellationToken cancellationToken)
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+        return await context.LogEntries.MaxAsync(logEntry => (long?)logEntry.Id, cancellationToken) ?? 0;
+    }
+
     private async Task SaveRemovalSourceAsync(
         Guid? operationId,
         string datasource,
         int filesDeleted,
         long bytesFreed,
-        IReadOnlyCollection<uint> steamDepotIds)
+        IReadOnlyCollection<uint> steamDepotIds,
+        long newestLogEntryIdBefore)
     {
         if (!operationId.HasValue)
         {
@@ -233,6 +246,7 @@ public partial class CacheManagementService
                         datasource,
                         StringComparison.OrdinalIgnoreCase));
                 source.NativeCompletionAccepted = true;
+                source.NewestLogEntryIdBefore = newestLogEntryIdBefore;
 
                 var metrics = repair.Removal
                     ?? throw new InvalidDataException(
@@ -255,6 +269,8 @@ public partial class CacheManagementService
     /// (the binary's URLs, the URLs of the rows still there and the stored Steam depots), then
     /// deletes those rows, and keeps the positions with the count in one save. Rows the live import
     /// added while the cache step ran are read under the same lock, so their lines go with them.
+    /// Only lines the importer has already read are removed; a line past its saved position stays
+    /// and is imported as usual, so a download it has not seen yet is not lost.
     /// </summary>
     private async Task<ulong> RunRemovalLogStepAsync(
         Guid operationId,
@@ -264,6 +280,36 @@ public partial class CacheManagementService
         Func<PurgeLogProgressData, Task>? onProgress,
         CancellationToken cancellationToken)
     {
+        // The purge counts a line as read against the importer's record of the logs. A rotation since
+        // the last import can leave none of the recorded logs, and a crash mid-step resets the record;
+        // either way the purge would keep the target's lines for the next import to bring back. An
+        // import first records the logs as they are now. A log pass waits for no repair, so this also
+        // runs inside a startup repair.
+        // An import that did not read every log leaves target lines past its position, which the purge
+        // keeps, so the step fails before it purges and the repair redoes it. The pass takes no
+        // token, so a cancel stops the wait and leaves the pass to finish on its own.
+        if (!await _logProcessor.ReadToEndAsync(datasource, cancellationToken).WaitAsync(cancellationToken))
+        {
+            // A saved series that is missing now keeps lines the purge cannot reach, including
+            // one a reset left at 0 while another series remains. A folder with no log hides
+            // every saved series, so any saved series refuses it. A folder with no log and no
+            // saved series has nothing to purge, so the step goes on.
+            datasource.RefreshLogSources();
+            var savedPositions = _stateService.GetLogSourcePositions(datasource.Name);
+            if (RustLogProcessorService.MissingSeriesPositions(savedPositions, datasource.LogSourceStems).Count > 0
+                || (datasource.LogSourceStems.Count == 0 && savedPositions.Count > 0))
+            {
+                throw new ConflictException(
+                    $"A log series of datasource '{datasource.Name}' is missing; mount or restore its log folder.")
+                {
+                    StageKey = "errors.unmappedRemoval.logsMissing"
+                };
+            }
+            if (datasource.LogSourceStems.Count > 0)
+            {
+                throw LogsBehind(datasource.Name);
+            }
+        }
         var repair = _operationStateService.GetPendingRepairs().Single(pending => pending.Id == operationId);
         await using var logLock = await _operationStateService.LockLogFilesAsync(
             operationId,
@@ -305,7 +351,7 @@ public partial class CacheManagementService
                     _stateService,
                     _operationStateService,
                     _logger)
-                .RunAsync(operationId, datasource, targets, onProgress, cancellationToken);
+                .RunAsync(operationId, datasource, targets, keepUnreadLines: true, onProgress, cancellationToken);
             linesRemoved = checked((ulong)report.LinesRemoved);
 
             // Lines a permission error kept stay in the log, and reading it again from the start can bring
@@ -446,6 +492,14 @@ public partial class CacheManagementService
             .ToList();
         var downloads = context.Downloads.Where(download =>
             datasourceNames.Contains(download.Datasource.ToLower()));
+
+        // A download logged after the cache step began may have files on disk again; keeping its
+        // rows keeps those files claimed instead of orphaned.
+        if (selection.NewestLogEntryIdBefore is { } newestLogEntryIdBefore)
+        {
+            downloads = downloads.Where(download => !context.LogEntries.Any(logEntry =>
+                logEntry.DownloadId == download.Id && logEntry.Id > newestLogEntryIdBefore));
+        }
 
         return selection.Kind switch
         {

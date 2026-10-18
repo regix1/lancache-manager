@@ -498,6 +498,7 @@ public abstract class DaemonClientBase : IDaemonClient
                     {
                         var state = authData.TryGetProperty("state", out var stateElem) ? stateElem.GetString() : null;
                         var message = authData.TryGetProperty("message", out var msgElem) ? msgElem.GetString() : null;
+                        var errorCode = authData.TryGetProperty("errorCode", out var codeElem) ? codeElem.GetString() : null;
                         // Mirror onto both properties so OnStatusChangeAsync can resolve either ingest path.
                         var accountName = DaemonStatus.ParseAccountDisplayName(authData);
                         _logger?.LogInformation("Auth state changed: {State} - {Message}", state, message);
@@ -506,6 +507,7 @@ public abstract class DaemonClientBase : IDaemonClient
                         {
                             Status = state ?? "unknown",
                             Message = message,
+                            ErrorCode = errorCode,
                             DisplayName = accountName,
                             AccountDisplayName = accountName,
                             Timestamp = DateTime.UtcNow

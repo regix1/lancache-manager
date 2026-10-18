@@ -95,7 +95,8 @@ public sealed class SystemConfigVisibilityTests : IDisposable
             conflictChecker: null!,
             capabilityService,
             CacheScanGateHarness.Idle(),
-            operationStateService: null!);
+            operationStateService: null!,
+            logProcessor: null!);
 
         _controller = new SystemController(
             stateService,

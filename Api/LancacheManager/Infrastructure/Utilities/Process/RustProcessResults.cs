@@ -98,15 +98,12 @@ public class RustExecutionResult
 
 
 /// <summary>
-/// Final line/file totals produced by log_service_manager count-lines. <see cref="FilesWithErrors"/>
-/// is greater than zero when a source stopped at an unreadable member, which marks the line and
-/// source totals as a partial clean prefix rather than an authoritative count.
+/// Final line/file totals produced by log_service_manager count-lines.
 /// </summary>
 public sealed record LogLineCountResult(
     long LinesProcessed,
     long FilesProcessed,
-    Dictionary<string, long> SourceLineCounts,
-    long FilesWithErrors = 0)
+    Dictionary<string, long> SourceLineCounts)
 {
     /// <summary>Complete-record counts per file name.</summary>
     public Dictionary<string, long> FileLineCounts { get; init; } = new();

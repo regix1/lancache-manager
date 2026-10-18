@@ -25,6 +25,11 @@ public class RustLogProcessorService
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly DatasourceService _datasourceService;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly TimeProvider _clock;
+
+    // A working child reports progress at least every 5,000 records, so two minutes without any is a
+    // stall. A stopped pass saves nothing and the next pass reads those lines again.
+    private static readonly TimeSpan _livePassStallWindow = TimeSpan.FromMinutes(2);
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentOperationId;
     private string? _currentDatasourceName;
@@ -540,12 +545,14 @@ public class RustLogProcessorService
     /// </summary>
     public void ResetLogPosition()
     {
-        // Reset all datasource positions, including every per-source-stem checkpoint —
-        // leaving stale stem offsets behind would resurrect them via the positions file.
+        // Reset every per-source-stem checkpoint of the series on disk; a stale offset left behind
+        // would resurrect it via the positions file.
         foreach (var ds in _datasourceService.GetDatasources())
         {
             ClearResume(ds.Name);
-            _stateService.SetLogSourcePositions(ds.Name, new Dictionary<string, long>());
+            ds.RefreshLogSources();
+            _stateService.SetLogSourcePositions(
+                ds.Name, PositionsAfterReset(_stateService.GetLogSourcePositions(ds.Name), ds.LogSourceStems));
             _stateService.SetLogPosition(ds.Name, 0);
         }
         // Also reset legacy position for backward compatibility
@@ -559,20 +566,24 @@ public class RustLogProcessorService
     public void ResetLogPosition(string datasourceName)
     {
         ClearResume(datasourceName);
-        _stateService.SetLogSourcePositions(datasourceName, new Dictionary<string, long>());
+        var datasource = _datasourceService.GetDatasource(datasourceName)!;
+        datasource.RefreshLogSources();
+        _stateService.SetLogSourcePositions(
+            datasourceName,
+            PositionsAfterReset(_stateService.GetLogSourcePositions(datasourceName), datasource.LogSourceStems));
         _stateService.SetLogPosition(datasourceName, 0);
         _stateService.SetLogTotalLines(datasourceName, 0);
         _logger.LogInformation("Log position reset to 0 for datasource '{DatasourceName}'", datasourceName);
     }
 
     /// <summary>The importer's byte-offset resume record for a datasource.</summary>
-    public string ResumePath(string datasourceName) => Path.Combine(
-        _pathResolver.GetOperationsDirectory(),
+    public static string ResumePath(IPathResolver pathResolver, string datasourceName) => Path.Combine(
+        pathResolver.GetOperationsDirectory(),
         $"rust_resume_{datasourceName}.json");
 
     public void ClearResume(string datasourceName)
     {
-        File.Delete(ResumePath(datasourceName));
+        File.Delete(ResumePath(_pathResolver, datasourceName));
     }
 
     /// <summary>
@@ -723,7 +734,8 @@ public class RustLogProcessorService
         IServiceProvider serviceProvider,
         RustProcessHelper rustProcessHelper,
         DatasourceService datasourceService,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        TimeProvider clock)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -733,6 +745,7 @@ public class RustLogProcessorService
         _rustProcessHelper = rustProcessHelper;
         _datasourceService = datasourceService;
         _operationTracker = operationTracker;
+        _clock = clock;
     }
 
     public Task RestoreRepairAsync(
@@ -991,6 +1004,97 @@ public class RustLogProcessorService
         };
 
     /// <summary>
+    /// True when a pass's terminal checkpoint says the processor read every log it handles to the
+    /// end. A partial pass qualifies only when its file errors are all rotated logs it read up to a
+    /// damaged or unfinished part; the processor moves past those and never imports the rest.
+    /// A pass of any status that left a log unread does not qualify: a pass that resumes past a
+    /// rotated log an earlier pass could not open ends completed while that log stays unread.
+    /// </summary>
+    internal static bool ReadEveryLog(LogProcessingProgress? progress) =>
+        IsValidTerminalCheckpoint(progress)
+        && progress!.FilesLeftUnread == 0
+        && progress.TerminalStatus is "completed" or "completed_with_warnings" or "partial";
+
+    /// <summary>
+    /// True when no log is found at all, or a saved log series is not found now, including a
+    /// series stored at 0. That is an empty or unmounted log folder, or a series moved away
+    /// while another series remains. The lines in a log out of sight are not in the Downloads
+    /// table, so every log cannot count as read.
+    /// </summary>
+    internal static bool LogsOutOfSight(IReadOnlyDictionary<string, long> savedPositions, IEnumerable<string> foundStems) =>
+        !foundStems.Any() || MissingSeriesPositions(savedPositions, foundStems).Count > 0;
+
+    /// <summary>
+    /// The saved positions of the log series not found now. A saved 0 still names a series, so a
+    /// reset to the end keeps it and a removal still treats the series as missing until it is
+    /// back or a log delete clears it.
+    /// </summary>
+    internal static Dictionary<string, long> MissingSeriesPositions(
+        IReadOnlyDictionary<string, long> savedPositions,
+        IEnumerable<string> foundStems) =>
+        savedPositions
+            .Where(saved => !foundStems.Contains(saved.Key))
+            .ToDictionary(saved => saved.Key, saved => saved.Value);
+
+    /// <summary>
+    /// The saved positions a reset to the beginning leaves: each series found now at 0, and each
+    /// series saved before and not found now at its saved value. The reset forgets no series, so a
+    /// removal's log step after it still finds a log folder that emptied out of sight.
+    /// </summary>
+    internal static Dictionary<string, long> PositionsAfterReset(
+        IReadOnlyDictionary<string, long> savedPositions,
+        IReadOnlyList<string> foundStems)
+    {
+        var positions = savedPositions
+            .Where(saved => !foundStems.Contains(saved.Key))
+            .ToDictionary(saved => saved.Key, saved => saved.Value);
+        foreach (var stem in foundStems)
+        {
+            positions[stem] = 0;
+        }
+        return positions;
+    }
+
+    /// <summary>
+    /// Runs one import pass of the datasource, after any pass already running, and returns whether
+    /// the processor read every log it handles to the end. A pass that fails returns false.
+    /// </summary>
+    internal virtual async Task<bool> ReadToEndAsync(ResolvedDatasource datasource, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            // A start refused while another pass runs logs a warning, so the wait does not ask for one.
+            if (IsProcessing)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+                continue;
+            }
+
+            var started = false;
+            LogProcessingProgress? result = null;
+            await StartProcessingAsync(
+                datasource.LogPath,
+                liveIngest: true,
+                datasource.Name,
+                onFinished: progress =>
+                {
+                    started = true;
+                    result = progress;
+                });
+            if (started)
+            {
+                // A pass publishes a position for each log series it found. No position at all, or a
+                // missing series read before, leaves lines unread.
+                return ReadEveryLog(result)
+                    && !LogsOutOfSight(_stateService.GetLogSourcePositions(datasource.Name), result!.SourcePositions.Keys);
+            }
+
+            // Another pass holds the processor; this one has to start after it.
+            await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+        }
+    }
+
+    /// <summary>
     /// True when a run may clear the shared operation state: the busy flags, the current operation
     /// id, the current cancellation source and the datasource/progress paths. This service is a
     /// singleton and the interactive path clears <see cref="IsProcessing"/> before its display
@@ -1036,7 +1140,8 @@ public class RustLogProcessorService
         string? datasourceName = null,
         Guid? sharedOperationId = null,
         bool finalizeOperation = true,
-        LogProcessingBatchState? batch = null)
+        LogProcessingBatchState? batch = null,
+        Action<LogProcessingProgress?>? onFinished = null)
     {
         await _startLock.WaitAsync();
         try
@@ -1253,6 +1358,7 @@ public class RustLogProcessorService
             // below poisons the token: "cancelled" is an intent this host expressed, and the
             // terminal checkpoint alone must not be able to claim it (C# owns intent).
             var cancelRequestedDuringRun = false;
+            var stoppedAtLimit = false;
 
             await repairOwner.StartWorkAsync(
                 ownerOperationId!.Value,
@@ -1289,6 +1395,9 @@ public class RustLogProcessorService
             await File.WriteAllTextAsync(positionsPath, positionsJson);
             _logger.LogInformation("Start positions (unlisted sources start at 0): {StartPositions}",
                 string.Join(", ", sourcePositions.Select(pair => $"{pair.Key}={pair.Value}")));
+
+            // The end of this pass's first no-progress window, set when its child starts.
+            var windowEndsAtUtc = _clock.GetUtcNow() + _livePassStallWindow;
 
             var exitCode = await _rustProcessHelper.RunTrackedProcessAsync(
                 startInfo,
@@ -1381,7 +1490,69 @@ public class RustLogProcessorService
                             ownerOperationId!.Value,
                             batch));
 
-                    await process.WaitForExitAsync(processingToken);
+                    if (liveIngest)
+                    {
+                        var exited = process.WaitForExitAsync(processingToken);
+                        using var waitStop = CancellationTokenSource.CreateLinkedTokenSource(processingToken);
+                        long linesSeen = 0;
+                        var readAgain = false;
+                        while (true)
+                        {
+                            var windowEnd = Task.Delay(
+                                readAgain
+                                    ? TimeSpan.FromSeconds(1)
+                                    : TimeSpan.FromTicks(Math.Max(0, (windowEndsAtUtc - _clock.GetUtcNow()).Ticks)),
+                                _clock, waitStop.Token);
+                            if (await Task.WhenAny(exited, windowEnd) == exited || !windowEnd.IsCompletedSuccessfully)
+                            {
+                                break;
+                            }
+                            // A read that meets the child's own write is no reading: on Windows the child
+                            // replaces the file by copying when a reader holds it open. Read again in a second.
+                            // A second unreadable read in a row is no progress, since a child that never
+                            // writes its file would otherwise hold the logs for good.
+                            var progress = await ReadProgressFileAsync(progressPath);
+                            if (progress is null && !readAgain)
+                            {
+                                readAgain = true;
+                                continue;
+                            }
+                            readAgain = false;
+                            if (progress is not null && progress.LinesParsed > linesSeen)
+                            {
+                                linesSeen = progress.LinesParsed;
+                                windowEndsAtUtc = _clock.GetUtcNow() + _livePassStallWindow;
+                                continue;
+                            }
+
+                            stoppedAtLimit = true;
+                            _logger.LogWarning(
+                                "Live log pass for datasource '{DatasourceName}' read no new lines for {Window}; asking it to stop",
+                                datasourceName, _livePassStallWindow);
+                            try
+                            {
+                                await process.StandardInput.WriteLineAsync("CANCEL");
+                                await process.StandardInput.FlushAsync();
+                            }
+                            catch (Exception ex) when (ex is IOException or InvalidOperationException)
+                            {
+                                // The child exited between the check and the write, or a stop that arrived
+                                // during the read already wrote CANCEL and closed its input.
+                            }
+                            // The same 5 s wait the app gives every stopped Rust child before it kills it.
+                            if (await Task.WhenAny(exited, Task.Delay(TimeSpan.FromSeconds(5), _clock, waitStop.Token)) != exited)
+                            {
+                                _operationTracker.CancelOperation(ownerOperationId!.Value);
+                            }
+                            break;
+                        }
+                        waitStop.Cancel();
+                        await exited;
+                    }
+                    else
+                    {
+                        await process.WaitForExitAsync(processingToken);
+                    }
 
                     cancelRequestedDuringRun = processingToken.IsCancellationRequested;
 
@@ -1408,10 +1579,10 @@ public class RustLogProcessorService
 
             // The polled progress file is the single authority on the run outcome. The
             // typed terminal_status decides success/warning/partial/failure; "cancelled"
-            // additionally requires that this host actually requested cancellation.
+            // additionally requires that this host asked for the stop, by a cancel or at a stall.
             finalProgress = await ReadProgressFileAsync(progressPath);
             var hasTerminalCheckpoint = IsValidTerminalCheckpoint(finalProgress);
-            var wasCancelled = cancelRequestedDuringRun &&
+            var wasCancelled = (cancelRequestedDuringRun || stoppedAtLimit) &&
                 ((hasTerminalCheckpoint && finalProgress!.TerminalStatus == "cancelled") ||
                  finalProgress?.Status == OperationStatus.Cancelled.ToWireString() ||
                  exitCode != 0);
@@ -1893,6 +2064,9 @@ public class RustLogProcessorService
         }
         finally
         {
+            // Null when the pass failed or was canceled before its checkpoint was read.
+            onFinished?.Invoke(finalProgress);
+
             if (logLock is not null)
             {
                 await logLock.DisposeAsync();

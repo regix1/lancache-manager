@@ -372,7 +372,8 @@
         "prefillLogin": "Prefill Sign-In",
         "statusCheck": "Status Check",
         "cacheFileCount": "Cache File Count",
-        "downloadHistoryUpgrade": "Download History Upgrade"
+        "downloadHistoryUpgrade": "Download History Upgrade",
+        "unmappedFileRemoval": "Remove unmapped files"
       },
       "cacheFilesDeleted": "{{formattedCount}} cache file deleted",
       "cacheFilesDeleted_other": "{{formattedCount}} cache files deleted",
@@ -398,6 +399,7 @@
       "cancelBulkRemoval": "Cancel bulk removal",
       "cancelPrefillLogin": "Cancel sign-in",
       "cancelDownloadHistoryUpgrade": "Cancel download history upgrade",
+      "cancelUnmappedFileRemoval": "Stop removing unmapped files",
       "cancelOperationAria": "Cancel operation",
       "forceKillOperation": "Click again to force kill",
       "forceStop": "Force stop",
@@ -829,7 +831,7 @@
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
-        "description": "Cache matched to a known game, with shared files counted once. Service traffic and unidentified files are counted separately."
+        "description": "Cache matched to a known game, with shared files counted once. Service traffic and unidentified files are counted separately. Unmapped is cache data that no detected game or service claims; the next full detection scan and cache scan update it."
       },
       "servicesOnDisk": {
         "term": "Services on Disk",
@@ -3183,7 +3185,8 @@
       "unmappedLabel": "unmapped services",
       "unmappedFileCount_one": "{{formattedCount}} file",
       "unmappedFileCount_other": "{{formattedCount}} files",
-      "unmappedFromScan": "Counted by the last full detection scan. The dashboard's Cache Size card works its unmapped figure out from a separate cache scan, so the two can differ.",
+      "unmappedFromScan": "Unmapped files are cache files that no detected game or service claims, for example files of a game whose download history was removed, or downloads made since the last full scan. Run a full detection scan to update this list. The dashboard works out its unmapped figure from a separate cache scan, so the two can differ.",
+      "removeUnmapped": "Remove unmapped files",
       "errors": {
         "startFailed": "Failed to start game detection",
         "syncFailed": "Failed to load game detection results"
@@ -3209,7 +3212,8 @@
     "storage": {
       "errors": {
         "fetchEvictedItems": "Failed to load evicted items"
-      }
+      },
+      "unmappedRemovalRunning": "Unavailable while unmapped files are being removed. Try again once the removal finishes."
     },
     "datasources": {
       "title": "Log Processing",
@@ -3217,6 +3221,10 @@
       "loadingDatasources": "Loading datasources...",
       "noActiveDatasources": "No datasources are enabled. Enable one in the manager’s datasource configuration, then restart LANCache Manager.",
       "reposition": "Reposition",
+      "logsInUse": "Unavailable while log processing or a Start from End count is reading the logs. Try again once it finishes.",
+      "resetRunning": "Unavailable while a log position reset is running. Try again once it finishes.",
+      "resetRunningUnknown": "Unavailable until the server reports whether a log position reset is running.",
+      "noLogLines": "There are no log lines to process for this datasource.",
       "layout": {
         "bareMetal": "Bare metal",
         "mixed": "Mixed logs"
@@ -3326,6 +3334,8 @@
         "entries": "entries",
         "removing": "Removing..."
       },
+      "removalRunning": "Unavailable while a log removal is running or waiting. Try again once it finishes.",
+      "otherRemovalRunning": "Unavailable while {{operation}} is running. Try again once it finishes.",
       "buttons": {
         "clear": "Clear",
         "deleteLogFile": "Delete Log File",
@@ -3353,7 +3363,6 @@
       "errors": {
         "removeServiceFailed": "Failed to remove {{service}} logs",
         "unexpectedResponse": "Unexpected response when starting log removal for {{service}}",
-        "readOnly": "Logs directory is read-only. Remove :ro from docker-compose volume mount.",
         "actionFailed": "Action failed",
         "deleteFailed": "Failed to delete log file",
         "loadFailed": "Failed to load log counts"
@@ -5713,6 +5722,15 @@
         "closes": "This window closes by itself when Microsoft confirms."
       }
     },
+    "unmappedRemoval": {
+      "title": "Remove unmapped files",
+      "description": "Deletes cache files that no game or service claims. Files written in the last 10 minutes are kept. If a client asks for a deleted file again, it is downloaded again.",
+      "summary_one": "{{formattedCount}} file, {{size}}",
+      "summary_other": "{{formattedCount}} files, {{size}}",
+      "nothingToRemove": "Nothing to remove right now. Files written in the last 10 minutes are kept.",
+      "countFailed": "Counting failed.",
+      "confirm": "Remove files"
+    },
     "cacheRemoval": {
       "titleGame": "Remove Game from Cache",
       "titleService": "Remove Service from Cache",
@@ -5720,8 +5738,8 @@
       "confirmService": "Are you sure you want to remove {{name}} service from cache?",
       "summaryGame": "Deletes ALL cached files for this game, not only the {{formattedCount}} files ({{size}}) the last scan counted. Anything cached since is deleted too. This cannot be undone.",
       "summaryService": "Deletes ALL cached files for this service, not only the {{formattedCount}} files ({{size}}) the last scan counted, along with every log entry and download record for it. Anything cached since is deleted too. This cannot be undone.",
-      "summaryGameCounted": "Deletes {{formattedCount}} cache files, every one on disk for this game right now, along with its log entries and download records. This cannot be undone.",
-      "summaryServiceCounted": "Deletes {{formattedCount}} cache files, every one on disk for this service right now, along with every log entry and download record for it. This cannot be undone.",
+      "summaryGameCounted": "Deletes {{formattedCount}} cache files ({{size}}), every one on disk for this game right now, along with its log entries and download records. This cannot be undone.",
+      "summaryServiceCounted": "Deletes {{formattedCount}} cache files ({{size}}), every one on disk for this service right now, along with every log entry and download record for it. This cannot be undone.",
       "counting": "Counting the cache files this will delete. On a large service this takes several minutes.",
       "countFailed": "The cache files could not be counted, so there is no number to confirm against. Close this and try again.",
       "summaryEvicted": "Removes {{count}} download records and their log entries, covering about {{size}} of past downloads. No cached files are deleted, and this does not check whether those files are still on disk. This cannot be undone.",
@@ -7509,6 +7527,13 @@
     }
   },
   "signalr": {
+    "unmappedRemove": {
+      "counting": {
+        "starting": "Starting the count"
+      },
+      "running": "Removing unmapped files",
+      "complete": "Unmapped files removed"
+    },
     "downloadHistoryUpgrade": {
       "indexing": "Rebuilding the duplicate check index",
       "merging": "Merging split download rows"
@@ -8069,6 +8094,19 @@
     }
   },
   "errors": {
+    "unmappedRemoval": {
+      "noFullScan": "Run a full detection scan first.",
+      "downloadInProgress": "A client download is writing to the cache. Try again once it finishes.",
+      "trackerStopped": "Download tracking stopped, for example while a log action ran, so the removal could not tell whether a client was reading the cache. Try again once tracking is back.",
+      "logsBehind": "Log processing has not read every access log yet. If this keeps happening, the server log names a log file that could not be opened. Fix its permissions, then try again.",
+      "logsMissing": "A log series that was read before is missing, or the log folder is empty. Mount or restore the log folder, then try again. If the folder is mounted and only access.log is gone, nginx creates it again when it reopens its logs: run Log Rotation under Schedules, or restart the LANCache container, then try again. If you removed a per-service log on purpose, Delete Log File under Log Removal clears it, and also deletes the log files still there.",
+      "logSeriesMissing": "The log series {{series}} of '{{datasource}}' was read before and is missing now, so its downloads cannot be checked. Put it back in the log folder, then try again. If it is access.log and the folder is mounted, nginx creates it again when it reopens its logs: run Log Rotation under Schedules, or restart the LANCache container, then try again. If you removed a per-service log on purpose, Delete Log File under Log Removal clears it, and also deletes the log files still there.",
+      "repairRunning": "An interrupted operation is being repaired. Try again once it finishes.",
+      "moreThanConfirmed": "More files qualified than you confirmed, so the rest were kept. Count again to see them.",
+      "deleteFailed": "Some files could not be deleted. Check the cache directory permissions.",
+      "failed": "Removing unmapped files failed. The server log has the details.",
+      "cacheEmpty": "No cache files were found on disk, so nothing was removed and the list was kept. Check that the cache directory is mounted."
+    },
     "integration": {
       "accountRequired": "Sign in with a LANCache account to manage this integration.",
       "ownedByAnotherAccount": "In use by another account. That account must sign out of this integration first.",
@@ -8133,6 +8171,8 @@
       "scanInProgress": "A different corruption detection scan is already in progress",
       "scanNotFound": "Corruption scan not found",
       "candidatesNotFound": "Corruption candidates not found",
+      "keySchemeUnavailable": "Disk-level game and service actions require a clear cache-key scheme for every enabled datasource. Clearing the whole cache still works.",
+      "datasourceNotWritable": "Cannot remove these files: a cache or logs folder is read-only. This is usually caused by incorrect PUID/PGID settings in docker-compose.yml.",
       "scanChanged": "The corruption scan changed. Reload results and try again",
       "scanChangedOnDelete": "The corruption scan changed before it could be deleted",
       "scanStale": "The corruption scan is stale. Reload results and try again",
@@ -8184,11 +8224,15 @@
       "startFailedForDatasource": "Failed to start log processing for '{{datasource}}'",
       "removeFailed": "Failed to remove logs for service '{{service}}' from datasource '{{datasource}}'",
       "fileNotFound": "Log file not found: {{path}}",
+      "directoryReadOnly": "The logs directory is read-only for '{{datasource}}'. Remove :ro from its volume mount in docker-compose.yml, then try again.",
       "processingActive": "Log processing is running. Try again when it finishes.",
+      "resetRunning": "Another log position reset is running, so nothing was changed. Try again once it finishes.",
+      "unmappedRemovalRunning": "An unmapped file removal is running, so nothing was changed. Try again once it finishes.",
       "fileUnreadable": "This app cannot open the log file {{path}}, so it cannot check that nothing is writing to it. Nothing was deleted. Give the app's user read access to the file, or delete it by hand, then try again.",
       "filesChanged": "The log files changed while the delete was getting ready, most likely because logrotate ran. Nothing was deleted. Try again. Details: {{reason}}",
       "fileMovedDuringDelete": "logrotate moved access.log while it was being deleted, so the new access.log nginx had just opened was deleted instead. The file you chose was kept as a rotated file, where its entries can still be processed.",
-      "writerCheckFailed": "The delete could not check that no other program is writing to the log files, so nothing was deleted. Try again in a moment, or after logrotate finishes if it is compressing or copying a log. Details: {{reason}}"
+      "writerCheckFailed": "The delete could not check that no other program is writing to the log files, so nothing was deleted. Try again in a moment, or after logrotate finishes if it is compressing or copying a log. Details: {{reason}}",
+      "windowsDockerUnsupported": "This manager cannot safely change logs held by a Docker writer while running natively on Windows. Run the manager in a Linux environment with the same log mounts, or use a static log source."
     },
     "migration": {
       "notConfigured": "Server database connection is not configured"
@@ -8219,7 +8263,7 @@
       "outcomeUnknown": "The outcome of this prefill could not be recovered.",
       "startUnavailable": "The container could not start the prefill. Try again.",
       "gameDownloadFailed": "This game did not finish downloading.",
-      "signInLost": "The service account was signed out before this finished. Log in again, then run it again.",
+      "signInLost": "The service account was signed out before this finished. An always-on container may sign in again by itself with its saved login. If it is still signed out, log in again, then run it again.",
       "gameDetailsUnavailable": "The service did not return details for this game.",
       "runNotFound": "This run is no longer stored, so its failed games cannot be shown."
     },
@@ -8241,7 +8285,7 @@
     "steam": {
       "apiKeyInvalid": "The provided API key is invalid or Steam Web API V1 is unavailable. Please verify your key at https://steamcommunity.com/dev/apikey",
       "signInInProgress": "A Steam sign-in is already in progress.",
-      "signInLost": "Steam is no longer signed in. Sign in again, then retry the prefill.",
+      "signInLost": "Steam is no longer signed in. Log in again, then try again.",
       "gameDetailsUnavailable": "Steam did not return game details. Try again.",
       "signInCancelled": "Sign-in was cancelled.",
       "signInOwnerChanged": "This Steam sign-in was started by another account. Start a new sign-in from your account.",

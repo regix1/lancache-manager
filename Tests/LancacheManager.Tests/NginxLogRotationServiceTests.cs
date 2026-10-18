@@ -66,7 +66,8 @@ public sealed class NginxLogRotationServiceTests
         var error = await Assert.ThrowsAsync<ValidationException>(() =>
             service.PrepareReopenCheckAsync(new[] { source }, new[] { target }, expectsPublication: true));
 
-        Assert.Equal("management.nginxReopen.windowsDockerUnsupported", error.StageKey);
+        // A refusal key from the errors family, which a reloaded card translates.
+        Assert.Equal("errors.logs.windowsDockerUnsupported", error.StageKey);
         Assert.Equal("line", await File.ReadAllTextAsync(target));
         var operations = Path.Combine(root, "operations");
         Assert.True(!Directory.Exists(operations) ||

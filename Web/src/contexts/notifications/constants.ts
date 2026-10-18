@@ -35,7 +35,8 @@ export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, Notificati
   operationHistoryCleanup: 'operation_history_cleanup',
   dashboardCacheWarmer: 'dashboard_cache_warmer',
   prefillLogin: 'prefill_login',
-  downloadHistoryUpgrade: 'download_history_upgrade'
+  downloadHistoryUpgrade: 'download_history_upgrade',
+  unmappedFileRemoval: 'unmapped_file_removal'
 };
 
 /**

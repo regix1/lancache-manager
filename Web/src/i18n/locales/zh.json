@@ -372,7 +372,8 @@
         "prefillLogin": "预填充登录",
         "statusCheck": "状态检查",
         "cacheFileCount": "缓存文件计数",
-        "downloadHistoryUpgrade": "下载历史升级"
+        "downloadHistoryUpgrade": "下载历史升级",
+        "unmappedFileRemoval": "移除未映射文件"
       },
       "cacheFilesDeleted": "已删除 {{formattedCount}} 个缓存文件",
       "cacheFilesDeleted_other": "已删除 {{formattedCount}} 个缓存文件",
@@ -398,6 +399,7 @@
       "cancelBulkRemoval": "取消批量移除",
       "cancelPrefillLogin": "取消登录",
       "cancelDownloadHistoryUpgrade": "取消下载历史升级",
+      "cancelUnmappedFileRemoval": "停止移除未映射文件",
       "cancelOperationAria": "取消操作",
       "forceKillOperation": "再次点击以强制终止",
       "forceStop": "强制停止",
@@ -829,7 +831,7 @@
       },
       "gamesOnDisk": {
         "term": "磁盘上的游戏",
-        "description": "与已知游戏匹配的缓存，共享文件只统计一次。服务流量和无法识别的文件单独统计。"
+        "description": "与已知游戏匹配的缓存，共享文件只统计一次。服务流量和无法识别的文件单独统计。未映射是没有任何已检测到的游戏或服务认领的缓存数据；下次全面检测扫描和缓存扫描会更新该数值。"
       },
       "servicesOnDisk": {
         "term": "磁盘上的服务",
@@ -3183,7 +3185,8 @@
       "unmappedLabel": "个未映射服务",
       "unmappedFileCount_one": "{{formattedCount}} 个文件",
       "unmappedFileCount_other": "{{formattedCount}} 个文件",
-      "unmappedFromScan": "由上次全面检测扫描统计得出。仪表板的缓存大小卡片是根据另一次缓存扫描算出未映射数值的，因此两者可能不同。",
+      "unmappedFromScan": "未映射文件是没有任何已检测到的游戏或服务认领的缓存文件，例如下载历史已被移除的游戏的文件，或上次全面扫描之后新下载的文件。运行全面检测扫描可更新此列表。仪表板的缓存大小卡片是根据另一次缓存扫描算出未映射数值的，因此两者可能不同。",
+      "removeUnmapped": "移除未映射文件",
       "errors": {
         "startFailed": "启动游戏检测失败",
         "syncFailed": "加载游戏检测结果失败"
@@ -3209,7 +3212,8 @@
     "storage": {
       "errors": {
         "fetchEvictedItems": "加载已淘汰项目失败"
-      }
+      },
+      "unmappedRemovalRunning": "正在移除未映射文件，暂时无法使用。请在移除完成后重试。"
     },
     "datasources": {
       "title": "日志处理",
@@ -3217,6 +3221,10 @@
       "loadingDatasources": "正在加载数据源...",
       "noActiveDatasources": "没有启用的数据源。请在管理器的数据源配置中启用一个，然后重启 LANCache Manager。",
       "reposition": "重新定位",
+      "logsInUse": "日志处理或“从末尾开始”计数正在读取日志，暂时无法使用。请在其完成后重试。",
+      "resetRunning": "日志位置重置正在运行，暂时无法使用。请在其完成后重试。",
+      "resetRunningUnknown": "在服务器报告日志位置重置是否正在运行之前，暂时无法使用。",
+      "noLogLines": "此数据源没有可处理的日志行。",
       "layout": {
         "bareMetal": "裸机",
         "mixed": "混合日志"
@@ -3326,6 +3334,8 @@
         "entries": "条",
         "removing": "正在移除..."
       },
+      "removalRunning": "日志移除正在运行或等待中，暂时无法使用。请在其完成后重试。",
+      "otherRemovalRunning": "{{operation}}正在运行，暂时无法使用。请在其完成后重试。",
       "buttons": {
         "clear": "清除",
         "deleteLogFile": "删除日志文件",
@@ -3353,7 +3363,6 @@
       "errors": {
         "removeServiceFailed": "移除 {{service}} 日志失败",
         "unexpectedResponse": "启动 {{service}} 的日志移除时出现意外响应",
-        "readOnly": "日志目录为只读。请从 docker-compose 卷挂载中移除 :ro。",
         "actionFailed": "操作失败",
         "deleteFailed": "删除日志文件失败",
         "loadFailed": "加载日志计数失败"
@@ -5713,6 +5722,15 @@
         "closes": "Microsoft 确认后此窗口会自动关闭。"
       }
     },
+    "unmappedRemoval": {
+      "title": "移除未映射文件",
+      "description": "删除没有任何游戏或服务认领的缓存文件。最近 10 分钟内写入的文件会保留。如果客户端再次请求已删除的文件，将重新下载。",
+      "summary_one": "{{formattedCount}} 个文件，{{size}}",
+      "summary_other": "{{formattedCount}} 个文件，{{size}}",
+      "nothingToRemove": "目前没有可移除的内容。最近 10 分钟内写入的文件会保留。",
+      "countFailed": "统计失败。",
+      "confirm": "移除文件"
+    },
     "cacheRemoval": {
       "titleGame": "从缓存中移除游戏",
       "titleService": "从缓存中移除服务",
@@ -5720,8 +5738,8 @@
       "confirmService": "您确定要从缓存中移除 {{name}} 服务吗？",
       "summaryGame": "将删除此游戏的全部缓存文件，而不仅是上次扫描统计到的 {{formattedCount}} 个文件（{{size}}）。此后新缓存的文件也会一并删除。此操作无法撤销。",
       "summaryService": "将删除此服务的全部缓存文件，而不仅是上次扫描统计到的 {{formattedCount}} 个文件（{{size}}），同时删除此服务的所有日志条目和下载记录。此后新缓存的文件也会一并删除。此操作无法撤销。",
-      "summaryGameCounted": "将删除 {{formattedCount}} 个缓存文件，即此游戏当前在磁盘上的全部文件，同时删除其日志条目和下载记录。此操作无法撤销。",
-      "summaryServiceCounted": "将删除 {{formattedCount}} 个缓存文件，即此服务当前在磁盘上的全部文件，同时删除此服务的所有日志条目和下载记录。此操作无法撤销。",
+      "summaryGameCounted": "将删除 {{formattedCount}} 个缓存文件（{{size}}），即此游戏当前在磁盘上的全部文件，同时删除其日志条目和下载记录。此操作无法撤销。",
+      "summaryServiceCounted": "将删除 {{formattedCount}} 个缓存文件（{{size}}），即此服务当前在磁盘上的全部文件，同时删除此服务的所有日志条目和下载记录。此操作无法撤销。",
       "counting": "正在统计将要删除的缓存文件。对于较大的服务，这需要几分钟。",
       "countFailed": "无法统计缓存文件，因此没有可供确认的数字。请关闭此窗口后重试。",
       "summaryEvicted": "将移除 {{count}} 条下载记录及其日志条目，涉及约 {{size}} 的历史下载。不会删除任何缓存文件，也不会检查这些文件是否仍在磁盘上。此操作无法撤销。",
@@ -7475,6 +7493,13 @@
     }
   },
   "signalr": {
+    "unmappedRemove": {
+      "counting": {
+        "starting": "正在开始统计"
+      },
+      "running": "正在移除未映射文件",
+      "complete": "未映射文件已移除"
+    },
     "downloadHistoryUpgrade": {
       "indexing": "正在重建重复检查索引",
       "merging": "正在合并拆分的下载记录"
@@ -8035,6 +8060,19 @@
     }
   },
   "errors": {
+    "unmappedRemoval": {
+      "noFullScan": "请先运行全面检测扫描。",
+      "downloadInProgress": "有客户端正在向缓存写入下载内容。请在其完成后重试。",
+      "trackerStopped": "下载跟踪已停止（例如在执行日志操作时），因此移除操作无法判断是否有客户端正在读取缓存。请在跟踪恢复后重试。",
+      "logsBehind": "日志处理尚未读取所有访问日志。如果此问题持续出现，服务器日志会列出无法打开的日志文件。请修复其权限，然后重试。",
+      "logsMissing": "之前读取过的某个日志系列已丢失，或日志文件夹为空。请挂载或恢复日志文件夹，然后重试。如果文件夹已挂载，只是 access.log 不见了，nginx 重新打开日志时会再创建它：请在“计划任务”中运行“日志轮换”，或重启 LANCache 容器，然后重试。如果您是有意移除某个按服务划分的日志，可在“日志移除”中使用“删除日志文件”清除它，这也会删除仍然存在的日志文件。",
+      "logSeriesMissing": "数据源 '{{datasource}}' 的日志系列 {{series}} 之前已读取，但现在已丢失，因此无法检查其下载。请将其放回日志文件夹，然后重试。如果它是 access.log 且文件夹已挂载，nginx 重新打开日志时会再创建它：请在“计划任务”中运行“日志轮换”，或重启 LANCache 容器，然后重试。如果您是有意移除某个按服务划分的日志，可在“日志移除”中使用“删除日志文件”清除它，这也会删除仍然存在的日志文件。",
+      "repairRunning": "正在修复一个被中断的操作。请在其完成后重试。",
+      "moreThanConfirmed": "符合条件的文件比您确认的更多，因此其余文件已保留。请重新统计以查看它们。",
+      "deleteFailed": "部分文件无法删除。请检查缓存目录的权限。",
+      "failed": "移除未映射文件失败。详情请查看服务器日志。",
+      "cacheEmpty": "磁盘上未找到任何缓存文件，因此未移除任何内容，列表也已保留。请检查缓存目录是否已挂载。"
+    },
     "integration": {
       "accountRequired": "请使用 LANCache 账户登录以管理此集成。",
       "ownedByAnotherAccount": "此集成正由另一账户使用。该账户必须先退出此集成。",
@@ -8099,6 +8137,8 @@
       "scanInProgress": "另一个损坏检测扫描已在进行中",
       "scanNotFound": "找不到损坏扫描",
       "candidatesNotFound": "找不到损坏候选项",
+      "keySchemeUnavailable": "只有每个已启用的数据源都具有明确的缓存键方案时，才能执行磁盘级游戏和服务操作。清除整个缓存仍然可用。",
+      "datasourceNotWritable": "无法删除这些文件：缓存或日志文件夹为只读。这通常是 docker-compose.yml 中的 PUID/PGID 设置不正确造成的。",
       "scanChanged": "损坏扫描已变更。请重新加载结果后重试",
       "scanChangedOnDelete": "损坏扫描在删除前已变更",
       "scanStale": "损坏扫描已过期。请重新加载结果后重试",
@@ -8150,11 +8190,15 @@
       "startFailedForDatasource": "启动数据源 '{{datasource}}' 的日志处理失败",
       "removeFailed": "从数据源 '{{datasource}}' 移除服务 '{{service}}' 的日志失败",
       "fileNotFound": "找不到日志文件：{{path}}",
+      "directoryReadOnly": "数据源 '{{datasource}}' 的日志目录为只读。请在 docker-compose.yml 中从其卷挂载移除 :ro，然后重试。",
       "processingActive": "日志处理正在运行。请在其完成后重试。",
+      "resetRunning": "另一个日志位置重置正在运行，因此未做任何更改。请在其完成后重试。",
+      "unmappedRemovalRunning": "正在移除未映射文件，因此未做任何更改。请在其完成后重试。",
       "fileUnreadable": "此应用无法打开日志文件 {{path}}，因此无法确认没有程序正在写入它。未删除任何内容。请为此应用的用户授予该文件的读取权限，或手动删除它，然后重试。",
       "filesChanged": "删除准备期间日志文件发生了变化，很可能是 logrotate 运行了。未删除任何内容。请重试。详细信息：{{reason}}",
       "fileMovedDuringDelete": "删除过程中 logrotate 移动了 access.log，因此被删除的是 nginx 刚刚新建的 access.log。你选择的文件已作为轮转文件保留，其中的条目仍可处理。",
-      "writerCheckFailed": "删除无法确认没有其他程序正在写入日志文件，因此未删除任何内容。请稍后重试；如果 logrotate 正在压缩或复制日志，请在其完成后重试。详细信息：{{reason}}"
+      "writerCheckFailed": "删除无法确认没有其他程序正在写入日志文件，因此未删除任何内容。请稍后重试；如果 logrotate 正在压缩或复制日志，请在其完成后重试。详细信息：{{reason}}",
+      "windowsDockerUnsupported": "此实现不支持原生 Windows Manager 修改由 Docker 写入进程占用的日志。请在挂载相同日志路径的 Linux 环境中运行 Manager，或使用静态日志源。"
     },
     "migration": {
       "notConfigured": "服务器数据库连接未配置"
@@ -8185,7 +8229,7 @@
       "outcomeUnknown": "无法恢复此预填充的运行结果。",
       "startUnavailable": "容器无法启动预填充。请重试。",
       "gameDownloadFailed": "此游戏未完成下载。",
-      "signInLost": "服务账户在完成前已退出登录。请重新登录后再次运行。",
+      "signInLost": "服务账户在完成前已退出登录。常驻容器可能会使用已保存的登录信息自行重新登录。如果仍未登录，请重新登录，然后再次运行。",
       "gameDetailsUnavailable": "服务未返回此游戏的详细信息。",
       "runNotFound": "此运行记录已不再保存，无法显示失败的游戏。"
     },
@@ -8207,7 +8251,7 @@
     "steam": {
       "apiKeyInvalid": "提供的 API 密钥无效，或 Steam Web API V1 不可用。请在 https://steamcommunity.com/dev/apikey 核对您的密钥",
       "signInInProgress": "Steam 登录已在进行中。",
-      "signInLost": "Steam 已退出登录。请重新登录，然后重试预填充。",
+      "signInLost": "Steam 已退出登录。请重新登录，然后重试。",
       "gameDetailsUnavailable": "Steam 未返回游戏详情。请重试。",
       "signInCancelled": "登录已取消。",
       "signInOwnerChanged": "此 Steam 登录由其他账户发起。请使用您的账户重新开始登录。",

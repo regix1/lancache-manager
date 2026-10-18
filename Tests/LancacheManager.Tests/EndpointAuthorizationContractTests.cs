@@ -246,6 +246,8 @@ public sealed class EndpointAuthorizationContractTests
         "CacheController.StartGameCacheFileCount",
         "CacheController.StartEpicGameCacheFileCount",
         "CacheController.StartNamedGameCacheFileCount",
+        "CacheController.StartUnmappedCacheFileCount",
+        "CacheController.RemoveUnmappedFiles",
         "CacheController.GetCacheFileCountStatus",
         "CacheController.GetAllActiveRemovals",
         "CacheController.RemoveAllEvicted",

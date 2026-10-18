@@ -46,6 +46,239 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.True(File.Exists(fixture.ResumePath("beta")));
     }
 
+    [Theory]
+    [InlineData(0L)]
+    [InlineData(1L)]
+    public async Task Reset_DuringAnUnmappedRemovalIsRefusedAndChangesNothingAsync(long position)
+    {
+        using var fixture = new ControllerFixture();
+        fixture.State.SetLogPosition("alpha", 17);
+        fixture.RepairOwner.SetUnmappedRemovalRunning(true);
+
+        var refusal = await Assert.ThrowsAsync<ConflictException>(() => fixture.Controller.ResetDatasourceLogPositionAsync(
+            "alpha",
+            new UpdateLogPositionRequest { Position = position }));
+
+        Assert.Equal("errors.logs.unmappedRemovalRunning", refusal.StageKey);
+        Assert.Equal(17, fixture.State.GetLogPosition("alpha"));
+        Assert.Empty(fixture.RustHelper.CountRequests);
+    }
+
+    [Fact]
+    public async Task DeleteLogFile_DuringAnUnmappedRemovalIsRefusedAndDeletesNothingAsync()
+    {
+        using var fixture = new ControllerFixture();
+        var logPath = Path.Combine(fixture.AlphaLogPath, "access.log");
+        await File.WriteAllTextAsync(logPath, "sixsix");
+        fixture.State.SetLogPosition("alpha", 9);
+        fixture.RepairOwner.SetUnmappedRemovalRunning(true);
+
+        var refusal = await Assert.ThrowsAsync<ConflictException>(() => fixture.Controller.DeleteLogFileAsync("alpha"));
+
+        Assert.Equal("errors.logs.unmappedRemovalRunning", refusal.StageKey);
+        Assert.True(File.Exists(logPath));
+        Assert.Empty(fixture.RustHelper.DeleteRequests);
+        Assert.Equal(9, fixture.State.GetLogPosition("alpha"));
+    }
+
+    // A reset keeps every saved series: each one it finds goes to 0, and a series moved away keeps
+    // its position, so it still reads as missing and the unmapped removal stays refused, also after
+    // a restart.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ResetToBeginning_KeepsTheSavedPositionOfAMissingSeriesAsync(bool oneDatasource)
+    {
+        using var fixture = new ControllerFixture();
+        await File.WriteAllTextAsync(Path.Combine(fixture.AlphaLogPath, "access.log"), "line\n");
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            ["access.log"] = 9,
+            ["steam-access.log"] = 5
+        });
+        var reset = new UpdateLogPositionRequest { Position = 0 };
+
+        var result = oneDatasource
+            ? await fixture.Controller.ResetDatasourceLogPositionAsync("alpha", reset)
+            : await fixture.Controller.ResetLogPositionAsync(reset);
+
+        Assert.IsType<OkObjectResult>(result);
+        var kept = new Dictionary<string, long> { ["steam-access.log"] = 5, ["access.log"] = 0 };
+        Assert.Equal(kept, fixture.State.GetLogSourcePositions("alpha"));
+        Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
+        var restarted = StateTestMethods.CreateStateService(Path.GetDirectoryName(fixture.AlphaLogPath)!);
+        Assert.Equal(kept, restarted.GetLogSourcePositions("alpha"));
+    }
+
+    [Fact]
+    public async Task ResetToEnd_KeepsTheSavedPositionOfAMissingSeriesAsync()
+    {
+        using var fixture = new ControllerFixture();
+        await File.WriteAllTextAsync(Path.Combine(fixture.AlphaLogPath, "access.log"), "line\n");
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            ["access.log"] = 9,
+            ["steam-access.log"] = 5
+        });
+        fixture.RustHelper.CountHandler = (_, _) => Task.FromResult(
+            new LogLineCountResult(3, 1, new Dictionary<string, long> { ["access.log"] = 3 }));
+
+        var result = await fixture.Controller.ResetDatasourceLogPositionAsync("alpha", request: null);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(
+            new Dictionary<string, long> { ["access.log"] = 3, ["steam-access.log"] = 5 },
+            fixture.State.GetLogSourcePositions("alpha"));
+    }
+
+    // Delete Log File is the way a person clears a series they removed on purpose.
+    [Fact]
+    public async Task DeleteLogFile_ClearsTheSavedPositionOfAMissingSeriesAsync()
+    {
+        using var fixture = new ControllerFixture();
+        await File.WriteAllTextAsync(Path.Combine(fixture.AlphaLogPath, "access.log"), "sixsix");
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            ["access.log"] = 1,
+            ["steam-access.log"] = 5
+        });
+        fixture.RustHelper.DeleteHandler = (path, _) =>
+        {
+            var bytes = new FileInfo(path).Length;
+            File.Delete(path);
+            return Task.FromResult(new LogFileDeletionResult(bytes));
+        };
+
+        Assert.IsType<OkObjectResult>(await fixture.Controller.DeleteLogFileAsync("alpha"));
+
+        Assert.Empty(RustLogProcessorService.MissingSeriesPositions(
+            fixture.State.GetLogSourcePositions("alpha"), []));
+    }
+
+    // Two resets waiting behind one step: the second is refused at once, so the first is never
+    // reported done and then overwritten. One reset runs at a time across every datasource, and
+    // the refusal names the reset that runs, not log processing.
+    [Theory]
+    [InlineData(1L, 0L, 9L, "alpha")]
+    [InlineData(0L, 1L, 0L, "alpha")]
+    [InlineData(1L, 0L, 9L, "beta")]
+    [InlineData(1L, 1L, 9L, "all")]
+    public async Task ASecondResetWhileOneWaitsBehindAStepIsRefusedAsync(
+        long firstPosition,
+        long secondPosition,
+        long finalPosition,
+        string secondTarget)
+    {
+        using var fixture = new ControllerFixture();
+        fixture.State.SetLogPosition("alpha", 7);
+        fixture.RustHelper.CountHandler = (_, _) => Task.FromResult(
+            new LogLineCountResult(9, 1, new Dictionary<string, long> { ["access.log"] = 9 }));
+        var step = await HoldStepAsync(fixture);
+
+        var first = fixture.Controller.ResetDatasourceLogPositionAsync(
+            "alpha", new UpdateLogPositionRequest { Position = firstPosition });
+        Assert.False(first.IsCompleted);
+        var secondRequest = new UpdateLogPositionRequest { Position = secondPosition };
+        var second = await (secondTarget == "all"
+            ? fixture.Controller.ResetLogPositionAsync(secondRequest)
+            : fixture.Controller.ResetDatasourceLogPositionAsync(secondTarget, secondRequest)).WaitAsync(_wait);
+
+        var refusal = Assert.IsType<ErrorResponse>(Assert.IsType<ConflictObjectResult>(second).Value);
+        Assert.Equal("errors.logs.resetRunning", refusal.StageKey);
+        await step.DisposeAsync();
+        Assert.IsType<OkObjectResult>(await first.WaitAsync(_wait));
+        Assert.Equal(finalPosition, fixture.State.GetLogPosition("alpha"));
+    }
+
+    // Each way a reset ends frees the next one: done, refused, failed, canceled while it waits.
+    [Theory]
+    [InlineData("done")]
+    [InlineData("refused")]
+    [InlineData("failed")]
+    [InlineData("canceled")]
+    [InlineData("removalStarted")]
+    public async Task AResetThatEndedLetsTheNextOneRunAsync(string ending)
+    {
+        using var fixture = new ControllerFixture();
+        fixture.State.SetLogPosition("alpha", 7);
+        var toEnd = new UpdateLogPositionRequest { Position = 1 };
+        switch (ending)
+        {
+            case "done":
+                fixture.RustHelper.CountHandler = (_, _) => Task.FromResult(
+                    new LogLineCountResult(9, 1, new Dictionary<string, long> { ["access.log"] = 9 }));
+                Assert.IsType<OkObjectResult>(await fixture.Controller.ResetDatasourceLogPositionAsync("alpha", toEnd));
+                break;
+            case "refused":
+                SetRunFlag(fixture.Processor, true);
+                Assert.IsType<ConflictObjectResult>(await fixture.Controller.ResetDatasourceLogPositionAsync("alpha", toEnd));
+                SetRunFlag(fixture.Processor, false);
+                break;
+            case "failed":
+                fixture.RustHelper.CountHandler = (_, _) =>
+                    throw new RustProcessException("log_service_manager", 1, "fixture failure", "count-lines");
+                await Assert.ThrowsAsync<RustProcessException>(
+                    () => fixture.Controller.ResetDatasourceLogPositionAsync("alpha", toEnd));
+                break;
+            case "canceled":
+                var step = await HoldStepAsync(fixture);
+                using (var cancellation = new CancellationTokenSource())
+                {
+                    var waiting = fixture.Controller.ResetDatasourceLogPositionAsync("alpha", toEnd, cancellation.Token);
+                    await cancellation.CancelAsync();
+                    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waiting.WaitAsync(_wait));
+                }
+                await step.DisposeAsync();
+                break;
+            default:
+                // An unmapped removal that starts while the reset waits refuses it at the log lock.
+                var held = await HoldStepAsync(fixture);
+                var behindStep = fixture.Controller.ResetDatasourceLogPositionAsync(
+                    "alpha", new UpdateLogPositionRequest { Position = 0 });
+                fixture.RepairOwner.SetUnmappedRemovalRunning(true);
+                await held.DisposeAsync();
+                await Assert.ThrowsAsync<ConflictException>(() => behindStep.WaitAsync(_wait));
+                fixture.RepairOwner.SetUnmappedRemovalRunning(false);
+                break;
+        }
+
+        Assert.IsType<OkObjectResult>(await fixture.Controller.ResetDatasourceLogPositionAsync(
+            "alpha", new UpdateLogPositionRequest { Position = 0 }));
+        Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
+    }
+
+    // Refused like the other log actions, not parked in the queue behind the removal.
+    [Fact]
+    public async Task RemoveServiceLogs_DuringAnUnmappedRemovalIsRefusedAsync()
+    {
+        using var fixture = new ControllerFixture();
+        fixture.RepairOwner.SetUnmappedRemovalRunning(true);
+
+        var refusal = await Assert.ThrowsAsync<ConflictException>(
+            () => fixture.Controller.RemoveServiceLogsFromDatasourceAsync("alpha", "steam"));
+
+        Assert.Equal("errors.logs.unmappedRemovalRunning", refusal.StageKey);
+    }
+
+    [Fact]
+    public async Task ReadOnlyLogs_AreRefusedWithTheirStageKeyAsync()
+    {
+        using var fixture = new ControllerFixture();
+        fixture.Datasources.GetDatasource("alpha")!.LogsWritable = false;
+
+        var removal = Assert.IsType<BadRequestObjectResult>(
+            await fixture.Controller.RemoveServiceLogsFromDatasourceAsync("alpha", "steam"));
+        var delete = Assert.IsType<BadRequestObjectResult>(
+            await fixture.Controller.DeleteLogFileAsync("alpha"));
+
+        foreach (var refused in new[] { removal, delete })
+        {
+            var error = Assert.IsType<ErrorResponse>(refused.Value);
+            Assert.Equal("errors.logs.directoryReadOnly", error.StageKey);
+            Assert.Equal("alpha", error.Context!["datasource"]);
+        }
+    }
+
     [Fact]
     public async Task ResetAllToBeginning_IsStateOnlyForEveryDatasourceAsync()
     {
@@ -1214,7 +1447,10 @@ public sealed class LogsControllerRustFileOperationsTests
         release.SetResult();
         await seed.WaitAsync(_wait);
 
-        Assert.Empty(fixture.State.GetLogSourcePositions("beta"));
+        // The reset keeps the series it found at 0, so the seed sees a settled datasource and skips it.
+        Assert.Equal(
+            new Dictionary<string, long> { ["access.log"] = 0 },
+            fixture.State.GetLogSourcePositions("beta"));
         Assert.DoesNotContain(fixture.BetaLogPath, fixture.RustHelper.CountRequests);
     }
 
@@ -1341,7 +1577,8 @@ public sealed class LogsControllerRustFileOperationsTests
         }
         else
         {
-            Assert.Empty(fixture.State.GetLogSourcePositions("beta"));
+            // A reset to the beginning keeps the series it found at 0; nothing past 0 means no seed.
+            Assert.All(fixture.State.GetLogSourcePositions("beta").Values, position => Assert.Equal(0, position));
             Assert.DoesNotContain(fixture.BetaLogPath, countedAtLastStart);
         }
     }
@@ -1448,7 +1685,8 @@ public sealed class LogsControllerRustFileOperationsTests
                 _services,
                 RustHelper,
                 Datasources,
-                Tracker);
+                Tracker,
+                TimeProvider.System);
             var nginxRotation = nginx?.Invoke(pathResolver) ?? new NginxLogRotationService(
                 NullLogger<NginxLogRotationService>.Instance,
                 configuration,
@@ -1485,7 +1723,8 @@ public sealed class LogsControllerRustFileOperationsTests
                     Checker,
                     new DatasourceCapabilityService(Datasources),
                     CacheScanGateHarness.Idle(),
-                    _repairOwner));
+                    _repairOwner,
+                    null!));
         }
 
         public string AlphaLogPath { get; }

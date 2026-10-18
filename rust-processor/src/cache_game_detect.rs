@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use rayon::prelude::*;
 use serde::Serialize;
 use serde_json::json;
@@ -10,10 +10,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use lancache_processor::cache_utils;
+use lancache_processor::cache_structural_scanner::stable_age;
 use lancache_processor::cancel;
+use lancache_processor::removal_core::CacheRemovalOutcome;
 mod cache_detect_matching;
 mod cache_detect_queries;
 use cache_detect_matching::{
@@ -24,13 +26,20 @@ use cache_detect_matching::{
     group_named_records, unevict_candidates_incremental, unevict_candidates_with_index,
 };
 use cache_detect_queries::{
-    query_epic_game_downloads, query_evicted_game_download_urls, query_game_downloads,
+    begin_claim_snapshot, query_epic_game_downloads, query_evicted_game_download_urls, query_game_downloads,
     query_named_game_downloads, query_service_downloads, unevict_downloads,
 };
 use lancache_processor::db;
 use lancache_processor::progress_events;
 use lancache_processor::progress_utils;
 use progress_events::ProgressReporter;
+
+/// What an unmapped-files run does with the cache files no game or service claims.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum UnmappedFilesAction {
+    Count,
+    Remove,
+}
 
 /// Game cache detection utility - detects which games have files in the cache
 #[derive(Parser, Debug)]
@@ -61,6 +70,23 @@ struct Args {
     /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
     #[arg(long = "key-scheme", default_value = "monolithic")]
     key_scheme: String,
+
+    /// Count or remove the cache files no game or service claims. Runs the full claim, so it
+    /// cannot be combined with a partial scan.
+    #[arg(
+        long = "unmapped-files",
+        value_enum,
+        conflicts_with_all = ["incremental", "skip_service_scan", "excluded_game_ids_json"]
+    )]
+    unmapped_files: Option<UnmappedFilesAction>,
+
+    /// Most files an unmapped-files remove run may delete
+    #[arg(long = "max-files", requires = "unmapped_files")]
+    max_files: Option<u64>,
+
+    /// Most bytes an unmapped-files remove run may delete
+    #[arg(long = "max-bytes", requires = "unmapped_files")]
+    max_bytes: Option<u64>,
 
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
@@ -136,6 +162,27 @@ struct UnmappedService {
     sample_urls: Vec<String>,
 }
 
+/// A cache file `detect_unmapped_services` judged safe to remove: its name matches the md5 of
+/// its own key and it has not changed for `MIN_STABLE_AGE_SECONDS`. `service` is the position of
+/// the file's group in the unmapped bucket, so a file costs 32 bytes and holds no path.
+struct EligibleFile {
+    digest: u128,
+    size: u64,
+    service: u32,
+}
+
+/// What a remove run may delete: the files and bytes the person confirmed for this datasource.
+struct RemoveLimits {
+    max_files: u64,
+    max_bytes: u64,
+}
+
+struct UnmappedFilesOutcome {
+    eligible_groups: Vec<UnmappedService>,
+    over_limit: bool,
+    removal: CacheRemovalOutcome,
+}
+
 #[derive(Debug, Serialize)]
 struct DetectionReport {
     total_games_detected: usize,
@@ -151,6 +198,18 @@ struct DetectionReport {
     /// service named in each file's `KEY:` header.
     #[serde(skip_serializing_if = "Option::is_none")]
     unmapped_services: Option<Vec<UnmappedService>>,
+    /// Count run only: the files a removal would delete now.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unmapped_eligible: Option<Vec<UnmappedService>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unmapped_removed_files: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unmapped_removed_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unmapped_remove_failures: Option<u64>,
+    /// Remove run only: the eligible files exceeded the confirmed limits, so nothing was deleted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unmapped_over_limit: Option<bool>,
 }
 
 /// Scan cache directory and build in-memory index of all cache files
@@ -273,6 +332,11 @@ fn register_late_owner(
 /// Must run before the index is dropped. `claimed` is the scan-wide set every row above
 /// inserted its matched digests into, so "unclaimed" here is exact without re-deriving a
 /// digest from anything.
+///
+/// With `eligible`, also lists the unclaimed files a removal may delete: the key header names
+/// the file (its md5 is the file name) and the file has not changed for
+/// `MIN_STABLE_AGE_SECONDS`. Each entry's `service` is the position of its group in the
+/// returned bucket.
 #[allow(clippy::too_many_arguments)]
 fn detect_unmapped_services(
     cache_dir: &Path,
@@ -283,6 +347,7 @@ fn detect_unmapped_services(
     claimed: &HashSet<u128>,
     progress_path: Option<&Path>,
     reporter: &ProgressReporter,
+    mut eligible: Option<&mut Vec<EligibleFile>>,
 ) -> Result<Option<Vec<UnmappedService>>> {
     let Some(index) = cache_files_index else {
         return Ok(None);
@@ -306,6 +371,10 @@ fn detect_unmapped_services(
     // The owner row only counts and sums, so the totals are accumulated here rather than kept
     // per file: this map is O(owners) however many files land in it.
     let mut late_hits: HashMap<u32, (usize, u64)> = HashMap::new();
+    // Eligible files carry the position of their service in this list until the bucket is
+    // sorted, when the positions are remapped to the bucket's.
+    let mut eligible_services: Vec<String> = Vec::new();
+    let now = SystemTime::now();
     for (digest, size_bytes) in unmapped {
         // Cooperative cancel: check between key reads, one disk read each
         if cancel::is_cancelled() {
@@ -344,6 +413,14 @@ fn detect_unmapped_services(
 
         let path = cache_utils::cache_path_for_digest(cache_dir, digest);
         let url = cache_utils::read_cache_file_key(&path);
+        // nginx's cache manager can delete a file after the index scan listed it, and a file
+        // that is gone belongs in no group.
+        if url.is_none()
+            && fs::symlink_metadata(&path)
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+        {
+            continue;
+        }
 
         // Late attribution: the key header carries the exact literal nginx hashed, so
         // stripping its slice suffix and hashing the base finds the owner whose walk
@@ -362,6 +439,27 @@ fn detect_unmapped_services(
         }
 
         let service = cache_utils::service_from_key(url.as_deref());
+        if let Some(eligible) = eligible.as_mut() {
+            let named_by_key = url
+                .as_deref()
+                .is_some_and(|key| cache_utils::calculate_md5_digest(key) == digest);
+            if named_by_key
+                && std::fs::metadata(&path).is_ok_and(|metadata| stable_age(&metadata, now))
+            {
+                let position = match eligible_services.iter().position(|name| *name == service) {
+                    Some(position) => position,
+                    None => {
+                        eligible_services.push(service.clone());
+                        eligible_services.len() - 1
+                    }
+                };
+                eligible.push(EligibleFile {
+                    digest,
+                    size: size_bytes,
+                    service: position as u32,
+                });
+            }
+        }
         let group = by_service
             .entry(service.clone())
             .or_insert_with(|| UnmappedService {
@@ -448,7 +546,251 @@ fn detect_unmapped_services(
         );
     }
 
-    Ok(Some(by_service.into_values().collect()))
+    let bucket: Vec<UnmappedService> = by_service.into_values().collect();
+    if let Some(eligible) = eligible {
+        // The bucket is sorted by service name and holds every name in `eligible_services`, so
+        // the count of smaller names is a name's position.
+        let bucket_positions: Vec<u32> = eligible_services
+            .iter()
+            .map(|name| bucket.partition_point(|group| group.service < *name) as u32)
+            .collect();
+        for file in eligible.iter_mut() {
+            file.service = bucket_positions[file.service as usize];
+        }
+    }
+    Ok(Some(bucket))
+}
+
+/// Counts the eligible files per service and, when `remove_limits` is set, deletes them.
+///
+/// Never runs detection: `eligible` and `bucket` come from `detect_unmapped_services`. A
+/// removal whose eligible files exceed either limit deletes nothing and reports `over_limit`.
+/// Each deleted file leaves the bucket, and a group that reaches 0 files is dropped.
+fn run_unmapped_files(
+    cache_dir: &Path,
+    eligible: &[EligibleFile],
+    bucket: &mut Vec<UnmappedService>,
+    remove_limits: Option<RemoveLimits>,
+    progress_path: Option<&Path>,
+    reporter: &ProgressReporter,
+) -> Result<UnmappedFilesOutcome> {
+    let mut per_service = vec![(0u64, 0u64); bucket.len()];
+    for file in eligible {
+        let counts = &mut per_service[file.service as usize];
+        counts.0 += 1;
+        counts.1 = counts.1.saturating_add(file.size);
+    }
+    let eligible_files = eligible.len() as u64;
+    let eligible_bytes = per_service
+        .iter()
+        .fold(0u64, |total, (_, bytes)| total.saturating_add(*bytes));
+    let eligible_groups: Vec<UnmappedService> = bucket
+        .iter()
+        .zip(&per_service)
+        .filter(|(_, (files, _))| *files > 0)
+        .map(|(group, (files, bytes))| UnmappedService {
+            service: group.service.clone(),
+            file_count: *files,
+            total_bytes: *bytes,
+            sample_urls: Vec::new(),
+        })
+        .collect();
+    let mut outcome = UnmappedFilesOutcome {
+        eligible_groups,
+        over_limit: false,
+        removal: CacheRemovalOutcome {
+            deleted_files: 0,
+            bytes_freed: 0,
+            parent_dirs: HashSet::new(),
+            permission_errors: 0,
+            verification_skips: 0,
+            undeleted_files: 0,
+        },
+    };
+
+    let Some(limits) = remove_limits else {
+        return Ok(outcome);
+    };
+    if eligible_files > limits.max_files || eligible_bytes > limits.max_bytes {
+        outcome.over_limit = true;
+        return Ok(outcome);
+    }
+
+    let total = eligible.len();
+    let context = json!({ "processed": 0, "total": total });
+    write_progress(
+        progress_path,
+        "unmapped",
+        "signalr.unmappedRemove.running",
+        context.clone(),
+        92.0,
+        0,
+        total,
+    )?;
+    reporter.emit_progress(92.0, "signalr.unmappedRemove.running", context);
+
+    // A file deleted here or already gone no longer belongs in the saved list.
+    let mut leave_bucket = |file: &EligibleFile| {
+        let group = &mut bucket[file.service as usize];
+        group.file_count = group.file_count.saturating_sub(1);
+        group.total_bytes = group.total_bytes.saturating_sub(file.size);
+        // A sample may name the file that just left.
+        group.sample_urls.clear();
+    };
+    let mut processed = 0usize;
+    for file in eligible {
+        if cancel::is_cancelled() {
+            eprintln!(
+                "
+Cancel requested - stopping unmapped file removal after {}/{} files",
+                processed, total
+            );
+            write_progress(
+                progress_path,
+                "cancelled",
+                "signalr.unmappedRemove.running",
+                json!({ "processed": processed, "total": total }),
+                92.0 + (processed as f64 / total.max(1) as f64) * 3.5,
+                processed,
+                total,
+            )?;
+            std::process::exit(0);
+        }
+
+        processed += 1;
+
+        if processed.is_multiple_of(500) || processed == total {
+            let percent = 92.0 + (processed as f64 / total.max(1) as f64) * 3.5;
+            let context = json!({ "processed": processed, "total": total });
+            write_progress(
+                progress_path,
+                "unmapped",
+                "signalr.unmappedRemove.running",
+                context.clone(),
+                percent,
+                processed,
+                total,
+            )?;
+            reporter.emit_progress(percent, "signalr.unmappedRemove.running", context);
+        }
+
+        let path = cache_utils::cache_path_for_digest(cache_dir, file.digest);
+        // Presence first: nginx's cache manager can delete a file after the pass listed it, and
+        // that is a file already gone, not a failure.
+        match cache_utils::cache_file_presence(cache_dir, &path) {
+            Ok(true) => {}
+            Ok(false) => {
+                leave_bucket(file);
+                continue;
+            }
+            Err(error) => {
+                eprintln!("  cannot check {}: {}", path.display(), error);
+                outcome.removal.undeleted_files += 1;
+                continue;
+            }
+        }
+        if let Err(error) = cache_utils::safe_cache_path_under_root(cache_dir, &path) {
+            eprintln!("  refusing unsafe path {}: {}", path.display(), error);
+            outcome.removal.undeleted_files += 1;
+            continue;
+        }
+        let stat = match fs::metadata(&path) {
+            Ok(stat) => stat,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                leave_bucket(file);
+                continue;
+            }
+            Err(error) => {
+                eprintln!("  cannot read {}: {}", path.display(), error);
+                outcome.removal.undeleted_files += 1;
+                continue;
+            }
+        };
+        // A file rewritten since the pass listed it is being fetched again.
+        if !stable_age(&stat, SystemTime::now()) {
+            continue;
+        }
+        match fs::remove_file(&path) {
+            Ok(()) => {
+                outcome.removal.deleted_files += 1;
+                outcome.removal.bytes_freed += stat.len();
+                if let Some(parent) = path.parent() {
+                    outcome.removal.parent_dirs.insert(parent.to_path_buf());
+                }
+                leave_bucket(file);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => leave_bucket(file),
+            Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+                eprintln!("  permission denied deleting {}: {}", path.display(), error);
+                outcome.removal.permission_errors += 1;
+            }
+            Err(error) => {
+                eprintln!("  cannot delete {}: {}", path.display(), error);
+                outcome.removal.undeleted_files += 1;
+            }
+        }
+    }
+
+    // The emptied folders stay in `outcome.removal.parent_dirs` for
+    // `write_report_and_remove_folders`, which removes them after the report is written.
+    bucket.retain(|group| group.file_count > 0);
+    Ok(outcome)
+}
+
+/// Writes the report, then removes the folders a remove run emptied.
+///
+/// The report goes first: removing an empty folder cannot cost a client file, so the host stops
+/// watching for downloads at the `writing` stage, and a host that stops the child during the
+/// folder removal still finds every delete in the report. Removing the folders takes about as long
+/// as the deletes (40,000 files: 20.6 s of deletes, then 19.9 s of folders), so it reports its own
+/// share of the bar. It stops at 99%: the host still saves the remaining list after this child
+/// exits.
+fn write_report_and_remove_folders(
+    cache_dir: &Path,
+    output_json: &Path,
+    report: &impl Serialize,
+    emptied_folders: HashSet<PathBuf>,
+    progress_path: Option<&Path>,
+    reporter: &ProgressReporter,
+) -> Result<()> {
+    write_progress(
+        progress_path,
+        "writing",
+        "signalr.gameDetect.writing",
+        json!({}),
+        92.0,
+        0,
+        0,
+    )?;
+    reporter.emit_progress(92.0, "signalr.gameDetect.writing", json!({}));
+
+    // Stream the report straight to the file: to_string_pretty would materialize the whole
+    // JSON (every row's sample URLs and depot ids again) as one giant String before writing.
+    let output_file = fs::File::create(output_json)
+        .with_context(|| format!("Failed to create output file: {}", output_json.display()))?;
+    let mut output_writer = BufWriter::new(output_file);
+    serde_json::to_writer_pretty(&mut output_writer, report)?;
+    output_writer.flush()?;
+
+    let folders: Vec<PathBuf> = emptied_folders.into_iter().collect();
+    let mut cleaned = 0usize;
+    for chunk in folders.chunks(500) {
+        cache_utils::cleanup_empty_directories(cache_dir, chunk.iter().cloned().collect());
+        cleaned += chunk.len();
+        let percent = 95.5 + (cleaned as f64 / folders.len() as f64) * 3.5;
+        let context = json!({ "processed": cleaned, "total": folders.len() });
+        write_progress(
+            progress_path,
+            "unmapped",
+            "signalr.unmappedRemove.running",
+            context.clone(),
+            percent,
+            cleaned,
+            folders.len(),
+        )?;
+        reporter.emit_progress(percent, "signalr.unmappedRemove.running", context);
+    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -470,6 +812,17 @@ async fn main() -> Result<()> {
     // structured `failed` events (every `?` reached the host as stderr + bare exit 1).
     // finish_or_exit is now the ONE place a scan failure gets emitted.
     let result: Result<()> = async {
+
+    // A remove run stays inside what the person confirmed, so it never starts without both limits.
+    let remove_limits = match (args.unmapped_files, args.max_files, args.max_bytes) {
+        (Some(UnmappedFilesAction::Remove), Some(max_files), Some(max_bytes)) => {
+            Some(RemoveLimits { max_files, max_bytes })
+        }
+        (Some(UnmappedFilesAction::Remove), _, _) => {
+            anyhow::bail!("--unmapped-files remove needs both --max-files and --max-bytes")
+        }
+        _ => None,
+    };
 
     // Read excluded game IDs if provided (for incremental scanning)
     let excluded_game_ids: Vec<u32> = if let Some(ref excluded_path_str) = args.excluded_game_ids_json {
@@ -545,7 +898,15 @@ async fn main() -> Result<()> {
 
     // Query ALL URLs to get accurate cache sizes (no sampling); rows stream straight into
     // the per-game map inside the query helper.
-    let games_map = query_game_downloads(&pool, None, &excluded_game_ids).await?;
+    // An unmapped-files run reads every claim from one snapshot, so a download that moves
+    // between buckets mid-run stays claimed where it was when the run began. A full scan keeps
+    // one read-committed transaction, which reads each statement as it always has.
+    let mut claims = if args.unmapped_files.is_some() {
+        begin_claim_snapshot(&pool).await?
+    } else {
+        pool.begin().await?
+    };
+    let games_map = query_game_downloads(&mut *claims, None, &excluded_game_ids).await?;
     write_progress(progress_path.as_deref(), "querying", "signalr.gameDetect.db.complete", json!({}), 30.0, 0, 0)?;
     reporter.emit_progress(30.0, "signalr.gameDetect.db.complete", json!({}));
 
@@ -667,7 +1028,7 @@ async fn main() -> Result<()> {
     write_progress(progress_path.as_deref(), "matching", "signalr.gameDetect.epic.detecting", json!({}), 70.0, 0, 0)?;
     reporter.emit_progress(70.0, "signalr.gameDetect.epic.detecting", json!({}));
 
-    let epic_records = query_epic_game_downloads(&pool).await?;
+    let epic_records = query_epic_game_downloads(&mut *claims).await?;
 
     if !epic_records.is_empty() {
         let epic_map = group_epic_records(&epic_records);
@@ -775,7 +1136,7 @@ async fn main() -> Result<()> {
     // Built on full scans only: incremental runs skip Phase 5 entirely.
     let mut late = LateAttribution::default();
 
-    let named_records = query_named_game_downloads(&pool).await?;
+    let named_records = query_named_game_downloads(&mut *claims).await?;
 
     if !named_records.is_empty() {
         let named_map = group_named_records(&named_records);
@@ -889,7 +1250,12 @@ async fn main() -> Result<()> {
     // miss against this one datasource root is not eviction evidence (the files may live in
     // another datasource's cache), so evicting stays owned by cache_eviction_scan.
     eprintln!("\n=== Phase 3d: Re-probing Evicted Epic/Named Downloads ===");
-    let evicted_records = query_evicted_game_download_urls(&pool).await?;
+    // An unmapped-files run writes nothing but the files it removes.
+    let evicted_records = if args.unmapped_files.is_some() {
+        Vec::new()
+    } else {
+        query_evicted_game_download_urls(&pool).await?
+    };
     if !evicted_records.is_empty() {
         let unevict_ids = if incremental_mode {
             unevict_candidates_incremental(&evicted_records, &cache_dir)
@@ -918,6 +1284,7 @@ async fn main() -> Result<()> {
     if args.skip_service_scan {
         eprintln!("\n=== Phase 4: Skipping Non-Game Service Detection ===");
         eprintln!("Preserving existing service detections from the caller");
+        claims.rollback().await?;
     } else {
         eprintln!(
             "\n=== Phase 4: Detecting Non-Game Services{} ===",
@@ -930,7 +1297,8 @@ async fn main() -> Result<()> {
         write_progress(progress_path.as_deref(), "services", "signalr.gameDetect.services.detecting", json!({}), 80.0, 0, 0)?;
         reporter.emit_progress(80.0, "signalr.gameDetect.services.detecting", json!({}));
 
-        let services_map = query_service_downloads(&pool).await?;
+        let services_map = query_service_downloads(&mut *claims).await?;
+        claims.rollback().await?;
         let total_services = services_map.len();
         let mut services_processed = 0;
 
@@ -1128,7 +1496,8 @@ async fn main() -> Result<()> {
 
     // PHASE 5: Group the cache files nothing above claimed, attributing the ones whose
     // KEY header names an owner the slice walk stopped short of.
-    let unmapped_services = detect_unmapped_services(
+    let mut eligible: Vec<EligibleFile> = Vec::new();
+    let mut unmapped_services = detect_unmapped_services(
         &cache_dir,
         cache_files_index.as_ref(),
         &mut detected_games,
@@ -1137,6 +1506,7 @@ async fn main() -> Result<()> {
         &claimed,
         progress_path.as_deref(),
         &reporter,
+        args.unmapped_files.is_some().then_some(&mut eligible),
     )?;
 
     // Phase 5 was the last consumer of the on-disk index and of the claimed set; between them
@@ -1145,6 +1515,38 @@ async fn main() -> Result<()> {
     drop(cache_files_index);
     drop(claimed);
 
+    let mut unmapped_eligible = None;
+    let mut unmapped_removed_files = None;
+    let mut unmapped_removed_bytes = None;
+    let mut unmapped_remove_failures = None;
+    let mut unmapped_over_limit = None;
+    let mut emptied_folders = HashSet::new();
+    if args.unmapped_files.is_some() {
+        let bucket = unmapped_services
+            .as_mut()
+            .context("Cache file index missing during unmapped files run")?;
+        let is_remove = remove_limits.is_some();
+        let mut outcome = run_unmapped_files(
+            &cache_dir,
+            &eligible,
+            bucket,
+            remove_limits,
+            progress_path.as_deref(),
+            &reporter,
+        )?;
+        if is_remove {
+            unmapped_removed_files = Some(outcome.removal.deleted_files as u64);
+            unmapped_removed_bytes = Some(outcome.removal.bytes_freed);
+            unmapped_remove_failures = Some(
+                (outcome.removal.permission_errors + outcome.removal.undeleted_files) as u64,
+            );
+            unmapped_over_limit = Some(outcome.over_limit);
+            emptied_folders = std::mem::take(&mut outcome.removal.parent_dirs);
+        } else {
+            unmapped_eligible = Some(outcome.eligible_groups);
+        }
+    }
+
     let report = DetectionReport {
         total_games_detected: detected_games.len(),
         total_services_detected: detected_services.len(),
@@ -1152,19 +1554,22 @@ async fn main() -> Result<()> {
         games: detected_games,
         services: detected_services,
         unmapped_services,
+        unmapped_eligible,
+        unmapped_removed_files,
+        unmapped_removed_bytes,
+        unmapped_remove_failures,
+        unmapped_over_limit,
     };
 
     // Writing output (92-100%)
-    write_progress(progress_path.as_deref(), "writing", "signalr.gameDetect.writing", json!({}), 92.0, 0, 0)?;
-    reporter.emit_progress(92.0, "signalr.gameDetect.writing", json!({}));
-
-    // Stream the report straight to the file: to_string_pretty would materialize the whole
-    // JSON (every row's sample URLs and depot ids again) as one giant String before writing.
-    let output_file = fs::File::create(&output_json)
-        .with_context(|| format!("Failed to create output file: {}", output_json.display()))?;
-    let mut output_writer = BufWriter::new(output_file);
-    serde_json::to_writer_pretty(&mut output_writer, &report)?;
-    output_writer.flush()?;
+    write_report_and_remove_folders(
+        &cache_dir,
+        &output_json,
+        &report,
+        emptied_folders,
+        progress_path.as_deref(),
+        &reporter,
+    )?;
 
     let epic_game_count = report.games.iter().filter(|g| g.epic_app_id.is_some()).count();
     // Named (Blizzard/Riot) games: GameAppId 0, no EpicAppId, but carry a non-steam service.
@@ -1210,6 +1615,8 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
+    use lancache_processor::cache_structural_scanner::MIN_STABLE_AGE_SECONDS;
 
     fn write_cache_file(root: &Path, digest: u128, key: &str, body: &str) {
         let path = cache_utils::cache_path_for_digest(root, digest);
@@ -1240,6 +1647,7 @@ mod tests {
             &claimed,
             None,
             &ProgressReporter::new(false),
+            None,
         )
         .unwrap()
         .unwrap();
@@ -1269,6 +1677,7 @@ mod tests {
             &HashSet::new(),
             None,
             &ProgressReporter::new(false),
+            None,
         )
         .unwrap()
         .unwrap();
@@ -1298,6 +1707,7 @@ mod tests {
             &HashSet::new(),
             None,
             &ProgressReporter::new(false),
+            None,
         )
         .unwrap()
         .unwrap();
@@ -1343,6 +1753,7 @@ mod tests {
             &HashSet::new(),
             None,
             &ProgressReporter::new(false),
+            None,
         )
         .unwrap()
         .unwrap();
@@ -1389,6 +1800,7 @@ mod tests {
             &HashSet::new(),
             None,
             &ProgressReporter::new(false),
+            None,
         )
         .unwrap()
         .unwrap();
@@ -1438,6 +1850,7 @@ mod tests {
             &HashSet::new(),
             None,
             &ProgressReporter::new(false),
+            None,
         )
         .unwrap();
 
@@ -1453,6 +1866,11 @@ mod tests {
             games: Vec::new(),
             services: Vec::new(),
             unmapped_services: None,
+            unmapped_eligible: None,
+            unmapped_removed_files: None,
+            unmapped_removed_bytes: None,
+            unmapped_remove_failures: None,
+            unmapped_over_limit: None,
         };
 
         let json = serde_json::to_string(&report).unwrap();
@@ -1486,6 +1904,11 @@ mod tests {
                 sample_urls: vec!["wsus/files/a".to_string()],
             }],
             unmapped_services: None,
+            unmapped_eligible: None,
+            unmapped_removed_files: None,
+            unmapped_removed_bytes: None,
+            unmapped_remove_failures: None,
+            unmapped_over_limit: None,
         };
 
         let json = serde_json::to_string(&report).unwrap();
@@ -1518,5 +1941,487 @@ mod tests {
             index.get(&digest),
             Some(&(b"KEY: steam/depot/1/chunk/a\n0123456789".len() as u64))
         );
+    }
+    fn set_age(path: &Path, modified: SystemTime) {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+    }
+
+    /// A file named by the md5 of its own key, last changed long enough ago to be removable.
+    fn write_aged_file(root: &Path, key: &str, body: &str) -> u128 {
+        let digest = cache_utils::calculate_md5_digest(key);
+        write_cache_file(root, digest, key, body);
+        set_age(
+            &cache_utils::cache_path_for_digest(root, digest),
+            SystemTime::now() - Duration::from_secs(MIN_STABLE_AGE_SECONDS + 1),
+        );
+        digest
+    }
+
+    /// The eligible list and bucket `detect_unmapped_services` builds for these files.
+    fn detect_eligible(
+        root: &Path,
+        digests: &[u128],
+        claimed: &HashSet<u128>,
+    ) -> (Vec<EligibleFile>, Vec<UnmappedService>) {
+        let index: HashMap<u128, u64> = digests
+            .iter()
+            .map(|digest| {
+                let path = cache_utils::cache_path_for_digest(root, *digest);
+                (*digest, fs::metadata(path).unwrap().len())
+            })
+            .collect();
+        let mut eligible = Vec::new();
+        let bucket = detect_unmapped_services(
+            root,
+            Some(&index),
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &LateAttribution::default(),
+            claimed,
+            None,
+            &ProgressReporter::new(false),
+            Some(&mut eligible),
+        )
+        .unwrap()
+        .unwrap();
+        (eligible, bucket)
+    }
+
+    fn remove_everything(
+        root: &Path,
+        eligible: &[EligibleFile],
+        bucket: &mut Vec<UnmappedService>,
+    ) -> UnmappedFilesOutcome {
+        run_unmapped_files(
+            root,
+            eligible,
+            bucket,
+            Some(RemoveLimits {
+                max_files: 100,
+                max_bytes: 1_000_000,
+            }),
+            None,
+            &ProgressReporter::new(false),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn unmapped_flags_refuse_incremental_and_partial_runs() {
+        Args::command().debug_assert();
+        let remove = [
+            "cache_game_detect",
+            "/cache",
+            "out.json",
+            "--unmapped-files",
+            "remove",
+            "--max-files",
+            "1",
+            "--max-bytes",
+            "1",
+        ];
+        assert!(Args::try_parse_from(remove).is_ok());
+
+        for extra in ["--incremental", "--skip-service-scan"] {
+            let mut arguments = remove.to_vec();
+            arguments.push(extra);
+            assert!(Args::try_parse_from(arguments).is_err(), "{extra}");
+        }
+        let mut with_excluded_ids = remove.to_vec();
+        with_excluded_ids.insert(3, "excluded.json");
+        assert!(Args::try_parse_from(with_excluded_ids).is_err());
+
+        let limit_without_run = ["cache_game_detect", "/cache", "out.json", "--max-files", "1"];
+        assert!(Args::try_parse_from(limit_without_run).is_err());
+    }
+
+    #[test]
+    fn remove_mode_keeps_claimed_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let claimed_digest = write_aged_file(&root, "steam/depot/1/chunk/claimed", "claimed");
+        let unclaimed_digest = write_aged_file(&root, "steam/depot/1/chunk/unclaimed", "unclaimed");
+        let claimed = HashSet::from([claimed_digest]);
+
+        let (eligible, mut bucket) =
+            detect_eligible(&root, &[claimed_digest, unclaimed_digest], &claimed);
+        let outcome = remove_everything(&root, &eligible, &mut bucket);
+
+        assert_eq!(outcome.removal.deleted_files, 1);
+        assert!(cache_utils::cache_path_for_digest(&root, claimed_digest).exists());
+        assert!(!cache_utils::cache_path_for_digest(&root, unclaimed_digest).exists());
+    }
+
+    #[test]
+    fn remove_mode_skips_recent_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let key = "steam/depot/1/chunk/recent";
+        let digest = cache_utils::calculate_md5_digest(key);
+        write_cache_file(&root, digest, key, "body");
+        let path = cache_utils::cache_path_for_digest(&root, digest);
+        let long_ago = SystemTime::now() - Duration::from_secs(MIN_STABLE_AGE_SECONDS + 1);
+
+        // Written now: not eligible, so it stays.
+        let (eligible, mut bucket) = detect_eligible(&root, &[digest], &HashSet::new());
+        assert!(eligible.is_empty());
+        remove_everything(&root, &eligible, &mut bucket);
+        assert!(path.exists());
+
+        // Listed while old, then written again before its turn: the delete re-checks the age.
+        set_age(&path, long_ago);
+        let (eligible, mut bucket) = detect_eligible(&root, &[digest], &HashSet::new());
+        assert_eq!(eligible.len(), 1);
+        set_age(&path, SystemTime::now());
+        let outcome = remove_everything(&root, &eligible, &mut bucket);
+        assert_eq!(outcome.removal.deleted_files, 0);
+        assert!(path.exists());
+
+        // Old enough: removed.
+        set_age(&path, long_ago);
+        let outcome = remove_everything(&root, &eligible, &mut bucket);
+        assert_eq!(outcome.removal.deleted_files, 1);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn count_mode_deletes_nothing_and_reports_eligible() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let first = write_aged_file(&root, "steam/depot/1/chunk/a", "aaa");
+        let second = write_aged_file(&root, "steam/depot/1/chunk/b", "bbbbb");
+        let (eligible, mut bucket) = detect_eligible(&root, &[first, second], &HashSet::new());
+
+        let outcome = run_unmapped_files(
+            &root,
+            &eligible,
+            &mut bucket,
+            None,
+            None,
+            &ProgressReporter::new(false),
+        )
+        .unwrap();
+
+        let first_path = cache_utils::cache_path_for_digest(&root, first);
+        let second_path = cache_utils::cache_path_for_digest(&root, second);
+        assert!(first_path.exists());
+        assert!(second_path.exists());
+        assert_eq!(outcome.removal.deleted_files, 0);
+        assert!(!outcome.over_limit);
+        assert_eq!(outcome.eligible_groups.len(), 1);
+        assert_eq!(outcome.eligible_groups[0].service, "steam");
+        assert_eq!(outcome.eligible_groups[0].file_count, 2);
+        let expected_bytes =
+            fs::metadata(&first_path).unwrap().len() + fs::metadata(&second_path).unwrap().len();
+        assert_eq!(outcome.eligible_groups[0].total_bytes, expected_bytes);
+        assert_eq!(bucket[0].file_count, 2);
+    }
+
+    #[test]
+    fn eligible_files_count_under_their_own_service_group() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let steam = write_aged_file(&root, "steam/depot/1/chunk/a", "aaa");
+        let epic = write_aged_file(&root, "epicgames/Builds/b", "bbbbbbb");
+        let (eligible, mut bucket) = detect_eligible(&root, &[steam, epic], &HashSet::new());
+
+        let outcome = run_unmapped_files(
+            &root,
+            &eligible,
+            &mut bucket,
+            None,
+            None,
+            &ProgressReporter::new(false),
+        )
+        .unwrap();
+
+        let groups: Vec<(&str, u64, u64)> = outcome
+            .eligible_groups
+            .iter()
+            .map(|group| (group.service.as_str(), group.file_count, group.total_bytes))
+            .collect();
+        let size = |digest: u128| {
+            fs::metadata(cache_utils::cache_path_for_digest(&root, digest))
+                .unwrap()
+                .len()
+        };
+        assert_eq!(
+            groups,
+            vec![("epicgames", 1, size(epic)), ("steam", 1, size(steam))]
+        );
+    }
+
+    #[test]
+    fn remove_mode_over_limit_deletes_nothing() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let digests: Vec<u128> = (0..3)
+            .map(|number| write_aged_file(&root, &format!("steam/depot/1/chunk/{number}"), "body"))
+            .collect();
+        let (eligible, mut bucket) = detect_eligible(&root, &digests, &HashSet::new());
+
+        for (max_files, max_bytes) in [(2, 1_000_000), (100, 1)] {
+            let outcome = run_unmapped_files(
+                &root,
+                &eligible,
+                &mut bucket,
+                Some(RemoveLimits {
+                    max_files,
+                    max_bytes,
+                }),
+                None,
+                &ProgressReporter::new(false),
+            )
+            .unwrap();
+
+            assert!(outcome.over_limit);
+            assert_eq!(outcome.removal.deleted_files, 0);
+            for digest in &digests {
+                assert!(cache_utils::cache_path_for_digest(&root, *digest).exists());
+            }
+            assert_eq!(bucket[0].file_count, 3);
+        }
+    }
+
+    fn written_percent(progress: &Path) -> f64 {
+        let written: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(progress).unwrap()).unwrap();
+        written["percentComplete"].as_f64().unwrap()
+    }
+
+    #[test]
+    fn remove_mode_stops_short_of_100_after_removing_every_emptied_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let progress = temp.path().join("progress.json");
+        // Enough files to spread over more than one 500-folder batch.
+        let digests: Vec<u128> = (0..1200)
+            .map(|number| write_aged_file(&root, &format!("steam/depot/1/chunk/{number}"), "body"))
+            .collect();
+        let (eligible, mut bucket) = detect_eligible(&root, &digests, &HashSet::new());
+
+        let mut outcome = run_unmapped_files(
+            &root,
+            &eligible,
+            &mut bucket,
+            Some(RemoveLimits {
+                max_files: 1200,
+                max_bytes: u64::MAX,
+            }),
+            Some(&progress),
+            &ProgressReporter::new(false),
+        )
+        .unwrap();
+        assert_eq!(outcome.removal.deleted_files, 1200);
+        assert_eq!(written_percent(&progress), 95.5);
+
+        let report = temp.path().join("report.json");
+        write_report_and_remove_folders(
+            &root,
+            &report,
+            &json!({ "deleted": 1200 }),
+            std::mem::take(&mut outcome.removal.parent_dirs),
+            Some(&progress),
+            &ProgressReporter::new(false),
+        )
+        .unwrap();
+
+        assert!(report.exists());
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0);
+        // The last write comes after the folders are gone, and the host owns 100%.
+        assert_eq!(written_percent(&progress), 99.0);
+
+        // Nothing eligible: no delete and no folder to remove, and still no 100%.
+        let outcome = run_unmapped_files(
+            &root,
+            &[],
+            &mut Vec::new(),
+            Some(RemoveLimits {
+                max_files: 1200,
+                max_bytes: u64::MAX,
+            }),
+            Some(&progress),
+            &ProgressReporter::new(false),
+        )
+        .unwrap();
+        assert_eq!(outcome.removal.deleted_files, 0);
+        write_report_and_remove_folders(
+            &root,
+            &report,
+            &json!({ "deleted": 0 }),
+            outcome.removal.parent_dirs,
+            Some(&progress),
+            &ProgressReporter::new(false),
+        )
+        .unwrap();
+        assert_eq!(written_percent(&progress), 92.0);
+    }
+
+    #[test]
+    fn the_report_is_written_before_any_emptied_folder_is_removed() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let digests: Vec<u128> = (0..20)
+            .map(|number| write_aged_file(&root, &format!("steam/depot/1/chunk/{number}"), "body"))
+            .collect();
+        let (eligible, mut bucket) = detect_eligible(&root, &digests, &HashSet::new());
+        let outcome = remove_everything(&root, &eligible, &mut bucket);
+        let folders_left = fs::read_dir(&root).unwrap().count();
+        assert!(folders_left > 0);
+
+        // A report that cannot be written stops the run before any folder goes.
+        let unwritable = temp.path().join("missing").join("report.json");
+        let written = write_report_and_remove_folders(
+            &root,
+            &unwritable,
+            &json!({ "deleted": 20 }),
+            outcome.removal.parent_dirs,
+            None,
+            &ProgressReporter::new(false),
+        );
+
+        assert!(written.is_err());
+        assert_eq!(fs::read_dir(&root).unwrap().count(), folders_left);
+    }
+
+    #[test]
+    fn remove_mode_requires_a_matching_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let long_ago = SystemTime::now() - Duration::from_secs(MIN_STABLE_AGE_SECONDS + 1);
+
+        let no_key = 5u128;
+        let no_key_path = cache_utils::cache_path_for_digest(&root, no_key);
+        fs::create_dir_all(no_key_path.parent().unwrap()).unwrap();
+        fs::write(&no_key_path, "no key header here").unwrap();
+        set_age(&no_key_path, long_ago);
+
+        let other_name = 6u128;
+        write_cache_file(&root, other_name, "steam/depot/1/chunk/other", "body");
+        let other_name_path = cache_utils::cache_path_for_digest(&root, other_name);
+        set_age(&other_name_path, long_ago);
+
+        let named = write_aged_file(&root, "steam/depot/1/chunk/named", "body");
+
+        let (eligible, mut bucket) =
+            detect_eligible(&root, &[no_key, other_name, named], &HashSet::new());
+        let outcome = remove_everything(&root, &eligible, &mut bucket);
+
+        assert_eq!(outcome.removal.deleted_files, 1);
+        assert!(no_key_path.exists());
+        assert!(other_name_path.exists());
+        assert!(!cache_utils::cache_path_for_digest(&root, named).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remove_mode_refuses_a_linked_cache_file() {
+        let long_ago = SystemTime::now() - Duration::from_secs(MIN_STABLE_AGE_SECONDS + 1);
+
+        // A link one folder below the top level leads out of the cache root: refused.
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let outside = temp.path().join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let key = "steam/depot/1/chunk/linked-inner";
+        let digest = cache_utils::calculate_md5_digest(key);
+        let path = cache_utils::cache_path_for_digest(&root, digest);
+        let second_level = path.parent().unwrap();
+        fs::create_dir_all(second_level.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&outside, second_level).unwrap();
+        let outside_file = outside.join(path.file_name().unwrap());
+        fs::write(&outside_file, format!("KEY: {key}\nbody")).unwrap();
+        set_age(&outside_file, long_ago);
+
+        let (eligible, mut bucket) = detect_eligible(&root, &[digest], &HashSet::new());
+        assert_eq!(eligible.len(), 1);
+        let outcome = remove_everything(&root, &eligible, &mut bucket);
+
+        assert!(outside_file.exists());
+        assert_eq!(outcome.removal.deleted_files, 0);
+        assert_eq!(outcome.removal.undeleted_files, 1);
+
+        // A top-level 2-hex folder linked to another disk is followed on purpose.
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let other_disk = temp.path().join("other-disk");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&other_disk).unwrap();
+        let key = "steam/depot/1/chunk/linked-top";
+        let digest = cache_utils::calculate_md5_digest(key);
+        write_cache_file(&other_disk, digest, key, "body");
+        let on_other_disk = cache_utils::cache_path_for_digest(&other_disk, digest);
+        set_age(&on_other_disk, long_ago);
+        let top_level = format!("{:032x}", digest)[30..].to_string();
+        std::os::unix::fs::symlink(other_disk.join(&top_level), root.join(&top_level)).unwrap();
+
+        let (eligible, mut bucket) = detect_eligible(&root, &[digest], &HashSet::new());
+        let outcome = remove_everything(&root, &eligible, &mut bucket);
+
+        assert_eq!(outcome.removal.deleted_files, 1);
+        assert_eq!(outcome.removal.undeleted_files, 0);
+        assert!(!on_other_disk.exists());
+    }
+
+    #[test]
+    fn remove_mode_counts_a_file_gone_before_its_turn_as_gone() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let first = write_aged_file(&root, "steam/depot/1/chunk/first", "body");
+        let second = write_aged_file(&root, "steam/depot/1/chunk/second", "body");
+        let (eligible, mut bucket) = detect_eligible(&root, &[first, second], &HashSet::new());
+
+        // nginx's cache manager removes a file after the pass listed it.
+        fs::remove_file(cache_utils::cache_path_for_digest(&root, first)).unwrap();
+        let outcome = remove_everything(&root, &eligible, &mut bucket);
+
+        assert_eq!(
+            outcome.removal.undeleted_files + outcome.removal.permission_errors,
+            0
+        );
+        assert_eq!(outcome.removal.deleted_files, 1);
+        assert!(!cache_utils::cache_path_for_digest(&root, second).exists());
+        // Both files left the cache, so neither stays in the saved list.
+        assert!(bucket.is_empty());
+    }
+
+    #[test]
+    fn grouping_skips_a_file_gone_after_the_index_scan() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        let kept = write_aged_file(&root, "steam/depot/1/chunk/kept", "body");
+        let gone = write_aged_file(&root, "steam/depot/1/chunk/gone", "body");
+        let index: HashMap<u128, u64> = [kept, gone]
+            .iter()
+            .map(|digest| {
+                let path = cache_utils::cache_path_for_digest(&root, *digest);
+                (*digest, fs::metadata(path).unwrap().len())
+            })
+            .collect();
+
+        // nginx's cache manager removes a file between the index scan and its key read.
+        fs::remove_file(cache_utils::cache_path_for_digest(&root, gone)).unwrap();
+        let bucket = detect_unmapped_services(
+            &root,
+            Some(&index),
+            &mut Vec::new(),
+            &mut Vec::new(),
+            &LateAttribution::default(),
+            &HashSet::new(),
+            None,
+            &ProgressReporter::new(false),
+            None,
+        )
+        .unwrap()
+        .unwrap();
+
+        let total_files: u64 = bucket.iter().map(|group| group.file_count).sum();
+        assert_eq!(total_files, 1);
+        assert!(bucket.iter().all(|group| group.service != "unknown"));
     }
 }

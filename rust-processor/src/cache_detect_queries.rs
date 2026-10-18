@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use futures_util::TryStreamExt;
-use sqlx::{PgPool, Postgres, QueryBuilder, Row};
+use sqlx::{PgConnection, PgPool, Postgres, QueryBuilder, Row, Transaction};
 use std::collections::HashMap;
 
 use lancache_processor::cache_utils;
@@ -67,11 +67,20 @@ const MAPPED_GAME_QUERY_BASE: &str = r#"SELECT le."Service", sdm."AppId", COALES
  ) sdm ON le."DepotId" = sdm."DepotId"
  WHERE le."Url" IS NOT NULL"#;
 
+/// Opens the transaction every claim query of an unmapped-files run reads from. The snapshot
+/// is fixed by the first query, so a download that moves from one bucket to another during the
+/// run is still claimed where it was when the run began.
+pub async fn begin_claim_snapshot(pool: &PgPool) -> Result<Transaction<'static, Postgres>> {
+    Ok(pool
+        .begin_with("BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+        .await?)
+}
+
 /// Returns the per-game record map directly. Rows are streamed off the connection straight
 /// into the map: fetch_all would buffer every GROUP BY row (one per unique URL, millions on a
 /// large library) as PgRows and then again as a flat Vec before grouping.
 pub async fn query_game_downloads(
-    pool: &PgPool,
+    conn: &mut PgConnection,
     max_urls_per_game: Option<usize>,
     excluded_game_ids: &[u32],
 ) -> Result<HashMap<u32, Vec<DownloadRecord>>> {
@@ -109,7 +118,7 @@ pub async fn query_game_downloads(
 
         unknown_exclusions
             .build_query_scalar::<i64>()
-            .fetch_all(pool)
+            .fetch_all(&mut *conn)
             .await?
     };
 
@@ -150,7 +159,7 @@ pub async fn query_game_downloads(
     let mut current_game_count = 0;
 
     {
-        let mut rows = mapped_query.build().fetch(pool);
+        let mut rows = mapped_query.build().fetch(&mut *conn);
         while let Some(row) = rows.try_next().await? {
             let service: String = row.get(0);
             let game_app_id: i64 = row.get(1);
@@ -242,7 +251,7 @@ pub async fn query_game_downloads(
     let mut unknown_depot_count = 0;
 
     {
-        let mut rows = unknown_query.build().fetch(pool);
+        let mut rows = unknown_query.build().fetch(&mut *conn);
         while let Some(row) = rows.try_next().await? {
             let service: String = row.get(0);
             let depot_id: i64 = row.get(1);
@@ -282,7 +291,7 @@ pub async fn query_game_downloads(
 }
 
 pub async fn query_service_downloads(
-    pool: &PgPool,
+    conn: &mut PgConnection,
 ) -> Result<HashMap<String, Vec<(String, String, i64)>>> {
     eprintln!("Querying LogEntries for non-game services...");
 
@@ -334,7 +343,7 @@ pub async fn query_service_downloads(
     let mut services: HashMap<String, Vec<(String, String, i64)>> = HashMap::new();
 
     {
-        let mut rows = sqlx::query(query).fetch(pool);
+        let mut rows = sqlx::query(query).fetch(&mut *conn);
         while let Some(row) = rows.try_next().await? {
             let service: String = row.get(0);
             let url: String = row.get(1);
@@ -358,7 +367,7 @@ pub async fn query_service_downloads(
     Ok(services)
 }
 
-pub async fn query_epic_game_downloads(pool: &PgPool) -> Result<Vec<EpicDownloadRecord>> {
+pub async fn query_epic_game_downloads(conn: &mut PgConnection) -> Result<Vec<EpicDownloadRecord>> {
     eprintln!("Querying LogEntries for Epic game URLs...");
 
     // GROUP BY (Service, Url, EpicAppId, GameName) + MAX(BytesServed) replaces SELECT DISTINCT
@@ -379,7 +388,7 @@ pub async fn query_epic_game_downloads(pool: &PgPool) -> Result<Vec<EpicDownload
          GROUP BY le.\"Service\", le.\"Url\", d.\"EpicAppId\", d.\"GameName\"
          ORDER BY d.\"EpicAppId\"",
     )
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await?;
 
     let records: Vec<EpicDownloadRecord> = rows
@@ -401,7 +410,7 @@ pub async fn query_epic_game_downloads(pool: &PgPool) -> Result<Vec<EpicDownload
 /// GameName but neither a Steam AppId nor an Epic AppId. Identity = (Service, GameName).
 /// Mirrors `query_epic_game_downloads` but gates on
 /// `GameAppId IS NULL AND EpicAppId IS NULL AND GameName IS NOT NULL` instead of EpicAppId.
-pub async fn query_named_game_downloads(pool: &PgPool) -> Result<Vec<NamedDownloadRecord>> {
+pub async fn query_named_game_downloads(conn: &mut PgConnection) -> Result<Vec<NamedDownloadRecord>> {
     eprintln!("Querying LogEntries for named (Blizzard/Riot) game URLs...");
 
     // GROUP BY (d.Service, le.Service, Url, GameName) + MAX(BytesServed) so each named
@@ -431,7 +440,7 @@ pub async fn query_named_game_downloads(pool: &PgPool) -> Result<Vec<NamedDownlo
          GROUP BY d.\"Service\", le.\"Service\", le.\"Url\", d.\"GameName\"
          ORDER BY d.\"Service\", d.\"GameName\"",
     )
-    .fetch_all(pool)
+    .fetch_all(&mut *conn)
     .await?;
 
     let records: Vec<NamedDownloadRecord> = rows
@@ -540,5 +549,82 @@ mod tests {
             MAPPED_GAME_QUERY_BASE.contains(r#""IsOwner" = true AND "AppId" IS NOT NULL"#),
             "owner filter must live in the per-depot subquery"
         );
+    }
+
+    /// A download whose Epic claim lands between two claim queries must still be claimed where
+    /// the run began: the service query has to keep its URL in the service group.
+    #[tokio::test]
+    async fn unmapped_claims_read_one_snapshot() {
+        use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+        use std::str::FromStr;
+
+        let Ok(url) = std::env::var("LANCACHE_TEST_DATABASE_URL") else {
+            println!("SKIP (LANCACHE_TEST_DATABASE_URL unset): unmapped_claims_read_one_snapshot");
+            return;
+        };
+        let schema = format!("claims_test_{}", uuid::Uuid::new_v4().simple());
+        let options = PgConnectOptions::from_str(&url).expect("parse test database URL");
+        let admin = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(options.clone())
+            .await
+            .expect("connect to test database");
+        sqlx::query(&format!(r#"CREATE SCHEMA "{schema}""#))
+            .execute(&admin)
+            .await
+            .expect("create test schema");
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect_with(options.options([("search_path", schema.as_str())]))
+            .await
+            .expect("connect to test schema");
+
+        sqlx::query(
+            r#"CREATE TABLE "Downloads" ("Id" BIGINT PRIMARY KEY, "GameAppId" BIGINT, "EpicAppId" TEXT, "GameName" TEXT)"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            r#"CREATE TABLE "LogEntries" ("Service" TEXT, "Url" TEXT, "BytesServed" BIGINT, "DownloadId" BIGINT, "DepotId" BIGINT)"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(r#"INSERT INTO "Downloads" ("Id") VALUES (1)"#)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            r#"INSERT INTO "LogEntries" VALUES ('epicgames', '/Builds/chunk-a', 10, 1, NULL)"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let mut snapshot = begin_claim_snapshot(&pool).await.unwrap();
+        let epic_records = query_epic_game_downloads(&mut snapshot).await.unwrap();
+        assert!(epic_records.is_empty());
+
+        sqlx::query(
+            r#"UPDATE "Downloads" SET "EpicAppId" = 'app-1', "GameName" = 'Some Game' WHERE "Id" = 1"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let services = query_service_downloads(&mut snapshot).await.unwrap();
+        snapshot.rollback().await.unwrap();
+
+        pool.close().await;
+        sqlx::query(&format!(r#"DROP SCHEMA "{schema}" CASCADE"#))
+            .execute(&admin)
+            .await
+            .unwrap();
+        admin.close().await;
+
+        let epicgames = services.get("epicgames").expect("the URL stays in its service group");
+        assert_eq!(epicgames.len(), 1);
+        assert_eq!(epicgames[0].1, "/Builds/chunk-a");
     }
 }

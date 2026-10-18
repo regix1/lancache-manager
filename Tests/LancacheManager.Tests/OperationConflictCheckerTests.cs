@@ -665,6 +665,374 @@ public class OperationConflictCheckerTests
 
 
 
+    [Fact]
+    public async Task UnmappedFileRemoval_WaitsForGameDetectionAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.GameDetection, "Game Detection");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.UnmappedFileRemoval,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
+    }
+
+    [Fact]
+    public async Task UnmappedFileRemoval_WaitsForALiveLogPassAsync()
+    {
+        using var tracker = new TrackerHarness();
+        tracker.Tracker.RegisterOperation(
+            OperationType.LogProcessing,
+            "Log Processing",
+            new CancellationTokenSource(),
+            liveIngest: true);
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.UnmappedFileRemoval,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.heavyOperationActive", response!.StageKey);
+    }
+
+    [Fact]
+    public async Task LogProcessing_StartsBesideUnmappedFileRemovalAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.UnmappedFileRemoval, "Unmapped File Removal");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogProcessing,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.Null(response);
+    }
+
+    [Fact]
+    public async Task UnmappedCount_WaitsForGameDetectionAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.GameDetection, "Game Detection");
+
+        var unmappedCount = await tracker.Checker.CheckAsync(
+            OperationType.CacheFileCount,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+        var serviceCount = await tracker.Checker.CheckAsync(
+            OperationType.CacheFileCount,
+            ConflictScope.Service("steam"),
+            CancellationToken.None);
+
+        Assert.NotNull(unmappedCount);
+        Assert.Equal("errors.conflict.heavyOperationActive", unmappedCount!.StageKey);
+        Assert.Null(serviceCount);
+    }
+
+    [Fact]
+    public async Task UnmappedFileRemoval_IsBlockedByAPendingRepairAsync()
+    {
+        using var tracker = new TrackerHarness();
+        var repairId = await tracker.AddRepairBlockerAsync();
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.UnmappedFileRemoval,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(repairId, response!.ActiveOperationId);
+        Assert.Equal("repair", response.ActiveOperationScope);
+    }
+
+    [Fact]
+    public async Task UnmappedFileRemoval_WaitsForAGameRemovalAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterCacheMutatingRemoval(tracker.Tracker, OperationType.GameRemoval);
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.UnmappedFileRemoval,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.overlappingEntity", response!.StageKey);
+    }
+
+    [Fact]
+    public async Task AServiceRemovalWaitsForUnmappedFileRemovalAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.UnmappedFileRemoval, "Unmapped File Removal");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.ServiceRemoval,
+            ConflictScope.Service("steam"),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.overlappingEntity", response!.StageKey);
+    }
+
+    [Fact]
+    public async Task AGameCountWaitsForUnmappedFileRemovalAsync()
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, OperationType.UnmappedFileRemoval, "Unmapped File Removal");
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.CacheFileCount,
+            ConflictScope.SteamGame(480),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal("errors.conflict.overlappingEntity", response!.StageKey);
+    }
+
+    [Fact]
+    public async Task AHeldRun_KeepsEveryServiceInTheCheckBetweenItsStepsAsync()
+    {
+        using var tracker = new TrackerHarness();
+        var stepId = RegisterCorruptionStep(tracker.Tracker, "steam");
+        using var hold = tracker.Checker.HoldRun(
+            OperationType.CorruptionRemoval,
+            [ConflictScope.Service("steam"), ConflictScope.Service("epicgames")],
+            () => stepId);
+        tracker.Tracker.CompleteOperation(stepId, success: true);
+
+        var unmapped = await tracker.Checker.CheckAsync(
+            OperationType.UnmappedFileRemoval,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+        var laterService = await tracker.Checker.CheckAsync(
+            OperationType.GameRemoval,
+            ConflictScope.EpicGame("fn", "Fortnite"),
+            CancellationToken.None);
+
+        Assert.Equal("errors.conflict.overlappingEntity", unmapped?.StageKey);
+        Assert.Equal(stepId, unmapped!.ActiveOperationId);
+        Assert.Equal("errors.conflict.serviceWideActive", laterService?.StageKey);
+    }
+
+    [Fact]
+    public async Task ReleasingAHeldRun_ClearsItsServicesAndWakesParkedOperationsAsync()
+    {
+        using var tracker = new TrackerHarness();
+        var woken = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hold = tracker.Checker.HoldRun(
+            OperationType.CorruptionRemoval,
+            [ConflictScope.Service("steam")],
+            () => Guid.Empty);
+        tracker.Tracker.BlockerCleared += () => woken.TrySetResult();
+
+        // Held before its first step registers: the conflict names no operation.
+        var beforeFirstStep = await tracker.Checker.CheckAsync(
+            OperationType.UnmappedFileRemoval,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+        hold.Dispose();
+
+        Assert.Equal(Guid.Empty, beforeFirstStep?.ActiveOperationId);
+        await woken.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Null(await tracker.Checker.CheckAsync(
+            OperationType.UnmappedFileRemoval,
+            ConflictScope.Bulk(),
+            CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AnUnmappedRemovalParkedBehindAHeldRun_StartsOnlyOnceTheRunEndsAsync()
+    {
+        using var tracker = new TrackerHarness();
+        var queue = new OperationQueueService(tracker.Tracker, tracker.Checker, NullLogger<OperationQueueService>.Instance);
+        var currentStep = RegisterCorruptionStep(tracker.Tracker, "steam");
+        var hold = tracker.Checker.HoldRun(
+            OperationType.CorruptionRemoval,
+            [ConflictScope.Service("steam"), ConflictScope.Service("epicgames")],
+            () => currentStep);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var parked = await queue.EnqueueAsync(
+            OperationType.UnmappedFileRemoval,
+            ConflictScope.Bulk(),
+            "Unmapped File Removal",
+            () =>
+            {
+                started.TrySetResult();
+                return Task.FromResult<Guid?>(RegisterBulkOperation(
+                    tracker.Tracker, OperationType.UnmappedFileRemoval, "Unmapped File Removal"));
+            },
+            CancellationToken.None);
+        Assert.True(parked.Queued);
+
+        // Each step's end runs a promotion pass, and the run still holds its services there.
+        tracker.Tracker.CompleteOperation(currentStep, success: true);
+        await Assert.ThrowsAsync<TimeoutException>(() => started.Task.WaitAsync(TimeSpan.FromMilliseconds(500)));
+        currentStep = RegisterCorruptionStep(tracker.Tracker, "epicgames");
+        tracker.Tracker.CompleteOperation(currentStep, success: true);
+        await Assert.ThrowsAsync<TimeoutException>(() => started.Task.WaitAsync(TimeSpan.FromMilliseconds(500)));
+
+        hold.Dispose();
+
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task ARunParkedOnOneService_ParksAgainOnTheNextBusyServiceAtPromotionAsync()
+    {
+        using var tracker = new TrackerHarness();
+        var queue = new OperationQueueService(tracker.Tracker, tracker.Checker, NullLogger<OperationQueueService>.Instance);
+        var steamBlocker = RegisterServiceRemoval(tracker.Tracker, "steam");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var parked = await queue.EnqueueAsync(
+            OperationType.CorruptionRemoval,
+            ConflictScope.Service("steam"),
+            "Corruption Removal (all services)",
+            StartCheckingEveryService(tracker.Checker, started, "steam", "epicgames"),
+            CancellationToken.None);
+        var epicBlocker = RegisterServiceRemoval(tracker.Tracker, "epicgames");
+
+        tracker.Tracker.CompleteOperation(steamBlocker, success: true);
+
+        var waiting = await WaitForBlockerAsync(tracker.Tracker, parked.OperationId, "Service removal: epicgames");
+        Assert.Equal(OperationStatus.Waiting, waiting.Status);
+        Assert.False(started.Task.IsCompleted);
+        tracker.Tracker.CompleteOperation(epicBlocker, success: true);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task ARunWhoseFirstServiceIsFree_ParksOnTheLaterBusyServiceAsync()
+    {
+        using var tracker = new TrackerHarness();
+        var queue = new OperationQueueService(tracker.Tracker, tracker.Checker, NullLogger<OperationQueueService>.Instance);
+        var epicBlocker = RegisterServiceRemoval(tracker.Tracker, "epicgames");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var parked = await queue.EnqueueAsync(
+            OperationType.CorruptionRemoval,
+            ConflictScope.Service("steam"),
+            "Corruption Removal (all services)",
+            StartCheckingEveryService(tracker.Checker, started, "steam", "epicgames"),
+            CancellationToken.None);
+
+        Assert.True(parked.Queued);
+        Assert.Equal("Service removal: epicgames", tracker.Tracker.GetOperation(parked.OperationId)?.BlockedByName);
+        tracker.Tracker.CompleteOperation(epicBlocker, success: true);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task CancelingARunParkedAgain_EndsItWithoutStartingAsync()
+    {
+        using var tracker = new TrackerHarness();
+        var queue = new OperationQueueService(tracker.Tracker, tracker.Checker, NullLogger<OperationQueueService>.Instance);
+        var steamBlocker = RegisterServiceRemoval(tracker.Tracker, "steam");
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var parked = await queue.EnqueueAsync(
+            OperationType.CorruptionRemoval,
+            ConflictScope.Service("steam"),
+            "Corruption Removal (all services)",
+            StartCheckingEveryService(tracker.Checker, started, "steam", "epicgames"),
+            CancellationToken.None);
+        var epicBlocker = RegisterServiceRemoval(tracker.Tracker, "epicgames");
+        tracker.Tracker.CompleteOperation(steamBlocker, success: true);
+        var waitingId = parked.OperationId;
+        await WaitForBlockerAsync(tracker.Tracker, waitingId, "Service removal: epicgames");
+
+        tracker.Tracker.CancelOperation(waitingId);
+        await WaitForStatusAsync(tracker.Tracker, waitingId, OperationStatus.Cancelled);
+        tracker.Tracker.CompleteOperation(epicBlocker, success: true);
+
+        await Assert.ThrowsAsync<TimeoutException>(() => started.Task.WaitAsync(TimeSpan.FromMilliseconds(500)));
+    }
+
+    [Fact]
+    public async Task ACancelDuringTheStart_EndsTheRunInsteadOfParkingItAgainAsync()
+    {
+        using var tracker = new TrackerHarness();
+        var queue = new OperationQueueService(tracker.Tracker, tracker.Checker, NullLogger<OperationQueueService>.Instance);
+        var steamBlocker = RegisterServiceRemoval(tracker.Tracker, "steam");
+        var waitingId = Guid.Empty;
+        var starts = 0;
+        var parked = await queue.EnqueueAsync(
+            OperationType.CorruptionRemoval,
+            ConflictScope.Service("steam"),
+            "Corruption Removal (all services)",
+            async () =>
+            {
+                starts++;
+                var scope = ConflictScope.Service("epicgames");
+                var conflict = await tracker.Checker.CheckAsync(OperationType.CorruptionRemoval, scope, CancellationToken.None);
+                // The person's X lands while the start runs, before it reports the busy service.
+                tracker.Tracker.CancelOperation(waitingId);
+                throw new OperationBlockedException(scope, conflict!);
+            },
+            CancellationToken.None);
+        waitingId = parked.OperationId;
+        var epicBlocker = RegisterServiceRemoval(tracker.Tracker, "epicgames");
+
+        tracker.Tracker.CompleteOperation(steamBlocker, success: true);
+
+        await WaitForStatusAsync(tracker.Tracker, waitingId, OperationStatus.Cancelled);
+        tracker.Tracker.CompleteOperation(epicBlocker, success: true);
+        await Task.Delay(500);
+        Assert.Equal(1, starts);
+    }
+
+    // Starts the way Remove all does: checks every service and parks again on a busy one.
+    private static Func<Task<Guid?>> StartCheckingEveryService(
+        OperationConflictChecker checker,
+        TaskCompletionSource started,
+        params string[] services) => async () =>
+    {
+        foreach (var service in services)
+        {
+            var scope = ConflictScope.Service(service);
+            if (await checker.CheckAsync(OperationType.CorruptionRemoval, scope, CancellationToken.None) is { } conflict)
+            {
+                throw new OperationBlockedException(scope, conflict);
+            }
+        }
+        started.TrySetResult();
+        return Guid.NewGuid();
+    };
+
+    internal static async Task<OperationInfo> WaitForBlockerAsync(
+        UnifiedOperationTracker tracker,
+        Guid waitingId,
+        string blockerName)
+    {
+        for (var attempt = 0; attempt < 200 && tracker.GetOperation(waitingId)?.BlockedByName != blockerName; attempt++)
+        {
+            await Task.Delay(25);
+        }
+        var waiting = tracker.GetOperation(waitingId);
+        Assert.Equal(blockerName, waiting?.BlockedByName);
+        return waiting!;
+    }
+
+    internal static async Task WaitForStatusAsync(UnifiedOperationTracker tracker, Guid operationId, OperationStatus status)
+    {
+        for (var attempt = 0; attempt < 200 && tracker.GetOperation(operationId)?.Status != status; attempt++)
+        {
+            await Task.Delay(25);
+        }
+        Assert.Equal(status, tracker.GetOperation(operationId)?.Status);
+    }
+
+
+    private static Guid RegisterCorruptionStep(UnifiedOperationTracker tracker, string service) =>
+        tracker.RegisterOperation(
+            OperationType.CorruptionRemoval,
+            $"Corruption removal: {service}",
+            new CancellationTokenSource(),
+            new RemovalMetrics { EntityKind = "service", EntityKey = service, EntityName = service });
+
     private static Guid RegisterBulkOperation(
         UnifiedOperationTracker tracker,
         OperationType type,
@@ -725,9 +1093,9 @@ public class OperationConflictCheckerTests
             });
     }
 
-    private static void RegisterServiceRemoval(UnifiedOperationTracker tracker, string serviceName)
+    internal static Guid RegisterServiceRemoval(UnifiedOperationTracker tracker, string serviceName)
     {
-        tracker.RegisterOperation(
+        return tracker.RegisterOperation(
             OperationType.ServiceRemoval,
             $"Service removal: {serviceName}",
             new CancellationTokenSource(),

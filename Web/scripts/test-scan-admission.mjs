@@ -280,12 +280,16 @@ test('an older evicted items read that fails after a newer one succeeded shows n
 });
 
 test('a reset whose follow-up position read fails reports the reset, never a failed reset', async () => {
-  const calls = { success: [], errors: [], refreshes: 0, actionLoading: [], modal: [] };
+  const calls = { success: [], errors: [], refreshes: 0, running: [], modal: [] };
   const handleResetPosition = bindLifted(liftConstArrow(DATASOURCES, 'handleResetPosition'), {
     isAdmin: true,
+    resetModal: { datasource: 'Default', all: false },
+    resetModalRef: { current: { datasource: 'Default', all: false } },
+    isResetRunning: () => false,
+    runningResets: { setMany: (keys, running) => calls.running.push([...keys, running]) },
     t: (key) => key,
-    setActionLoading: (value) => calls.actionLoading.push(value),
     setResetModal: (value) => calls.modal.push(value),
+    setResetError: (value) => calls.errors.push(['reset error', value]),
     ApiService: {
       resetDatasourceLogPosition: async () => ({}),
       resetLogPosition: async () => ({})
@@ -302,12 +306,15 @@ test('a reset whose follow-up position read fails reports the reset, never a fai
     onDataRefresh: () => calls.success.push('refreshed')
   });
 
-  await handleResetPosition('Default', 'bottom');
+  await handleResetPosition('bottom');
 
   assert.deepEqual(calls.errors, [], 'the reset succeeded, so nothing says it failed');
   assert.deepEqual(calls.success, ['management.datasources.messages.positionReset', 'refreshed']);
   assert.equal(calls.refreshes, 1, 'the owned position read runs once');
-  assert.deepEqual(calls.actionLoading, ['reset-Default', null]);
+  assert.deepEqual(calls.running, [
+    ['Default:bottom', true],
+    ['Default:bottom', false]
+  ]);
 });
 
 test('a finished Management import refreshes the data and raises no popup of its own', () => {

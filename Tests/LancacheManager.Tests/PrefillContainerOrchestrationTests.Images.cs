@@ -735,7 +735,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         Assert.Equal(0, scenario.Gateway.DestructiveCallCount);
 
         client.ReleaseCancelLogin.SetResult();
-        Assert.False(await cancel);
+        Assert.True(await cancel);
         await daemon.ReconcilePersistentImageAsync(CancellationToken.None);
 
         Assert.Single(scenario.Gateway.Removals, removal => removal.Id == "container-a");

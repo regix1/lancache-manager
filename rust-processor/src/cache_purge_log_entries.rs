@@ -18,10 +18,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use lancache_processor::cancel;
+use lancache_processor::log_layout::discover_log_sources;
 use lancache_processor::log_purge;
+use lancache_processor::log_resume;
 use lancache_processor::progress_events;
 use lancache_processor::progress_utils;
 use log_purge::remove_log_entries_for_game;
@@ -51,6 +53,16 @@ struct Args {
     #[arg(long = "stem-positions")]
     stem_positions: Option<String>,
 
+    /// The importer's resume record. It says which logs logrotate deleted since the last pass and
+    /// which rotated logs the importer could not open, neither of which the purge can count.
+    #[arg(long)]
+    resume: Option<String>,
+
+    /// Removes only lines the importer has read, below each stem's saved position; a line past
+    /// it stays and is imported as usual.
+    #[arg(long = "keep-unread-lines")]
+    keep_unread_lines: bool,
+
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
@@ -74,8 +86,9 @@ struct PurgeReport {
     /// Removed-line count per log-source stem, series-wide - the caller subtracts these
     /// from the saved ingestion positions so a purge cannot shift them past unread lines.
     log_lines_removed_by_source: std::collections::HashMap<String, u64>,
-    /// The already-read subset of the map above (series index below the saved position);
-    /// the amount the position itself comes back by.
+    /// The already-read subset of the map above (series index below the saved position), plus,
+    /// when that is above zero, the records of logs logrotate deleted that the position still
+    /// counted; the amount the position itself comes back by.
     log_lines_removed_before_position_by_source: std::collections::HashMap<String, u64>,
     permission_errors: usize,
     url_count: usize,
@@ -293,12 +306,40 @@ fn run_purge(
         .stem_positions
         .as_deref()
         .and_then(log_purge::read_stem_positions);
+    let resume = args
+        .resume
+        .as_deref()
+        .map(|path| log_resume::load(Path::new(path)));
+    // A rotation since the importer's last pass can leave no log that shows where it stopped. The
+    // purge then cannot tell the lines it read from the ones it has not, and keeping them all brings
+    // back the rows a removal deletes, so it refuses; the repair imports again and redoes it.
+    if let (true, Some(positions), Some(resume)) =
+        (args.keep_unread_lines, &stem_positions, &resume)
+    {
+        for source in discover_log_sources(log_dir_path)?.sources {
+            let Some(entry) = resume.stems.get(&source.stem) else {
+                continue;
+            };
+            let paths: Vec<PathBuf> = source.files.iter().map(|file| file.path.clone()).collect();
+            if entry.position > 0
+                && positions.get(&source.stem) == Some(&entry.position)
+                && log_resume::proven_deleted_records(entry, &paths).is_none()
+            {
+                anyhow::bail!(
+                    "No log of {} shows where the importer stopped; import it again before the purge",
+                    source.stem
+                );
+            }
+        }
+    }
     let purge_outcome = match &request.service {
         Some(service) => log_purge::remove_log_entries_for_service(
             log_dir_path,
             service,
             &urls,
             stem_positions.as_ref(),
+            resume.as_ref(),
+            args.keep_unread_lines,
         )
         .context("remove_log_entries_for_service failed")?,
         None => remove_log_entries_for_game(
@@ -307,6 +348,8 @@ fn run_purge(
             &depot_ids,
             Some(&progress_cb),
             stem_positions.as_ref(),
+            resume.as_ref(),
+            args.keep_unread_lines,
         )
         .context("remove_log_entries_for_game failed")?,
     };
@@ -380,16 +423,345 @@ mod tests {
     }
 
     fn purge(dir: &Path, request: serde_json::Value) -> Result<PurgeReport> {
+        purge_with(dir, request, &[])
+    }
+
+    fn purge_with(dir: &Path, request: serde_json::Value, extra: &[&str]) -> Result<PurgeReport> {
         let input = dir.join("request.json");
         fs::write(&input, request.to_string()).unwrap();
-        let args = Args::try_parse_from([
-            "cache_purge_log_entries",
-            dir.join("logs").to_str().unwrap(),
-            input.to_str().unwrap(),
-            dir.join("report.json").to_str().unwrap(),
-        ])
-        .unwrap();
+        let mut argv = vec![
+            "cache_purge_log_entries".to_string(),
+            dir.join("logs").to_str().unwrap().to_string(),
+            input.to_str().unwrap().to_string(),
+            dir.join("report.json").to_str().unwrap().to_string(),
+        ];
+        argv.extend(extra.iter().map(|arg| arg.to_string()));
+        let args = Args::try_parse_from(argv).unwrap();
         run_purge(&args, None, &ProgressReporter::new(false))
+    }
+
+    /// The importer has read the first two lines of access.log; the third is still unread, so
+    /// the purge must leave exactly that line.
+    fn purge_with_two_lines_read(temp: &Path, request: serde_json::Value) -> PurgeReport {
+        let log_path = temp.join("logs").join("access.log");
+        fs::create_dir_all(log_path.parent().unwrap()).unwrap();
+        let unread = log_line("steam", "/depot/1/chunk/c");
+        fs::write(
+            &log_path,
+            format!(
+                "{}{}{unread}",
+                log_line("steam", "/depot/1/chunk/a"),
+                log_line("steam", "/depot/1/chunk/b")
+            ),
+        )
+        .unwrap();
+        let positions = temp.join("positions.json");
+        fs::write(&positions, r#"{"access.log":2}"#).unwrap();
+
+        let report = purge_with(
+            temp,
+            request,
+            &[
+                "--stem-positions",
+                positions.to_str().unwrap(),
+                "--resume",
+                temp.join("resume.json").to_str().unwrap(),
+                "--keep-unread-lines",
+            ],
+        )
+        .unwrap();
+        assert_eq!(fs::read_to_string(&log_path).unwrap(), unread);
+        report
+    }
+
+    #[test]
+    fn game_purge_keeps_lines_the_importer_has_not_read() {
+        let temp = tempfile::tempdir().unwrap();
+        let report =
+            purge_with_two_lines_read(temp.path(), json!({ "urls": [], "depot_ids": [1] }));
+
+        assert_eq!(report.lines_removed, 2);
+    }
+
+    #[test]
+    fn service_purge_keeps_lines_the_importer_has_not_read() {
+        let temp = tempfile::tempdir().unwrap();
+        let report = purge_with_two_lines_read(
+            temp.path(),
+            json!({
+                "service": "steam",
+                "urls": ["/depot/1/chunk/a", "/depot/1/chunk/b", "/depot/1/chunk/c"]
+            }),
+        );
+
+        assert_eq!(report.lines_removed, 2);
+    }
+
+    /// Purges depot 1 with the given saved position and the resume record in `resume.json`.
+    fn purge_depot_one(temp: &Path, position: u64, extra: &[&str]) -> PurgeReport {
+        let positions = temp.join("positions.json");
+        fs::write(&positions, format!(r#"{{"access.log":{position}}}"#)).unwrap();
+        let resume = temp.join("resume.json");
+        let mut args = vec![
+            "--stem-positions",
+            positions.to_str().unwrap(),
+            "--resume",
+            resume.to_str().unwrap(),
+        ];
+        args.extend_from_slice(extra);
+        purge_with(temp, json!({ "urls": [], "depot_ids": [1] }), &args).unwrap()
+    }
+
+    /// Purges depot 1 keeping unread lines, with the given saved position, and returns the current
+    /// log afterwards.
+    fn purge_keeping_unread(temp: &Path, position: u64) -> String {
+        purge_depot_one(temp, position, &["--keep-unread-lines"]);
+        fs::read_to_string(temp.join("logs").join("access.log")).unwrap()
+    }
+
+    #[test]
+    fn a_damaged_rotated_log_keeps_the_unread_lines_after_it() {
+        use std::io::Write;
+
+        let temp = tempfile::tempdir().unwrap();
+        let logs = temp.path().join("logs");
+        fs::create_dir_all(&logs).unwrap();
+        // The importer read two lines of this log before the damage, so its position counts them;
+        // the purge cannot read the log and so cannot count them.
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        for _ in 0..200 {
+            encoder
+                .write_all(log_line("steam", "/depot/2/chunk/old").as_bytes())
+                .unwrap();
+        }
+        let mut damaged = encoder.finish().unwrap();
+        damaged.truncate(damaged.len() / 2);
+        fs::write(logs.join("access.log.1.gz"), damaged).unwrap();
+        let unread = log_line("steam", "/depot/1/chunk/c");
+        fs::write(
+            logs.join("access.log"),
+            format!(
+                "{}{}{unread}",
+                log_line("steam", "/depot/1/chunk/a"),
+                log_line("steam", "/depot/1/chunk/b")
+            ),
+        )
+        .unwrap();
+
+        let remaining = purge_keeping_unread(temp.path(), 4);
+
+        assert!(remaining.ends_with(&unread), "{remaining}");
+    }
+
+    fn mark(path: &Path, records: u64, unread: bool) -> log_resume::FileMark {
+        log_resume::FileMark {
+            identity: log_purge::file_identity(path).unwrap(),
+            len: fs::metadata(path).unwrap().len(),
+            records,
+            offset: None,
+            tail_crc: None,
+            unread,
+        }
+    }
+
+    /// Saves the importer's record of having read `read` from the current log at `position`.
+    fn save_resume(temp: &Path, position: u64, older_files: Vec<log_resume::FileMark>, read: &str) {
+        let current = temp.join("logs").join("access.log");
+        let mut resume = log_resume::ResumeFile::default();
+        resume.stems.insert(
+            "access.log".to_string(),
+            log_resume::StemResume {
+                position,
+                older_files,
+                file_identity: log_purge::file_identity(&current).unwrap(),
+                offset: read.len() as u64,
+                file_records: read.lines().count() as u64,
+                tail_crc: log_resume::tail_crc(&current, read.len() as u64).unwrap(),
+            },
+        );
+        log_resume::save(&temp.join("resume.json"), &resume).unwrap();
+    }
+
+    /// The importer read three lines of access.log.2, two of access.log.1 and the game's lines a
+    /// and b, so its position is 7. logrotate then deletes access.log.2 and the game's line c
+    /// arrives before the next pass. Returns line c.
+    fn logrotate_deleted_the_oldest_log(temp: &Path) -> String {
+        let logs = temp.join("logs");
+        fs::create_dir_all(&logs).unwrap();
+        let oldest = logs.join("access.log.2");
+        let rotated = logs.join("access.log.1");
+        let current = logs.join("access.log");
+        let other = log_line("steam", "/depot/2/chunk/old");
+        fs::write(&oldest, other.repeat(3)).unwrap();
+        fs::write(&rotated, other.repeat(2)).unwrap();
+        let read = format!(
+            "{}{}",
+            log_line("steam", "/depot/1/chunk/a"),
+            log_line("steam", "/depot/1/chunk/b")
+        );
+        fs::write(&current, &read).unwrap();
+        save_resume(
+            temp,
+            7,
+            vec![mark(&oldest, 3, false), mark(&rotated, 2, false)],
+            &read,
+        );
+        fs::remove_file(&oldest).unwrap();
+        let unread = log_line("steam", "/depot/1/chunk/c");
+        fs::write(&current, format!("{read}{unread}")).unwrap();
+        unread
+    }
+
+    #[test]
+    fn a_log_logrotate_deleted_does_not_make_unread_lines_look_read() {
+        let temp = tempfile::tempdir().unwrap();
+        let unread = logrotate_deleted_the_oldest_log(temp.path());
+
+        let report = purge_depot_one(temp.path(), 7, &["--keep-unread-lines"]);
+
+        assert_eq!(
+            fs::read_to_string(temp.path().join("logs").join("access.log")).unwrap(),
+            unread
+        );
+        // The position drops by a and b and by the deleted log's three records, so the next pass
+        // skips the two lines of access.log.1 and imports c.
+        assert_eq!(
+            report.log_lines_removed_before_position_by_source["access.log"],
+            5
+        );
+    }
+
+    /// The importer read the old line of access.log.1 and lines a and b of access.log, so its
+    /// position is 3. Line c arrives unread; then rotate 1 + compress without delaycompress deletes
+    /// the read rotation, compresses the current log into a new file and starts a new current log
+    /// with line d, so no log with a saved identity is left.
+    fn rotate_without_anchor(temp: &Path) {
+        use std::io::Write;
+
+        let logs = temp.join("logs");
+        fs::create_dir_all(&logs).unwrap();
+        let rotated = logs.join("access.log.1");
+        let current = logs.join("access.log");
+        fs::write(&rotated, log_line("steam", "/depot/2/chunk/old")).unwrap();
+        let read = format!(
+            "{}{}",
+            log_line("steam", "/depot/1/chunk/a"),
+            log_line("steam", "/depot/1/chunk/b")
+        );
+        fs::write(&current, &read).unwrap();
+        save_resume(temp, 3, vec![mark(&rotated, 1, false)], &read);
+        let unread = log_line("steam", "/depot/1/chunk/c");
+        fs::remove_file(&rotated).unwrap();
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder
+            .write_all(format!("{read}{unread}").as_bytes())
+            .unwrap();
+        fs::write(logs.join("access.log.1.gz"), encoder.finish().unwrap()).unwrap();
+        fs::remove_file(&current).unwrap();
+        fs::write(&current, log_line("steam", "/depot/1/chunk/d")).unwrap();
+    }
+
+    fn log_files(temp: &Path) -> Vec<Vec<u8>> {
+        ["access.log.1.gz", "access.log"]
+            .iter()
+            .map(|name| fs::read(temp.join("logs").join(name)).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn a_rotation_that_leaves_no_anchor_refuses_a_purge_that_keeps_unread_lines() {
+        let temp = tempfile::tempdir().unwrap();
+        rotate_without_anchor(temp.path());
+        let before = log_files(temp.path());
+        let positions = temp.path().join("positions.json");
+        fs::write(&positions, r#"{"access.log":3}"#).unwrap();
+
+        let error = purge_with(
+            temp.path(),
+            json!({ "urls": [], "depot_ids": [1] }),
+            &[
+                "--stem-positions",
+                positions.to_str().unwrap(),
+                "--resume",
+                temp.path().join("resume.json").to_str().unwrap(),
+                "--keep-unread-lines",
+            ],
+        )
+        .expect_err("a purge that cannot place the read lines must refuse");
+
+        assert!(error.to_string().contains("import it again"), "{error}");
+        assert_eq!(log_files(temp.path()), before);
+    }
+
+    #[test]
+    fn a_purge_with_no_anchor_still_runs_when_it_need_not_place_the_read_lines() {
+        // An eviction purge counts every line as read.
+        let eviction = tempfile::tempdir().unwrap();
+        rotate_without_anchor(eviction.path());
+        assert_eq!(purge_depot_one(eviction.path(), 3, &[]).lines_removed, 4);
+
+        // A position the record does not match is used as it is, as before.
+        let stale = tempfile::tempdir().unwrap();
+        rotate_without_anchor(stale.path());
+        assert_eq!(
+            purge_depot_one(stale.path(), 2, &["--keep-unread-lines"]).lines_removed,
+            2
+        );
+
+        // A position of 0 read nothing, so there is nothing to place.
+        let unread = tempfile::tempdir().unwrap();
+        let current = unread.path().join("logs").join("access.log");
+        fs::create_dir_all(current.parent().unwrap()).unwrap();
+        fs::write(&current, "").unwrap();
+        save_resume(unread.path(), 0, Vec::new(), "");
+        fs::remove_file(&current).unwrap();
+        fs::write(&current, log_line("steam", "/depot/1/chunk/d")).unwrap();
+        assert_eq!(
+            purge_depot_one(unread.path(), 0, &["--keep-unread-lines"]).lines_removed,
+            0
+        );
+    }
+
+    #[test]
+    fn an_eviction_purge_takes_a_log_logrotate_deleted_off_the_position() {
+        let temp = tempfile::tempdir().unwrap();
+        logrotate_deleted_the_oldest_log(temp.path());
+
+        let report = purge_depot_one(temp.path(), 7, &[]);
+
+        assert_eq!(report.lines_removed, 3);
+        assert_eq!(
+            report.log_lines_removed_before_position_by_source["access.log"],
+            5
+        );
+    }
+
+    #[test]
+    fn a_rotated_log_the_importer_could_not_open_keeps_its_lines() {
+        let temp = tempfile::tempdir().unwrap();
+        let logs = temp.path().join("logs");
+        fs::create_dir_all(&logs).unwrap();
+        let rotated = logs.join("access.log.1");
+        let never_read = format!(
+            "{}{}",
+            log_line("steam", "/depot/1/chunk/x"),
+            log_line("steam", "/depot/1/chunk/y")
+        );
+        fs::write(&rotated, &never_read).unwrap();
+        let other = log_line("steam", "/depot/2/chunk/other");
+        let read = format!(
+            "{}{}{other}",
+            log_line("steam", "/depot/1/chunk/a"),
+            log_line("steam", "/depot/1/chunk/b")
+        );
+        fs::write(logs.join("access.log"), &read).unwrap();
+        // The importer could not open access.log.1, so its position 3 counts only access.log.
+        save_resume(temp.path(), 3, vec![mark(&rotated, 0, true)], &read);
+
+        let remaining = purge_keeping_unread(temp.path(), 3);
+
+        assert_eq!(remaining, other);
+        assert_eq!(fs::read_to_string(&rotated).unwrap(), never_read);
     }
 
     #[test]

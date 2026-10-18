@@ -100,7 +100,8 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
             new DatasourceCapabilityService(datasourceService),
             CacheScanGateHarness.Idle(),
             (OperationStateService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
-                typeof(OperationStateService)));
+                typeof(OperationStateService)),
+            null!);
     }
 
     public void Dispose()
@@ -679,7 +680,8 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
             new DatasourceCapabilityService(sources),
             CacheScanGateHarness.Idle(),
             (OperationStateService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
-                typeof(OperationStateService)));
+                typeof(OperationStateService)),
+            null!);
         var manager = CreateManager(rotation);
         var method = typeof(CacheManagementService).GetMethod(
             "RunGameRemovalAcrossDatasourcesAsync",

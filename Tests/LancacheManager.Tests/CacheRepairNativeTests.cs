@@ -543,6 +543,8 @@ public sealed class CacheRepairNativeTests
                 services.AddSingleton<IOperationConflictChecker, OperationConflictChecker>();
                 services.AddSingleton<IOperationQueue, IdleQueue>();
                 services.AddSingleton<CorruptionDetectionService>();
+                services.AddSingleton(TimeProvider.System);
+                services.AddSingleton<RustLogProcessorService>();
                 services.AddSingleton<CacheManagementService>();
                 services.AddSingleton<CacheReconciliationService>();
                 services.AddSingleton<CacheClearingService>();

@@ -20,6 +20,30 @@ internal sealed class CacheStatusClock(DateTimeOffset utcNow) : TimeProvider
         return timer;
     }
 
+    internal int ActiveTimerCount
+    {
+        get
+        {
+            lock (_sync)
+                return _timers.Count(timer => timer.Active);
+        }
+    }
+
+    /// <summary>
+    /// Waits until the code under test has created its delay, so an <see cref="Advance"/> that must
+    /// fire it does not run before the timer exists.
+    /// </summary>
+    internal async Task WaitForActiveTimersAsync(int count)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (ActiveTimerCount < count)
+        {
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException($"Expected {count} active timers; {ActiveTimerCount} after 10 s.");
+            await Task.Delay(10);
+        }
+    }
+
     public void Advance(TimeSpan duration)
     {
         List<(TimerCallback Callback, object? State)> callbacks = [];

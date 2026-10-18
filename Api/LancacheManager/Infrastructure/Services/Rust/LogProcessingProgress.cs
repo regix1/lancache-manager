@@ -89,6 +89,14 @@ public class LogProcessingProgress : RustProgressBase
     public List<string> FilesWithErrors { get; set; } = new();
 
     /// <summary>
+    /// How many files in <see cref="FilesWithErrors"/> this pass left with records it did not read. A
+    /// rotated log the processor read up to a damaged or unfinished part is not counted: its position
+    /// moves past that log, keeping the records read before the problem.
+    /// </summary>
+    [JsonPropertyName("files_left_unread")]
+    public int FilesLeftUnread { get; set; }
+
+    /// <summary>
     /// The database error that stopped the run; null when none did. The processor stops reading every
     /// source at it, so a partial run that carries one fails with this error.
     /// </summary>

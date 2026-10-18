@@ -3450,6 +3450,124 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     [Fact]
+    public async Task AStartupRepairReadsTheLogsToTheEndBeforeItRedoesTheRemovalPurgeAsync()
+    {
+        var root = Path.Combine(_root, "startup-redo-reads-first");
+        Guid removalId;
+        await using (var crashed = await DispatchHarness.CreateAsync(root))
+        {
+            var removal = crashed.NewRemoval(OperationType.GameRemoval);
+            removal.Target!.SteamDepotIds = [1];
+            removalId = removal.Id;
+            await crashed.Owner.PrepareRepairAsync(removal, CancellationToken.None);
+            await crashed.Owner.StartWorkAsync(removal.Id, "alpha", CancellationToken.None);
+            await crashed.Owner.MarkLogRewriteStartedAsync(removal.Id, "alpha");
+        }
+
+        // The app stopped during the purge, so the next start redoes the log step inside startup recovery.
+        // The import goes through the same owner calls a real pass makes, so a wait on the repair would hang here.
+        await using var harness = await DispatchHarness.CreateAsync(root, start: false);
+        var purgesBeforeRead = new List<int>();
+        harness.Importer.OnRead = async datasource =>
+        {
+            var pass = NewLogProcessingRepair();
+            await harness.Owner.PrepareRepairAsync(pass, CancellationToken.None);
+            await harness.Owner.StartWorkAsync(pass.Id, datasource.Name, CancellationToken.None);
+            await using (await harness.Owner.LockLogFilesAsync(
+                null,
+                OperationType.LogProcessing,
+                LogFileLockKind.Ingest,
+                CancellationToken.None))
+            {
+                purgesBeforeRead.Add(harness.RemovalRust.Launches.Count(launch => launch.Purge));
+            }
+            await harness.Owner.FinishRepairAsync(pass.Id, true, false, null);
+            return true;
+        };
+        await harness.Owner.StartAsync(CancellationToken.None);
+        await harness.WaitForCompletedAsync(removalId);
+
+        Assert.Equal([0], purgesBeforeRead);
+        Assert.Single(harness.RemovalRust.Launches, launch => launch.Purge);
+    }
+
+    [Fact]
+    public async Task AStartupRedoPurgesNothingUntilAnImportReadsEveryLogAsync()
+    {
+        var root = Path.Combine(_root, "startup-redo-waits-for-a-full-read");
+        Guid removalId;
+        await using (var crashed = await DispatchHarness.CreateAsync(root))
+        {
+            var removal = crashed.NewRemoval(OperationType.GameRemoval);
+            removal.Target!.SteamDepotIds = [1];
+            removalId = removal.Id;
+            await crashed.Owner.PrepareRepairAsync(removal, CancellationToken.None);
+            await crashed.Owner.StartWorkAsync(removal.Id, "alpha", CancellationToken.None);
+            await crashed.Owner.MarkLogRewriteStartedAsync(removal.Id, "alpha");
+        }
+
+        // Every import of this start stops short, so each attempt of the redo fails until the repair fails out.
+        await using var harness = await DispatchHarness.CreateAsync(root, start: false);
+        var reads = new List<(bool ReadEveryLog, int PurgesBefore)>();
+        var readEveryLog = false;
+        harness.Importer.OnRead = _ =>
+        {
+            reads.Add((readEveryLog, harness.RemovalRust.Launches.Count(launch => launch.Purge)));
+            return Task.FromResult(readEveryLog);
+        };
+        await harness.Owner.StartAsync(CancellationToken.None);
+        await WaitForAsync(() => harness.Repairs.Tracker.GetOperation(removalId)?.RepairError is not null);
+
+        Assert.Equal([(false, 0), (false, 0), (false, 0)], reads);
+        // The card shows the refusal from its key rather than the English message.
+        Assert.Equal("errors.unmappedRemoval.logsBehind", harness.Repairs.Tracker.GetOperation(removalId)!.RepairError);
+        Assert.Equal(OperationRepairPhase.Repairing, harness.State.LoadOperationRepairs().Single(repair => repair.Id == removalId).Phase);
+
+        // A person's Retry after the logs are readable again redoes the step.
+        readEveryLog = true;
+        Assert.True(await harness.Owner.RetryRepairAsync(removalId));
+        var completed = await harness.WaitForCompletedAsync(removalId);
+
+        Assert.Equal([(false, 0), (false, 0), (false, 0), (true, 0)], reads);
+        Assert.Single(harness.RemovalRust.Launches, launch => launch.Purge);
+        Assert.True(completed.Sources.Single().LogPositionsKept);
+    }
+
+    [Fact]
+    public async Task AStartupRedoAfterTheLogFolderEmptiesRefusesTheSeriesAsMissingAsync()
+    {
+        var root = Path.Combine(_root, "startup-redo-after-the-folder-empties");
+        Guid removalId;
+        await using (var crashed = await DispatchHarness.CreateAsync(root))
+        {
+            var removal = crashed.NewRemoval(OperationType.GameRemoval);
+            removal.Target!.SteamDepotIds = [1];
+            removalId = removal.Id;
+            await crashed.Owner.PrepareRepairAsync(removal, CancellationToken.None);
+            await crashed.Owner.StartWorkAsync(removal.Id, "alpha", CancellationToken.None);
+            await crashed.Owner.MarkLogRewriteStartedAsync(removal.Id, "alpha");
+        }
+
+        // The redo resets alpha's positions while its log is there, then its import stops short.
+        await using var harness = await DispatchHarness.CreateAsync(root, start: false);
+        harness.Importer.OnRead = _ => Task.FromResult(false);
+        await harness.Owner.StartAsync(CancellationToken.None);
+        await WaitForAsync(() => harness.Repairs.Tracker.GetOperation(removalId)?.RepairError is not null);
+        var afterReset = Assert.Single(harness.State.GetLogSourcePositions("alpha"));
+        Assert.Equal((LogSourceLayout.MonolithicStem, 0L), (afterReset.Key, afterReset.Value));
+
+        // The log folder empties before the person's Retry, whose redo resets the positions again.
+        File.Delete(Path.Combine(harness.Datasources.GetDatasource("alpha")!.LogPath, LogSourceLayout.MonolithicStem));
+        Assert.True(await harness.Owner.RetryRepairAsync(removalId));
+        await WaitForAsync(() =>
+            harness.Repairs.Tracker.GetOperation(removalId)?.RepairError is not null
+            || harness.State.LoadOperationRepairs().Single(repair => repair.Id == removalId).Phase == OperationRepairPhase.Completed);
+
+        Assert.Equal("errors.unmappedRemoval.logsMissing", harness.Repairs.Tracker.GetOperation(removalId)!.RepairError);
+        Assert.DoesNotContain(harness.RemovalRust.Launches, launch => launch.Purge);
+    }
+
+    [Fact]
     public async Task RetryAfterTheCardWasClosedIsRefusedAsync()
     {
         var now = new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc);
@@ -4283,6 +4401,8 @@ public sealed class OperationRepairTests : IDisposable
         public DatasourceCapabilityService Capabilities { get; }
         public FailingStateService State { get; }
         public RepairHarness Repairs { get; private set; } = null!;
+        public RemovalRepairHarness.RemovalRustProcessHelper RemovalRust { get; private set; } = null!;
+        public UnmappedFileRemovalTests.ScriptedImporter Importer { get; } = new();
         public OperationStateService Owner => Repairs.Owner;
         public ScheduledRunReporterTests.CapturingNotificationService Notifications { get; } = new();
         public CapturingLogger<OperationStateService> Log { get; } = new();
@@ -4319,6 +4439,14 @@ public sealed class OperationRepairTests : IDisposable
                 registrations: harness.Register,
                 logger: harness.Log);
             harness._owner.TrySetResult((RepairOwner)harness.Repairs.Owner);
+            harness.RemovalRust = new RemovalRepairHarness.RemovalRustProcessHelper(
+                root,
+                OperationType.GameRemoval,
+                harness.Paths,
+                harness.Repairs.Tracker,
+                harness.Owner,
+                harness.State,
+                harness._database.Factory);
             // What the redone log step uses; the owner exists only once the repair harness does.
             foreach (var (field, value) in new (string, object)[]
                      {
@@ -4332,14 +4460,8 @@ public sealed class OperationRepairTests : IDisposable
                              new ProcessManager(NullLogger<ProcessManager>.Instance),
                              harness.Paths,
                              TimeProvider.System)),
-                         ("_rustProcessHelper", new RemovalRepairHarness.RemovalRustProcessHelper(
-                             root,
-                             OperationType.GameRemoval,
-                             harness.Paths,
-                             harness.Repairs.Tracker,
-                             harness.Owner,
-                             harness.State,
-                             harness._database.Factory))
+                         ("_rustProcessHelper", harness.RemovalRust),
+                         ("_logProcessor", harness.Importer)
                      })
             {
                 typeof(CacheManagementService)
@@ -4428,7 +4550,8 @@ public sealed class OperationRepairTests : IDisposable
                 serviceProvider: null!,
                 rustProcessHelper: null!,
                 Datasources,
-                operationTracker: null!));
+                operationTracker: null!,
+                clock: TimeProvider.System));
             services.AddSingleton(_ => new CorruptionDetectionService(
                 NullLogger<CorruptionDetectionService>.Instance,
                 Configuration,

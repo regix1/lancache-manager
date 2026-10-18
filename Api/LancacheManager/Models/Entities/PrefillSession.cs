@@ -82,6 +82,20 @@ public class PrefillSession
     public bool IsPersistent { get; set; }
 
     /// <summary>
+    /// A person canceled this container's last sign-in, so the daemon's drop code for that cancel starts no
+    /// automatic sign-in, also after a manager restart or a recreate. Cleared by the next applied sign-in or
+    /// the next sign-in a person starts.
+    /// </summary>
+    public bool LoginCanceledByPerson { get; set; }
+
+    /// <summary>
+    /// The daemon reached logged-in while <see cref="LoginCanceledByPerson"/> still held. The cancel's own
+    /// auth-lost leaves this clear and does not sign in. A later connection drop clears the mark and signs in
+    /// once, including after a manager restart. Cleared with the mark.
+    /// </summary>
+    public bool LoggedInWhilePersonCanceled { get; set; }
+
+    /// <summary>
     /// When the session was created
     /// </summary>
     public DateTime CreatedAtUtc { get; set; }

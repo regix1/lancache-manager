@@ -10,6 +10,9 @@ internal sealed class PersistentImageChange
     public required string DesiredImageId { get; init; }
     public required DateTime ExpiresAt { get; init; }
     public required bool Authenticated { get; init; }
+
+    /// <summary>The old session was retrying its saved login after a dropped sign-in.</summary>
+    public required bool SigningInAgain { get; init; }
     public required bool NeedsRelogin { get; init; }
     public string? CreatedSessionId { get; set; }
     public string? CreatedContainerId { get; set; }

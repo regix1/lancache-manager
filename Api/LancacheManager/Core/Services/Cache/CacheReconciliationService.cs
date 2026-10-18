@@ -2508,6 +2508,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 operationId,
                 datasource,
                 targets,
+                keepUnreadLines: false,
                 reportProgress
                     ? progress => ReportRemovalProgressAsync(
                         operationId,
@@ -2792,11 +2793,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         IReadOnlyCollection<long> downloadIds,
         CancellationToken cancellationToken)
     {
-        await using (await _serviceProvider.GetRequiredService<OperationStateService>().LockLogFilesAsync(
+        var operationState = _serviceProvider.GetRequiredService<OperationStateService>();
+        operationState.EnsureNoUnmappedRemovalRunning();
+        await using (await operationState.LockLogFilesAsync(
             operationId: null,
             OperationType.DatabaseReset,
             LogFileLockKind.Rows,
-            cancellationToken))
+            cancellationToken,
+            personLogAction: true))
         {
             return await OrphanedDownloadRecords.RemoveAsync(context, downloadIds, cancellationToken);
         }

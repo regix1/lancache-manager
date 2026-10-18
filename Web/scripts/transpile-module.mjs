@@ -58,9 +58,10 @@ export const moduleUrl = (source) =>
  *
  * @param {string} relativePath Path to the TypeScript file, relative to the scripts directory.
  * @param {Record<string, string>} [aliasUrls] Import alias to the data URL that replaces it.
+ * @param {typescript.CompilerOptions} [compilerOptions] Optional compilation overrides.
  * @returns {Promise<string>} A data URL holding the compiled module.
  */
-export const compileToUrl = async (relativePath, aliasUrls = {}) => {
+export const compileToUrl = async (relativePath, aliasUrls = {}, compilerOptions = {}) => {
   const source = await readFile(new URL(relativePath, import.meta.url), 'utf8');
   const resolved = Object.entries(aliasUrls).reduce(
     (text, [alias, url]) =>
@@ -69,7 +70,7 @@ export const compileToUrl = async (relativePath, aliasUrls = {}) => {
           rewritten.split(`${keyword} '${alias}'`).join(`${keyword} '${url}'`),
         text.split(`import('${alias}')`).join(`import('${url}')`)
       ),
-    transpile(source)
+    transpile(source, typescript.ModuleKind.ESNext, compilerOptions)
   );
   return moduleUrl(resolved);
 };

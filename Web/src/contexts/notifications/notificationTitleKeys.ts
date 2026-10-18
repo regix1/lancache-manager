@@ -32,6 +32,7 @@ export const NOTIFICATION_TITLE_KEYS: Record<NotificationType, string | null> = 
   bulk_removal: 'common.notifications.titles.bulkRemoval',
   prefill_login: 'common.notifications.titles.prefillLogin',
   download_history_upgrade: 'common.notifications.titles.downloadHistoryUpgrade',
+  unmapped_file_removal: 'common.notifications.titles.unmappedFileRemoval',
   cache_repair: 'common.notifications.titles.cacheRepair',
   // A one-shot error toast rather than an operation, so it carries no operation eyebrow.
   steam_session_error: null,

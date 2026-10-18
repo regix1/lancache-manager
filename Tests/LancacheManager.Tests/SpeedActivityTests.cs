@@ -767,6 +767,62 @@ public sealed class SpeedActivityTests
         }
     }
 
+    [Fact]
+    public async Task AChildThatStopsPublishingIsNotReportingAsync()
+    {
+        var clock = new MutableClock(new DateTimeOffset(Now));
+        var datasources = PrimaryDatasources();
+        var tracker = CacheScanGateHarness.TrackerWith(
+            new DownloadSpeedSnapshot { TimestampUtc = Now }, [], clock, datasources);
+        var runId = Guid.NewGuid();
+        await BeginChildAsync(tracker, runId, datasources);
+        await tracker.AcceptNativeSnapshotAsync(QuietFrame(1), runId, CancellationToken.None);
+        Assert.Equal(0, tracker.ReadReportingChild());
+
+        // A child stuck on a stalled log mount or a database lookup publishes nothing more.
+        clock.UtcNow = new DateTimeOffset(Now.AddSeconds(6));
+
+        Assert.Null(tracker.ReadReportingChild());
+    }
+
+    [Fact]
+    public async Task AChildStartedAfterAStepIsNotReportingUntilItsFirstSnapshotAsync()
+    {
+        var clock = new MutableClock(new DateTimeOffset(Now));
+        var datasources = PrimaryDatasources();
+        var tracker = CacheScanGateHarness.TrackerWith(
+            new DownloadSpeedSnapshot { TimestampUtc = Now }, [], clock, datasources);
+        var firstRun = Guid.NewGuid();
+        await BeginChildAsync(tracker, firstRun, datasources);
+        await tracker.AcceptNativeSnapshotAsync(QuietFrame(1), firstRun, CancellationToken.None);
+        // A step stopped the first child, as the tracker loop records it.
+        CacheScanGateHarness.SetField(tracker, "_childStoppedForStep", true);
+        CacheScanGateHarness.SetField(tracker, "_childStops", 1L);
+
+        var secondRun = Guid.NewGuid();
+        await BeginChildAsync(tracker, secondRun, datasources);
+
+        // The new child reads the logs from their end, so the lines before its first poll are unseen.
+        Assert.Null(tracker.ReadReportingChild());
+        await tracker.AcceptNativeSnapshotAsync(QuietFrame(1), secondRun, CancellationToken.None);
+        Assert.Equal(1, tracker.ReadReportingChild());
+    }
+
+    private static Task BeginChildAsync(RustSpeedTrackerService tracker, Guid runId, DatasourceService datasources) =>
+        (Task)typeof(RustSpeedTrackerService)
+            .GetMethod("BeginRunAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(tracker, [runId, CacheScanGateHarness.CaptureRoots(datasources), Now, CancellationToken.None])!;
+
+    private static DownloadSpeedSnapshot QuietFrame(long revision) => new()
+    {
+        Version = 2,
+        StreamId = string.Empty,
+        Revision = revision,
+        TimestampUtc = Now,
+        IsAvailable = true,
+        WindowSeconds = 2,
+    };
+
     // Runs the tracker's real restart loop against a stand-in executable rather than the native
     // binary, taking turns on the logs with the given owner.
     private static (RustSpeedTrackerService Tracker, Task Loop) StartLoop(

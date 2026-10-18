@@ -46,6 +46,26 @@ internal static class GameCacheInfoMergeHelper
         }
     }
 
+    /// <summary>
+    /// Adds each reported unmapped total to the running per-service figure, so the same service
+    /// reported once per datasource ends as one row. The dictionary must compare keys ignoring case.
+    /// </summary>
+    public static void MergeUnmapped(Dictionary<string, UnmappedService> byService, IEnumerable<UnmappedService> reported)
+    {
+        foreach (var unmapped in reported)
+        {
+            if (!byService.TryGetValue(unmapped.Service, out var existing))
+            {
+                byService[unmapped.Service] = unmapped;
+                continue;
+            }
+
+            existing.FileCount += unmapped.FileCount;
+            existing.TotalSizeBytes += unmapped.TotalSizeBytes;
+            existing.SampleUrls.AddRange(unmapped.SampleUrls.Take(5 - existing.SampleUrls.Count));
+        }
+    }
+
     private static void AddDatasource(List<string> datasources, string? name)
     {
         if (string.IsNullOrEmpty(name) || datasources.Contains(name))

@@ -657,6 +657,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       CorruptionRemovalComplete: () => handleForcedRefreshEvent('CorruptionRemovalComplete'),
       ServiceRemovalComplete: () => handleForcedRefreshEvent('ServiceRemovalComplete'),
       GameRemovalComplete: () => handleForcedRefreshEvent('GameRemovalComplete'),
+      UnmappedFileRemovalComplete: () => handleForcedRefreshEvent('UnmappedFileRemovalComplete'),
       // The one-time merge deletes rows that every range may list.
       DownloadHistoryMergeComplete: () => handleForcedRefreshEvent('DownloadHistoryMergeComplete')
     };

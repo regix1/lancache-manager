@@ -93,6 +93,8 @@ public partial class CacheManagementService
                         cancellationToken);
                 }
 
+                var newestLogEntryIdBefore = await ReadNewestLogEntryIdAsync(cancellationToken);
+
                 // The binary only deletes cache files; the log lines go in this datasource's log step.
                 var dsReport = await RunRustRemovalProcessAsync<GameRemovalProgress, GameCacheRemovalReport>(
                     logTag,
@@ -139,7 +141,8 @@ public partial class CacheManagementService
                     datasource.Name,
                     aggregatedReport.CacheFilesDeleted + dsReport.CacheFilesDeleted,
                     checked((long)(aggregatedReport.TotalBytesFreed + dsReport.TotalBytesFreed)),
-                    dsReport.PurgeDepotIds);
+                    dsReport.PurgeDepotIds,
+                    newestLogEntryIdBefore);
 
                 // Aggregate results from this datasource
                 aggregatedReport.CacheFilesDeleted += dsReport.CacheFilesDeleted;
@@ -160,7 +163,11 @@ public partial class CacheManagementService
                     aggregatedReport.LogEntriesRemoved += await RunRemovalLogStepAsync(
                         operationId.Value,
                         datasource,
-                        removalSelection with { DatasourceNames = [datasource.Name] },
+                        removalSelection with
+                        {
+                            DatasourceNames = [datasource.Name],
+                            NewestLogEntryIdBefore = newestLogEntryIdBefore
+                        },
                         dsReport.PurgeUrls,
                         async purgeProgress =>
                         {

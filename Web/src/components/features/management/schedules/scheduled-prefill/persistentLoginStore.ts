@@ -526,7 +526,9 @@ export function armPersistentLoginTimeout(
       return;
     loginTimeoutHandles.delete(service);
     invalidateInFlightLogin(service);
-    void endPersistentLogin(service);
+    // The same reason the server uses when it gives up on a sign-in nobody is answering. Omitting it
+    // would store this clock as the person's Cancel.
+    void endPersistentLogin(service, undefined, 'common.notifications.warnings.signInExpired');
     updatePersistentLoginState(service, () => ({
       ...INITIAL_PERSISTENT_LOGIN_STATE,
       error: messages.timedOut,
@@ -615,9 +617,9 @@ if (typeof window !== 'undefined') {
 
 /**
  * Ends one service's login attempt completely: tells the daemon to abandon it, then leaves the
- * store at rest. The single implementation every user-initiated ending goes through - the modal's
- * Cancel, the modal's X/Escape/backdrop, Logout while a login is in flight, and the overall
- * timeout - so the four of them cannot drift apart again.
+ * store at rest. The modal's Cancel, the modal's X/Escape/backdrop, and Logout while a login is
+ * in flight omit `stopReason`, and that omission is what the server stores as the person's Cancel.
+ * The overall timeout passes the sign-in expiry reason so the same ending does not do that.
  *
  * The store reset runs FIRST and synchronously, before the round trip is awaited. That is what
  * lets the card leave "Authenticating..." on the click rather than a second later, and it is also
@@ -638,7 +640,8 @@ if (typeof window !== 'undefined') {
  */
 export async function endPersistentLogin(
   service: PersistentPrefillServiceId,
-  fallbackSessionId?: string | null
+  fallbackSessionId?: string | null,
+  stopReason?: string
 ): Promise<boolean> {
   const current = getPersistentLoginState(service);
   const sessionId = current.sessionId ?? fallbackSessionId;
@@ -652,7 +655,10 @@ export async function endPersistentLogin(
   cancelingLogins.set(service, (cancelingLogins.get(service) ?? 0) + 1);
   notify(service);
   const identity = loginId ? { loginId, loginAttempt } : { loginAttempt: loginAttempt! };
-  const ended = await ApiService.cancelPersistentLogin(service, sessionId, identity).then(
+  const cancel = stopReason
+    ? ApiService.cancelPersistentLogin(service, sessionId, identity, stopReason)
+    : ApiService.cancelPersistentLogin(service, sessionId, identity);
+  const ended = await cancel.then(
     () => true,
     () => false
   );

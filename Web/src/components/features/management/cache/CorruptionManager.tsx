@@ -20,6 +20,7 @@ import type {
   CorruptionDetectionCompleteEvent,
   CorruptionRemovalCompleteEvent
 } from '@contexts/SignalRContext/types';
+import type { UnifiedNotification } from '@contexts/notifications/types';
 import { useOperationBusy } from '@/hooks/useOperationBusy';
 import { useOptimisticPending } from '@/hooks/useOptimisticPending';
 import { useSelectionSet } from '@/hooks/useSelectionSet';
@@ -29,6 +30,7 @@ import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 import { useCacheScanBlocked } from '@hooks/useCacheScanBlocked';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useRepairEnd } from '@hooks/useRepairEnd';
+import { DisabledActionGate } from '@components/features/management/DisabledActionGate';
 import { DiskObjectActionGate } from '@components/features/management/DiskObjectActionGate';
 import { NginxReopenActionGate } from '@components/features/management/NginxReopenActionGate';
 import { useErrorHandler, useNotifySuccess } from '@/hooks/useErrorHandler';
@@ -75,6 +77,7 @@ import type {
   CorruptionScanCoverage
 } from '@/types';
 import type { StructuralScanMode } from '@/types/corruptionScan';
+import { API_BASE } from '@utils/constants';
 import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
 import { sessionStore } from '@utils/storage';
 import { useSectionExpanded } from '@hooks/useSectionExpanded';
@@ -84,6 +87,52 @@ interface CorruptionManagerProps {
   mockMode: boolean;
   onError?: (message: string) => void;
 }
+
+const corruptionRemovalRunIds = (notifications: readonly UnifiedNotification[]): Set<string> => {
+  const ids = new Set<string>();
+  for (const notification of notifications) {
+    if (notification.type !== 'corruption_removal') continue;
+    ids.add(notification.id);
+    const operationId = notification.details?.operationId;
+    if (operationId) ids.add(operationId);
+    const operationIds = notification.details?.operationIds;
+    if (operationIds) {
+      for (const alias of operationIds) ids.add(alias);
+    }
+  }
+  return ids;
+};
+
+const isActiveCorruptionRemoval = (notification: UnifiedNotification): boolean =>
+  notification.type === 'corruption_removal' &&
+  (notification.status === 'running' ||
+    notification.status === 'waiting' ||
+    notification.status === 'cancelling');
+
+const sameOperationId = (left: string, right: string): boolean =>
+  left.toLowerCase() === right.toLowerCase();
+
+// The 202 id. The completion's last service operation is a different id, so the click
+// matches the id carried for that 202.
+const removeAllEventOperationId = (event: CorruptionRemovalCompleteEvent): string | undefined => {
+  const bulkId = event.context?.bulkOperationId;
+  if (typeof bulkId === 'string' && bulkId.length > 0) return bulkId;
+  if (event.operationId.length > 0) return event.operationId;
+  return undefined;
+};
+
+const corruptionRemovalHasOperation = (
+  notification: UnifiedNotification,
+  operationId: string
+): boolean => {
+  if (sameOperationId(notification.id, operationId)) return true;
+  const detailsOperationId = notification.details?.operationId;
+  if (detailsOperationId !== undefined && sameOperationId(detailsOperationId, operationId)) {
+    return true;
+  }
+  const aliases = notification.details?.operationIds;
+  return aliases !== undefined && aliases.some((id) => sameOperationId(id, operationId));
+};
 
 const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
@@ -119,7 +168,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const isScanBusy = isScanning || isScanWaitingFromNotification;
   const isCorruptionRemovalActive = useOperationBusy({
     types: ['corruption_removal'],
-    status: ['running', 'waiting']
+    status: ['running', 'waiting', 'cancelling']
   });
 
   const [corruptionCounts, setCorruptionCounts] = useState<Record<string, number>>({});
@@ -196,12 +245,28 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   } = useOptimisticPending<string>();
 
   const [pendingRemoveAll, setPendingRemoveAll] = useState(false);
-  const {
-    anyPending: startingRemoveAll,
-    markStarting: markRemoveAllStarting,
-    clearPending: clearRemoveAllPending,
-    clearOnNotification: clearRemoveAllOnNotification
-  } = useOptimisticPending<'removeAll'>();
+  // This click's own busy flag. It is not the shared pending set: another removal, and the
+  // optimistic-pending timeout, must not drop it.
+  const [startingRemoveAll, setStartingRemoveAll] = useState(false);
+  const startingRemoveAllRef = useRef(false);
+  const [removeAllPostPending, setRemoveAllPostPending] = useState(false);
+  const removeAllPostPendingRef = useRef(false);
+  const removeAllPostSettledRef = useRef(false);
+  const removeAllOperationIdRef = useRef<string | null>(null);
+  const removeAllSeenCompletionIdsRef = useRef<Set<string>>(new Set());
+  const removeAllOperationIdsAtClickRef = useRef<Set<string> | null>(null);
+  const removeAllPinnedOperationIdRef = useRef<string | null>(null);
+  const removeAllSawStoredOnRunningRef = useRef(false);
+  const releaseRemoveAllClick = () => {
+    startingRemoveAllRef.current = false;
+    setStartingRemoveAll(false);
+    removeAllOperationIdRef.current = null;
+    removeAllSeenCompletionIdsRef.current = new Set();
+    removeAllOperationIdsAtClickRef.current = null;
+    removeAllPinnedOperationIdRef.current = null;
+    removeAllSawStoredOnRunningRef.current = false;
+    removeAllPostSettledRef.current = false;
+  };
 
   const [pendingRemoveSelected, setPendingRemoveSelected] = useState(false);
   const {
@@ -481,9 +546,28 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     if (!hasInitiallyLoaded) void loadCachedData();
   }, [hasInitiallyLoaded, loadCachedData]);
 
+  const releaseRemoveAllIfEnded = async () => {
+    const operationId = removeAllOperationIdRef.current;
+    if (!startingRemoveAllRef.current || operationId === null) return;
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/corruption/remove-all/${encodeURIComponent(operationId)}`,
+        ApiService.getFetchOptions({ signal: AbortSignal.timeout(10000) })
+      );
+      if (!res.ok) return;
+      const body = (await res.json()) as { running?: boolean };
+      if (removeAllOperationIdRef.current !== operationId || !startingRemoveAllRef.current) return;
+      // Between services and a queued run with no row yet still answer running.
+      if (body.running === false) releaseRemoveAllClick();
+    } catch {
+      // A failed read leaves this click on Removing.
+    }
+  };
+
   const resyncSnapshot = () => {
     void loadCachedData();
     setHistoryRefreshKey((key) => key + 1);
+    void releaseRemoveAllIfEnded();
   };
   // A dropped socket can swallow the completion event of a scan or removal that
   // finished while it was down; resync the cached snapshot and history on reconnect.
@@ -543,6 +627,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const corruptionRemovalBusy =
     anyServiceRemovalPending ||
     startingRemoveAll ||
+    removeAllPostPending ||
     startingRemoveSelected ||
     isCorruptionRemovalActive;
   const scanBlocked =
@@ -636,6 +721,20 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       // Required repair can update the saved snapshot after any terminal outcome.
       setHistoryRefreshKey((key) => key + 1);
 
+      if (event.service === 'all' && startingRemoveAllRef.current) {
+        const completionId = removeAllEventOperationId(event);
+        const storedId = removeAllOperationIdRef.current;
+        if (
+          completionId !== undefined &&
+          storedId !== null &&
+          sameOperationId(storedId, completionId)
+        ) {
+          releaseRemoveAllClick();
+        } else if (completionId !== undefined && storedId === null) {
+          removeAllSeenCompletionIdsRef.current.add(completionId);
+        }
+      }
+
       // Only refresh the actionable panel for the selected method. An event method
       // that differs (removal started elsewhere) updates history alone.
       if (event.detectionMethod && event.detectionMethod !== detectionMethod) return;
@@ -681,13 +780,49 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         );
       }
     }
-    if (startingRemoveAll) {
-      clearRemoveAllOnNotification(
-        'removeAll',
-        runs,
-        (notification) =>
-          notification.type === 'corruption_removal' && notification.status === 'running'
-      );
+    if (startingRemoveAll && removeAllPostSettledRef.current) {
+      const operationId = removeAllOperationIdRef.current;
+      const knownIds = removeAllOperationIdsAtClickRef.current;
+      const activeRemovals = runs.filter(isActiveCorruptionRemoval);
+      const removalWasUnseenAtClick = (notification: UnifiedNotification): boolean => {
+        if (knownIds === null) return false;
+        if (!knownIds.has(notification.id)) return true;
+        const detailsOperationId = notification.details?.operationId;
+        if (detailsOperationId !== undefined && !knownIds.has(detailsOperationId)) {
+          return true;
+        }
+        const aliases = notification.details?.operationIds;
+        return aliases !== undefined && aliases.some((id) => !knownIds.has(id));
+      };
+      const unseenActiveRemoval = activeRemovals.find(removalWasUnseenAtClick);
+
+      if (operationId !== null) {
+        if (
+          activeRemovals.some(
+            (notification) =>
+              notification.status === 'running' &&
+              corruptionRemovalHasOperation(notification, operationId)
+          )
+        ) {
+          removeAllSawStoredOnRunningRef.current = true;
+        }
+        if (removeAllPinnedOperationIdRef.current === null && unseenActiveRemoval) {
+          const pinned = unseenActiveRemoval.details?.operationId ?? unseenActiveRemoval.id;
+          removeAllPinnedOperationIdRef.current = pinned;
+        }
+      } else if (knownIds !== null) {
+        const registeredRun = runs.some((notification) => {
+          if (!isActiveCorruptionRemoval(notification)) return false;
+          if (!knownIds.has(notification.id)) return true;
+          const detailsOperationId = notification.details?.operationId;
+          if (detailsOperationId !== undefined && !knownIds.has(detailsOperationId)) {
+            return true;
+          }
+          const aliases = notification.details?.operationIds;
+          return aliases !== undefined && aliases.some((id) => !knownIds.has(id));
+        });
+        if (registeredRun) releaseRemoveAllClick();
+      }
     }
     if (startingRemoveSelected) {
       clearRemoveSelectedOnNotification(
@@ -698,7 +833,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runs]);
+  }, [removeAllPostPending, runs, startingRemoveAll]);
 
   useEffect(() => {
     const validServices = new Set(projection.rows.map((row) => row.service));
@@ -729,6 +864,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     anyServiceRemovalPending ||
     isCorruptionRemovalActive ||
     startingRemoveAll ||
+    removeAllPostPending ||
     startingRemoveSelected ||
     authMode !== 'authenticated' ||
     checkingPermissions ||
@@ -742,6 +878,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     anyServiceRemovalPending ||
     isCorruptionRemovalActive ||
     startingRemoveAll ||
+    removeAllPostPending ||
     startingRemoveSelected ||
     authMode !== 'authenticated' ||
     checkingPermissions ||
@@ -829,17 +966,52 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   };
 
   const confirmRemoveAll = async () => {
-    if (removalBlocked || !scanId) return;
+    if (
+      removalBlocked ||
+      removeAllPostPendingRef.current ||
+      startingRemoveAllRef.current ||
+      !scanId
+    ) {
+      return;
+    }
     setPendingRemoveAll(false);
-    markRemoveAllStarting('removeAll');
+    removeAllOperationIdRef.current = null;
+    removeAllSeenCompletionIdsRef.current = new Set();
+    removeAllPinnedOperationIdRef.current = null;
+    removeAllSawStoredOnRunningRef.current = false;
+    removeAllOperationIdsAtClickRef.current = corruptionRemovalRunIds(runs);
+    removeAllPostSettledRef.current = false;
+    removeAllPostPendingRef.current = true;
+    startingRemoveAllRef.current = true;
+    setRemoveAllPostPending(true);
+    setStartingRemoveAll(true);
     try {
       const result = await ApiService.removeAllCorruptedChunks(scanId);
-      if (!result.started) clearRemoveAllPending('removeAll');
+      if (!result.started) {
+        releaseRemoveAllClick();
+        return;
+      }
+      if (result.operationId !== undefined) {
+        const operationId = result.operationId;
+        const alreadyEnded = [...removeAllSeenCompletionIdsRef.current].some((id) =>
+          sameOperationId(id, operationId)
+        );
+        if (alreadyEnded) {
+          releaseRemoveAllClick();
+          return;
+        }
+        removeAllOperationIdRef.current = operationId;
+        removeAllOperationIdsAtClickRef.current = null;
+      }
+      removeAllPostSettledRef.current = true;
     } catch (error: unknown) {
       notifyError(t('management.corruption.errors.removeAllCorrupted'), error, {
         logLabel: '[CorruptionManager] Failed to remove all findings'
       });
-      clearRemoveAllPending('removeAll');
+      releaseRemoveAllClick();
+    } finally {
+      removeAllPostPendingRef.current = false;
+      setRemoveAllPostPending(false);
     }
   };
 
@@ -931,6 +1103,21 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       )}
     </div>
   );
+
+  const removeAllInProgress =
+    isCorruptionRemovalActive || startingRemoveAll || removeAllPostPending;
+  const removeAllReason = removeAllInProgress
+    ? t('management.logRemoval.otherRemovalRunning', {
+        operation: t('common.notifications.titles.corruptionRemoval')
+      })
+    : '';
+  const removeAllLabel = removeAllInProgress
+    ? t('management.corruption.removing')
+    : t(
+        detectionMethod === 'structural'
+          ? 'management.corruption.removeAllInvalid'
+          : 'management.corruption.removeAllSuspects'
+      );
 
   const headerActions = (
     <SectionHeaderActions>
@@ -1050,22 +1237,24 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                 position="left"
                 className="block w-full"
               >
-                <ActionMenuDangerItem
-                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                <DisabledActionGate
                   disabled={removalBlocked || !diskObjectsAvailable}
-                  onClick={() => {
-                    setPendingRemoveAll(true);
-                    close();
-                  }}
+                  reason={removeAllReason}
+                  label={removeAllLabel}
+                  position="left"
+                  className="block w-full"
                 >
-                  {startingRemoveAll
-                    ? t('management.corruption.removing')
-                    : t(
-                        detectionMethod === 'structural'
-                          ? 'management.corruption.removeAllInvalid'
-                          : 'management.corruption.removeAllSuspects'
-                      )}
-                </ActionMenuDangerItem>
+                  <ActionMenuDangerItem
+                    icon={<Trash2 className="w-3.5 h-3.5" />}
+                    disabled={removalBlocked || !diskObjectsAvailable}
+                    onClick={() => {
+                      setPendingRemoveAll(true);
+                      close();
+                    }}
+                  >
+                    {removeAllLabel}
+                  </ActionMenuDangerItem>
+                </DisabledActionGate>
               </NginxReopenActionGate>
             </DiskObjectActionGate>
           </>

@@ -228,8 +228,10 @@ public class PersistentPrefillController : ControllerBase
                 // Query the daemon's REAL token expiry + live login state only for running sessions.
                 // The daemon status is the UI's source of truth for authentication (not NeedsRelogin),
                 // because persistent containers always start unauthenticated and are logged in
-                // interactively. Resilient: a single failing/slow status call must never sink the whole
-                // list, so it is per-session try/caught (auth defaults false when unavailable).
+                // interactively. A person's cancel keeps the row signed out while that mark is set, even
+                // when the daemon still reports logged-in. Resilient: a single failing/slow status call
+                // must never sink the whole list, so it is per-session try/caught (auth defaults false
+                // when unavailable).
                 DateTimeOffset? daemonAuthExpiresAtUtc = null;
                 bool isAuthenticated = false;
                 if (isRunning)
@@ -238,7 +240,8 @@ public class PersistentPrefillController : ControllerBase
                     {
                         var status = await daemon.GetSessionStatusAsync(session.Id, cancellationToken);
                         daemonAuthExpiresAtUtc = status?.AuthExpiryUtc;
-                        isAuthenticated = status?.Status == "logged-in";
+                        isAuthenticated = status?.Status == "logged-in"
+                            && !ScheduledPrefillRunGates.PersonCanceledSignIn(session);
                     }
                     catch
                     {
@@ -315,7 +318,15 @@ public class PersistentPrefillController : ControllerBase
             cancellationToken,
             prerequisiteDeadline.Token);
 
-        var games = await daemon.GetOwnedGamesAsync(session!.Id, prerequisite.Token);
+        List<OwnedGame> games;
+        try
+        {
+            games = await daemon.GetOwnedGamesAsync(session!.Id, prerequisite.Token);
+        }
+        catch (DaemonCommandException ex) when (ex.RequiresLogin && service != PrefillPlatform.Steam)
+        {
+            throw new DaemonCommandException(ex.ErrorCode, requiresLogin: true, loginStageKey: "errors.prefill.signInLost");
+        }
 
         var ownedAppIds = games
             .Select(g => g.AppId.ToString())
@@ -489,6 +500,14 @@ public class PersistentPrefillController : ControllerBase
         {
             if (session.Capabilities?.SupportsConcurrentPrefill == true)
             {
+                if (request.Service.RequiresLogin() && ScheduledPrefillRunGates.PersonCanceledSignIn(session))
+                {
+                    throw new ValidationException("Log in to the persistent container before downloading.")
+                    {
+                        StageKey = "management.schedules.services.scheduledPrefill.config.persistentContainer.downloadRequiresAuth"
+                    };
+                }
+
                 var result = await daemon!.PrefillAsync(session.Id, request.All, request.Recent,
                     request.RecentlyPurchased, request.Top, request.Force, request.OperatingSystems,
                     request.MaxConcurrency, cancellationToken, appIds: request.AppIds);
@@ -551,7 +570,7 @@ public class PersistentPrefillController : ControllerBase
                         };
                     }
 
-                    if (status.Status != "logged-in")
+                    if (ScheduledPrefillRunGates.PersonCanceledSignIn(claimedSession!) || status.Status != "logged-in")
                     {
                         throw new ValidationException("Log in to the persistent container before downloading.")
                         {
@@ -1043,7 +1062,7 @@ public class PersistentPrefillController : ControllerBase
 
         // Same idempotent no-op for a cancel meant for an older login attempt on this session: that
         // attempt has already ended, and a newer one must never be cancelled by it.
-        if (!await daemon!.CancelLoginAsync(session.Id, cancellationToken, request.LoginAttempt, request.LoginId))
+        if (!await daemon!.CancelLoginAsync(session.Id, cancellationToken, request.LoginAttempt, request.LoginId, request.StopReason))
         {
             return Ok(new MessageOnlyResponse { Message = "Login already cancelled" });
         }

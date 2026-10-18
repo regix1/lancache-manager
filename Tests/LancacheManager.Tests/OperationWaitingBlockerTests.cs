@@ -334,6 +334,29 @@ public sealed class OperationWaitingBlockerTests : IDisposable
     }
 
     [Fact]
+    public async Task TwoIdenticalCountRequestsEachWaitOnTheirOwnAsync()
+    {
+        var tracker = CreateTracker();
+        var checker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var queue = new OperationQueueService(tracker, checker, NullLogger<OperationQueueService>.Instance);
+        var blocker = tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
+
+        var first = await queue.EnqueueAsync(OperationType.CacheFileCount, ConflictScope.Bulk(), "Count",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
+        var second = await queue.EnqueueAsync(OperationType.CacheFileCount, ConflictScope.Bulk(), "Count",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
+
+        // Each dialog owns its count, so closing one cannot end the count another dialog reads.
+        Assert.NotEqual(first.OperationId, second.OperationId);
+        Assert.False(second.AlreadyRunning);
+        tracker.CancelOperation(first.OperationId);
+        Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(second.OperationId)!.Status);
+
+        tracker.CancelOperation(second.OperationId);
+        tracker.CompleteOperation(blocker, success: true);
+    }
+
+    [Fact]
     public async Task EquivalentScanAtPromotionReceivesTheWaitingHandoff()
     {
         var tracker = CreateTracker();

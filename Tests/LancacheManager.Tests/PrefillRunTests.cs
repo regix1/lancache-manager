@@ -407,6 +407,13 @@ internal class RunClient : NullReturningProxy
     public ConcurrentDictionary<Guid, DaemonOperationPage> Pages { get; } = new();
     public List<Guid> Cancelled { get; } = [];
     public int StartCount { get; private set; }
+    public int StartLoginCalls { get; private set; }
+
+    /// <summary>When set, a status read runs this instead of answering.</summary>
+    public Func<Task<DaemonStatus?>>? StatusRead { get; set; }
+
+    /// <summary>When true, a login command makes the daemon report its logged-in capabilities.</summary>
+    public bool SignInOnStartLogin { get; set; }
     public bool LoseAcknowledgement { get; set; }
     public bool OmitInventory { get; set; }
     public bool CompleteCancellation { get; set; } = true;
@@ -460,6 +467,7 @@ internal class RunClient : NullReturningProxy
     {
         if (targetMethod?.Name == nameof(IDaemonClient.GetStatusAsync))
         {
+            if (StatusRead is not null) return StatusRead();
             if (Status is not null) return Task.FromResult<DaemonStatus?>(Status);
             if (Offline) return Task.FromResult<DaemonStatus?>(null);
             var status = Capabilities(InstanceId);
@@ -471,6 +479,11 @@ internal class RunClient : NullReturningProxy
                     .Select(page => page.Operation).ToList();
             }
             return Task.FromResult<DaemonStatus?>(status);
+        }
+        if (targetMethod?.Name == nameof(IDaemonClient.StartLoginAsync))
+        {
+            StartLoginCalls++;
+            if (SignInOnStartLogin) Status = null;
         }
         if (targetMethod?.Name == nameof(IDaemonClient.PrefillAsync) && args?[0] is Guid id)
         {

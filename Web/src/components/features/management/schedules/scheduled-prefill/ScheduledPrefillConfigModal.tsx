@@ -351,11 +351,15 @@ export function ScheduledPrefillConfigModal({
               if (!isCurrent()) return;
               const stageKey = error instanceof ApiError ? error.body?.stageKey : null;
               setGameLoadError(
-                stageKey === 'errors.steam.signInLost'
-                  ? t('errors.steam.signInLost')
-                  : stageKey === 'errors.steam.gameDetailsUnavailable'
-                    ? t('errors.steam.gameDetailsUnavailable')
-                    : t('errors.prefill.requestFailed')
+                stageKey === 'errors.prefill.signInLost'
+                  ? t('errors.prefill.signInLost')
+                  : stageKey === 'errors.steam.signInLost'
+                    ? t('errors.steam.signInLost')
+                    : stageKey === 'errors.steam.gameDetailsUnavailable'
+                      ? t('errors.steam.gameDetailsUnavailable')
+                      : stageKey?.startsWith('errors.')
+                        ? t(stageKey)
+                        : t('errors.prefill.requestFailed')
               );
               setGameSelection((current) =>
                 current?.serviceKey === serviceKey && current.sessionId === sessionId

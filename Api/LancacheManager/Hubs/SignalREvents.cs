@@ -68,6 +68,7 @@ public static class SignalREvents
     public const string CacheSizeScanStarted = "CacheSizeScanStarted";
     public const string CacheSizeScanProgress = "CacheSizeScanProgress";
     public const string CacheSizeScanComplete = "CacheSizeScanComplete";
+    public const string UnmappedFileRemovalComplete = "UnmappedFileRemovalComplete";
 
     /// <summary>
     /// Sent by the operation tracker to the admin group on every state change of a tracked run.

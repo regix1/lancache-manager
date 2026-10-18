@@ -32,6 +32,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     // is noticed; progress is pushed independently by the daemon relay.
     private static readonly TimeSpan _stopDetectionSlice = TimeSpan.FromMilliseconds(250);
 
+    // The longest a sign-in that ends by itself holds the login lock is a person's "Use my saved login":
+    // two 30 s round trips, a 10 s status read, up to 2 min for the daemon and a 10 s cancel, 3 min 20 s
+    // in all. An automatic sign-in holds it about 80 s.
+    private static readonly TimeSpan _signInLockWait = TimeSpan.FromMinutes(4);
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IStateService _stateService;
     private readonly object _scheduleLock = new();
@@ -976,7 +981,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             {
                 tracker.SetWarning(serviceRun.OperationId, warning);
             }
-            tracker.CompleteOperation(serviceRun.OperationId, success || skipped, error, cancelled, skipped);
+            // The run row keeps this as its error, and a card drawn from the row after a reload translates it with no
+            // values, so a key that reads whole stands in for the English line.
+            tracker.CompleteOperation(serviceRun.OperationId, success || skipped,
+                error is not null && !skipped && snapshot.StageContext is null ? snapshot.StageKey ?? error : error,
+                cancelled, skipped);
         }
     }
 
@@ -1041,7 +1050,35 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         if (serviceRun.RestoredRun is { } restoredRun)
             return await WatchRunAsync(daemon, session, restoredRun, serviceRun, notifications, config);
 
-        if (session.Capabilities?.SupportsConcurrentPrefill == true)
+        // Only the daemon knows why it is signed out. It reports the drop code after a dropped connection and
+        // after a person's cancel of a sign-in, never after a log-off or a Log out; the sign-in below and the
+        // background retry both skip a sign-in a person canceled. Reading its status here also applies a drop
+        // the app missed, which starts the background retry.
+        if (serviceId == PrefillPlatform.Steam)
+        {
+            try
+            {
+                var status = await daemon.GetSessionStatusAsync(session.Id, ct);
+                if (status?.ErrorCode == "auth-lost"
+                    && await daemon.AttemptHeadlessPersistentSelfAuthAsync(session) is null
+                    && await session.LoginLock.WaitAsync(_signInLockWait, ct))
+                {
+                    // Another sign-in held the lock and has finished, or a person's sign-in is open; the
+                    // run below reads the session as it is now.
+                    session.LoginLock.Release();
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "[ScheduledPrefill] Reading the daemon status or signing in again failed for {Service}", serviceId);
+            }
+            ct.ThrowIfCancellationRequested();
+        }
+
+        // A person's cancel leaves the container signed out even when the daemon still says logged-in.
+        // Read after the status above so a later drop can clear the mark and start its one sign-in first.
+        var personLeftSignedOut = requiresLogin && ScheduledPrefillRunGates.PersonCanceledSignIn(session);
+        if (session.Capabilities?.SupportsConcurrentPrefill == true && !personLeftSignedOut)
             return await StartRunAsync(daemon, session, serviceRun, notifications, config);
 
         if (!daemon.PersistentEditSessionGate.TryEnterMutation(out var mutationLease))
@@ -1077,7 +1114,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         try
         {
             var status = await daemon.GetSessionStatusAsync(session.Id, ct);
-            isLoggedIn = status?.Status == "logged-in";
+            isLoggedIn = status?.Status == "logged-in"
+                && !ScheduledPrefillRunGates.PersonCanceledSignIn(session);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -2035,6 +2073,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         bool resume = false)
     {
         var serviceId = serviceRun.ServiceConfig.ServiceId;
+        // Every scheduled run cut off by a drop gets the prefill text, whichever route ends it: the app may sign the
+        // always-on container in again by itself, which the interactive Steam text does not say.
+        if (stageKey == "errors.steam.signInLost") stageKey = "errors.prefill.signInLost";
 
         // Mirror the line onto this service's own tracked operation before sending it, so a browser
         // that reloads mid-run rebuilds this service's card from the run-status endpoint instead of

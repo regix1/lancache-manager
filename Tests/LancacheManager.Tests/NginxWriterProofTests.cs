@@ -587,6 +587,7 @@ public sealed class NginxWriterProofTests : IDisposable
         {
             ["contract_version"] = 4,
             ["scan_id"] = Guid.NewGuid().ToString(),
+            ["scan_started_utc"] = "2026-09-26T18:01:00Z",
             ["detection_method"] = "repeated_miss",
             ["threshold"] = 3,
             ["datasource"] = "alpha",

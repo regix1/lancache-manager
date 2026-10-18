@@ -407,6 +407,7 @@ pub fn key_header_residue(
 pub struct CacheFileCount {
     pub entity: String,
     pub cache_files_found: usize,
+    pub bytes_found: u64,
 }
 
 /// A count-only pass: walk exactly the list `remove_cache_files` would delete, report how many
@@ -424,21 +425,23 @@ pub fn count_cache_files(
     reach: SliceReach,
     progress: &CollectionProgress<'_>,
 ) -> Result<usize> {
-    let cache_files_found = collect_cache_paths(
+    let paths = collect_cache_paths(
         cache_dir,
         url_data,
         scheme,
         reach,
         Some(progress),
         &|stage_key, folders| report_sweep_progress(progress, stage_key, folders),
-    )?
-    .len();
+    )?;
+    let cache_files_found = paths.len();
+    let bytes_found = cache_utils::total_size_from_filesystem(paths.iter().map(|(path, _)| path));
 
     fs::write(
         output_json,
         serde_json::to_string_pretty(&CacheFileCount {
             entity: entity.to_string(),
             cache_files_found,
+            bytes_found,
         })?,
     )?;
 
@@ -1027,6 +1030,44 @@ mod tests {
 
         assert_eq!(outcome.deleted_files, counted);
         assert!(!cache_path.exists());
+    }
+
+    #[test]
+    fn count_report_includes_bytes_found() {
+        let temp = tempfile::tempdir().unwrap();
+        let service = "steam";
+        let mut url_data = HashMap::new();
+        for (url, body) in [("/depot/1/chunk/a", "abc"), ("/depot/1/chunk/b", "abcde")] {
+            let cache_path = cache_utils::calculate_cache_path_no_range(temp.path(), service, url);
+            fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+            fs::write(&cache_path, body).unwrap();
+            url_data.insert(url.to_string(), (service.to_string(), 0_i64));
+        }
+        let output_json = temp.path().join("count.json");
+        let progress_path = temp.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+
+        let counted = count_cache_files(
+            temp.path(),
+            &url_data,
+            &output_json,
+            "Some Game",
+            cache_utils::CacheKeyScheme::Monolithic,
+            SliceReach::SweepKeyHeaders {
+                stage_key: "test.cache.sweeping",
+            },
+            &CollectionProgress {
+                progress_path: &progress_path,
+                reporter: &reporter,
+                stage_key: "test.cache.counting",
+            },
+        )
+        .unwrap();
+
+        assert_eq!(counted, 2);
+        let report: serde_json::Value =
+            serde_json::from_slice(&fs::read(&output_json).unwrap()).unwrap();
+        assert_eq!(report["bytes_found"], 8);
     }
 
     #[test]

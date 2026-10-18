@@ -152,6 +152,13 @@ public class DaemonStatus
     [JsonPropertyName("message")]
     public string? Message { get; set; }
 
+    /// <summary>
+    /// The daemon's code for why it is signed out: <c>auth-lost</c> after a dropped Steam connection.
+    /// Null for a log-off, a person's Log out, a signed-in daemon, and daemons that do not send it.
+    /// </summary>
+    [JsonPropertyName("errorCode")]
+    public string? ErrorCode { get; set; }
+
     [JsonPropertyName("timestamp")]
     public DateTime Timestamp { get; set; }
 

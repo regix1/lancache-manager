@@ -253,6 +253,9 @@ export const SIGNALR_EVENTS = [
   'EvictionRemovalProgress',
   'EvictionRemovalComplete',
 
+  // Unmapped File Removal
+  'UnmappedFileRemovalComplete',
+
   // Game Images
   'GameImagesUpdated',
 
@@ -333,6 +336,8 @@ export const SIGNALR_REFRESH_EVENTS = [
   // Eviction events - refresh evicted items list after scan or removal completes
   'EvictionScanComplete',
   'EvictionRemovalComplete',
+  // An unmapped removal deletes the cache scan the dashboard's Cache Files and unmapped figures use
+  'UnmappedFileRemovalComplete',
   // Client group changes (affects displayName in client stats)
   'ClientGroupCreated',
   'ClientGroupUpdated',

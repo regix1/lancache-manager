@@ -160,6 +160,47 @@ public sealed class ProcessKillAfterDisposeTests
     }
 
     [Fact]
+    public async Task AChildThatExitsBeforeItIsLinkedStillReturnsItsResultAsync()
+    {
+        var manager = new ProcessManager(NullLogger<ProcessManager>.Instance);
+        var tracker = new UnifiedOperationTracker(manager, NullLogger<UnifiedOperationTracker>.Instance);
+        using var cts = new CancellationTokenSource();
+        var operationId = tracker.RegisterOperation(OperationType.LogProcessing, "Log Processing", cts);
+
+        // A small live-ingest pass can exit, and be reaped, before the run links its child.
+        var linksLate = CacheScanGateHarness.CreateProxy<IUnifiedOperationTracker>((method, args) =>
+        {
+            if (method.Name == nameof(IUnifiedOperationTracker.AssociateProcess))
+            {
+                ((Process)args![1]!).WaitForExit();
+            }
+            return method.Invoke(tracker, args);
+        });
+        var helper = new RustProcessHelper(
+            NullLogger<RustProcessHelper>.Instance,
+            manager,
+            pathResolver: null!,
+            operationTracker: linksLate);
+        var start = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo("cmd", "/c exit 0")
+            : new ProcessStartInfo("/bin/sh", "-c \"exit 0\"");
+        start.UseShellExecute = false;
+        start.CreateNoWindow = true;
+
+        var exitCode = await helper.RunTrackedProcessAsync(
+            start,
+            operationId,
+            cts.Token,
+            async process =>
+            {
+                await process.WaitForExitAsync(cts.Token);
+                return process.ExitCode;
+            });
+
+        Assert.Equal(0, exitCode);
+    }
+
+    [Fact]
     public void RemoveLogsCommand_IsTheRemoveShapeWithoutOperationId()
     {
         var withPositions = RustProcessHelper.BuildCorruptionManagerArguments(
@@ -170,7 +211,8 @@ public sealed class ProcessKillAfterDisposeTests
             "C:/ops/evidence.json",
             "C:/ops/progress.json",
             "bare_metal",
-            "C:/ops/positions.json");
+            "C:/ops/positions.json",
+            resumeFile: "C:/data/rust_resume_default.json");
         var withoutPositions = RustProcessHelper.BuildCorruptionManagerArguments(
             "remove-logs",
             "C:/logs",
@@ -181,7 +223,7 @@ public sealed class ProcessKillAfterDisposeTests
             "monolithic");
 
         Assert.Equal(
-            "remove-logs \"C:/logs\" \"C:/cache\" \"steam\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress --key-scheme bare_metal --stem-positions \"C:/ops/positions.json\"",
+            "remove-logs \"C:/logs\" \"C:/cache\" \"steam\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress --key-scheme bare_metal --stem-positions \"C:/ops/positions.json\" --resume \"C:/data/rust_resume_default.json\"",
             withPositions);
         Assert.Equal(
             "remove-logs \"C:/logs\" \"C:/cache\" \"steam\" \"C:/ops/progress.json\" --evidence-file \"C:/ops/evidence.json\" --progress --key-scheme monolithic",

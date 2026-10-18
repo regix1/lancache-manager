@@ -781,6 +781,8 @@ public class RustLogRemovalService
             {
                 arguments += $" --stem-positions \"{stemPositionsPath}\"";
             }
+            // The resume record names the logs logrotate deleted, which the saved position still counts.
+            arguments += $" --resume \"{RustLogProcessorService.ResumePath(_pathResolver, datasource.Name)}\"";
             _logger.LogInformation("Rust arguments: {Arguments}", arguments);
 
             var start = _rustProcessHelper.CreateProcessStartInfo(

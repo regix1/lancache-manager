@@ -433,6 +433,16 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
+    /// Whether a log position reset is in flight on the server, including while it waits for a log step.
+    /// </summary>
+    [HttpGet("reset-running")]
+    [ProducesResponseType(typeof(LogResetRunningResponse), StatusCodes.Status200OK)]
+    public ActionResult<LogResetRunningResponse> GetLogResetRunning()
+    {
+        return Ok(new LogResetRunningResponse { Running = _operationStateService.IsLogResetRunning });
+    }
+
+    /// <summary>
     /// Shared position-reset logic for both the all-datasources and single-datasource PATCH endpoints.
     /// When <paramref name="datasourceName"/> is null, operates across all datasources.
     /// If <paramref name="requestedPosition"/> is 0, resets to beginning; otherwise resets to end of file.
@@ -443,128 +453,150 @@ public class LogsController : ControllerBase
         CancellationToken cancellationToken)
     {
         var isSingleDatasource = datasourceName != null;
+        _operationStateService.EnsureNoUnmappedRemovalRunning();
 
-        // A pass waiting at the log lock during a step already holds IsProcessing, so wait for
-        // the step first; the refusal below then answers only for a pass that is really reading.
-        await _operationStateService.WaitForLogStepAsync(active: false, cancellationToken);
-
-        // A reset while a processor is running would be silently undone when that run's
-        // terminal checkpoint persists its snapshotted positions; make the user stop (or
-        // wait out) processing first instead of returning a success that does not stick.
-        if (_rustLogProcessorService.IsProcessing)
+        // Taken before the wait for a step, so two resets released by one step never both report
+        // done with the later one overwriting the first. One reset runs at a time across every
+        // datasource, and the refusal names that reset, not log processing.
+        if (!_operationStateService.TryBeginLogReset())
         {
-            var refusal = ApiResponse.Error(
-                "Log processing is currently running. Stop it or let it finish, then reset the position.");
-            refusal.StageKey = "errors.logs.processingActive";
-            return Conflict(refusal);
-        }
-
-        // Position == 0 -> reset to beginning. This remains state-only and deliberately does not
-        // launch the Rust line counter.
-        if (requestedPosition == 0)
-        {
-            // Lowering stored positions must not interleave with an import or another job's step.
-            await using (await _operationStateService.LockLogFilesAsync(
-                null,
-                OperationType.LogProcessing,
-                LogFileLockKind.Rows,
-                cancellationToken))
+            return Conflict(new ErrorResponse
             {
-                if (isSingleDatasource)
-                {
-                    _rustLogProcessorService.ResetLogPosition(datasourceName!);
-                    _logger.LogInformation("Datasource '{Name}': Log position reset to beginning", datasourceName);
-                }
-                else
-                {
-                    _rustLogProcessorService.ResetLogPosition();
-                    _logger.LogInformation("Log position reset to beginning for all datasources");
-                }
-            }
-
-            return Ok(new LogPositionResponse
-            {
-                Message = isSingleDatasource
-                    ? $"Log position reset to beginning for '{datasourceName}'"
-                    : "Log position reset to beginning",
-                Position = 0
+                Error = "Another log position reset is running. Try again once it finishes.",
+                StageKey = "errors.logs.resetRunning"
             });
-        }
-
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.LogProcessing,
-            ConflictScope.Bulk(),
-            cancellationToken);
-        if (conflict != null)
-        {
-            // Only another log processing run conflicts here, and this request is not queued.
-            var busy = ApiResponse.Error(
-                "Log processing is currently running. Stop it or let it finish, then reset the position.");
-            busy.StageKey = "errors.logs.processingActive";
-            return Conflict(busy);
-        }
-
-        var reservation = await _rustLogProcessorService.TryReserveProcessingGateAsync();
-        if (reservation is null)
-        {
-            var reserved = ApiResponse.Error(
-                "Log processing is currently running. Stop it or let it finish, then reset the position.");
-            reserved.StageKey = "errors.logs.processingActive";
-            return Conflict(reserved);
         }
 
         try
         {
-            // Inside the try, so a request abandoned while it waits still frees the reservation.
-            // The reservation keeps the live import out; the lock keeps another job's position
-            // reduction from landing between this count and its write.
-            await using var logLock = await _operationStateService.LockLogFilesAsync(
-                null,
-                OperationType.LogProcessing,
-                LogFileLockKind.Rows,
-                cancellationToken);
+            // A pass waiting at the log lock during a step already holds IsProcessing, so wait for
+            // the step first; the refusal below then answers only for a pass that is really reading.
+            await _operationStateService.WaitForLogStepAsync(active: false, cancellationToken);
 
-            IEnumerable<ResolvedDatasource> datasources = isSingleDatasource
-                ? new[] { _datasourceService.GetDatasource(datasourceName!)! }
-                : _datasourceService.GetDatasources();
-
-            long totalLines = 0;
-            foreach (var ds in datasources)
+            // A reset while a processor is running would be silently undone when that run's
+            // terminal checkpoint persists its snapshotted positions; make the user stop (or
+            // wait out) processing first instead of returning a success that does not stick.
+            if (_rustLogProcessorService.IsProcessing)
             {
-                // Counting can take seconds on large or compressed logs. The reservation prevents a
-                // live pass from ingesting the lines being skipped and a purge from lowering positions
-                // before this older count writes them.
-                var countResult = await _rustProcessHelper.CountLogLinesAsync(
-                    ds.LogPath,
-                    cancellationToken);
-                var lineCount = countResult.LinesProcessed;
-
-                _rustLogProcessorService.ClearResume(ds.Name);
-                _stateRepository.SetLogSourcePositions(ds.Name, countResult.SourceLineCounts);
-                _stateRepository.SetLogPosition(ds.Name, lineCount);
-                _stateRepository.SetLogTotalLines(ds.Name, lineCount);
-                totalLines += lineCount;
-
-                if (lineCount > 0)
-                    _logger.LogInformation("Datasource '{Name}': Log position set to end (line {LineCount})", ds.Name, lineCount);
-                else
-                    _logger.LogInformation("Datasource '{Name}': No log files found, position set to 0", ds.Name);
+                return Conflict(ProcessingActive());
             }
 
-            if (!isSingleDatasource)
-                _logger.LogInformation("Log position reset to end for all datasources (total lines: {TotalLines})", totalLines);
-
-            return Ok(new LogPositionResponse
+            // Position == 0 -> reset to beginning. This remains state-only and deliberately does not
+            // launch the Rust line counter.
+            if (requestedPosition == 0)
             {
-                Message = isSingleDatasource
-                    ? $"Log position reset to end of file for '{datasourceName}'"
-                    : "Log position reset to end of file",
-                Position = totalLines
-            });
+                // Lowering stored positions must not interleave with an import or another job's step.
+                await using (await _operationStateService.LockLogFilesAsync(
+                    null,
+                    OperationType.LogProcessing,
+                    LogFileLockKind.Rows,
+                    cancellationToken,
+                    personLogAction: true))
+                {
+                    if (isSingleDatasource)
+                    {
+                        _rustLogProcessorService.ResetLogPosition(datasourceName!);
+                        _logger.LogInformation("Datasource '{Name}': Log position reset to beginning", datasourceName);
+                    }
+                    else
+                    {
+                        _rustLogProcessorService.ResetLogPosition();
+                        _logger.LogInformation("Log position reset to beginning for all datasources");
+                    }
+                }
+
+                return Ok(new LogPositionResponse
+                {
+                    Message = isSingleDatasource
+                        ? $"Log position reset to beginning for '{datasourceName}'"
+                        : "Log position reset to beginning",
+                    Position = 0
+                });
+            }
+
+            var conflict = await _conflictChecker.CheckAsync(
+                OperationType.LogProcessing,
+                ConflictScope.Bulk(),
+                cancellationToken);
+            if (conflict != null)
+            {
+                // Only another log processing run conflicts here, and this request is not queued.
+                return Conflict(ProcessingActive());
+            }
+
+            var reservation = await _rustLogProcessorService.TryReserveProcessingGateAsync();
+            if (reservation is null)
+            {
+                return Conflict(ProcessingActive());
+            }
+
+            try
+            {
+                // Inside the try, so a request abandoned while it waits still frees the reservation.
+                // The reservation keeps the live import out; the lock keeps another job's position
+                // reduction from landing between this count and its write.
+                await using var logLock = await _operationStateService.LockLogFilesAsync(
+                    null,
+                    OperationType.LogProcessing,
+                    LogFileLockKind.Rows,
+                    cancellationToken,
+                    personLogAction: true);
+
+                IEnumerable<ResolvedDatasource> datasources = isSingleDatasource
+                    ? new[] { _datasourceService.GetDatasource(datasourceName!)! }
+                    : _datasourceService.GetDatasources();
+
+                long totalLines = 0;
+                foreach (var ds in datasources)
+                {
+                    // Counting can take seconds on large or compressed logs. The reservation prevents a
+                    // live pass from ingesting the lines being skipped and a purge from lowering positions
+                    // before this older count writes them.
+                    var countResult = await _rustProcessHelper.CountLogLinesAsync(
+                        ds.LogPath,
+                        cancellationToken);
+                    var lineCount = countResult.LinesProcessed;
+
+                    _rustLogProcessorService.ClearResume(ds.Name);
+                    // A series saved before and missing now keeps its position, including one stored
+                    // at 0, so a removal still sees that the series is missing.
+                    ds.RefreshLogSources();
+                    var positions = RustLogProcessorService.MissingSeriesPositions(
+                        _stateRepository.GetLogSourcePositions(ds.Name), ds.LogSourceStems);
+                    foreach (var (stem, lines) in countResult.SourceLineCounts)
+                    {
+                        positions[stem] = lines;
+                    }
+                    _stateRepository.SetLogSourcePositions(ds.Name, positions);
+                    _stateRepository.SetLogPosition(ds.Name, lineCount);
+                    _stateRepository.SetLogTotalLines(ds.Name, lineCount);
+                    totalLines += lineCount;
+
+                    if (lineCount > 0)
+                        _logger.LogInformation("Datasource '{Name}': Log position set to end (line {LineCount})", ds.Name, lineCount);
+                    else
+                        _logger.LogInformation("Datasource '{Name}': No log files found, position set to 0", ds.Name);
+                }
+
+                if (!isSingleDatasource)
+                    _logger.LogInformation("Log position reset to end for all datasources (total lines: {TotalLines})", totalLines);
+
+                return Ok(new LogPositionResponse
+                {
+                    Message = isSingleDatasource
+                        ? $"Log position reset to end of file for '{datasourceName}'"
+                        : "Log position reset to end of file",
+                    Position = totalLines
+                });
+            }
+            finally
+            {
+                _rustLogProcessorService.ReleaseProcessingGate(reservation.Value);
+            }
         }
         finally
         {
-            _rustLogProcessorService.ReleaseProcessingGate(reservation.Value);
+            _operationStateService.EndLogReset();
         }
     }
 
@@ -596,8 +628,12 @@ public class LogsController : ControllerBase
 
         if (!datasource.LogsWritable)
         {
-            return BadRequest(ApiResponse.Invalid($"Logs directory is read-only for datasource '{datasourceName}'"));
+            return BadRequest(LogsReadOnly(datasourceName));
         }
+
+        // Refused, not parked, like the other log actions during an unmapped removal. One that
+        // passes here before the removal starts waits for the cache lock the removal holds.
+        _operationStateService.EnsureNoUnmappedRemovalRunning();
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         Task<Guid?> StartDatasourceLogRemovalAsync() =>
@@ -680,7 +716,7 @@ public class LogsController : ControllerBase
 
         if (!datasource.LogsWritable)
         {
-            return BadRequest(ApiResponse.Invalid($"Logs directory is read-only for datasource '{datasourceName}'"));
+            return BadRequest(LogsReadOnly(datasourceName));
         }
 
         datasource.RefreshLogSources();
@@ -701,13 +737,15 @@ public class LogsController : ControllerBase
                 Context = new Dictionary<string, object?> { ["path"] = accessLogPath }
             });
         }
+        _operationStateService.EnsureNoUnmappedRemovalRunning();
         // Held through the position update, so no import reads the files this deletes and no other
         // step rewrites them; the reopen check is prepared after this, against the files as they are now.
         await using var logLock = await _operationStateService.LockLogFilesAsync(
             null,
             OperationType.LogProcessing,
             LogFileLockKind.Rewrite,
-            cancellationToken);
+            cancellationToken,
+            personLogAction: true);
         // Listed after the lock: a logrotate run during the wait renames and removes files.
         var logFiles = NginxLogRotationService.GetAffectedLogPaths(datasource);
         var affectedPaths = hasPerServiceSources ? logFiles : new[] { accessLogPath };
@@ -806,7 +844,7 @@ public class LogsController : ControllerBase
         var counted = await _rustProcessHelper.CountLogLinesAsync(
             datasource.LogPath,
             cancellationToken,
-            _rustLogProcessorService.ResumePath(datasourceName));
+            RustLogProcessorService.ResumePath(_pathResolver, datasourceName));
         // Checked again after the count: a logrotate run during a long count moves the files the user
         // chose, and the delete must not remove the new file nginx opened in their place.
         RefuseIfFilesChanged();
@@ -880,11 +918,21 @@ public class LogsController : ControllerBase
                     {
                         read -= stale.Records;
                     }
-                    positions[stem] = Math.Min(
+                    var keptLines = Math.Min(
                         read,
                         surviving
                             .Where(path => LogSourceLayout.LogicalStem(Path.GetFileName(path)) == stem)
                             .Sum(LinesIn));
+                    // No read lines remain. Dropping the key clears the series: a reset stores 0
+                    // to keep a series, so a delete must not leave that same 0 behind.
+                    if (keptLines > 0)
+                    {
+                        positions[stem] = keptLines;
+                    }
+                    else
+                    {
+                        positions.Remove(stem);
+                    }
                 }
                 _stateRepository.SetLogSourcePositions(datasourceName, positions);
                 _stateRepository.SetLogTotalLines(datasourceName, surviving.Sum(LinesIn));
@@ -967,4 +1015,16 @@ public class LogsController : ControllerBase
         return Ok(status);
     }
 
+    private static ErrorResponse ProcessingActive() => new()
+    {
+        Error = "Log processing is currently running. Stop it or let it finish, then reset the position.",
+        StageKey = "errors.logs.processingActive"
+    };
+
+    private static ErrorResponse LogsReadOnly(string datasourceName) => new()
+    {
+        Error = $"Logs directory is read-only for datasource '{datasourceName}'",
+        StageKey = "errors.logs.directoryReadOnly",
+        Context = new Dictionary<string, object?> { ["datasource"] = datasourceName }
+    };
 }

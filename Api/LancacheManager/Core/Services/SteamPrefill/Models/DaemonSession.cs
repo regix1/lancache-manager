@@ -124,6 +124,54 @@ public class DaemonSession
     /// </summary>
     public long LoginAttempt { get; set; }
 
+    /// <summary>
+    /// The retry that signs a persistent session in again after a dropped Steam connection, running or
+    /// finished. Set and cleared under <see cref="PrefillLock"/>; any applied sign-in clears it.
+    /// </summary>
+    internal Task? SignInAgainAfterDrop { get; set; }
+
+    /// <summary>
+    /// Stops <see cref="SignInAgainAfterDrop"/> when a person starts their own sign-in. Set with it, under
+    /// <see cref="PrefillLock"/>. Never disposed: it holds no registrations, so a cancel after the retry
+    /// ended does nothing.
+    /// </summary>
+    internal CancellationTokenSource? SignInAgainCancel { get; set; }
+
+    /// <summary>
+    /// A person canceled a running sign-in, or a Log in of theirs that the server recorded and had not refused or
+    /// ended, so the <c>auth-lost</c> code the daemon writes for that cancel starts no automatic sign-in. Set and read
+    /// under <see cref="PrefillLock"/>; only the next applied sign-in or the person's next accepted Log in clears it.
+    /// A persistent session stores it on its row, so a manager restart or a recreate keeps it.
+    /// </summary>
+    internal bool LoginCanceledByPerson { get; set; }
+
+    /// <summary>
+    /// The daemon reached logged-in while <see cref="LoginCanceledByPerson"/> still held. Set and cleared
+    /// under <see cref="PrefillLock"/> with the mark. A persistent session stores it on the same row, so a
+    /// manager restart still treats a later connection drop as the one automatic sign-in. The cancel's own
+    /// auth-lost finds this clear.
+    /// </summary>
+    internal bool LoggedInWhilePersonCanceled { get; set; }
+
+    /// <summary>
+    /// Lets one write of <see cref="LoginCanceledByPerson"/> and <see cref="LoggedInWhilePersonCanceled"/>
+    /// to the session's row run at a time.
+    /// </summary>
+    internal SemaphoreSlim LoginCanceledByPersonWrites { get; } = new(1, 1);
+
+    /// <summary>
+    /// The automatic sign-in with the saved login has sent its login and not ended yet, so a cancel it meets is not a
+    /// person's. Set under <see cref="PrefillLock"/> with the suppress flag; cleared when that try ends, however it ends.
+    /// A person's "Use my saved login" also suppresses challenges but is still theirs to cancel.
+    /// </summary>
+    internal bool SigningInAutomatically { get; set; }
+
+    /// <summary>
+    /// How many signed-in states were applied to this session, under <see cref="PrefillLock"/>. A retry
+    /// that sees it move while it waits returns, because something else signed the session in.
+    /// </summary>
+    internal int SignInCount { get; set; }
+
     /// <summary>Blocks a new daemon login until the current cancel command has settled.</summary>
     public bool LoginCanceling { get; set; }
     public Task<bool>? LoginCancelTask { get; set; }

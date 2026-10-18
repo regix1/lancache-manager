@@ -588,6 +588,21 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
     /// </summary>
     public bool NeverAuthenticates { get; set; }
 
+    /// <summary>
+    /// When set with <see cref="NeverAuthenticates"/>, the daemon announces the unfinished sign-in with a
+    /// signed-out push that carries this code, as the Steam daemon does when Steam does not answer.
+    /// </summary>
+    public string? NoAnswerErrorCode { get; set; }
+
+    /// <summary>
+    /// The code the signed-out push for an acknowledged cancel-login carries. The Steam daemon writes
+    /// <c>auth-lost</c> for a cancel of a sign-in that has no prompt open.
+    /// </summary>
+    public string? CancelErrorCode { get; set; }
+
+    /// <summary>Raises a status push as the daemon's socket would.</summary>
+    public Task RaiseStatusAsync(DaemonStatus status) => DaemonEventDispatch.InvokeAllAsync(OnStatusUpdate, status, null);
+
     /// <summary>When true, the login's challenge dispatch waits on <see cref="ReleaseChallengeDispatch"/>.</summary>
     public bool HoldChallengeDispatch { get; set; }
 
@@ -656,6 +671,16 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
             if (!NeverAuthenticates)
             {
                 _selfAuthenticated = true;
+            }
+            else if (NoAnswerErrorCode is not null)
+            {
+                await DaemonEventDispatch.InvokeAllAsync(OnStatusUpdate, new DaemonStatus
+                {
+                    Type = "status",
+                    Status = "awaiting-login",
+                    ErrorCode = NoAnswerErrorCode,
+                    Timestamp = DateTime.UtcNow
+                }, null);
             }
             return null;
         }
@@ -771,6 +796,7 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
             {
                 Status = "awaiting-login",
                 Message = "Login cancelled - ready for new attempt",
+                ErrorCode = CancelErrorCode,
                 Timestamp = DateTime.UtcNow
             }, null);
         }

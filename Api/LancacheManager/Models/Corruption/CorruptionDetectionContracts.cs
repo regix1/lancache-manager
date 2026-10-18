@@ -404,6 +404,13 @@ public sealed class CorruptionRemovalEvidence
     [JsonPropertyName("scan_id")]
     public Guid ScanId { get; set; }
 
+    /// <summary>
+    /// When the scan started, as <c>yyyy-MM-ddTHH:mm:ssZ</c>. A candidate file modified after this
+    /// moment changed since the scan saw it and is kept.
+    /// </summary>
+    [JsonPropertyName("scan_started_utc")]
+    public required string ScanStartedUtc { get; set; }
+
     [JsonPropertyName("threshold")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? Threshold { get; set; }
@@ -419,6 +426,7 @@ public sealed class CorruptionRemovalEvidence
 public sealed class CorruptionRemovalSelection
 {
     public Guid ScanId { get; init; }
+    public required string ScanStartedUtc { get; init; }
     public int Threshold { get; init; }
     public int ContractVersion { get; init; }
     public CorruptionDetectionMethod DetectionMethod { get; init; }

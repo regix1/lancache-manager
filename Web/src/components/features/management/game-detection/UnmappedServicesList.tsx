@@ -5,6 +5,10 @@ import { formatBytes, formatCount } from '@utils/formatters';
 import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { rowToggleHandlers } from '@utils/rowToggle';
 import Badge from '@components/ui/Badge';
+import { Button } from '@components/ui/Button';
+import { Tooltip } from '@components/ui/Tooltip';
+import { useCacheRemovalActive } from '@hooks/useCacheRemovalActive';
+import { useDiskObjectCapability } from '@hooks/useDiskObjectCapability';
 import { CollapsibleRegion } from '@components/ui/CollapsibleRegion';
 import { EmptyState } from '@components/ui/ManagerCard';
 import type { UnmappedService } from '../../../../types';
@@ -13,6 +17,9 @@ import ExpandableList from './ExpandableList';
 
 interface UnmappedServicesListProps {
   services: UnmappedService[];
+  isAdmin: boolean;
+  diskActionBlocked: boolean;
+  onRemove: () => void;
 }
 
 const MAX_INITIAL_URLS = 20;
@@ -26,8 +33,18 @@ const filterAndSortServices = (services: UnmappedService[], searchQuery: string)
   return filtered;
 };
 
-const UnmappedServicesList: React.FC<UnmappedServicesListProps> = ({ services }) => {
+const UnmappedServicesList: React.FC<UnmappedServicesListProps> = ({
+  services,
+  isAdmin,
+  diskActionBlocked,
+  onRemove
+}) => {
   const { t } = useTranslation();
+  // A running or queued game, service, evicted-item or unmapped removal blocks this button the
+  // same way it blocks the per-item Remove buttons.
+  const isCacheRemovalActive = useCacheRemovalActive();
+  const { available: diskObjectsAvailable, denialReason: diskObjectDenialReason } =
+    useDiskObjectCapability();
 
   if (services.length === 0) {
     return (
@@ -112,6 +129,32 @@ const UnmappedServicesList: React.FC<UnmappedServicesListProps> = ({ services })
           );
         }}
       />
+
+      {isAdmin && (
+        <div className="flex justify-end">
+          <Tooltip
+            content={
+              !diskObjectsAvailable
+                ? diskObjectDenialReason
+                : diskActionBlocked
+                  ? t('initialization.permissionsCheck.hasErrors')
+                  : null
+            }
+          >
+            <Button
+              type="button"
+              onClick={onRemove}
+              awaitPermissions
+              disabled={diskActionBlocked || isCacheRemovalActive || !diskObjectsAvailable}
+              variant="filled"
+              color="destructive"
+              size="sm"
+            >
+              {t('management.gameDetection.removeUnmapped')}
+            </Button>
+          </Tooltip>
+        </div>
+      )}
     </div>
   );
 };

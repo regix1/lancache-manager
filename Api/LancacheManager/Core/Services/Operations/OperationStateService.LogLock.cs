@@ -1,3 +1,4 @@
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
@@ -12,6 +13,55 @@ public partial class OperationStateService
     private int _ingestWaiters;
     private bool _ingestTurnOwed;
     private bool _speedTrackerRunning;
+    // Set while an unmapped removal runs. A step stops the download tracker the removal watches,
+    // which ends the removal, so a person's log action is refused while this is set.
+    private volatile bool _unmappedRemovalRunning;
+    // 1 while a person's log position reset runs, from before its wait for a step until it answers.
+    private int _logResetRunning;
+
+    /// <summary>False while another log position reset runs; a true answer is ended by <see cref="EndLogReset"/>.</summary>
+    public bool TryBeginLogReset() => Interlocked.CompareExchange(ref _logResetRunning, 1, 0) == 0;
+
+    public void EndLogReset() => Volatile.Write(ref _logResetRunning, 0);
+
+    public bool IsLogResetRunning => Volatile.Read(ref _logResetRunning) != 0;
+
+    // Set under the gate that decides every grant, so no person's step waiting at the log lock is
+    // granted after the removal starts; the signal hands those waiters their refusal now.
+    // A person's Retry claims a repair under the same gate, and a repair's log step would stop
+    // the removal, so the removal does not start while a repair runs or waits.
+    internal void SetUnmappedRemovalRunning(bool running)
+    {
+        _admissionGate.Wait();
+        try
+        {
+            if (running && GetBlockingRepair() is not null)
+            {
+                throw new ConflictException("An interrupted operation is being repaired. Try again once it finishes.")
+                {
+                    StageKey = "errors.unmappedRemoval.repairRunning"
+                };
+            }
+            _unmappedRemovalRunning = running;
+            SignalWorkChanged();
+        }
+        finally
+        {
+            _admissionGate.Release();
+        }
+    }
+
+    /// <summary>Refuses a person's log action while an unmapped removal runs, so the removal finishes.</summary>
+    public void EnsureNoUnmappedRemovalRunning()
+    {
+        if (_unmappedRemovalRunning)
+        {
+            throw new ConflictException("An unmapped file removal is running. Try again once it finishes.")
+            {
+                StageKey = "errors.logs.unmappedRemovalRunning"
+            };
+        }
+    }
 
     /// <summary>
     /// A step waits for the current import pass to end and for the speed tracker to stop; no new
@@ -19,12 +69,15 @@ public partial class OperationStateService
     /// waits only for a step, and a step waits for a reopen; neither the import nor the speed tracker
     /// waits for a reopen. A step that waits only behind a reopen does not hold off the live import's
     /// pass, since it cannot be granted while the reopen holds; a manual pass still waits for the step.
+    /// A person's log action (<paramref name="personLogAction"/>) is refused at the grant, not only
+    /// before its wait, while an unmapped removal runs.
     /// </summary>
     public async Task<LogFileLock> LockLogFilesAsync(
         Guid? operationId,
         OperationType operationType,
         LogFileLockKind kind,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool personLogAction = false)
     {
         var request = new LogFileLock(this, operationId, operationType, kind);
         var step = kind is LogFileLockKind.Rows or LogFileLockKind.Rewrite;
@@ -62,6 +115,10 @@ public partial class OperationStateService
                 await _admissionGate.WaitAsync(cancellationToken);
                 try
                 {
+                    if (personLogAction)
+                    {
+                        EnsureNoUnmappedRemovalRunning();
+                    }
                     granted = kind == LogFileLockKind.Reopen
                         ? _reopenHolder is null && (_logHolder is null || _logHolder.Kind == LogFileLockKind.Ingest)
                         : _logHolder is null

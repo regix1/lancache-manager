@@ -5,6 +5,7 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using Microsoft.AspNetCore.Mvc;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 using static LancacheManager.Controllers.CacheRouteGuards;
@@ -500,7 +501,8 @@ public class GamesController : ControllerBase
                     GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
                     GameName: displayName,
-                    StageKey: errorStageKey,
+                    // A refusal names its reason by key, so the card shows that reason in the reader's language.
+                    StageKey: ex is ApiException { StageKey: { } refusalKey } ? refusalKey : errorStageKey,
                     PercentComplete: 0.0,
                     Context: RemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message),
                     Service: service),
@@ -509,10 +511,11 @@ public class GamesController : ControllerBase
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
-                    StageKey: errorStageKey,
+                    StageKey: ex is ApiException { StageKey: { } refusalKey } ? refusalKey : errorStageKey,
                     GameName: displayName,
                     Context: RemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message),
-                    Error: ex.Message),
+                    // The browser shows an error ahead of the stage key, so a keyed refusal sends none.
+                    Error: ex is ApiException { StageKey: not null } ? null : ex.Message),
                 ExecuteAsync: (opId, ct, onProgress) => removeFunc(
                     opId,
                     ct,

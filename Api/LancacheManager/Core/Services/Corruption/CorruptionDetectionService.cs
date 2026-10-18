@@ -1489,6 +1489,7 @@ public class CorruptionDetectionService
         return new CorruptionRemovalSelection
         {
             ScanId = scan.ScanId,
+            ScanStartedUtc = FormatScanStartedUtc(scan.StartedAtUtc.AsUtc()),
             Threshold = scan.Threshold,
             ContractVersion = scan.ContractVersion,
             DetectionMethod = scan.DetectionMode.ToDetectionMethod(),
@@ -1790,6 +1791,7 @@ public class CorruptionDetectionService
                     evidenceFile: evidenceFilePath,
                     progressFile: progressFilePath,
                     stemPositionsFile: stemPositionsPath,
+                    resumeFile: RustLogProcessorService.ResumePath(_pathResolver, datasource.Name),
                     keyScheme: keyScheme,
                     cancellationToken: cancellationToken,
                     operationId: operationId,

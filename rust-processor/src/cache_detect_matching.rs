@@ -2,7 +2,6 @@ use anyhow::{bail, Result};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -284,13 +283,6 @@ fn total_size_from_index(
         .sum()
 }
 
-fn total_size_from_filesystem(found_files: &HashSet<PathBuf>) -> u64 {
-    found_files
-        .iter()
-        .filter_map(|path| fs::metadata(path).ok().map(|metadata| metadata.len()))
-        .sum()
-}
-
 /// The digests this row is the first in the scan to claim, recorded in `claimed` so a later row
 /// matching the same physical file does not size it a second time. One file's bytes therefore
 /// land on exactly one row, while every row that matched the file still reports it in
@@ -353,7 +345,7 @@ pub(crate) fn detect_service_cache_info_incremental(
 ) -> ServiceCacheInfo {
     let found_files = match_files_in_cache_tracked(service_urls, cache_dir, counter);
     let owned_files = claim_first_on_disk(&found_files, cache_dir, claimed);
-    let total_size = total_size_from_filesystem(&owned_files);
+    let total_size = cache_utils::total_size_from_filesystem(&owned_files);
     let sample_urls =
         cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url, _)| url.as_str()), 5);
 
@@ -412,7 +404,7 @@ pub(crate) fn detect_steam_game_cache_info_incremental(
     let inputs = collect_steam_game_inputs(records)?;
     let found_files = match_files_in_cache(&inputs.service_urls, cache_dir);
     let owned_files = claim_first_on_disk(&found_files, cache_dir, claimed);
-    let total_size = total_size_from_filesystem(&owned_files);
+    let total_size = cache_utils::total_size_from_filesystem(&owned_files);
 
     Ok(build_steam_game_cache_info(
         inputs,
@@ -480,7 +472,7 @@ pub(crate) fn detect_epic_game_cache_info_incremental(
 ) -> GameCacheInfo {
     let found_files = match_files_in_cache(service_urls, cache_dir);
     let owned_files = claim_first_on_disk(&found_files, cache_dir, claimed);
-    let total_size = total_size_from_filesystem(&owned_files);
+    let total_size = cache_utils::total_size_from_filesystem(&owned_files);
 
     build_epic_game_cache_info(
         epic_app_id,
@@ -545,7 +537,7 @@ pub(crate) fn detect_named_game_cache_info_incremental(
 ) -> GameCacheInfo {
     let found_files = match_files_in_cache(service_urls, cache_dir);
     let owned_files = claim_first_on_disk(&found_files, cache_dir, claimed);
-    let total_size = total_size_from_filesystem(&owned_files);
+    let total_size = cache_utils::total_size_from_filesystem(&owned_files);
 
     build_named_game_cache_info(
         service,
@@ -560,6 +552,7 @@ pub(crate) fn detect_named_game_cache_info_incremental(
 mod tests {
     use super::*;
     use crate::cache_detect_queries::NamedDownloadRecord;
+    use std::fs;
 
     /// Same-service record (Blizzard/Riot): identity service == cache-hash service.
     fn rec(service: &str, game_name: &str, url: &str, bytes: i64) -> NamedDownloadRecord {

@@ -1374,7 +1374,8 @@ public class DownloadCleanupServiceTests
             new DatasourceCapabilityService(datasources),
             CacheScanGateHarness.Idle(),
             (OperationStateService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(
-                typeof(OperationStateService)));
+                typeof(OperationStateService)),
+            null!);
         var logger = new CapturingLogger<DownloadCleanupService>();
         var service = new DownloadCleanupService(
             services,

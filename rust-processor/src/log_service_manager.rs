@@ -1104,8 +1104,11 @@ fn remove_service_from_logs(
     reporter: &ProgressReporter,
     datasource_name: Option<&str>,
     stem_positions: Option<&HashMap<String, u64>>,
+    resume_path: Option<&Path>,
 ) -> Result<()> {
     let start_time = Instant::now();
+    // Names the logs logrotate deleted since the last pass, which the saved positions still count.
+    let resume = resume_path.map(log_resume::load);
     let ds_name = datasource_name.map(|s| s.to_string());
     if let Some(ds) = &ds_name {
         eprintln!(
@@ -1330,6 +1333,7 @@ fn remove_service_from_logs(
             Path::new(log_path),
             &service_lower,
             stem_positions,
+            resume.as_ref(),
         )?;
         total_lines_removed += outcome.lines_removed;
         permission_errors += outcome.permission_errors;
@@ -1701,6 +1705,7 @@ fn run(
                 reporter,
                 datasource_name,
                 stem_positions,
+                resume_path,
             ) {
                 let error = error.context("Service removal failed");
                 write_error_progress(progress_path, format!("{error:#}"), datasource_name);
@@ -2035,6 +2040,7 @@ mod tests {
             records,
             offset: None,
             tail_crc: None,
+            unread: false,
         };
         let current_length = fs::metadata(&current).expect("read length").len();
         let mut resume = log_resume::ResumeFile::default();
@@ -2460,6 +2466,7 @@ mod tests {
             &reporter,
             None,
             None,
+            None,
         )
         .expect("remove steam");
 
@@ -2520,6 +2527,7 @@ mod tests {
                 "steam",
                 &directory.path().join("progress.json"),
                 &ProgressReporter::new(false),
+                None,
                 None,
                 None,
             );
@@ -2593,6 +2601,7 @@ mod tests {
             &ProgressReporter::new(false),
             None,
             None,
+            None,
         );
         std::env::remove_var("LANCACHE_LOG_CHECK");
         std::env::remove_var("LANCACHE_LOG_RESULT");
@@ -2654,6 +2663,7 @@ mod tests {
             "steam",
             &directory.path().join("progress.json"),
             &ProgressReporter::new(false),
+            None,
             None,
             None,
         );
@@ -2797,6 +2807,7 @@ mod tests {
             &ProgressReporter::new(false),
             None,
             None,
+            None,
         );
         std::env::remove_var("LANCACHE_LOG_CHECK");
         std::env::remove_var("LANCACHE_LOG_RESULT");
@@ -2842,6 +2853,7 @@ mod tests {
             "steam",
             &directory.path().join("progress.json"),
             &ProgressReporter::new(false),
+            None,
             None,
             None,
         );
@@ -2897,6 +2909,7 @@ mod tests {
             &ProgressReporter::new(false),
             None,
             None,
+            None,
         );
         std::env::remove_var("LANCACHE_LOG_CHECK");
         std::env::remove_var("LANCACHE_LOG_RESULT");
@@ -2933,6 +2946,7 @@ mod tests {
             "steam",
             &directory.path().join("progress.json"),
             &ProgressReporter::new(false),
+            None,
             None,
             None,
         );
