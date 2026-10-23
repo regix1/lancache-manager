@@ -657,6 +657,8 @@ async fn run_scan(
 
     // Step 4: Process downloads in batches
     let batch_size: i64 = 2000;
+    // Upper bound on log-entry rows loaded per page (~100k rows is tens of MB).
+    const MAX_PAGE_PROBE_ROWS: i64 = 100_000;
     let mut total_evicted: usize = 0;
     let mut total_un_evicted: usize = 0;
     let mut total_processed: usize = 0;
@@ -670,6 +672,10 @@ async fn run_scan(
     // of owning the tuple's strings - the old shape grew unbounded into hundreds of MB on
     // large libraries.
     let mut probe_memo: HashMap<u128, bool> = HashMap::new();
+
+    // Log-entry rows per download, counted once per download and reused when a download
+    // falls past the page budget and is fetched again on the next page.
+    let mut probe_row_counts: HashMap<i64, i64> = HashMap::new();
 
     loop {
         // Step A: Fetch a batch of distinct inactive download IDs
@@ -695,6 +701,59 @@ async fn run_scan(
         if download_rows.is_empty() {
             break;
         }
+
+        // Size the page by its log-entry rows, not only by its download count. Step B loads every
+        // distinct (download, service, url, datasource) row of the page at once, and a single
+        // Steam game can have 100k+ chunk URLs, so 2000 downloads could mean millions of rows
+        // and over a GB of RSS (#36: ~1.9M rows, ~1.2 GB). Cut the page once the budget is
+        // reached, always keeping at least one download so a single huge game still progresses.
+        // The end-of-scan test below must use the number FETCHED, not the trimmed page size.
+        let fetched_count = download_rows.len();
+        let download_rows = {
+            let uncounted: Vec<i64> = download_rows
+                .iter()
+                .map(|r| r.get::<i64, _>("download_id"))
+                .filter(|id| !probe_row_counts.contains_key(id))
+                .collect();
+            if !uncounted.is_empty() {
+                // Raw row count, an upper bound on the distinct tuples Step B returns. It is served
+                // from IX_LogEntries_DownloadId with no de-duplication (0.5 s vs 2.9 s and ~0.5 GB
+                // of temp spill for COUNT(DISTINCT ...) on 3.3M rows); overcounting only makes pages
+                // somewhat smaller.
+                let counts: Vec<(i64, i64)> = sqlx::query_as(
+                    r#"
+                    SELECT "DownloadId", COUNT(*)
+                    FROM "LogEntries"
+                    WHERE "DownloadId" = ANY($1)
+                    GROUP BY "DownloadId"
+                    "#,
+                )
+                .bind(&uncounted)
+                .fetch_all(&pool)
+                .await
+                .with_context(|| "Failed to count log entries per download")?;
+                for id in &uncounted {
+                    probe_row_counts.insert(*id, 0);
+                }
+                probe_row_counts.extend(counts);
+            }
+            let mut used: i64 = 0;
+            let mut keep = 0usize;
+            for row in &download_rows {
+                let n = probe_row_counts
+                    .get(&row.get::<i64, _>("download_id"))
+                    .copied()
+                    .unwrap_or(0);
+                if keep > 0 && used + n > MAX_PAGE_PROBE_ROWS {
+                    break;
+                }
+                used += n;
+                keep += 1;
+            }
+            let mut rows = download_rows;
+            rows.truncate(keep);
+            rows
+        };
 
         let download_ids: Vec<i64> = download_rows.iter().map(|r| r.get("download_id")).collect();
         let download_evicted: HashMap<i64, bool> = download_rows
@@ -1039,8 +1098,8 @@ async fn run_scan(
             break;
         }
 
-        // If we got fewer downloads than batch_size, we've reached the end
-        if (batch_count as i64) < batch_size {
+        // If the query returned fewer downloads than batch_size, we've reached the end
+        if (fetched_count as i64) < batch_size && batch_count == fetched_count {
             break;
         }
     }
