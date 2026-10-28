@@ -78,6 +78,27 @@ The full documentation lives at **[regix1.github.io/lancache-manager](https://re
 | [Building from Source](https://regix1.github.io/lancache-manager/building-from-source/) | Local development |
 | [Contributing Translations](https://regix1.github.io/lancache-manager/contributing-translations/) | Adding or improving a language |
 
+### Optional proxy for GitHub depot mappings
+
+Set `GitHubMappings__HttpsProxy=http://proxy.example.test:7890` in the Manager
+container environment to proxy published depot-map downloads separately from
+Steam and other application traffic. This named client uses the proxy only for
+HTTPS on port 443 to these exact hosts: `github.com`, `api.github.com`,
+`codeload.github.com`, `raw.githubusercontent.com`, `objects.githubusercontent.com`,
+and `release-assets.githubusercontent.com`. Redirect targets are checked against
+the same policy; all other destinations use direct connections.
+
+When this setting is empty, this client's transport is explicitly direct, even
+if process-wide proxy environment variables are set. Other HTTP clients and
+prefill workers retain their existing behavior. Set the dedicated value when
+migrating a deployment that previously used an ambient proxy for this import.
+The optional proxy URL must use an absolute HTTP or HTTPS URI.
+
+The dependency-free transport checks run in the backend lint workflow, or locally
+with `dotnet run --project Tests/GitHubMappingProxy.ContractTests -c Release`.
+They follow synthetic 302 responses and observe actual connection selection
+without opening external sockets.
+
 ## Support
 
 Stuck on something? [Open an issue](https://github.com/regix1/lancache-manager/issues), or find the LANCache community on the [LanCache.NET Discord](https://discord.com/invite/BKnBS4u).

@@ -79,7 +79,7 @@ public partial class SteamKit2Service
 
             const string githubUrl =
                 "https://github.com/regix1/lancache-pics/releases/latest/download/pics_depot_mappings.json";
-            using var httpClient = _httpClientFactory.CreateClient();
+            using var httpClient = _httpClientFactory.CreateClient(GitHubMappingHttpClient.ClientName);
             httpClient.DefaultRequestHeaders.Add("User-Agent", "LancacheManager/1.0");
             httpClient.Timeout = TimeSpan.FromMinutes(5);
 
