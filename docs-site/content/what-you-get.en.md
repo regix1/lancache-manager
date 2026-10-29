@@ -61,7 +61,7 @@ Planning a LAN party? Put it on the calendar and see download activity in date c
 The Status Check tab (Management → Status Check) answers "is my LANCache actually working?" without touching a terminal. It checks that game domains resolve to your cache, that the cache answers, and that recent downloads really went through it - per domain, in plain language.
 
 <details markdown>
-<summary><strong>Why "From this device" says <em>Something answered, but the browser cannot confirm it is the cache.</em>, and how to fix it</strong></summary>
+<summary><strong>Why "From this device" cannot confirm the cache, and how to fix it</strong></summary>
 
 Your browser runs that one probe, not the server, so it reports what your client sees. It requests `http://lancache.steamcontent.com/lancache-heartbeat`, and a real cache node answers `204` with an `X-LanCache-Processed-By` header naming itself.
 
@@ -80,7 +80,10 @@ location /lancache-heartbeat {
 
 `Access-Control-Expose-Headers` is the line people miss. Without it the request succeeds and the header is still unreadable, so the card stays on that result. `*` is safe here: the probe sends no cookies or credentials, and the response carries nothing but the node name.
 
-Two caveats. If you serve this manager over **https**, the browser blocks the plain-http probe outright and the card cannot work regardless of CORS. A response other than `204` with the cache header, including a `403`, shows that same result.
+Two caveats:
+
+- If you serve this manager over **https**, the browser blocks the plain-http probe, and the card cannot work whatever the CORS setup.
+- Any answer that is not a `204` with the cache header, such as a `403`, gives the same "cannot confirm" result.
 
 </details>
 
@@ -92,7 +95,19 @@ Two caveats. If you serve this manager over **https**, the browser blocks the pl
 <em>Management → Logs & Cache - process logs, manage the disk cache, and detect corrupted or evicted files</em>
 </div>
 
-**Corruption scanning.** Two scans, for two different problems. A *repeated-miss* scan reads your logs for files that are on disk but keep missing, which usually means the cached copy is bad. A *structural* scan opens the cache files themselves and checks nginx headers, payload offsets, and recorded lengths, flagging only proven failures. Structural runs as **Full Scan** (every eligible file, rebuilds the baseline) or **Incremental Scan** (only new, changed, or previously unresolved files). Removing anything a scan finds needs the `/cache` mount without `:ro`.
+**Corruption scanning.** Two scans, for two different problems:
+
+| Scan | What it checks |
+|---|---|
+| Repeated-miss | Reads your logs for files that are on disk but keep missing. That usually means the cached copy is bad. |
+| Structural | Opens the cache files and checks nginx headers, payload offsets, and recorded lengths. It flags only proven failures. |
+
+The structural scan has two modes:
+
+- **Full Scan** checks every eligible file and rebuilds the baseline.
+- **Incremental Scan** checks only new, changed, or previously unresolved files.
+
+To remove anything a scan finds, mount `/cache` without `:ro`.
 
 That covers the daily surface. Management has more tabs behind it - expand below to see all of them.
 

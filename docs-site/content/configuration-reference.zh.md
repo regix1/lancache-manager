@@ -61,7 +61,18 @@
 | **账户** | 登录后使用应用。可以查看并管理其他账户。不能看到主要账户及其会话。 | 浏览下载、更改自己的设置 |
 | **访客** | 通过访客会话查看。预填充是单独授予的：主要或账户可以按平台授予，也可以只授予某一个会话。 | 浏览下载、统计、事件、客户端数据 |
 
-要在不分享账户的情况下让别人进入，请在**用户**页面确认访客登录处于**已解锁**状态，访客随后在登录界面点击**以访客身份继续**即可。会话时长，以及新访客是否获得预填充，都在**访客默认设置**中。每个页面和每项操作都需要已登录账户或一个访客会话，只有两个例外：除非你设置 `Security__RequireAuthForMetrics=true`，否则 `/metrics` 是公开的；`/health` 存活探针则始终会应答。登录和首次运行设置端点出于必要而公开。
+要在不分享账户的情况下让别人进入：
+
+1. 在**用户**页面确认访客登录处于**已解锁**状态。
+2. 访客在登录界面点击**以访客身份继续**。
+
+会话时长，以及新访客是否获得预填充，都在**访客默认设置**中设置。
+
+每个页面和每项操作都需要已登录账户或一个访客会话。例外情况：
+
+- 除非你设置 `Security__RequireAuthForMetrics=true`，否则 `/metrics` 是公开的。
+- `/health` 存活探针始终会应答。
+- 登录和首次运行设置必须公开，否则无法访问。
 
 ### 预填充设置 { #prefill-config }
 
@@ -221,6 +232,15 @@ services:
 
 </details>
 
-**从 1.10.3 升级？** 新增了四个变量，全部可选：`Prefill__XboxDockerImage`（Xbox 成为第五个预填充平台）、高级选项 `Prefill__StallTimeoutSeconds` 和 `Prefill__AbandonedLoginTimeoutSeconds`，以及按数据源设置的 `LanCache__DataSources__<n>__SchemeOverride`，供日志文件名让自动检测失效的裸机安装使用。没有变量被重命名或移除，所以现有的 Compose 文件可以照常使用。一处清理：`Security__MaxAdminDevices` 是一个旧的无效设置，当前代码不会读取它——可以删除。
+**从 1.10.3 升级？** 现有的 Compose 文件可以照常使用；没有变量被重命名或移除。新增了四个可选变量：
+
+| 变量 | 用途 |
+|---|---|
+| `Prefill__XboxDockerImage` | Xbox，第五个预填充平台 |
+| `Prefill__StallTimeoutSeconds` | 高级选项。预填充无进展可持续多久 |
+| `Prefill__AbandonedLoginTimeoutSeconds` | 高级选项。预填充登录可等待多久 |
+| `LanCache__DataSources__<n>__SchemeOverride` | 日志文件名让自动检测失效的裸机安装 |
+
+可以删除 `Security__MaxAdminDevices`，当前版本不会读取它。
 
 -----

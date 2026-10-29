@@ -101,7 +101,7 @@ printf %s "$NEW_PASSWORD" | docker exec -i lancache-manager /data/scripts/reset-
 
 ## Bare-metal or source installation
 
-Restart LANCache Manager first. That opens the hour during which recovery can be requested. A restart by itself does not show the recovery screen. Place the supplied `scripts/reset-main-admin-password.sh` in the data directory's `scripts` folder, then run either form. Change the URL if the app listens elsewhere. Local mode requires `curl` and `jq` on that machine.
+Restart LANCache Manager first. The restart opens a one-hour recovery window, but it does not show the recovery screen by itself. Place the supplied `scripts/reset-main-admin-password.sh` in the data directory's `scripts` folder, then run either form. Change the URL if the app listens elsewhere. Local mode requires `curl` and `jq` on that machine.
 
 Setup screen:
 

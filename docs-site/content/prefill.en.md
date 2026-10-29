@@ -22,7 +22,15 @@ Steam, Epic, Battle.net, Riot, and Xbox each run in their own container, so you 
 The flow is the same on every platform:
 
 1. Open the **Prefill** tab and click **Start Session** on **Steam**, **Epic Games**, **Battle.net**, **Riot Games**, or **Xbox**
-2. Sign in where the platform asks for it: username, password, and Steam Guard for Steam; **Open Epic sign-in page**, paste the **Authorization Code**, then **Submit code**; **Open Microsoft page** and enter **Your code** there for Xbox. Battle.net and Riot need no account
+2. Sign in if the platform needs an account:
+
+    | Platform | How you sign in |
+    |---|---|
+    | Steam | Username, password, and Steam Guard |
+    | Epic Games | Click **Open Epic sign-in page**, paste the **Authorization Code**, then click **Submit code** |
+    | Xbox | Click **Open Microsoft page** and enter **Your code** there |
+    | Battle.net, Riot Games | No account needed |
+
 3. Click **Select Apps**
 4. Click **Prefill Selected**, then **Start Download**
 
@@ -56,19 +64,44 @@ The dialog tells you how many games were added, how many were already selected, 
 
 ### Scheduled Prefill { #scheduled-prefill }
 
-Set this up once and stop prefilling by hand before every event. Go to **Management → Schedules** and open the Scheduled Prefill card. The card has **Run all** and an **Actions** menu. **Run all** starts the enabled saved schedules. **Actions** opens **View activity** and **Container settings**.
+Set this up once and stop prefilling by hand before every event. Go to **Management → Schedules** and open the Scheduled Prefill card.
 
-Each service lists its saved schedules as separate rows. **Run schedule** on a row starts only that schedule. **Edit schedule** opens that record. Save, close the editor, then use **Run schedule**. A run uses the saved schedule.
+#### Setting it up
 
-**Add schedule** and **Duplicate** both open a draft. They do not create a schedule until you choose **Save**. Deleting a saved schedule does not stop its service container or remove cached games.
+1. Click **Start** on a service to start its container.
+2. For Steam, Epic, or Xbox, click **Manage** and sign in. Battle.net and Riot need no account.
+3. Click **Add schedule**, pick games or a preset, and click **Save**.
 
-Each service has one shared container for all of its schedules. **Start** starts it, and **Manage** is where you sign in. A scheduled run reuses that container only when it is already running. If Steam, Epic, or Xbox has no running signed-in container, that service is skipped and the notice says it needs login, while other services continue. Battle.net and Riot need no account, but they are skipped too when their container is not running. A tick where nothing ran is reported unsuccessful, with the reason in its notification. A skip does not fail a tick in which another service did run.
+The schedule runs one interval after you save it. To run it now, click **Run schedule** on its row.
 
-**Container settings** holds the defaults for every service container, including **Login**. A saved **After a restart** override still wins for that service. **Clear stored logins** signs out running containers and removes saved Steam, Epic, and Xbox logins. Only the LANCache account that saved one of those logins can reuse it.
+#### What the buttons do
 
-**View activity** covers Steam, Epic, Xbox, Battle.net, and Riot in one view. It shows active downloads and run history, and it lets you cancel an active download. Game selection belongs to the exact saved schedule. To delete cached game content, use **Game Cache Detection and Removal** under **Management → Logs & Cache**. Deleting a schedule does not delete cached games.
+| Button | What it does |
+|---|---|
+| **Run all** | Starts every enabled schedule |
+| **Run schedule** (on a row) | Starts only that schedule |
+| **Edit schedule** | Opens the schedule. A run always uses the saved version, so save before you run. |
+| **Add schedule**, **Duplicate** | Open a draft. Nothing is created until you click **Save**. |
+| **Actions → View activity** | Shows active downloads and run history for every service, and lets you cancel a download |
+| **Actions → Container settings** | Sets defaults for every service container, including **Login**. A saved **After a restart** override still wins for its service. |
+| **Clear stored logins** | Signs out running containers and removes saved Steam, Epic, and Xbox logins |
 
-Other schedule behavior remains service-specific:
+#### When a service is skipped
+
+Each service has one shared container for all of its schedules. A scheduled run only uses that container if it is already running, and for Steam, Epic, and Xbox, signed in. Otherwise:
+
+- That service is skipped and the notification says it needs login. Other services still run.
+- If nothing ran at all, the run is reported as unsuccessful, with the reason.
+- The schedule keeps its interval either way.
+
+Only the LANCache account that saved a Steam, Epic, or Xbox login can reuse it.
+
+#### Deleting
+
+- Deleting a schedule does not stop its container or remove cached games.
+- To delete cached games, use **Game Cache Detection and Removal** under **Management → Logs & Cache**.
+
+#### Other schedule settings
 
 - **Intervals and state.** Every saved schedule has its own "run every" interval. You can pause a schedule or set it to run only on startup. The first automatic run is one interval after you save; saving does not start a run.
 - **Presets or hand-picked games.** Presets are **All**, **Recent**, and **Top**. Epic has no Recent because its API exposes no last-played data. Battle.net and Riot are All-only. Games selected for a schedule override its preset.

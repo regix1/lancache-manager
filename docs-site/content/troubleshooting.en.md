@@ -97,7 +97,14 @@ docker inspect lancache-dns | grep IPAddress
 
 ### A scheduled prefill "skipped" services
 
-That's [Scheduled Prefill](prefill.md#scheduled-prefill) working as designed: a scheduled run only uses a persistent container that is already running and, for Steam, Epic, and Xbox, signed in. **Start** the container from the Scheduled Prefill card and sign in with **Manage** if that platform needs an account. The next run includes it. A skip does not fail a tick in which another service ran. A tick where nothing ran is reported unsuccessful. The schedule keeps its interval either way.
+That's [Scheduled Prefill](prefill.md#scheduled-prefill) working as designed. A scheduled run only uses a container that is already running, and for Steam, Epic, and Xbox, signed in.
+
+To fix it:
+
+1. Click **Start** on that service in the Scheduled Prefill card.
+2. For Steam, Epic, or Xbox, click **Manage** and sign in.
+
+The next run includes it. The schedule keeps its interval either way. A run is only reported as unsuccessful when no service ran at all.
 
 ### Hit rate looks lower than expected after a prefill
 
@@ -105,7 +112,17 @@ Usually nothing is wrong - the number includes the prefill itself. The dashboard
 
 On an empty cache, a prefill run is close to 100% MISS and the install that follows is close to 100% HIT. Together, one game blends to roughly 50%. Each reinstall pushes the number toward 66%, 75%, and higher, because the MISS bytes are a fixed floor while every install adds more HIT bytes.
 
-To hide the prefill traffic from view, filter out the daemon's client in the Downloads/Dashboard client filter - it shows as `localhost` when the daemon reaches the cache over loopback (host networking on the cache machine), or as a Docker bridge address in bridge mode. Filtering hides its traffic without touching the underlying data. Client Exclusions under **Management → Clients** go further: a client excluded there is also left out of [`/metrics`](prometheus-metrics.md).
+To hide the prefill traffic, find the daemon's client:
+
+- With host networking on the cache machine, it shows as `localhost`.
+- In bridge mode, it shows as a Docker bridge address.
+
+Then pick one:
+
+| Option | Effect |
+|---|---|
+| Filter it out in the Downloads or Dashboard client filter | Hides its traffic from view. The data is not changed. |
+| Add it to Client Exclusions under **Management → Clients** | Also leaves it out of [`/metrics`](prometheus-metrics.md) |
 
 For a specific install's real hit rate, switch Downloads to the **Retro** view, open the settings panel, leave **Group by game** unchecked under **Display**, and check that client's own row - or grep `access.log` for its IP. The manager only counts literal `HIT`/`MISS` from nginx's `upstream_cache_status`, so it always agrees with a manual log count.
 

@@ -61,7 +61,18 @@ Not every `/metrics` setting has an environment variable. The update interval, t
 | **Account** | Signed-in access to the app. Sees and manages every other Account. Cannot see the Primary account or its sessions. | Browse downloads, change own settings |
 | **Guest** | View access through a guest session. Prefill is separate: Primary or an Account can grant it per platform, including for one session. | Browse downloads, stats, events, client data |
 
-To give someone access without sharing an account, make sure guest logins are **Unlocked** on the **Users** page. Your guest then clicks **Continue as Guest** on the sign-in screen. Session length, and whether new guests receive Prefill, live under **Guest Defaults**. Every page and action needs a signed-in account or a guest session, with two exceptions: `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`, and the `/health` liveness probe always answers. Sign-in and first-run setup endpoints are public by necessity.
+To give someone access without sharing an account:
+
+1. On the **Users** page, make sure guest logins are **Unlocked**.
+2. Your guest clicks **Continue as Guest** on the sign-in screen.
+
+Session length, and whether new guests get Prefill, are set under **Guest Defaults**.
+
+Every page and action needs a signed-in account or a guest session. The exceptions are:
+
+- `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`.
+- The `/health` liveness probe always answers.
+- Sign-in and first-run setup must be public so people can reach them.
 
 ### Prefill settings { #prefill-config }
 
@@ -222,6 +233,15 @@ services:
 
 </details>
 
-**Coming from 1.10.3?** Four variables were added, all optional: `Prefill__XboxDockerImage` (Xbox is the fifth prefill platform), the advanced `Prefill__StallTimeoutSeconds` and `Prefill__AbandonedLoginTimeoutSeconds`, and the per-datasource `LanCache__DataSources__<n>__SchemeOverride` for bare-metal installs whose log filenames defeat auto-detection. Nothing was renamed or removed, so existing Compose files keep working. One cleanup: `Security__MaxAdminDevices` is an old no-op setting that current code ignores - you can delete it.
+**Coming from 1.10.3?** Existing Compose files keep working; nothing was renamed or removed. Four optional variables were added:
+
+| Variable | What it is for |
+|---|---|
+| `Prefill__XboxDockerImage` | Xbox, the fifth prefill platform |
+| `Prefill__StallTimeoutSeconds` | Advanced. How long a prefill may make no progress |
+| `Prefill__AbandonedLoginTimeoutSeconds` | Advanced. How long a prefill sign-in may wait |
+| `LanCache__DataSources__<n>__SchemeOverride` | Bare-metal installs whose log file names defeat auto-detection |
+
+You can delete `Security__MaxAdminDevices`. Current versions ignore it.
 
 -----
