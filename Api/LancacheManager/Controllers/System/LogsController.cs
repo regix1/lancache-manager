@@ -546,15 +546,22 @@ public class LogsController : ControllerBase
                     ? new[] { _datasourceService.GetDatasource(datasourceName!)! }
                     : _datasourceService.GetDatasources();
 
-                long totalLines = 0;
+                // Every datasource is counted before any position is written, so a count that fails
+                // on a later datasource leaves the earlier ones where they were.
+                var counts = new List<(ResolvedDatasource Datasource, LogLineCountResult Count)>();
                 foreach (var ds in datasources)
                 {
                     // Counting can take seconds on large or compressed logs. The reservation prevents a
                     // live pass from ingesting the lines being skipped and a purge from lowering positions
                     // before this older count writes them.
-                    var countResult = await _rustProcessHelper.CountLogLinesAsync(
+                    counts.Add((ds, await _rustProcessHelper.CountLogLinesAsync(
                         ds.LogPath,
-                        cancellationToken);
+                        cancellationToken)));
+                }
+
+                long totalLines = 0;
+                foreach (var (ds, countResult) in counts)
+                {
                     var lineCount = countResult.LinesProcessed;
 
                     _rustLogProcessorService.ClearResume(ds.Name);
@@ -565,7 +572,12 @@ public class LogsController : ControllerBase
                         _stateRepository.GetLogSourcePositions(ds.Name), ds.LogSourceStems);
                     foreach (var (stem, lines) in countResult.SourceLineCounts)
                     {
-                        positions[stem] = lines;
+                        // An empty series gets no key: the importer reads a missing key as 0, and a
+                        // stored 0 would read as a missing series once its empty file is gone.
+                        if (lines > 0)
+                        {
+                            positions[stem] = lines;
+                        }
                     }
                     _stateRepository.SetLogSourcePositions(ds.Name, positions);
                     _stateRepository.SetLogPosition(ds.Name, lineCount);

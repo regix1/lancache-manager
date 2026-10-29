@@ -483,7 +483,7 @@ public sealed class SteamSessionPolicyTests
                 new PicsDataService(NullLogger<PicsDataService>.Instance, scopes, paths, state), state, clients,
                 DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
                 new SteamWebApiService(NullLogger<SteamWebApiService>.Instance, clients, Storage), Storage,
-                DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>());
+                DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>(), null!);
             Set(Service, "_sessionCredential", ((Guid?)Owner, "token"));
             Set(Service, "_sessionAuthVersion", Storage.GetIntegrationSnapshot().Version);
             Set(Service, "_isLoggedOn", true);

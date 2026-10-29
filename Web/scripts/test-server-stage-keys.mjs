@@ -968,7 +968,7 @@ test('the combined package gate propagates rejection before starting deadline ch
       shell: process.platform === 'win32'
     });
     assert.notEqual(rejected.status, 0, rejected.stderr + rejected.stdout);
-    assert.match(rejected.stdout, /validate:message-contracts/);
+    assert.match(rejected.stdout, /not ok 1 - contract rejects/);
     assert.equal(existsSync(marker), false, 'Deadline command ran after a rejected message gate');
     writeFileSync(path.join(directory, 'scripts/test-server-stage-keys.mjs'), '');
     const accepted = spawnSync('npm', ['run', 'validate:contracts'], {

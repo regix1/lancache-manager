@@ -1014,7 +1014,13 @@ impl Processor {
                                             &identity,
                                             len,
                                         );
-                                    log_resume::mark_records(entry, &identity, len, prefix_matched)
+                                    log_resume::mark_records(
+                                        entry,
+                                        &log_file.path,
+                                        &identity,
+                                        len,
+                                        prefix_matched,
+                                    )
                                 });
                                 if let Some(records) = marked {
                                     lines_to_skip =
@@ -4813,7 +4819,13 @@ mod session_continuity_tests {
         assert_ne!(collision_entry.older_files[0].len, collision_len);
         collision_entry.older_files[0].identity = collision_identity.clone();
         assert_eq!(
-            log_resume::mark_records(collision_entry, &collision_identity, collision_len, false,),
+            log_resume::mark_records(
+                collision_entry,
+                &collision_oldest,
+                &collision_identity,
+                collision_len,
+                false,
+            ),
             None
         );
         log_resume::save(&collision_resume, &collision_file)
@@ -5648,6 +5660,15 @@ mod session_continuity_tests {
         entries: &[LogEntry],
     ) {
         use sqlx::Connection;
+
+        // A retry starts before the failed try's connection is back in the pool, so it opens a
+        // second one. Opening it now keeps connection setup time, which can reach 2 s for a
+        // `localhost` URL on Windows, out of the 1 s tries counted below.
+        let (first, second) = tokio::join!(processor.pool.acquire(), processor.pool.acquire());
+        drop((
+            first.expect("open a pool connection"),
+            second.expect("open a second pool connection"),
+        ));
 
         let scoped = options.clone().options([("search_path", schema)]);
         let mut blocker = sqlx::PgConnection::connect_with(&scoped)

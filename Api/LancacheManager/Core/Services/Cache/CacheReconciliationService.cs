@@ -22,6 +22,17 @@ namespace LancacheManager.Core.Services;
 /// </summary>
 public class CacheReconciliationService : ScopedScheduledBackgroundService
 {
+    /// <summary>
+    /// The ending of a scan whose child exited non-zero without printing its result, which is what
+    /// a kill for memory leaves. Kept as the run's error and sent as the card's stage key.
+    /// </summary>
+    private const string ScanStoppedStageKey = "signalr.evictionScan.stoppedBySystem";
+    /// <summary>The ending of a scan that found every cache folder missing, empty or unreadable.</summary>
+    private const string NoFolderCheckedStageKey = "signalr.evictionScan.noFolderChecked";
+    /// <summary>The ending of a scan the datasource capability check refused; the log keeps the reason.</summary>
+    private const string CapabilityRefusedStageKey = "signalr.evictionScan.capabilityRefused";
+    private const string ScanFailedStageKey = "signalr.evictionScan.error.fatal";
+
     private readonly DatasourceService _datasourceService;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly CacheScanGate _cacheScanGate;
@@ -51,10 +62,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// </summary>
     private volatile Dictionary<string, object?>? _currentScanProgressContext;
     /// <summary>
-    /// Per-operation terminal metrics for EvictionScan, captured BY VALUE just before
-    /// CompleteOperation so the registered onTerminalEmit closure (the SOLE terminal emitter)
-    /// can build the typed EvictionScanComplete record. Force-kill bypasses ReconcileCacheFilesAsync,
-    /// so a holder may be absent at emit time - the closure falls back to zeroed metrics.
+    /// Per-operation terminal metrics for EvictionScan, filled just before CompleteOperation. Each
+    /// onTerminalEmit closure (the SOLE terminal emitter) reads the holder it captured when it was
+    /// registered, never this map; a force stop sends zeros from the canceled branch.
     /// </summary>
     private readonly ConcurrentDictionary<Guid, EvictionScanTerminalState> _evictionScanTerminalStates = new();
     /// <summary>
@@ -467,7 +477,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         if (capabilityDenial != null)
         {
             _logger.LogWarning("[EvictionScan] Skipping eviction scan: {Reason}", capabilityDenial);
-            return new EvictionScanRunOutcome(Success: false, Error: capabilityDenial);
+            return new EvictionScanRunOutcome(Success: false, Error: CapabilityRefusedStageKey);
         }
 
         var repairOwner = _serviceProvider.GetRequiredService<OperationStateService>();
@@ -761,14 +771,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             }
             else if (checkedNothing)
             {
-                operationError = "No cache folder could be checked";
-                _logger.LogError("[EvictionScan] {Error}: {Folders}", operationError, string.Join(", ", scanResult.UncheckedFolders));
+                operationError = NoFolderCheckedStageKey;
+                _logger.LogError("[EvictionScan] No cache folder could be checked: {Folders}", string.Join(", ", scanResult.UncheckedFolders));
             }
             else
             {
-                var errorMsg = scanResult.Error ?? "Rust eviction scan binary returned failure";
-                _logger.LogError("[EvictionScan] Rust binary failed: {Error}", errorMsg);
-                operationError = errorMsg;
+                _logger.LogError("[EvictionScan] Rust binary failed: {Error}", scanResult.Error);
+                operationError = scanResult.Error;
             }
         }
         catch (OperationCanceledException)
@@ -779,10 +788,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
         catch (ConflictException refusal)
         {
-            // Refused after the detection phase or the repair wait, before the scan launched: logged as the
-            // same refusal before the detection phase is.
+            // Refused by the capability check after the detection phase, before the scan launched: the only
+            // two throws in this block. Logged as the same refusal before the detection phase is.
             _logger.LogWarning("[EvictionScan] Skipping eviction scan: {Reason}", refusal.Message);
-            operationError = refusal.Message;
+            operationError = CapabilityRefusedStageKey;
         }
         catch (Exception ex)
         {
@@ -905,18 +914,20 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 context["detectionError"] = state.DetectionError;
             }
 
+            var stageKey = terminal.Cancelled
+                ? "signalr.evictionScan.cancelled"
+                : EndingStageKey(terminal.Error);
+            if (stageKey == ScanFailedStageKey) context["errorDetail"] = terminal.Error;
             return _notifications.NotifyAllAsync(
                 SignalREvents.EvictionScanComplete,
                 new EvictionScanComplete(
                     Success: terminal.Success,
                     OperationId: repair.Id,
-                    StageKey: terminal.Cancelled
-                        ? "signalr.evictionScan.cancelled"
-                        : "signalr.evictionScan.complete",
+                    StageKey: stageKey,
                     Processed: state.Processed,
                     Evicted: state.Evicted,
                     UnEvicted: state.UnEvicted,
-                    Error: terminal.Error,
+                    Error: terminal.Cancelled ? terminal.Error : null,
                     Context: context,
                     Cancelled: terminal.Cancelled));
         };
@@ -1134,12 +1145,18 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             if (!scanResult.Success)
             {
-                if (string.IsNullOrWhiteSpace(scanResult.Error))
+                // The repair card shows the key in the reader's language and has no room for the
+                // child's own text, which stays in the message for the log. Its action is the card's
+                // Retry: a scan from the Storage page leaves this repair failed.
+                throw new ServiceUnavailableException($"Eviction repair scan {scanId} failed: {scanResult.Error}")
                 {
-                    throw new InvalidDataException(
-                        $"Eviction repair scan {scanId} failed without an error.");
-                }
-                throw new InvalidOperationException(scanResult.Error);
+                    StageKey = scanResult.Error switch
+                    {
+                        ScanStoppedStageKey => "signalr.evictionScan.repairStopped",
+                        RustProcessHelper.SilenceStopStageKey => RustProcessHelper.SilenceStopStageKey,
+                        _ => "signalr.evictionScan.repairFailed"
+                    }
+                };
             }
         }
         finally
@@ -1564,14 +1581,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         Context: context));
                 }
 
+                var stageKey = EndingStageKey(terminal.Error);
+                if (stageKey == ScanFailedStageKey) context["errorDetail"] = terminal.Error;
                 return _notifications.NotifyOperationFailedAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                     Success: false,
                     OperationId: operationId,
-                    StageKey: "signalr.evictionScan.complete",
+                    StageKey: stageKey,
                     Processed: 0,
                     Evicted: 0,
                     UnEvicted: 0,
-                    Error: terminal.Error ?? "Rust eviction scan binary returned failure",
                     Context: context));
             };
 
@@ -1778,6 +1796,19 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         return true;
     }
 
+    /// <summary>
+    /// The stage key a finished scan's card shows. The card prints an error as it is, so an ending
+    /// that is already a key rides as the stage key, and any other error text becomes the detail of
+    /// the translated failure line.
+    /// </summary>
+    private static string EndingStageKey(string? error) => error switch
+    {
+        null => "signalr.evictionScan.complete",
+        ScanStoppedStageKey or NoFolderCheckedStageKey or CapabilityRefusedStageKey
+            or OperationStateService.InterruptedByRestartError => error,
+        _ => ScanFailedStageKey
+    };
+
     private static EvictionScanResult ParseScanResult(RustExecutionResult result)
     {
         if (result.Data != null)
@@ -1798,10 +1829,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             }
         }
 
+        // A child that exited non-zero without its result line was stopped from outside, most often
+        // killed for memory; its stderr holds only progress log lines, never the reason.
         return new EvictionScanResult
         {
             Success = result.Success,
-            Error = result.Error
+            Error = result.ExitCode != 0 ? ScanStoppedStageKey : result.Error
         };
     }
 
@@ -1876,7 +1909,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         _ = Task.Run(async () =>
         {
-            // core-3: do NOT dispose cts here — the tracker owns its lifetime and disposes it in
+            // Do NOT dispose cts here: the tracker owns its lifetime and disposes it in
             // CompleteOperation. Disposing it from the worker races the tracker's cancel path.
             try
             {
@@ -1950,7 +1983,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         _ = Task.Run(async () =>
         {
-            // core-3: do NOT dispose cts here — the tracker owns its lifetime and disposes it in
+            // Do NOT dispose cts here: the tracker owns its lifetime and disposes it in
             // CompleteOperation. Disposing it from the worker races the tracker's cancel path.
             try
             {

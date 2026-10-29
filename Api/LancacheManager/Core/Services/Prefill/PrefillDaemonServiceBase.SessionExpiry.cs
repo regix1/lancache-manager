@@ -22,27 +22,36 @@ public abstract partial class PrefillDaemonServiceBase
     /// never abort processing of the rest of that tick's sessions - this restores the isolation the old
     /// fire-and-forget pattern gave for free, now that these calls are properly awaited instead.
     /// </summary>
-    public async Task<PrefillSessionExpiryResult> ProcessSessionExpiryAsync(DateTime nowUtc)
+    public async Task<PrefillSessionExpiryResult> ProcessSessionExpiryAsync(DateTime nowUtc, CancellationToken cancellationToken = default)
     {
         var flaggedNeedsRelogin = 0;
         var terminated = 0;
         var stalledFailed = 0;
         var abandonedLoginsCancelled = 0;
 
-        foreach (var session in _sessions.Values.Where(session => !session.Runs.IsEmpty
-            && session.Status == DaemonSessionStatus.Active))
+        // A session with no runs still needs a pass while it is recovering or a pass skipped its read. The reads
+        // run together because one whose daemon cannot be reached waits out the client's connect bound, and the
+        // host's stop ends them so the services that stop guest containers on shutdown are not held behind them.
+        var recovering = _sessions.Values.Where(session => (!session.Runs.IsEmpty || session.Recovering || session.RecoveryRequested)
+            && session.Status == DaemonSessionStatus.Active).ToList();
+        await Task.WhenAll(recovering.Where(session => session.NextRecoveryAtUtc <= nowUtc)
+            .Select(session => RefreshRunsAsync(session.Id, cancellationToken)));
+        foreach (var session in recovering)
         {
-            if (session.NextRecoveryAtUtc <= nowUtc)
-                await RefreshRunsAsync(session.Id);
             foreach (var run in session.Runs.Values.Where(run => run.TerminalCompletedFlag == 0 && !run.CancelRequested))
             {
+                // A scheduled run stalls on the schedule's own timeout, the one its watch uses; a run restored with
+                // no watch is still ended, only not sooner than the admin allowed.
+                var stallTimeout = run.PrefillScheduleId.HasValue
+                    ? _stateService.GetScheduledPrefillConfig().StallTimeout
+                    : TimeSpan.FromSeconds(GetStallTimeoutSeconds());
                 var ticks = Volatile.Read(ref run.LastProgressTicksUtc);
-                if (ticks == 0 || nowUtc - new DateTime(ticks, DateTimeKind.Utc) <= TimeSpan.FromSeconds(GetStallTimeoutSeconds()))
+                if (ticks == 0 || nowUtc - new DateTime(ticks, DateTimeKind.Utc) <= stallTimeout)
                     continue;
                 try
                 {
                     if (await FailStalledSessionAsync(session, run.PrefillRunId, nowUtc,
-                        TimeSpan.FromSeconds(GetStallTimeoutSeconds()), "Prefill stalled: no new bytes transferred.", run.PrefillScheduleId))
+                        stallTimeout, run.PrefillScheduleId))
                         stalledFailed++;
                 }
                 catch (Exception ex)
@@ -86,7 +95,7 @@ public abstract partial class PrefillDaemonServiceBase
                 else if (PrefillSessionExpiryGates.ShouldTerminate(session, nowUtc))
                 {
                     _logger.LogInformation("Session expired: {SessionId}", session.Id);
-                    await TerminateSessionAsync(session.Id, "Session expired");
+                    await TerminateSessionAsync(session.Id, "Session expired", reasonKey: SessionExpiredReasonKey);
                     Interlocked.Increment(ref terminated);
                 }
             }
@@ -101,44 +110,6 @@ public abstract partial class PrefillDaemonServiceBase
         }
 
         await Task.WhenAll(expiredSessions.Select(ProcessExpiredSessionAsync));
-
-        // Stall watchdog: fail any actively-prefilling session that has transferred no new bytes for
-        // longer than the configured threshold. Re-reads _sessions fresh (not the snapshot above) to
-        // match prior behavior exactly, since termination above can remove entries mid-tick.
-        var stallThreshold = TimeSpan.FromSeconds(GetStallTimeoutSeconds());
-        var stalledSessions = _sessions.Values
-            .Where(s => s.Status == DaemonSessionStatus.Active &&
-                        s.Runs.IsEmpty &&
-                        (!s.IsPersistent || !s.PrefillScheduleId.HasValue) &&
-                        (s.PrefillState == PrefillState.Started || s.PrefillState == PrefillState.Downloading) &&
-                        IsPrefillStalled(s, nowUtc, stallThreshold))
-            .Select(s => (Session: s, RunId: s.PrefillRunId))
-            .ToList();
-
-        async Task ProcessStalledSessionAsync((DaemonSession Session, Guid? RunId) candidate)
-        {
-            var session = candidate.Session;
-            try
-            {
-                _logger.LogWarning(
-                    "Prefill stall detected for session {SessionId}: no new bytes for >{ThresholdSeconds}s. Failing the run.",
-                    session.Id, stallThreshold.TotalSeconds);
-                if ((!session.IsPersistent || !session.PrefillScheduleId.HasValue)
-                    && await FailStalledSessionAsync(session, candidate.RunId, nowUtc, stallThreshold,
-                        $"Prefill stalled: no bytes transferred for {(int)stallThreshold.TotalSeconds} seconds."))
-                {
-                    Interlocked.Increment(ref stalledFailed);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Same per-session isolation guarantee as the expiry phase above - one stalled
-                // session's teardown failure must not stop the rest from being failed this tick.
-                _logger.LogError(ex, "Error failing stalled session {SessionId}", session.Id);
-            }
-        }
-
-        await Task.WhenAll(stalledSessions.Select(ProcessStalledSessionAsync));
 
         // Abandoned-login watchdog: both of a login's existing deadlines run in the browser, so a person
         // who opens the sign-in and closes the tab leaves the session sitting in LoggingIn with a card on
@@ -183,76 +154,32 @@ public abstract partial class PrefillDaemonServiceBase
     }
 
     /// <summary>
-    /// Fails a stalled prefill: best-effort tells the daemon to stop downloading (so it does not keep
-    /// transferring bytes after we have given up on the run), then routes through the single
-    /// idempotent terminal funnel with <see cref="PrefillState.Failed"/>. The daemon cancel is sent
-    /// directly to the client rather than via <see cref="CancelPrefillAsync"/> so the terminal state
-    /// stays <c>Failed</c> (a stall is a failure, not a user cancellation).
+    /// Fails a stalled run: marks it stalled, then cancels it so its terminal state stays <c>Failed</c>
+    /// (a stall is a failure, not a user cancellation). Returns false when the run is gone, already
+    /// ending, owned by another schedule, recovering, has moved bytes within the threshold, or the daemon
+    /// did not answer the cancel; a recorded cancel the daemon did not answer is sent by the recovery pass.
     /// </summary>
     internal async Task<bool> FailStalledSessionAsync(
-        DaemonSession session, Guid? runId, DateTime nowUtc, TimeSpan stallThreshold, string reason,
-        Guid? scheduleId = null)
+        DaemonSession session, Guid runId, DateTime nowUtc, TimeSpan stallThreshold, Guid? scheduleId = null)
     {
-        if (runId.HasValue && session.Runs.TryGetValue(runId.Value, out var run))
+        if (!session.Runs.TryGetValue(runId, out var run))
+            return false;
+        await run.PrefillWork.WaitAsync();
+        try
         {
-            await run.PrefillWork.WaitAsync();
-            try
-            {
-                if (!IsSessionLive(session) || run.TerminalCompletedFlag != 0
-                    || run.PrefillScheduleId != scheduleId || run.CancelRequested)
-                    return false;
-                var ticks = Volatile.Read(ref run.LastProgressTicksUtc);
-                if (ticks == 0 || nowUtc - new DateTime(ticks, DateTimeKind.Utc) <= stallThreshold)
-                    return false;
-                await _sessionService.SetRunCancellationAsync(run.PrefillRunId, CancellationToken.None, "stalled");
-                run.CancelReason = "stalled";
-                run.CancelRequested = true;
-            }
-            finally { run.PrefillWork.Release(); }
-            await CancelPrefillRunAsync(session.Id, runId.Value, reason: "stalled");
-            return true;
-        }
-        if (session.IsPersistent)
-        {
-            if (!PersistentEditSessionGate.TryEnterMutation(out var mutation))
+            // A run whose daemon connection is down gets no progress through no fault of its own.
+            if (!IsSessionLive(session) || run.TerminalCompletedFlag != 0
+                || run.PrefillScheduleId != scheduleId || run.CancelRequested
+                || run.Recovering || session.Recovering)
                 return false;
-            await using (mutation!)
-            {
-                return await TransitionToTerminalAsync(session, PrefillState.Failed, runId, reason,
-                    "signalr.scheduledPrefill.failedStalled",
-                    canClaim: () => session.Status == DaemonSessionStatus.Active
-                        && session.PrefillScheduleId == scheduleId
-                        && IsPrefillStalled(session, nowUtc, stallThreshold),
-                    cancelDaemon: true);
-            }
+            var ticks = Volatile.Read(ref run.LastProgressTicksUtc);
+            if (ticks == 0 || nowUtc - new DateTime(ticks, DateTimeKind.Utc) <= stallThreshold)
+                return false;
+            await _sessionService.SetRunCancellationAsync(run.PrefillRunId, CancellationToken.None, "stalled");
+            run.CancelReason = "stalled";
+            run.CancelRequested = true;
         }
-        return await TransitionToTerminalAsync(session, PrefillState.Failed, runId, reason,
-            "signalr.scheduledPrefill.failedStalled",
-            canClaim: () => session.Status == DaemonSessionStatus.Active
-                && session.PrefillScheduleId == scheduleId
-                && IsPrefillStalled(session, nowUtc, stallThreshold),
-            cancelDaemon: true);
-    }
-
-    /// <summary>
-    /// Returns true when a session is actively prefilling but has transferred no new bytes
-    /// for longer than <paramref name="stallThreshold"/>. Pure function — no side effects.
-    /// </summary>
-    internal static bool IsPrefillStalled(DaemonSession session, DateTime nowUtc, TimeSpan stallThreshold)
-    {
-        if (!session.IsPrefilling)
-        {
-            return false;
-        }
-
-        // Volatile read pairs with the Volatile.Write on the progress/terminal threads so this
-        // timer thread never observes a torn or stale tick value. 0 = no prefill clock set.
-        var lastProgressTicks = Volatile.Read(ref session.LastProgressTicksUtc);
-        if (lastProgressTicks == 0L)
-        {
-            return false;
-        }
-
-        return nowUtc - new DateTime(lastProgressTicks, DateTimeKind.Utc) > stallThreshold;
+        finally { run.PrefillWork.Release(); }
+        return await CancelPrefillRunAsync(session.Id, runId, reason: "stalled");
     }
 }

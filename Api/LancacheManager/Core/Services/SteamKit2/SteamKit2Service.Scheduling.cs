@@ -28,7 +28,7 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task ReportRunSkippedAsync(string stageKey, CancellationToken stoppingToken)
     {
-        // The notice carries the Hidden flag too, so a Hidden schedule draws nothing here. [60]
+        // The notice carries the Hidden flag too, so a Hidden schedule draws nothing here.
         await using var reporter = CreateDepotMappingReporter(stoppingToken, CurrentRunNotice);
         reporter.SuppressProgress();
         await reporter.StartAsync(CreateDepotContext());

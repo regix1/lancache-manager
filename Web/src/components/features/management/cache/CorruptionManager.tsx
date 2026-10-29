@@ -121,19 +121,6 @@ const removeAllEventOperationId = (event: CorruptionRemovalCompleteEvent): strin
   return undefined;
 };
 
-const corruptionRemovalHasOperation = (
-  notification: UnifiedNotification,
-  operationId: string
-): boolean => {
-  if (sameOperationId(notification.id, operationId)) return true;
-  const detailsOperationId = notification.details?.operationId;
-  if (detailsOperationId !== undefined && sameOperationId(detailsOperationId, operationId)) {
-    return true;
-  }
-  const aliases = notification.details?.operationIds;
-  return aliases !== undefined && aliases.some((id) => sameOperationId(id, operationId));
-};
-
 const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
   const { runs, addNotification, isAnyRemovalRunning } = useNotifications();
@@ -255,16 +242,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const removeAllOperationIdRef = useRef<string | null>(null);
   const removeAllSeenCompletionIdsRef = useRef<Set<string>>(new Set());
   const removeAllOperationIdsAtClickRef = useRef<Set<string> | null>(null);
-  const removeAllPinnedOperationIdRef = useRef<string | null>(null);
-  const removeAllSawStoredOnRunningRef = useRef(false);
   const releaseRemoveAllClick = () => {
     startingRemoveAllRef.current = false;
     setStartingRemoveAll(false);
     removeAllOperationIdRef.current = null;
     removeAllSeenCompletionIdsRef.current = new Set();
     removeAllOperationIdsAtClickRef.current = null;
-    removeAllPinnedOperationIdRef.current = null;
-    removeAllSawStoredOnRunningRef.current = false;
     removeAllPostSettledRef.current = false;
   };
 
@@ -624,6 +607,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     requiresRepeatedMissResources && repeatedMissNginxReopenGate.messageKey
       ? t(repeatedMissNginxReopenGate.messageKey)
       : '';
+  const diskObjectReason =
+    diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable');
   const corruptionRemovalBusy =
     anyServiceRemovalPending ||
     startingRemoveAll ||
@@ -640,6 +625,39 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     directoryMissing ||
     mockMode ||
     authMode !== 'authenticated';
+  // Load is disabled only while a scan, a removal or a load runs, and these are its reasons.
+  const loadReason = isScanBusy
+    ? t('management.corruption.removalActive', {
+        operation: t('common.notifications.titles.corruptionDetection')
+      })
+    : corruptionRemovalBusy
+      ? t('management.corruption.removalActive', {
+          operation: t('common.notifications.titles.corruptionRemoval')
+        })
+      : isAnyRemovalRunning
+        ? t('management.corruption.cacheRemovalRunning')
+        : isRefreshing
+          ? t('management.corruption.loadingCachedData')
+          : '';
+  // The disk-object gate around the Scan items only shows a box on hover, so every state that
+  // blocks a scan, its two reasons included, says why here, where the keyboard can reach it.
+  const scanReason = mockMode
+    ? t('management.sections.settings.mockModeActive')
+    : loadReason !== ''
+      ? loadReason
+      : checkingPermissions
+        ? t('management.corruption.checkingPermissions')
+        : directoryMissing
+          ? t(
+              !cacheExist
+                ? 'management.directoryNotice.cacheMissingTitle'
+                : 'management.directoryNotice.logsMissingTitle'
+            )
+          : !diskObjectsAvailable
+            ? diskObjectReason
+            : !scanGate.available
+              ? scanGate.tooltip
+              : '';
 
   const startScan = useCallback(
     async (scanMode?: StructuralScanMode) => {
@@ -783,34 +801,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     if (startingRemoveAll && removeAllPostSettledRef.current) {
       const operationId = removeAllOperationIdRef.current;
       const knownIds = removeAllOperationIdsAtClickRef.current;
-      const activeRemovals = runs.filter(isActiveCorruptionRemoval);
-      const removalWasUnseenAtClick = (notification: UnifiedNotification): boolean => {
-        if (knownIds === null) return false;
-        if (!knownIds.has(notification.id)) return true;
-        const detailsOperationId = notification.details?.operationId;
-        if (detailsOperationId !== undefined && !knownIds.has(detailsOperationId)) {
-          return true;
-        }
-        const aliases = notification.details?.operationIds;
-        return aliases !== undefined && aliases.some((id) => !knownIds.has(id));
-      };
-      const unseenActiveRemoval = activeRemovals.find(removalWasUnseenAtClick);
-
-      if (operationId !== null) {
-        if (
-          activeRemovals.some(
-            (notification) =>
-              notification.status === 'running' &&
-              corruptionRemovalHasOperation(notification, operationId)
-          )
-        ) {
-          removeAllSawStoredOnRunningRef.current = true;
-        }
-        if (removeAllPinnedOperationIdRef.current === null && unseenActiveRemoval) {
-          const pinned = unseenActiveRemoval.details?.operationId ?? unseenActiveRemoval.id;
-          removeAllPinnedOperationIdRef.current = pinned;
-        }
-      } else if (knownIds !== null) {
+      if (operationId === null && knownIds !== null) {
         const registeredRun = runs.some((notification) => {
           if (!isActiveCorruptionRemoval(notification)) return false;
           if (!knownIds.has(notification.id)) return true;
@@ -842,11 +833,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projection.rows]);
 
-  const activeRemoval = runs.find(
-    (notification) =>
-      notification.type === 'corruption_removal' && notification.status === 'running'
-  );
-  const removingService = activeRemoval?.details?.service ?? null;
   const serviceKeys = projection.rows.map((row) => row.service);
   const selectedServices = [...selection.selected].filter((service) =>
     serviceKeys.includes(service)
@@ -856,6 +842,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     0
   );
   const allVisibleSelected = selection.allSelected(serviceKeys);
+  const selectAllLabel = allVisibleSelected
+    ? t('management.batchSelect.deselectAll')
+    : t('management.batchSelect.selectAll');
   const removalBlocked =
     !scanId ||
     projection.total === 0 ||
@@ -977,8 +966,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     setPendingRemoveAll(false);
     removeAllOperationIdRef.current = null;
     removeAllSeenCompletionIdsRef.current = new Set();
-    removeAllPinnedOperationIdRef.current = null;
-    removeAllSawStoredOnRunningRef.current = false;
     removeAllOperationIdsAtClickRef.current = corruptionRemovalRunIds(runs);
     removeAllPostSettledRef.current = false;
     removeAllPostPendingRef.current = true;
@@ -1104,20 +1091,65 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     </div>
   );
 
-  const removeAllInProgress =
-    isCorruptionRemovalActive || startingRemoveAll || removeAllPostPending;
-  const removeAllReason = removeAllInProgress
-    ? t('management.logRemoval.otherRemovalRunning', {
-        operation: t('common.notifications.titles.corruptionRemoval')
-      })
-    : '';
-  const removeAllLabel = removeAllInProgress
+  const removeAllReason = mockMode
+    ? t('management.sections.settings.mockModeActive')
+    : isCorruptionRemovalActive ||
+        startingRemoveAll ||
+        removeAllPostPending ||
+        anyServiceRemovalPending ||
+        startingRemoveSelected
+      ? t('management.corruption.removalActive', {
+          operation: t('common.notifications.titles.corruptionRemoval')
+        })
+      : checkingPermissions
+        ? t('management.corruption.checkingPermissions')
+        : directoryMissing
+          ? t(
+              !cacheExist
+                ? 'management.directoryNotice.cacheMissingTitle'
+                : 'management.directoryNotice.logsMissingTitle'
+            )
+          : isReadOnly
+            ? t(
+                cacheReadOnly
+                  ? 'management.directoryNotice.cacheReadOnlyTitle'
+                  : 'management.directoryNotice.logsReadOnlyTitle'
+              )
+            : isRefreshing
+              ? t('management.corruption.loadingCachedData')
+              : !diskObjectsAvailable
+                ? diskObjectReason
+                : !nginxReopenAvailable
+                  ? nginxReopenUnavailableMessage
+                  : !scanId
+                    ? t('management.corruption.emptyStates.noCachedData.title')
+                    : projection.total === 0
+                      ? t('management.corruption.history.zeroResultTitle')
+                      : '';
+  // A state that blocks every removal explains itself first, so an empty selection is named only
+  // when choosing a service would make the item usable.
+  const removeSelectedReason =
+    removeAllReason === '' && selectedServices.length === 0
+      ? t('management.corruption.nothingSelected')
+      : removeAllReason;
+  // Only this click reads Removing. A one-service removal disables the item with the reason above.
+  const removeAllLabel = startingRemoveAll
     ? t('management.corruption.removing')
     : t(
         detectionMethod === 'structural'
           ? 'management.corruption.removeAllInvalid'
           : 'management.corruption.removeAllSuspects'
       );
+  const removeSelectedLabel = t(
+    detectionMethod === 'structural'
+      ? 'management.corruption.removeSelectedInvalid'
+      : 'management.corruption.removeSelectedSuspects'
+  );
+  const removeServiceLabel = t(
+    detectionMethod === 'structural'
+      ? 'management.corruption.removeInvalid'
+      : 'management.corruption.removeSuspect'
+  );
 
   const headerActions = (
     <SectionHeaderActions>
@@ -1140,64 +1172,94 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           <>
             <DiskObjectActionGate
               available={diskObjectsAvailable && scanGate.available}
-              tooltip={
-                diskObjectsAvailable
-                  ? scanGate.tooltip
-                  : (diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable'))
-              }
+              tooltip={diskObjectsAvailable ? scanGate.tooltip : diskObjectReason}
               position="left"
               className="block w-full"
             >
               {displayedDetectionMethod === 'structural' ? (
                 <>
+                  <DisabledActionGate
+                    disabled={scanBlocked || !diskObjectsAvailable}
+                    reason={scanReason}
+                    label={t('management.corruption.fullScan')}
+                    position="left"
+                    className="block w-full"
+                  >
+                    <ActionMenuItem
+                      icon={<Search className="w-3.5 h-3.5" />}
+                      disabled={scanBlocked || !diskObjectsAvailable}
+                      onClick={() => {
+                        void startScan('full');
+                        close();
+                      }}
+                    >
+                      {t('management.corruption.fullScan')}
+                    </ActionMenuItem>
+                  </DisabledActionGate>
+                  <DisabledActionGate
+                    disabled={scanBlocked || !diskObjectsAvailable}
+                    reason={scanReason}
+                    label={t('management.corruption.incrementalScan')}
+                    position="left"
+                    className="block w-full"
+                  >
+                    <ActionMenuItem
+                      icon={<Zap className="w-3.5 h-3.5" />}
+                      disabled={scanBlocked || !diskObjectsAvailable}
+                      onClick={() => {
+                        void startScan('incremental');
+                        close();
+                      }}
+                    >
+                      {t('management.corruption.incrementalScan')}
+                    </ActionMenuItem>
+                  </DisabledActionGate>
+                </>
+              ) : (
+                <DisabledActionGate
+                  disabled={scanBlocked || !diskObjectsAvailable}
+                  reason={scanReason}
+                  label={t('common.scan')}
+                  position="left"
+                  className="block w-full"
+                >
                   <ActionMenuItem
                     icon={<Search className="w-3.5 h-3.5" />}
                     disabled={scanBlocked || !diskObjectsAvailable}
                     onClick={() => {
-                      void startScan('full');
+                      void startScan();
                       close();
                     }}
                   >
-                    {t('management.corruption.fullScan')}
+                    {t('common.scan')}
                   </ActionMenuItem>
-                  <ActionMenuItem
-                    icon={<Zap className="w-3.5 h-3.5" />}
-                    disabled={scanBlocked || !diskObjectsAvailable}
-                    onClick={() => {
-                      void startScan('incremental');
-                      close();
-                    }}
-                  >
-                    {t('management.corruption.incrementalScan')}
-                  </ActionMenuItem>
-                </>
-              ) : (
-                <ActionMenuItem
-                  icon={<Search className="w-3.5 h-3.5" />}
-                  disabled={scanBlocked || !diskObjectsAvailable}
-                  onClick={() => {
-                    void startScan();
-                    close();
-                  }}
-                >
-                  {t('common.scan')}
-                </ActionMenuItem>
+                </DisabledActionGate>
               )}
             </DiskObjectActionGate>
-            <ActionMenuItem
-              icon={<RefreshCw className="w-3.5 h-3.5" />}
+            <DisabledActionGate
               disabled={isRefreshing || isScanBusy || isAnyRemovalRunning || corruptionRemovalBusy}
-              onClick={() => {
-                void loadCachedData(true);
-                close();
-              }}
+              reason={loadReason}
+              label={t('common.load')}
+              position="left"
+              className="block w-full"
             >
-              {t('common.load')}
-            </ActionMenuItem>
+              <ActionMenuItem
+                icon={<RefreshCw className="w-3.5 h-3.5" />}
+                disabled={
+                  isRefreshing || isScanBusy || isAnyRemovalRunning || corruptionRemovalBusy
+                }
+                onClick={() => {
+                  void loadCachedData(true);
+                  close();
+                }}
+              >
+                {t('common.load')}
+              </ActionMenuItem>
+            </DisabledActionGate>
             <ActionMenuDivider />
             <DiskObjectActionGate
               available={diskObjectsAvailable}
-              tooltip={diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable')}
+              tooltip={diskObjectReason}
               position="left"
               className="block w-full"
             >
@@ -1207,27 +1269,33 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                 position="left"
                 className="block w-full"
               >
-                <ActionMenuDangerItem
-                  icon={<Trash2 className="w-3.5 h-3.5" />}
+                <DisabledActionGate
                   disabled={
                     removalBlocked || selectedServices.length === 0 || !diskObjectsAvailable
                   }
-                  onClick={() => {
-                    setPendingRemoveSelected(true);
-                    close();
-                  }}
+                  reason={removeSelectedReason}
+                  label={removeSelectedLabel}
+                  position="left"
+                  className="block w-full"
                 >
-                  {t(
-                    detectionMethod === 'structural'
-                      ? 'management.corruption.removeSelectedInvalid'
-                      : 'management.corruption.removeSelectedSuspects'
-                  )}
-                </ActionMenuDangerItem>
+                  <ActionMenuDangerItem
+                    icon={<Trash2 className="w-3.5 h-3.5" />}
+                    disabled={
+                      removalBlocked || selectedServices.length === 0 || !diskObjectsAvailable
+                    }
+                    onClick={() => {
+                      setPendingRemoveSelected(true);
+                      close();
+                    }}
+                  >
+                    {removeSelectedLabel}
+                  </ActionMenuDangerItem>
+                </DisabledActionGate>
               </NginxReopenActionGate>
             </DiskObjectActionGate>
             <DiskObjectActionGate
               available={diskObjectsAvailable}
-              tooltip={diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable')}
+              tooltip={diskObjectReason}
               position="left"
               className="block w-full"
             >
@@ -1370,37 +1438,54 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           ) : isScanning ? null : hasCachedResults && projection.rows.length > 0 ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-3">
-                <Checkbox
-                  checked={allVisibleSelected}
-                  onChange={() => selection.setMany(serviceKeys, !allVisibleSelected)}
-                  disabled={selectionBlocked || serviceKeys.length === 0}
-                  label={
-                    allVisibleSelected
-                      ? t('management.batchSelect.deselectAll')
-                      : t('management.batchSelect.selectAll')
-                  }
-                />
+                <DisabledActionGate
+                  disabled={selectionBlocked}
+                  reason={selectionBlocked ? removeAllReason : ''}
+                  label={selectAllLabel}
+                >
+                  <Checkbox
+                    checked={allVisibleSelected}
+                    onChange={() => selection.setMany(serviceKeys, !allVisibleSelected)}
+                    disabled={selectionBlocked || serviceKeys.length === 0}
+                    label={selectAllLabel}
+                  />
+                </DisabledActionGate>
               </div>
               <div className="mgmt-list divided-list">
                 {projection.rows.map(({ service, count }) => {
                   const isExpanded = expandedService === service;
+                  // Each active removal names its own row, so a queued one keeps its spinner
+                  // beside a running one.
                   const isRemoving =
-                    removingService === service || isServiceRemovalPending(service);
+                    runs.some(
+                      (removal) =>
+                        isActiveCorruptionRemoval(removal) && removal.details?.service === service
+                    ) || isServiceRemovalPending(service);
+                  const selectLabel = t('management.batchSelect.selectItem', {
+                    name: getServiceDisplayName(service)
+                  });
                   return (
                     <div key={`corruption-${service}`}>
                       <div
                         className="mgmt-row mgmt-row--interactive focus-ring--inset flex-wrap cursor-pointer"
                         {...rowToggleHandlers(() => toggleDetails(service))}
                       >
-                        <Checkbox
-                          checked={selection.isSelected(service)}
-                          onChange={() => selection.toggle(service)}
+                        {/* Missing disk objects and a closed reopen gate block removal only, so
+                            their reasons never reach a checkbox that is still usable. */}
+                        <DisabledActionGate
                           disabled={selectionBlocked || isRemoving}
-                          aria-label={t('management.batchSelect.selectItem', {
-                            name: getServiceDisplayName(service)
-                          })}
-                          className="flex-shrink-0"
-                        />
+                          reason={selectionBlocked ? removeAllReason : ''}
+                          label={selectLabel}
+                          className="inline-flex flex-shrink-0"
+                        >
+                          <Checkbox
+                            checked={selection.isSelected(service)}
+                            onChange={() => selection.toggle(service)}
+                            disabled={selectionBlocked || isRemoving}
+                            aria-label={selectLabel}
+                            className="flex-shrink-0"
+                          />
+                        </DisabledActionGate>
                         <div className="mgmt-row__body">
                           <p className="mgmt-row__title mgmt-row__title--service truncate">
                             {getServiceDisplayName(service)}
@@ -1415,37 +1500,48 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                           </Badge>
                           <DiskObjectActionGate
                             available={diskObjectsAvailable}
-                            tooltip={
-                              diskObjectDenialReason ??
-                              t('management.capability.diskObjectsUnavailable')
-                            }
+                            tooltip={diskObjectReason}
                           >
                             <NginxReopenActionGate
                               available={nginxReopenAvailable}
                               tooltip={nginxReopenUnavailableMessage}
                             >
-                              <Button
-                                onClick={() => requestServiceRemoval(service)}
-                                awaitPermissions
-                                loading={isRemoving}
+                              <DisabledActionGate
                                 disabled={
                                   removalBlocked ||
                                   loadingDetailsServices.has(service) ||
                                   !diskObjectsAvailable
                                 }
-                                variant="filled"
-                                color="destructive"
-                                size="xs"
-                                stableWidth
+                                reason={
+                                  isRemoving
+                                    ? ''
+                                    : removeAllReason !== ''
+                                      ? removeAllReason
+                                      : loadingDetailsServices.has(service)
+                                        ? t('management.corruption.loadingDetails')
+                                        : ''
+                                }
+                                label={removeServiceLabel}
                               >
-                                {isRemoving
-                                  ? t('management.corruption.removing')
-                                  : t(
-                                      detectionMethod === 'structural'
-                                        ? 'management.corruption.removeInvalid'
-                                        : 'management.corruption.removeSuspect'
-                                    )}
-                              </Button>
+                                <Button
+                                  onClick={() => requestServiceRemoval(service)}
+                                  awaitPermissions
+                                  loading={isRemoving}
+                                  disabled={
+                                    removalBlocked ||
+                                    loadingDetailsServices.has(service) ||
+                                    !diskObjectsAvailable
+                                  }
+                                  variant="filled"
+                                  color="destructive"
+                                  size="xs"
+                                  stableWidth
+                                >
+                                  {isRemoving
+                                    ? t('management.corruption.removing')
+                                    : removeServiceLabel}
+                                </Button>
+                              </DisabledActionGate>
                             </NginxReopenActionGate>
                           </DiskObjectActionGate>
                           {/* Ends the row: the expander is the quietest control here, and sitting

@@ -97,7 +97,7 @@ public sealed class DashboardBatchCacheContractTests
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"dashboard-current-cache-{Guid.NewGuid():N}")
             .Options;
-        var contexts = new PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory(options);
+        var contexts = new BlockingDbContexts(options);
         using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 * 1024 * 1024 });
         var service = BatchServiceWith(contexts, cache);
         var current = new DownloadSpeedSnapshot
@@ -291,7 +291,7 @@ public sealed class DashboardBatchCacheContractTests
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"dashboard-flight-bump-{Guid.NewGuid():N}")
             .Options;
-        var contexts = new PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory(options);
+        var contexts = new BlockingDbContexts(options);
         using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 * 1024 * 1024 });
         var service = BatchServiceWith(contexts, cache);
 
@@ -321,7 +321,7 @@ public sealed class DashboardBatchCacheContractTests
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"dashboard-flight-shared-{Guid.NewGuid():N}")
             .Options;
-        var contexts = new PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory(options);
+        var contexts = new BlockingDbContexts(options);
         using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 * 1024 * 1024 });
         var service = BatchServiceWith(contexts, cache);
         using var firstCancellation = new CancellationTokenSource();
@@ -349,7 +349,7 @@ public sealed class DashboardBatchCacheContractTests
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"dashboard-flight-cancel-{Guid.NewGuid():N}")
             .Options;
-        var contexts = new PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory(options);
+        var contexts = new BlockingDbContexts(options);
         using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 * 1024 * 1024 });
         var service = BatchServiceWith(contexts, cache);
         using var cancellation = new CancellationTokenSource();
@@ -699,7 +699,7 @@ public sealed class DashboardBatchCacheContractTests
         var batchSource = BatchServiceSource();
         var detectionSource = ReadSource("Core", "Services", "Detection", "GameCacheDetectionService.cs");
 
-        Assert.Contains("GetCachedDetectionAsync(actualCacheSize, ct)", batchSource, StringComparison.Ordinal);
+        Assert.Contains("GetCachedDetectionAsync(usedCacheSize, ct)", batchSource, StringComparison.Ordinal);
         Assert.Contains("_gameCacheDetectionService.GetCachedDetectionAsync(ct)", batchSource, StringComparison.Ordinal);
         Assert.Contains("_detectionCacheLock.WaitAsync(cancellationToken)", detectionSource, StringComparison.Ordinal);
         Assert.Contains(
@@ -1054,7 +1054,7 @@ public sealed class DashboardBatchCacheContractTests
         };
 
     private static DashboardBatchService BatchServiceWith(
-        PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory contexts,
+        BlockingDbContexts contexts,
         MemoryCache cache)
     {
         var service = (DashboardBatchService)RuntimeHelpers.GetUninitializedObject(typeof(DashboardBatchService));

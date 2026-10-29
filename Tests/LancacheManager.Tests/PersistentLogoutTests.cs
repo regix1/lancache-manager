@@ -1,12 +1,19 @@
 using System.Reflection;
+using System.Text.Json;
+using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -269,4 +276,151 @@ public class PersistentLogoutTests
             => Task.FromException<bool>(new OperationCanceledException("Daemon command timed out."));
     }
 
+}
+
+public sealed partial class PrefillContainerOrchestrationTests
+{
+    // An admin action whose prefill cleanup did not finish names that with a key the page shows in the reader's language.
+    [Theory]
+    [InlineData("terminate", "errors.prefill.cleanupIncomplete")]
+    [InlineData("terminate-all", "errors.prefill.terminateAllIncomplete")]
+    [InlineData("ban", "errors.prefill.banSavedCleanupIncomplete")]
+    public async Task AdminActionWhoseCleanupFailsAnswersItsStageKeyAsync(string action, string stageKey)
+    {
+        var (_, contexts) = NewDatabase();
+        var history = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var deps = MakeDeps(contexts, history, Config(PersistenceMode.FullPersistence, true));
+        var gateways = Enumerable.Range(0, 5).Select(_ => new RecordingContainerGateway()).ToArray();
+        var daemons = new PrefillDaemonServiceBase[]
+        {
+            new TestSteamDaemon(deps, gateways[0]), new TestEpicDaemon(deps, gateways[1]),
+            new TestXboxDaemon(deps, gateways[2]), new TestBattleNetDaemon(deps, gateways[3]),
+            new TestRiotDaemon(deps, gateways[4])
+        };
+        var owner = new UserSession
+        {
+            Id = Guid.NewGuid(), SessionType = SessionType.Guest, SessionTokenHash = Guid.NewGuid().ToString("N"),
+            CreatedAtUtc = DateTime.UtcNow, LastSeenAtUtc = DateTime.UtcNow, ExpiresAtUtc = DateTime.UtcNow.AddHours(1)
+        };
+        await using (var database = await contexts.CreateDbContextAsync())
+        {
+            database.UserSessions.Add(owner);
+            await database.SaveChangesAsync();
+        }
+        var guest = AddGuest(daemons[0], gateways[0], owner.Id);
+        await history.CreateSessionAsync(guest.Id, owner.Id, guest.ContainerId, guest.ContainerName, guest.ExpiresAt, DateTime.UtcNow);
+        var controller = new PrefillAdminController(history, (SteamDaemonService)daemons[0], (EpicPrefillDaemonService)daemons[1],
+            (BattleNetDaemonService)daemons[3], (RiotDaemonService)daemons[4], (XboxPrefillDaemonService)daemons[2],
+            deps.CacheService, deps.Notifications, NullLogger<PrefillAdminController>.Instance);
+        var http = new DefaultHttpContext();
+        http.Items["Session"] = new UserSession { Id = Guid.NewGuid(), SessionType = SessionType.Admin };
+        controller.ControllerContext = new ControllerContext { HttpContext = http };
+        gateways[0].FailNextRemoveContainer(new InvalidOperationException("Injected removal failure"));
+
+        ActionResult? answer = action switch
+        {
+            "terminate" => (await controller.TerminateAsync(guest.Id)).Result,
+            "terminate-all" => (await controller.TerminateAllAsync()).Result,
+            "ban" => (await controller.BanBySessionAsync(guest.Id, new BanRequest())).Result,
+            _ => throw new InvalidOperationException("Unknown test action")
+        };
+
+        var refusal = Assert.IsAssignableFrom<ObjectResult>(answer);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, refusal.StatusCode);
+        Assert.Equal(stageKey, Assert.IsType<ErrorResponse>(refusal.Value).StageKey);
+    }
+
+    // A Stop retried after Docker did not answer the login volume removal finishes that Stop instead of
+    // answering that the session does not exist.
+    [Fact]
+    public async Task RetriedStopAfterTheVolumeRemovalTimedOutFinishesTheStopAsync()
+    {
+        var (_, database) = NewDatabase();
+        var sessions = new PrefillSessionService(database, NullLogger<PrefillSessionService>.Instance);
+        var status = IdleStatus(Guid.NewGuid().ToString());
+        var client = new FakeReconnectDaemonClient { StatusHandler = _ => Task.FromResult<DaemonStatus?>(status) };
+        var gateway = new RecordingContainerGateway { ResolvedImageId = "sha256:image-b" };
+        var deps = MakeDeps(database, sessions, Config(PersistenceMode.FullPersistence, true));
+        using var daemon = new TestSteamDaemon(deps, gateway);
+        var session = InjectedPersistentSession(daemon, client);
+        session.ContainerId = "container-a";
+        session.ContainerName = SteamPersistentContainerName;
+        session.ConfiguredImage = "ghcr.io/regix1/steam-prefill-daemon:latest";
+        session.ImageId = "sha256:image-a";
+        session.Capabilities = status;
+        session.LoginSettled = true;
+        session.AuthState = DaemonAuthState.Authenticated;
+        gateway.AddContainer(new FakeContainer
+        {
+            Id = session.ContainerId,
+            Name = session.ContainerName,
+            Running = true,
+            ImageId = session.ImageId
+        });
+        await sessions.CreateSessionAsync(
+            session.Id, session.UserId, session.ContainerId, SteamPersistentContainerName, session.ExpiresAt, DateTime.UtcNow);
+        gateway.FailNextRemoveContainer(new IOException("simulated remove failure"));
+        await Assert.ThrowsAsync<ServiceUnavailableException>(
+            () => daemon.ReconcilePersistentImageAsync(CancellationToken.None));
+        gateway.HoldRemoveVolume = true;
+        var controller = new PersistentPrefillController(
+            new SingleDaemonServiceProvider(daemon), deps.StateService, deps.CacheService,
+            NullLogger<PersistentPrefillController>.Instance);
+
+        async Task<(int Status, ActionResult? Answer, byte[] Body)> StopAsync()
+        {
+            ActionResult? answer = null;
+            var middleware = new GlobalExceptionMiddleware(
+                async _ => answer = await controller.StopAsync(new StopPersistentSessionRequest { SessionId = session.Id }),
+                NullLogger<GlobalExceptionMiddleware>.Instance,
+                DispatchProxy.Create<IHostEnvironment, NullReturningProxy>());
+            var context = new DefaultHttpContext();
+            var body = new MemoryStream();
+            context.Response.Body = body;
+            await middleware.InvokeAsync(context);
+            return (context.Response.StatusCode, answer, body.ToArray());
+        }
+
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, (await StopAsync()).Status);
+        var retry = await StopAsync();
+
+        Assert.Null(retry.Answer);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, retry.Status);
+        using (var answer = JsonDocument.Parse(retry.Body))
+        {
+            Assert.Equal("errors.prefill.dockerUnavailable", answer.RootElement.GetProperty("stageKey").GetString());
+        }
+        gateway.HoldRemoveVolume = false;
+        var last = await StopAsync();
+        Assert.IsType<OkResult>(last.Answer);
+        Assert.Equal(StatusCodes.Status200OK, last.Status);
+    }
+
+    // Clear stored logins against a Docker that never answers asks for one connect in all, not one for each
+    // service's adopt and another for its volume removal.
+    [Fact]
+    public async Task ClearAllPersistentLogins_DockerNeverConnects_WaitsForOneConnectAsync()
+    {
+        var (_, database) = NewDatabase();
+        var sessionService = new PrefillSessionService(database, NullLogger<PrefillSessionService>.Instance);
+        var config = Config(PersistenceMode.FullPersistence, steamEnabled: true);
+        var steamGateway = new RecordingContainerGateway(available: false) { HoldGetVersion = true };
+        var epicGateway = new RecordingContainerGateway(available: false) { HoldGetVersion = true };
+        using var steam = new TestSteamDaemon(MakeDeps(database, sessionService, config), steamGateway);
+        using var epic = new TestEpicDaemon(MakeDeps(database, sessionService, config), epicGateway);
+        await using var services = new ServiceCollection()
+            .AddSingleton<SteamDaemonService>(steam)
+            .AddSingleton<EpicPrefillDaemonService>(epic)
+            .BuildServiceProvider();
+
+        var results = await PrefillDaemonServiceBase.ClearAllPersistentLoginsAsync(services, CancellationToken.None);
+
+        Assert.Equal(new[] { PrefillPlatform.Steam, PrefillPlatform.Epic }, results.Select(row => row.Service));
+        Assert.All(results, row =>
+        {
+            Assert.False(row.Success);
+            Assert.Equal("DockerUnavailable", row.Detail);
+        });
+        Assert.Equal(1, steamGateway.CountOf("Version") + epicGateway.CountOf("Version"));
+    }
 }

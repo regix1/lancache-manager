@@ -33,7 +33,7 @@ public abstract partial class PrefillDaemonServiceBase
                     "Blocked banned {ServiceName} user {Username} after authentication. Terminating session {SessionId}",
                     ServiceName, session.Username, session.Id);
 
-                await TerminateSessionAsync(session.Id, "Banned by admin", true);
+                await TerminateSessionAsync(session.Id, "Banned by admin", true, reasonKey: BannedReasonKey);
             }
         }
     }
@@ -42,8 +42,19 @@ public abstract partial class PrefillDaemonServiceBase
     /// Terminates a session and cleans up resources
     /// </summary>
     /// <param name="force">If true, kills the container immediately without graceful shutdown</param>
-    public Task TerminateSessionAsync(string sessionId, string reason = "User requested", bool force = false, string? terminatedBy = null)
-        => StartTermination(sessionId, reason, force, terminatedBy, imageChange: null).Work;
+    /// <param name="keepLogin">If true, a persistent session is not logged out, so its saved login stays on the volume</param>
+    /// <param name="reasonKey">Translation key of this kind of stop. The session-ended event carries it to the owner's tabs, and each run the stop cancels stores it as its reason, so its history row says which stop ended it</param>
+    public Task TerminateSessionAsync(string sessionId, string reason = "User requested", bool force = false, string? terminatedBy = null, bool keepLogin = false, string reasonKey = StoppedReasonKey)
+        => StartTermination(sessionId, reason, force, terminatedBy, imageChange: null, keepLogin, reasonKey).Work;
+
+    private const string StoppedReasonKey = "signalr.prefillSession.stopped";
+    private const string SessionExpiredReasonKey = "signalr.prefillSession.expired";
+    private const string ServiceShutdownReasonKey = "signalr.prefillSession.serviceShutdown";
+    internal const string BannedReasonKey = "signalr.prefillSession.banned";
+    internal const string StoppedByAdminReasonKey = "signalr.prefillSession.stoppedByAdmin";
+    internal const string EndedByUserReasonKey = "signalr.prefillSession.endedByUser";
+    internal const string AccessEndedReasonKey = "signalr.prefillSession.accessEnded";
+    internal const string ImageUpdatedReasonKey = "signalr.prefillSession.imageUpdated";
 
     private (bool Claimed, Task Work) TryStartImageTermination(PersistentImageChange change)
         => StartTermination(
@@ -51,14 +62,18 @@ public abstract partial class PrefillDaemonServiceBase
             "Persistent container image updated",
             force: true,
             terminatedBy: "system",
-            change);
+            change,
+            keepLogin: false,
+            StoppedReasonKey);
 
     private (bool Claimed, Task Work) StartTermination(
         string sessionId,
         string reason,
         bool force,
         string? terminatedBy,
-        PersistentImageChange? imageChange)
+        PersistentImageChange? imageChange,
+        bool keepLogin,
+        string reasonKey)
     {
         SessionTermination termination;
         TaskCompletionSource? completion = null;
@@ -79,11 +94,18 @@ public abstract partial class PrefillDaemonServiceBase
                 {
                     Session = session,
                     Reason = reason,
+                    ReasonKey = reasonKey,
                     TerminatedBy = terminatedBy,
-                    ImageChange = imageChange
+                    ImageChange = imageChange,
+                    KeepLogin = keepLogin
                 };
                 _terminations[sessionId] = termination;
                 claimed = true;
+                // An image update's attempt that registered had its own daemon, so the next attempt takes a new
+                // id and row: browser state and the row's sign-in marks stay with the life that ended here.
+                if (GetPendingImageChange() is { } pending
+                    && string.Equals(pending.CreatedSessionId, sessionId, StringComparison.Ordinal))
+                    pending.CreatedSessionId = null;
             }
             else if (imageChange is not null && ReferenceEquals(termination.ImageChange, imageChange))
                 claimed = true;
@@ -113,35 +135,53 @@ public abstract partial class PrefillDaemonServiceBase
             // Dispatch physical teardown before cancellation callbacks, history or notification work.
             var removal = termination.Removed ? Task.CompletedTask : StopContainerAsync(termination, force);
             session.Status = DaemonSessionStatus.Error;
+            session.IsStopping = true;
             session.ErrorMessage = "Session cleanup is in progress.";
             ClearPendingLoginChallenge(session);
             session.Client.ClearPendingChallenges();
             var cancellation = session.CancellationTokenSource.CancelAsync();
             // The app ended the session, not the person signing in.
-            if (termination.Reason is "Session expired" or "Service shutdown")
+            if (termination.ReasonKey is SessionExpiredReasonKey or ServiceShutdownReasonKey)
                 session.LoginStopReason ??= "common.notifications.warnings.signInSessionEnded";
             CompleteLoginOperation(session);
-            await removal;
-            termination.Removed = true;
-            if (termination.ImageChange is { } imageChange)
-                imageChange.ContainerRemoved = true;
-            await cancellation;
-            foreach (var run in session.Runs.Values.Where(run => run.TerminalCompletedFlag == 0))
+            try
             {
-                await run.PrefillWork.WaitAsync();
-                try
+                await removal;
+                termination.Removed = true;
+                if (termination.ImageChange is { } imageChange)
+                    imageChange.ContainerRemoved = true;
+            }
+            finally
+            {
+                // The session already left every list, so nothing else can end its runs, even when
+                // the container removal failed.
+                await cancellation;
+                foreach (var run in session.Runs.Values.Where(run => run.TerminalCompletedFlag == 0))
                 {
-                    await FinishRunAsync(session, run, run.Snapshot with
+                    await run.PrefillWork.WaitAsync();
+                    try
                     {
-                        State = "cancelled",
-                        Reason = "session-stopped",
-                        Sequence = run.Snapshot.Sequence + 1,
-                        CancelledApps = Math.Max(run.Snapshot.CancelledApps, run.Snapshot.TotalApps
-                            - run.Snapshot.CompletedApps - run.Snapshot.CachedApps - run.Snapshot.FailedApps - run.Snapshot.SkippedApps),
-                        UpdatedAt = DateTimeOffset.UtcNow
-                    }, [], CancellationToken.None, containerStopped: true);
+                        await FinishRunAsync(session, run, run.Snapshot with
+                        {
+                            State = "cancelled",
+                            Reason = termination.ReasonKey,
+                            Sequence = run.Snapshot.Sequence + 1,
+                            CancelledApps = Math.Max(run.Snapshot.CancelledApps, run.Snapshot.TotalApps
+                                - run.Snapshot.CompletedApps - run.Snapshot.CachedApps - run.Snapshot.FailedApps - run.Snapshot.SkippedApps),
+                            UpdatedAt = DateTimeOffset.UtcNow
+                        }, [], CancellationToken.None, containerStopped: true);
+                    }
+                    finally { run.PrefillWork.Release(); }
                 }
-                finally { run.PrefillWork.Release(); }
+                // A person's stop is recorded even when the removal failed, so a restart does not bring the
+                // container back and the next Start does not keep the stored login.
+                if (!termination.Removed && session.IsPersistent && termination.ImageChange is null
+                    && !termination.KeepLogin && !termination.Persisted)
+                {
+                    await _sessionService.TerminateSessionAsync(session.Id, termination.Reason, termination.TerminatedBy,
+                        replaceOrphaned: session.IsPersistent && !termination.KeepLogin);
+                    termination.Persisted = true;
+                }
             }
             var registration = GuestGate.GetStarts(session.UserId).FirstOrDefault(start => ReferenceEquals(start.Session, session));
             if (registration != null)
@@ -151,36 +191,12 @@ public abstract partial class PrefillDaemonServiceBase
             }
 
             await DrainSessionEventsAsync(session);
-            if (termination.ImageChange is null && !termination.HistoryClosed)
-            {
-                using var workCts = new CancellationTokenSource(_eventDrainTimeout);
-                await session.PrefillWork.WaitAsync(workCts.Token);
-                try
-                {
-                    if (!termination.EntryClosed)
-                    {
-                        string? appId;
-                        long bytesDownloaded;
-                        long totalBytes;
-                        lock (session.PrefillLock)
-                        {
-                            appId = session.CurrentAppId;
-                            bytesDownloaded = session.CurrentBytesDownloaded;
-                            totalBytes = session.CurrentTotalBytes;
-                        }
-                        if (appId is not null)
-                            await _sessionService.CompleteEntryAsync(session.Id, appId, "Cancelled",
-                                bytesDownloaded, totalBytes, $"Session terminated: {termination.Reason}");
-                        termination.EntryClosed = true;
-                    }
-                    await _sessionService.CancelEntriesAsync(session.Id);
-                    termination.HistoryClosed = true;
-                }
-                finally { session.PrefillWork.Release(); }
-            }
             if (termination.ImageChange is null && !termination.Persisted)
             {
-                await _sessionService.TerminateSessionAsync(session.Id, termination.Reason, termination.TerminatedBy);
+                // A persistent teardown that erases the login also ends a row an errored replacement marked
+                // Orphaned, so the fresh-login guard does not keep that login.
+                await _sessionService.TerminateSessionAsync(session.Id, termination.Reason, termination.TerminatedBy,
+                    replaceOrphaned: session.IsPersistent && !termination.KeepLogin);
                 termination.Persisted = true;
             }
             session.Status = DaemonSessionStatus.Terminated;
@@ -202,7 +218,7 @@ public abstract partial class PrefillDaemonServiceBase
                     if (termination.SentConnections.Contains(connection))
                         continue;
                     await SendToClientAsync(connection, EventSessionEnded,
-                        new { sessionId = session.Id, reason = termination.Reason });
+                        new { sessionId = session.Id, reason = termination.Reason, reasonKey = termination.ReasonKey });
                     termination.SentConnections.Add(connection);
                 }
                 termination.OwnerSent = true;
@@ -224,6 +240,8 @@ public abstract partial class PrefillDaemonServiceBase
                 termination.Complete = true;
                 _terminations.Remove(session.Id);
             }
+            if (session.IsTemporary && PrefillSessionService.IsTerminatableByAdmin(session))
+                GuestGate.Release(session.UserId, session.Id);
             if (!IsAnyDaemonAuthenticated())
                 FireAndForgetAsync(OnAllSessionsLoggedOutAsync, nameof(OnAllSessionsLoggedOutAsync));
             completion.TrySetResult();
@@ -231,11 +249,18 @@ public abstract partial class PrefillDaemonServiceBase
         catch (Exception ex)
         {
             session.Status = DaemonSessionStatus.Error;
+            session.IsStopping = false;
             session.ErrorMessage = "Session cleanup is incomplete. Retry termination.";
             if (session.IsTemporary && PrefillSessionService.IsTerminatableByAdmin(session))
-                GuestGate.Retain(session.UserId);
+                GuestGate.Retain(session.UserId, session.Id);
             _logger.LogWarning(ex, "Session cleanup remains incomplete for {SessionId}", session.Id);
-            completion.TrySetException(ex);
+            completion.TrySetException(termination.Removed ? ex : ContainerRemovalFailure());
+            // The runs ended in the finally above while the session stays listed for a retried Stop, so its
+            // downloading mark clears; the report also recomputes the platform's container dot.
+            if (termination.ActivityRetired)
+                await ReportPlatformActivityAsync();
+            else
+                await ReportSessionActivityAsync(session, present: true);
         }
     }
 
@@ -267,7 +292,7 @@ public abstract partial class PrefillDaemonServiceBase
     private async Task StopContainerAsync(SessionTermination termination, bool force)
     {
         var session = termination.Session;
-        if (session.IsPersistent && termination.ImageChange is null)
+        if (session.IsPersistent && termination.ImageChange is null && !termination.KeepLogin)
             await TryBestEffortLogoutAsync(session, "session stop/teardown");
         if (string.IsNullOrEmpty(session.ContainerId))
             return;
@@ -277,7 +302,8 @@ public abstract partial class PrefillDaemonServiceBase
         {
             try
             {
-                using var shutdownCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                using var shutdownCts = CancellationTokenSource.CreateLinkedTokenSource(_daemonStopBudget);
+                shutdownCts.CancelAfter(TimeSpan.FromSeconds(2));
                 await session.Client.ShutdownAsync(shutdownCts.Token);
             }
             catch (Exception ex)
@@ -289,9 +315,8 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 try
                 {
-                    using var stopCts = new CancellationTokenSource(_containerTeardownTimeout);
                     await _containerGateway.StopContainerAsync(session.ContainerId,
-                        new ContainerStopParameters { WaitBeforeKillSeconds = 1 }, stopCts.Token);
+                        new ContainerStopParameters { WaitBeforeKillSeconds = 1 }, CancellationToken.None);
                 }
                 catch (Exception ex)
                 {
@@ -304,12 +329,12 @@ public abstract partial class PrefillDaemonServiceBase
 
     private async Task RemoveGuestContainerAsync(string containerId, bool removeVolumes)
     {
+        await ConnectDockerAsync(CancellationToken.None);
         if (!_containerGateway.IsAvailable)
             throw new InvalidOperationException("Docker is unavailable; container absence cannot be confirmed.");
         try
         {
-            using var killCts = new CancellationTokenSource(_containerTeardownTimeout);
-            await _containerGateway.KillContainerAsync(containerId, new ContainerKillParameters(), killCts.Token);
+            await _containerGateway.KillContainerAsync(containerId, new ContainerKillParameters(), CancellationToken.None);
         }
         catch (DockerContainerNotFoundException)
         {
@@ -319,8 +344,7 @@ public abstract partial class PrefillDaemonServiceBase
         {
             _logger.LogWarning(ex, "Container kill failed for {ContainerId}; forcing removal", containerId);
         }
-        using var removeCts = new CancellationTokenSource(_containerTeardownTimeout);
-        var outcome = await RemoveContainerForceAsync(containerId, removeCts.Token, removeVolumes);
+        var outcome = await RemoveContainerForceAsync(containerId, CancellationToken.None, removeVolumes);
         if (outcome == ContainerRemovalOutcome.RemovalInProgress)
             throw new InvalidOperationException("Container removal is still in progress.");
     }
@@ -332,6 +356,41 @@ public abstract partial class PrefillDaemonServiceBase
     {
         _sessions.TryGetValue(sessionId, out var session);
         return session;
+    }
+
+    /// <summary>
+    /// Gets a persistent session whose teardown failed, or the old session of a pending image update whose
+    /// Stop failed, so a second Stop can run the teardown again
+    /// </summary>
+    public DaemonSession? GetFailedTeardownSession(string sessionId)
+    {
+        lock (_terminationSync)
+        {
+            if (_terminations.TryGetValue(sessionId, out var termination) && IsFailedPersistentTeardown(termination))
+                return termination.Session;
+        }
+        return GetPendingImageChange() is { } pending
+            && string.Equals(pending.Session.Id, sessionId, StringComparison.Ordinal)
+            ? pending.Session
+            : null;
+    }
+
+    private static bool IsFailedPersistentTeardown(SessionTermination termination)
+        => termination.Session.IsPersistent && termination.Work is { IsFaulted: true };
+
+    /// <summary>
+    /// Gets the persistent session whose teardown with no image update and no kept login failed (a person's
+    /// Stop, Clear's hard removal, an expiry or a ban); Clear stored logins finishes that teardown.
+    /// </summary>
+    public DaemonSession? GetFailedStopSession()
+    {
+        lock (_terminationSync)
+        {
+            return _terminations.Values.FirstOrDefault((SessionTermination termination) =>
+                IsFailedPersistentTeardown(termination)
+                && termination.ImageChange is null
+                && !termination.KeepLogin)?.Session;
+        }
     }
 
     /// <summary>
@@ -403,13 +462,13 @@ public abstract partial class PrefillDaemonServiceBase
     }
 
     internal static async Task<GuestPrefillStopResult> TerminateGuestSessionsAsync(
-        IEnumerable<PrefillDaemonServiceBase> daemons, Guid userId, string reason, string? terminatedBy = null)
+        IEnumerable<PrefillDaemonServiceBase> daemons, Guid userId, string reason, string reasonKey, string? terminatedBy = null)
     {
         var services = daemons.ToArray();
         var targets = services.SelectMany(daemon => daemon.GetAllSessions(includeTerminating: true)
             .Where(session => session.UserId == userId && session.IsTemporary && PrefillSessionService.IsTerminatableByAdmin(session))
             .Select(session => (Daemon: daemon, Session: session))).ToArray();
-        var stops = targets.Select(target => target.Daemon.TerminateSessionAsync(target.Session.Id, reason, force: true, terminatedBy)).ToArray();
+        var stops = targets.Select(target => target.Daemon.TerminateSessionAsync(target.Session.Id, reason, force: true, terminatedBy, reasonKey: reasonKey)).ToArray();
         var starts = GuestGate.GetStarts(userId);
         await Task.WhenAll(starts.Select(start => start.Completion.Task));
         var cleanup = starts.Where(start => !start.Removed && start.SessionId != null)
@@ -423,7 +482,7 @@ public abstract partial class PrefillDaemonServiceBase
         var finalStops = services.SelectMany(daemon => daemon.GetAllSessions(includeTerminating: true)
             .Where(session => session.UserId == userId && session.IsTemporary && PrefillSessionService.IsTerminatableByAdmin(session))
             .Where(session => !targets.Any(target => ReferenceEquals(target.Session, session)))
-            .Select(session => daemon.TerminateSessionAsync(session.Id, reason, force: true, terminatedBy))).ToArray();
+            .Select(session => daemon.TerminateSessionAsync(session.Id, reason, force: true, terminatedBy, reasonKey: reasonKey))).ToArray();
         try { await Task.WhenAll(finalStops); }
         catch (Exception ex)
         {
@@ -452,7 +511,6 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 if (start.ContainerId == null)
                 {
-                    using var lookupCts = new CancellationTokenSource(_containerTeardownTimeout);
                     var containers = await _containerGateway.ListContainersAsync(new ContainersListParameters
                     {
                         All = true,
@@ -460,7 +518,7 @@ public abstract partial class PrefillDaemonServiceBase
                         {
                             ["name"] = new Dictionary<string, bool> { [start.ContainerName!] = true }
                         }
-                    }, lookupCts.Token);
+                    }, CancellationToken.None);
                     var match = containers.SingleOrDefault(container => container.Names != null
                         && container.Names.Any(name => name.TrimStart('/') == start.ContainerName));
                     if (match == null)

@@ -3,6 +3,7 @@ using Docker.DotNet.Models;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
+using LancacheManager.Middleware;
 
 namespace LancacheManager.Core.Services;
 
@@ -108,6 +109,12 @@ public abstract partial class PrefillDaemonServiceBase
                 }
                 catch (Exception ex)
                 {
+                    // A canceled pull, like one that leaves no image to start from below, is due again on
+                    // the next Start rather than after the check interval.
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        lock (_imageStateLock) _nextImageCheckAtUtc = nowUtc;
+                    }
                     cancellationToken.ThrowIfCancellationRequested();
                     try
                     {
@@ -127,6 +134,7 @@ public abstract partial class PrefillDaemonServiceBase
                         _logger.LogError(ex,
                             "Failed to pull image {ImageName} and no cached version is available. The {ServiceName} Prefill feature requires this image.",
                             imageName, ServiceName);
+                        lock (_imageStateLock) _nextImageCheckAtUtc = nowUtc;
                         throw;
                     }
                 }
@@ -284,10 +292,7 @@ public abstract partial class PrefillDaemonServiceBase
             && !_stopping
             && !session.CancellationTokenSource.IsCancellationRequested
             && !session.AdmissionClosed
-            && !PersistentEditSessionGate.HasPendingStart()
             && !session.Recovering
-            && !session.IsPrefilling
-            && session.TerminalCompletedFlag != 1
             && session.Runs.Values.All(run => run.TerminalCompletedFlag == 2 && !run.AdmissionPending)
             && session.PendingLoginChallenge is null
             && session.LoginOperationId is null
@@ -304,14 +309,13 @@ public abstract partial class PrefillDaemonServiceBase
         string desiredImageId,
         CancellationToken cancellationToken)
     {
-        if (!PersistentEditSessionGate.TryEnterMutation(out var editLease) || editLease is null)
+        if (!PersistentChangeGate.TryEnterChange(out var gateLease) || gateLease is null)
         {
             return;
         }
 
         var loginLease = false;
         var recoveryLease = false;
-        var prefillLease = false;
         var admissionClaimed = false;
         var client = session.Client;
         try
@@ -320,8 +324,6 @@ public abstract partial class PrefillDaemonServiceBase
             if (!loginLease) return;
             recoveryLease = session.RecoveryWork.Wait(0);
             if (!recoveryLease) return;
-            prefillLease = session.PrefillWork.Wait(0);
-            if (!prefillLease) return;
 
             lock (session.PrefillLock)
             {
@@ -352,8 +354,6 @@ public abstract partial class PrefillDaemonServiceBase
                     || _stopping
                     || session.CancellationTokenSource.IsCancellationRequested
                     || session.Recovering
-                    || session.IsPrefilling
-                    || session.TerminalCompletedFlag == 1
                     || session.Runs.Values.Any(run => run.TerminalCompletedFlag != 2 || run.AdmissionPending)
                     || session.PendingLoginChallenge is not null
                     || session.LoginOperationId is not null
@@ -376,6 +376,7 @@ public abstract partial class PrefillDaemonServiceBase
                 ConfiguredImage = configuredImage,
                 DesiredImageId = desiredImageId,
                 ExpiresAt = session.ExpiresAt,
+                LastLoginAt = session.LastLoginAt,
                 Authenticated = session.AuthState == DaemonAuthState.Authenticated,
                 SigningInAgain = session.SignInAgainAfterDrop is { IsCompleted: false },
                 NeedsRelogin = session.NeedsRelogin
@@ -397,14 +398,12 @@ public abstract partial class PrefillDaemonServiceBase
 
             SetPendingImageChange(change);
             admissionClaimed = false;
-            session.PrefillWork.Release();
-            prefillLease = false;
             session.RecoveryWork.Release();
             recoveryLease = false;
             session.LoginLock.Release();
             loginLease = false;
-            await editLease.DisposeAsync();
-            editLease = null;
+            await gateLease.DisposeAsync();
+            gateLease = null;
 
             await termination.Work;
             await ResumeImageChangeAsync(change, cancellationToken);
@@ -421,10 +420,9 @@ public abstract partial class PrefillDaemonServiceBase
                     }
                 }
             }
-            if (prefillLease) session.PrefillWork.Release();
             if (recoveryLease) session.RecoveryWork.Release();
             if (loginLease) session.LoginLock.Release();
-            if (editLease is not null) await editLease.DisposeAsync();
+            if (gateLease is not null) await gateLease.DisposeAsync();
         }
     }
 
@@ -432,6 +430,8 @@ public abstract partial class PrefillDaemonServiceBase
     {
         if (change.Cancelled)
         {
+            // A person's Stop that Docker could not finish is finished here; the change stores no person.
+            await CancelPendingImageChangeAsync(change, terminatedBy: "system", cancellationToken);
             return;
         }
 
@@ -453,23 +453,79 @@ public abstract partial class PrefillDaemonServiceBase
 
         if (successor is null)
         {
-            successor = await CreateSessionCoreAsync(
-                ScheduledPrefillConstants.DeriveSystemUserId(),
-                ipAddress: null,
-                userAgent: null,
-                SessionType.Admin,
-                isPersistent: true,
-                reuseExistingSession: true,
-                persistentExpiresAtOverrideUtc: change.ExpiresAt,
-                involuntaryRecreate: false,
-                cancellationToken,
-                persistentContainerCreated: (sessionId, containerId) =>
+            try
+            {
+                successor = await CreateSessionCoreAsync(
+                    ScheduledPrefillConstants.DeriveSystemUserId(),
+                    ipAddress: null,
+                    userAgent: null,
+                    SessionType.Admin,
+                    isPersistent: true,
+                    reuseExistingSession: true,
+                    persistentExpiresAtOverrideUtc: change.ExpiresAt,
+                    involuntaryRecreate: false,
+                    cancellationToken,
+                    persistentContainerCreated: async (sessionId, containerId, containerName) =>
+                    {
+                        var reusedAttempt = string.Equals(sessionId, change.CreatedSessionId, StringComparison.Ordinal);
+                        change.CreatedSessionId = sessionId;
+                        change.CreatedContainerId = containerId;
+                        // The row is written with the stored expiry and sign-in time before the new daemon connects, so a restart
+                        // before it registers re-adopts the container as a reconnect, and outside KillOnRestart
+                        // that re-adopt signs the new daemon in from the saved login while the date is ahead. An attempt
+                        // that reuses the earlier attempt's id finds that row, whose sign-in time came from the same change.
+                        if (reusedAttempt)
+                        {
+                            await _sessionService.ReactivateSessionAsync(
+                                sessionId,
+                                ScheduledPrefillConstants.DeriveSystemUserId(),
+                                containerId,
+                                containerName,
+                                change.ExpiresAt,
+                                ServiceName);
+                        }
+                        else
+                        {
+                            await _sessionService.CreateSessionAsync(
+                                sessionId,
+                                ScheduledPrefillConstants.DeriveSystemUserId(),
+                                containerId,
+                                containerName,
+                                change.ExpiresAt,
+                                change.LastLoginAt,
+                                ServiceName);
+                        }
+                        // A person's Cancel of the old session's sign-in, and a log-off of its container, are stored on
+                        // the new row too, so a restart before the new daemon registers keeps the new container signed out.
+                        bool canceled;
+                        bool loggedInWhileCanceled;
+                        bool signedOut;
+                        lock (change.Session.PrefillLock)
+                        {
+                            canceled = change.Session.LoginCanceledByPerson;
+                            loggedInWhileCanceled = change.Session.LoggedInWhilePersonCanceled;
+                            signedOut = change.Session.SignedOut;
+                        }
+                        if (canceled || signedOut)
+                        {
+                            await _sessionService.SetLoginStateAsync(sessionId, canceled, loggedInWhileCanceled, signedOut,
+                                change.LastLoginAt, change.ExpiresAt);
+                        }
+                    },
+                    imageChange: change,
+                    resolvedImageId: change.DesiredImageId,
+                    persistentLastLoginAtUtc: change.LastLoginAt);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // The old container is gone, so its row no longer reads Active while the update waits for the next
+                // pass. Orphaned keeps the login for that pass, and a person's Stop still ends it.
+                if (!change.OldSessionRetired)
                 {
-                    change.CreatedSessionId = sessionId;
-                    change.CreatedContainerId = containerId;
-                },
-                imageChange: change,
-                resolvedImageId: change.DesiredImageId);
+                    await _sessionService.MarkOrphanedAsync(change.Session.Id);
+                }
+                throw;
+            }
         }
 
         change.CreatedSessionId = successor.Id;
@@ -491,7 +547,7 @@ public abstract partial class PrefillDaemonServiceBase
                 await SendToClientAsync(
                     connection,
                     EventSessionEnded,
-                    new { sessionId = change.Session.Id, reason = "Persistent container image updated" });
+                    new { sessionId = change.Session.Id, reason = "Persistent container image updated", reasonKey = ImageUpdatedReasonKey });
             }
             change.OldSessionRetired = true;
         }
@@ -504,36 +560,67 @@ public abstract partial class PrefillDaemonServiceBase
         CancellationToken cancellationToken)
     {
         change.Cancelled = true;
+        // The person's Stop is recorded before Docker is asked, so a failed removal followed by a restart
+        // does not bring the container back.
+        if (!change.OldSessionRetired)
+        {
+            // A canceled pass left the old row Orphaned.
+            await _sessionService.TerminateSessionAsync(
+                change.Session.Id,
+                "Persistent session stopped",
+                terminatedBy,
+                replaceOrphaned: true);
+        }
         var successor = string.IsNullOrEmpty(change.CreatedSessionId) ? null : GetSession(change.CreatedSessionId);
         if (successor is null)
         {
+            // The new container's row ends with this Stop too, so neither a restart nor a FullPersistence
+            // recreate brings it back with the login. It reads Orphaned when the attempt it names was
+            // replaced and the next create failed before writing its own row.
+            if (!string.IsNullOrEmpty(change.CreatedSessionId))
+            {
+                await _sessionService.TerminateSessionAsync(
+                    change.CreatedSessionId,
+                    "Persistent session stopped",
+                    terminatedBy,
+                    replaceOrphaned: true);
+            }
+
             if (!change.ContainerRemoved)
             {
                 await TryBestEffortLogoutAsync(change.Session, "pending image update cancelled by explicit stop");
             }
 
-            if (!change.ContainerRemoved && !string.IsNullOrEmpty(change.ContainerId))
+            // The image teardown removes the old container and, on success, releases the old client and its
+            // teardown entry.
+            if (!change.ContainerRemoved)
             {
-                var removal = await RemoveContainerForceAsync(change.ContainerId, cancellationToken, removeVolumes: false);
-                change.ContainerRemoved = removal is ContainerRemovalOutcome.Removed or ContainerRemovalOutcome.AlreadyAbsent;
+                await TryStartImageTermination(change).Work;
             }
 
             if (!string.IsNullOrEmpty(change.CreatedContainerId))
             {
-                var removal = await RemoveContainerForceAsync(change.CreatedContainerId, cancellationToken, removeVolumes: false);
+                var removal = await RemoveContainerForceAsync(change.CreatedContainerId, cancellationToken);
                 if (removal == ContainerRemovalOutcome.RemovalInProgress)
                 {
-                    throw new InvalidOperationException("The pending replacement container is still being removed.");
+                    throw ContainerRemovalFailure();
                 }
             }
 
             if (!change.ContainerRemoved)
             {
-                throw new InvalidOperationException("The previous persistent container is still being removed.");
+                throw ContainerRemovalFailure();
             }
 
             var volumeResult = await ClearPersistentAuthVolumeAsync(cancellationToken);
-            if (volumeResult is PersistentVolumeClearResult.InUse or PersistentVolumeClearResult.DockerUnavailable)
+            if (volumeResult == PersistentVolumeClearResult.DockerUnavailable)
+            {
+                throw new ServiceUnavailableException("Docker did not answer while clearing the persistent login volume.")
+                {
+                    StageKey = "errors.prefill.dockerUnavailable"
+                };
+            }
+            if (volumeResult == PersistentVolumeClearResult.InUse)
             {
                 throw new InvalidOperationException("The persistent login volume could not be cleared while cancelling the pending image update.");
             }
@@ -541,10 +628,9 @@ public abstract partial class PrefillDaemonServiceBase
 
         if (!change.OldSessionRetired)
         {
-            await _sessionService.TerminateSessionAsync(
-                change.Session.Id,
-                "Persistent session stopped",
-                terminatedBy);
+            await _notifications.NotifyAdminAsync(
+                EventSessionTerminated,
+                new { sessionId = change.Session.Id, reason = "Persistent session stopped" });
             change.OldSessionRetired = true;
         }
         ClearPendingImageChange(change);

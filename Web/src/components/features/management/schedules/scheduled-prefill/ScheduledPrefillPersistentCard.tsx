@@ -79,7 +79,7 @@ export function ScheduledPrefillPersistentCard({
   }
   const shownLoginError = loginError ?? (attemptRunning ? heldLoginError : null);
   const containerFact = getScheduledPrefillStatusFact(status.container, container, t);
-  // While a cancel is still ending the old attempt, Log in waits; the status line says why [96].
+  // While a cancel is still ending the old attempt, Log in waits; the status line says why.
   const accountFact = loginCanceling
     ? { tone: null, busy: true, label: t(`${baseKey}.serviceStatus.cancelingLogin`) }
     : getScheduledPrefillStatusFact(status.account, container, t);
@@ -88,7 +88,7 @@ export function ScheduledPrefillPersistentCard({
   const accountLabel = savedLoginInProgress
     ? t(`${baseKey}.account.savedLoginInProgress`)
     : accountFact.label;
-  // A concurrent-run daemon reports its downloads as runs, not isPrefilling, and Log out cancels them.
+  // The container reports its downloads as runs, and Log out cancels them.
   const isPrefilling = status.container === 'downloading';
   const actionPending = action !== null;
   const needsLogin =

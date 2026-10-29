@@ -1000,10 +1000,47 @@ public sealed class CorruptionRemovalContractTests
         await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, removeAll.OperationId, OperationStatus.Failed);
         Assert.Equal("errors.corruption.keySchemeUnavailable", fixture.Tracker.GetOperation(removeAll.OperationId)!.Message);
         Assert.Empty(fixture.Messages.Started);
-        Assert.Empty(fixture.Messages.Completions);
+        // The click that stored the waiting id is released by the "all" completion that names it.
+        var ended = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Single(fixture.Messages.Completions);
+        Assert.Equal("all", ended.Service);
+        Assert.False(ended.Success);
+        Assert.False(ended.Cancelled);
+        Assert.Equal("errors.corruption.keySchemeUnavailable", ended.StageKey);
+        Assert.Equal(removeAll.OperationId, ended.OperationId);
+        Assert.Equal(removeAll.OperationId.ToString("D"), ended.Context!["bulkOperationId"]);
         Assert.True(await HoldReleasedAsync(fixture.Checker));
         Assert.False(RunKeepsScan(fixture.ScanId));
         await WaitUntilAsync(() => !QueuedRemoveAllKeepsScan(fixture.ScanId));
+    }
+
+    [Fact]
+    public async Task AllServices_AQueuedRunWhoseStartThrowsEndsOnALocaleKeyAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        fixture.Messages.Resume.TrySetResult();
+        var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        var removeAll = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+        // A stored scan that lost its projection row fails the start with an exception that carries no key.
+        using (var db = fixture.Contexts.CreateDbContext())
+        {
+            db.CachedCorruptionDetections.RemoveRange(db.CachedCorruptionDetections.Where(row =>
+                row.ScanId == fixture.ScanId && row.ServiceName == "__scan_projection__"));
+            db.SaveChanges();
+        }
+        fixture.Tracker.CompleteOperation(blocker, success: true);
+
+        await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, removeAll.OperationId, OperationStatus.Failed);
+        var ended = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("all", ended.Service);
+        Assert.False(ended.Success);
+        Assert.Equal("signalr.generic.failed", ended.StageKey);
+        Assert.Equal(removeAll.OperationId, ended.OperationId);
+        // The row keeps the exception text as its error detail.
+        Assert.Equal("Stored v4 corruption scan omitted its projection row",
+            Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationId == removeAll.OperationId).Error);
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
     }
 
     [Fact]
@@ -1028,6 +1065,157 @@ public sealed class CorruptionRemovalContractTests
         Assert.Equal(2, aggregate.Context!["serviceCount"]);
         Assert.Equal("signalr.corruptionRemove.allCompleteWithFailuresStructural", aggregate.StageKey);
         Assert.Single(fixture.Messages.Started);
+    }
+
+    [Fact]
+    public async Task AllServices_ALaterServiceThatThrowsCountsAsFailedInTheFullSummaryAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        fixture.Messages.OnStarted = id =>
+        {
+            if (fixture.Messages.Started.Count == 1)
+            {
+                // A newer scan replaces this one after the first service registered, so the next
+                // service's registration throws instead of refusing.
+                using var db = fixture.Contexts.CreateDbContext();
+                db.CachedCorruptionScans.Single(scan => scan.ScanId == fixture.ScanId).IsCurrent = false;
+                db.SaveChanges();
+            }
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        fixture.Messages.Resume.TrySetResult();
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+
+        Assert.Equal(startedId, Assert.Single(fixture.Messages.Started));
+        Assert.Single(fixture.Messages.Completions);
+        Assert.Equal(startedId, aggregate.OperationId);
+        Assert.Equal(startedId.ToString("D"), aggregate.Context!["bulkOperationId"]);
+        Assert.Equal(1, aggregate.Context["failedCount"]);
+        Assert.Equal(2, aggregate.Context["serviceCount"]);
+        Assert.True(aggregate.Context.ContainsKey("files"));
+        Assert.Equal("signalr.corruptionRemove.allCompleteWithFailuresStructural", aggregate.StageKey);
+        // The service that threw never got a card, so the summary names it and its reason instead of
+        // pointing at a red card.
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationId == startedId);
+        Assert.Equal(
+            ["common.notifications.warnings.serviceNotStarted", "errors.corruption.scanStale"],
+            row.Warnings.Select(warning => warning.StageKey).ToArray());
+        var warning = row.Warnings[0];
+        Assert.Equal("steam", warning.Context["service"]);
+        Assert.Equal(1, warning.Context["failedCount"]);
+        Assert.Equal(2, warning.Context["serviceCount"]);
+    }
+
+    [Fact]
+    public async Task AllServices_AServiceThatCannotRegisterIsNamedOnAFailedLastCardAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        fixture.Messages.OnStarted = id =>
+        {
+            if (fixture.Messages.Started.Count == 1)
+            {
+                using var db = fixture.Contexts.CreateDbContext();
+                db.CachedCorruptionScans.Single(scan => scan.ScanId == fixture.ScanId).IsCurrent = false;
+                db.SaveChanges();
+            }
+            fixture.Tracker.CompleteOperation(id, success: false, error: "the disk went away");
+        };
+
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        fixture.Messages.Resume.TrySetResult();
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+
+        Assert.Equal(2, aggregate.Context!["failedCount"]);
+        // The red card is the first service's own failure; the second service has no card, so this one names it.
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationId == startedId);
+        Assert.Equal("failed", row.Status);
+        Assert.Equal(
+            ["common.notifications.warnings.serviceNotStarted", "errors.corruption.scanStale"],
+            row.Warnings.Select(warning => warning.StageKey).ToArray());
+        Assert.Equal("steam", row.Warnings[0].Context["service"]);
+        Assert.Equal(2, row.Warnings[0].Context["failedCount"]);
+    }
+
+    [Fact]
+    public async Task AllServices_EveryServiceThatCannotRegisterIsNamedAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, services: ["steam", "epicgames", "wsus"]);
+        fixture.Messages.OnStarted = id =>
+        {
+            using (var db = fixture.Contexts.CreateDbContext())
+            {
+                db.CachedCorruptionScans.Single(scan => scan.ScanId == fixture.ScanId).IsCurrent = false;
+                db.SaveChanges();
+            }
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+
+        var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        fixture.Messages.Resume.TrySetResult();
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+
+        Assert.Equal(2, aggregate.Context!["failedCount"]);
+        Assert.Equal(3, aggregate.Context["serviceCount"]);
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationId == startedId);
+        Assert.Equal(
+            ["common.notifications.warnings.servicesNotStarted", "errors.corruption.scanStale"],
+            row.Warnings.Select(warning => warning.StageKey).ToArray());
+        Assert.Equal("steam, wsus", row.Warnings[0].Context["services"]);
+    }
+
+    [Fact]
+    public async Task AllServices_AServiceThatCannotRegisterIsNamedOnACanceledLastCardAsync()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var registrationGate = CorruptionSnapshotGate();
+        var asyncWaiters = typeof(SemaphoreSlim).GetField("m_asyncHead", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        fixture.Messages.OnStarted = id =>
+        {
+            fixture.Tracker.CancelOperation(id);
+            fixture.Tracker.CompleteOperation(id, success: false, cancelled: true);
+        };
+
+        // The first service waits to register behind this gate, so the scan goes stale for it alone.
+        await registrationGate.WaitAsync();
+        var removal = fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
+        await WaitForHoldAsync(fixture.Checker);
+        for (var attempt = 0; attempt < 400 && asyncWaiters.GetValue(registrationGate) == null; attempt++)
+        {
+            await Task.Delay(25);
+        }
+        Assert.NotNull(asyncWaiters.GetValue(registrationGate));
+        SetScanCurrent(fixture, current: false);
+        registrationGate.Release();
+        // Queued ahead of the second service, which reaches the gate only after the first one gave up.
+        await registrationGate.WaitAsync();
+        SetScanCurrent(fixture, current: true);
+        registrationGate.Release();
+
+        var startedId = RequireImmediateRemoval(await removal);
+        var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        fixture.Messages.Resume.TrySetResult();
+        Assert.True(await HoldReleasedAsync(fixture.Checker));
+
+        Assert.True(aggregate.Cancelled);
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationId == startedId);
+        Assert.Equal("cancelled", row.Status);
+        Assert.Equal(
+            ["common.notifications.warnings.serviceNotStarted", "errors.corruption.scanStale"],
+            row.Warnings.Select(warning => warning.StageKey).ToArray());
+        Assert.Equal("epicgames", row.Warnings[0].Context["service"]);
+        Assert.True(row.Retained);
+    }
+
+    private static void SetScanCurrent(RemovalRun fixture, bool current)
+    {
+        using var db = fixture.Contexts.CreateDbContext();
+        db.CachedCorruptionScans.Single(scan => scan.ScanId == fixture.ScanId).IsCurrent = current;
+        db.SaveChanges();
     }
 
     [Fact]
@@ -1427,11 +1615,19 @@ public sealed class CorruptionRemovalContractTests
             Assert.Single(fixture.Messages.Started);
             Assert.True(secondResult.Queued || secondResult.AlreadyRunning);
             if (secondResult.Queued)
+            {
                 fixture.Tracker.CancelOperation(secondResult.OperationId);
+                // The canceled waiting card ran nothing, so its own "all" completion releases the click that stored its id.
+                await WaitUntilAsync(() => fixture.Messages.Completions.Any(complete =>
+                    complete is { Service: "all", Cancelled: true }
+                    && complete.OperationId == secondResult.OperationId
+                    && Equals(complete.Context?.GetValueOrDefault("bulkOperationId"), secondResult.OperationId.ToString("D"))));
+            }
             releaseRun.Set();
             var firstId = RequireImmediateRemoval(await first.WaitAsync(TimeSpan.FromSeconds(10)));
             Assert.Equal(firstId, fixture.Messages.Started.First());
-            await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await WaitUntilAsync(() => fixture.Messages.Completions.Any(complete =>
+                Equals(complete.Context?.GetValueOrDefault("bulkOperationId"), firstId.ToString("D"))));
         }
         finally
         {
@@ -2226,7 +2422,7 @@ public sealed class CorruptionRemovalContractTests
         private readonly HostLifetime _lifetime = new();
 
         public RemovalRun(CorruptionDetectionMethod method, bool transport = false, int datasourceCount = 1,
-            string schemeOverride = DatasourceSchemeOverrideValues.Monolithic)
+            string schemeOverride = DatasourceSchemeOverrideValues.Monolithic, string[]? services = null)
         {
             Directory.CreateDirectory(_root);
             Directory.CreateDirectory(Path.Combine(_root, "cache"));
@@ -2278,20 +2474,21 @@ public sealed class CorruptionRemovalContractTests
                     DetectionMode = method == CorruptionDetectionMethod.Structural ? CorruptionDetectionMode.Structural : CorruptionDetectionMode.RepeatedMiss,
                     Threshold = 3, LookbackDays = 30, StartedAtUtc = time, CompletedAtUtc = time
                 });
+                services ??= ["steam", "epicgames"];
                 var projection = new CachedCorruptionProjection
                 {
                     Settings = method == CorruptionDetectionMethod.Structural
                         ? new CorruptionScanSettings { MinimumStableAgeSeconds = 600, MaximumPrefixBytes = 65_535 }
                         : new CorruptionScanSettings { Threshold = 3, LookbackDays = 30 },
-                    Coverage = method == CorruptionDetectionMethod.Structural ? new CorruptionScanCoverage { FilesSeen = 2 * datasourceCount, FilesChecked = 2 * datasourceCount } : null,
-                    DetectionCounts = new Dictionary<string, long> { [method.ToWireString()] = 2 * datasourceCount }
+                    Coverage = method == CorruptionDetectionMethod.Structural ? new CorruptionScanCoverage { FilesSeen = services.Length * datasourceCount, FilesChecked = services.Length * datasourceCount } : null,
+                    DetectionCounts = new Dictionary<string, long> { [method.ToWireString()] = services.Length * datasourceCount }
                 };
                 db.CachedCorruptionDetections.Add(new CachedCorruptionDetection
                 {
                     ScanId = ScanId, ServiceName = "__scan_projection__", DatasourceName = "__aggregate__",
                     CandidatesJson = JsonSerializer.Serialize(projection, new JsonSerializerOptions(JsonSerializerDefaults.Web))
                 });
-                foreach (var service in new[] { "steam", "epicgames" })
+                foreach (var service in services)
                 foreach (var datasource in Datasources)
                 {
                     CorruptionEvidence evidence = method == CorruptionDetectionMethod.Structural

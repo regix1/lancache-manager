@@ -275,6 +275,7 @@ public class PrefillSessionService
         string? containerId,
         string? containerName,
         DateTime expiresAt,
+        DateTime lastLoginAt,
         string platform = "Steam")
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
@@ -292,7 +293,8 @@ public class PrefillSessionService
             Status = PrefillSessionStatus.Active,
             IsPersistent = IsPersistentContainerName(containerName),
             CreatedAtUtc = DateTime.UtcNow,
-            ExpiresAtUtc = expiresAt
+            ExpiresAtUtc = expiresAt,
+            LastLoginAtUtc = lastLoginAt
         };
 
         context.PrefillSessions.Add(session);
@@ -328,6 +330,8 @@ public class PrefillSessionService
 
         if (session == null)
         {
+            // A container with no record has no earlier sign-in to carry, so its window starts now, as its adopt does.
+            var now = DateTime.UtcNow;
             session = new PrefillSession
             {
                 SessionId = sessionId,
@@ -340,8 +344,9 @@ public class PrefillSessionService
                     : PrefillPlatform.Steam,
                 Status = PrefillSessionStatus.Active,
                 IsPersistent = IsPersistentContainerName(containerName),
-                CreatedAtUtc = DateTime.UtcNow,
-                ExpiresAtUtc = expiresAt
+                CreatedAtUtc = now,
+                ExpiresAtUtc = expiresAt,
+                LastLoginAtUtc = now
             };
             context.PrefillSessions.Add(session);
         }
@@ -386,62 +391,79 @@ public class PrefillSessionService
     }
 
     /// <summary>
-    /// Stores whether a person canceled the session's last sign-in (<see cref="PrefillSession.LoginCanceledByPerson"/>)
-    /// and whether the daemon reached logged-in while that mark held
-    /// (<see cref="PrefillSession.LoggedInWhilePersonCanceled"/>).
+    /// Stores the session's login state in one write: whether a person canceled its last sign-in
+    /// (<see cref="PrefillSession.LoginCanceledByPerson"/>), whether the daemon reached logged-in while that
+    /// mark held (<see cref="PrefillSession.LoggedInWhilePersonCanceled"/>), whether the container was signed
+    /// out (<see cref="PrefillSession.SignedOut"/>), the last sign-in time
+    /// (<see cref="PrefillSession.LastLoginAtUtc"/>) and the re-login date (<see cref="PrefillSession.ExpiresAtUtc"/>).
     /// </summary>
-    public async Task SetLoginCanceledByPersonAsync(string sessionId, bool canceled, bool loggedInWhileCanceled)
+    public async Task SetLoginStateAsync(string sessionId, bool canceled, bool loggedInWhileCanceled, bool signedOut,
+        DateTime lastLoginAt, DateTime expiresAt, CancellationToken cancellationToken = default)
     {
-        await using var context = await _contextFactory.CreateDbContextAsync();
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
         var session = await context.PrefillSessions
-            .FirstOrDefaultAsync(s => s.SessionId == sessionId);
+            .FirstOrDefaultAsync(s => s.SessionId == sessionId, cancellationToken);
 
         if (session != null)
         {
             session.LoginCanceledByPerson = canceled;
             session.LoggedInWhilePersonCanceled = loggedInWhileCanceled;
-            await context.SaveChangesAsync();
+            session.SignedOut = signedOut;
+            session.LastLoginAtUtc = lastLoginAt;
+            session.ExpiresAtUtc = expiresAt;
+            await context.SaveChangesAsync(cancellationToken);
         }
     }
 
     /// <summary>
-    /// Updates the persisted validity window (<see cref="PrefillSession.ExpiresAtUtc"/>) for a session.
-    /// Called when the admin changes the persistent login validity so the re-anchored expiry survives a
-    /// manager restart: the re-adopt path prefers a future <c>dbRecord.ExpiresAtUtc</c>, so without this
-    /// a shrink would leave the old longer window on disk and be re-adopted on restart. Only Active
-    /// records are updated; terminated/orphaned records keep their historical expiry.
+    /// Sets the persisted re-login date (<see cref="PrefillSession.ExpiresAtUtc"/>) of every persistent row of
+    /// <paramref name="platform"/> to its <see cref="PrefillSession.LastLoginAtUtc"/> plus
+    /// <paramref name="validityDays"/>, in one write, when the admin saves the persistent login validity. A
+    /// restart's re-adopt and a recreate read this date. Every row except a Terminated one is updated: an
+    /// Orphaned row's container can still be adopted, and a Cleaned row is what a FullPersistence recreate
+    /// reads. A terminated record keeps its historical expiry, so it never looks live.
     /// </summary>
-    public async Task UpdateExpiryAsync(string sessionId, DateTime expiresAt)
+    public async Task UpdateExpiryAsync(PrefillPlatform platform, int validityDays)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
-        var session = await context.PrefillSessions
-            .FirstOrDefaultAsync(s => s.SessionId == sessionId && s.Status == PrefillSessionStatus.Active);
+        var sessions = await context.PrefillSessions
+            .Where(s => s.IsPersistent && s.Platform == platform && s.Status != PrefillSessionStatus.Terminated)
+            .ToListAsync();
 
-        if (session != null)
+        foreach (var session in sessions)
         {
-            session.ExpiresAtUtc = expiresAt;
-            await context.SaveChangesAsync();
-
-            _logger.LogDebug("Updated persisted expiry for session {SessionId} to {ExpiresAt:o}", sessionId, expiresAt);
+            session.ExpiresAtUtc = session.LastLoginAtUtc.AddDays(validityDays);
         }
+        await context.SaveChangesAsync();
+
+        _logger.LogDebug("Updated persisted expiry for {Count} {Platform} sessions to their last login plus {Days} days",
+            sessions.Count, platform, validityDays);
     }
 
     /// <summary>
     /// Marks a session as terminated.
     /// </summary>
+    /// <param name="replaceOrphaned">
+    /// True for a persistent teardown that erases the login (a person's Stop, Clear stored logins' hard
+    /// removal, a KillOnRestart shutdown, a banned user's removal), which also ends a row an errored
+    /// replacement marked Orphaned. Every other caller leaves an Orphaned row alone, so a detached container
+    /// still recreates.
+    /// </param>
     public async Task TerminateSessionAsync(
         string sessionId,
         string reason,
-        string? terminatedBy = null)
+        string? terminatedBy = null,
+        bool replaceOrphaned = false)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var session = await context.PrefillSessions
             .FirstOrDefaultAsync(s => s.SessionId == sessionId);
 
-        if (session != null && session.Status == PrefillSessionStatus.Active)
+        if (session != null && (session.Status == PrefillSessionStatus.Active
+            || (replaceOrphaned && session.Status == PrefillSessionStatus.Orphaned)))
         {
             session.Status = PrefillSessionStatus.Terminated;
             session.EndedAtUtc = DateTime.UtcNow;
@@ -450,6 +472,24 @@ public class PrefillSessionService
             await context.SaveChangesAsync();
 
             _logger.LogInformation("Terminated session {SessionId}: {Reason}", sessionId, reason);
+        }
+    }
+
+    /// <summary>
+    /// Records a terminated persistent session as orphaned: its life ended without a person's stop, so
+    /// the fresh-login guard keeps the saved volume login on a later Start.
+    /// </summary>
+    public async Task MarkOrphanedAsync(string sessionId)
+    {
+        await using var context = await _contextFactory.CreateDbContextAsync();
+
+        var session = await context.PrefillSessions
+            .FirstOrDefaultAsync(s => s.SessionId == sessionId);
+
+        if (session != null)
+        {
+            session.Status = PrefillSessionStatus.Orphaned;
+            await context.SaveChangesAsync();
         }
     }
 
@@ -719,7 +759,7 @@ public class PrefillSessionService
         if (run is null) return null;
         // When a run fails, the daemon leaves every game without a result Cancelled (the server cancelled a
         // stalled, signed-out or over-time run) or Skipped (the daemon failed the run itself). Only the games that
-        // were downloading failed with the run, and they carry the run's reason; queued games never started [90].
+        // were downloading failed with the run, and they carry the run's reason; queued games never started.
         var runFailed = run.State == "failed";
         var currentAppId = runFailed
             ? (JsonSerializer.Deserialize<DaemonRunSnapshot>(run.SnapshotJson)
@@ -740,7 +780,9 @@ public class PrefillSessionService
                 Name = e.AppName,
                 ReasonKey = reason switch
                 {
-                    "auth-lost" => "errors.prefill.signInLost",
+                    // Only a Steam container signs in again by itself with its saved login
+                    "auth-lost" => platform == PrefillPlatform.Steam
+                        ? "errors.prefill.signInLost" : "errors.prefill.loginRequired",
                     "game-details-unavailable" => "errors.prefill.gameDetailsUnavailable",
                     "stalled" => "signalr.scheduledPrefill.failedStalled",
                     "runtime-exceeded" => "signalr.scheduledPrefill.failedMaxRuntime",
@@ -772,11 +814,17 @@ public class PrefillSessionService
     {
         await using var executionContext = await _contextFactory.CreateDbContextAsync(cancellationToken);
         var execution = executionContext.Database.CreateExecutionStrategy();
-        return await execution.ExecuteAsync<(bool Applied, List<DaemonRunItem> Items)>(async attemptToken =>
+        // A pass that lost a write conflict answers null, after its transaction is gone, and the next pass reads
+        // the run and its games again.
+        Func<CancellationToken, Task<(bool Applied, List<DaemonRunItem> Items)?>> save = async attemptToken =>
         {
             await using var context = await _contextFactory.CreateDbContextAsync(attemptToken);
             await using var transaction = await context.Database.BeginTransactionAsync(attemptToken);
-            var saved = await context.PrefillRuns.SingleAsync(r => r.Id == run.PrefillRunId, attemptToken);
+            var saved = await context.PrefillRuns.SingleOrDefaultAsync(r => r.Id == run.PrefillRunId, attemptToken);
+            // A Prefill Sessions reset deleted the run with its session row. Nothing is left to write, so the save
+            // counts as done and the run's progress and end still apply in memory.
+            if (saved is null)
+                return (true, []);
             if (saved.CompletedAtUtc.HasValue || saved.DaemonInstanceId != snapshot.DaemonInstanceId
                 || snapshot.Sequence < saved.Sequence)
                 return (false, []);
@@ -846,115 +894,18 @@ public class PrefillSessionService
             }
             catch (DbUpdateConcurrencyException)
             {
-                // Another owner persisted this run first; its committed outcome is authoritative.
-                return (false, []);
+                // Another owner saved this run first, or a Prefill History reset deleted games this save
+                // changes. The next pass returns above for a run another owner advanced or ended, and writes
+                // the deleted games again otherwise.
+                return null;
             }
             return (true, changed);
-        }, cancellationToken);
-    }
-
-    /// <summary>
-    /// Records the start of a game prefill.
-    /// Returns null if the app was recently completed (prevents duplicate entries).
-    /// </summary>
-    public async Task<PrefillHistoryEntry?> StartEntryAsync(
-        string sessionId,
-        string appId,
-        string? appName)
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync();
-
-        // Check if this app was just completed or cached (within last 5 seconds) - don't create duplicate
-        var recentCutoff = DateTime.UtcNow.AddSeconds(-5);
-        var recentlyFinished = await context.PrefillHistoryEntries
-            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.RunId == null)
-            .Where(e => (e.Status == PrefillHistoryEntryStatus.Completed || e.Status == PrefillHistoryEntryStatus.Cached) && e.CompletedAtUtc != null && e.CompletedAtUtc > recentCutoff)
-            .AnyAsync();
-
-        if (recentlyFinished)
-        {
-            _logger.LogDebug("Skipping InProgress entry for app {AppId} - was just completed or cached", appId);
-            return null;
-        }
-
-        // Clean up any stale "InProgress" entries for this app in this session
-        // This prevents duplicate entries when prefill is restarted or interrupted
-        var staleEntries = await context.PrefillHistoryEntries
-            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.RunId == null && e.Status == PrefillHistoryEntryStatus.InProgress)
-            .ToListAsync();
-
-        if (staleEntries.Count > 0)
-        {
-            foreach (var stale in staleEntries)
-            {
-                stale.Status = PrefillHistoryEntryStatus.Cancelled;
-                stale.CompletedAtUtc = DateTime.UtcNow;
-                // An i18n key rather than a sentence: this reason is written by the app, not
-                // reported by a daemon, so the history row can be read in the operator's language.
-                // Rows written before this carry English and are shown as they are.
-                stale.ErrorMessage = "signalr.prefillSession.superseded";
-            }
-            _logger.LogDebug("Cancelled {Count} stale InProgress entries for app {AppId} in session {SessionId}",
-                staleEntries.Count, appId, sessionId);
-        }
-
-        var entry = new PrefillHistoryEntry
-        {
-            SessionId = sessionId,
-            AppId = appId,
-            AppName = appName,
-            StartedAtUtc = DateTime.UtcNow,
-            Status = PrefillHistoryEntryStatus.InProgress
         };
-
-        context.PrefillHistoryEntries.Add(entry);
-        await context.SaveChangesAsync();
-
-        _logger.LogDebug("Started prefill entry for session {SessionId}: {AppName} ({AppId})",
-            sessionId, appName, appId);
-
-        return entry;
-    }
-
-    /// <summary>
-    /// Updates a prefill entry when the game download completes.
-    /// </summary>
-    public async Task<PrefillHistoryEntry?> CompleteEntryAsync(
-        string sessionId,
-        string appId,
-        string status,
-        long bytesDownloaded,
-        long totalBytes,
-        string? errorMessage = null)
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync();
-
-        var entry = await context.PrefillHistoryEntries
-            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.RunId == null && e.Status == PrefillHistoryEntryStatus.InProgress)
-            .OrderByDescending(e => e.StartedAtUtc)
-            .FirstOrDefaultAsync();
-
-        if (entry == null)
+        while (true)
         {
-            _logger.LogWarning("No in-progress prefill entry found for session {SessionId}, app {AppId}",
-                sessionId, appId);
-            return null;
+            if (await execution.ExecuteAsync(save, cancellationToken) is { } stored)
+                return stored;
         }
-
-        entry.CompletedAtUtc = DateTime.UtcNow;
-        entry.Status = Enum.TryParse<PrefillHistoryEntryStatus>(status, ignoreCase: true, out var parsedStatus)
-            ? parsedStatus
-            : PrefillHistoryEntryStatus.Completed;
-        entry.BytesDownloaded = bytesDownloaded;
-        entry.TotalBytes = totalBytes;
-        entry.ErrorMessage = errorMessage;
-
-        await context.SaveChangesAsync();
-
-        _logger.LogInformation("Completed prefill entry for session {SessionId}: {AppName} ({AppId}) - {Status}, Bytes: {Bytes}/{Total}",
-            sessionId, entry.AppName, appId, status, bytesDownloaded, totalBytes);
-
-        return entry;
     }
 
     /// <summary>
@@ -969,31 +920,6 @@ public class PrefillSessionService
             .Where(e => e.SessionId == sessionId)
             .OrderByDescending(e => e.StartedAtUtc)
             .ToListAsync();
-    }
-
-    /// <summary>
-    /// Marks all in-progress entries for a session as cancelled.
-    /// Called when a prefill operation is cancelled or session terminates.
-    /// </summary>
-    public async Task CancelEntriesAsync(string sessionId)
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync();
-
-        var entries = await context.PrefillHistoryEntries
-            .Where(e => e.SessionId == sessionId && e.RunId == null && e.Status == PrefillHistoryEntryStatus.InProgress)
-            .ToListAsync();
-
-        foreach (var entry in entries)
-        {
-            entry.CompletedAtUtc = DateTime.UtcNow;
-            entry.Status = PrefillHistoryEntryStatus.Cancelled;
-        }
-
-        if (entries.Count > 0)
-        {
-            await context.SaveChangesAsync();
-            _logger.LogDebug("Cancelled {Count} prefill entries for session {SessionId}", entries.Count, sessionId);
-        }
     }
 
     #endregion

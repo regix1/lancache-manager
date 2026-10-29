@@ -98,6 +98,12 @@ public abstract class DaemonClientBase : IDaemonClient
     /// </summary>
     public string HkdfInfo { get; set; } = "SteamPrefill-Credential-Encryption";
 
+    /// <summary>
+    /// Stage key for a command the daemon refused because its account is signed out. Only the Steam
+    /// text names its service, so each platform's daemon service sets its own.
+    /// </summary>
+    public required string SignInLostStageKey { get; init; }
+
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -499,7 +505,7 @@ public abstract class DaemonClientBase : IDaemonClient
                         var state = authData.TryGetProperty("state", out var stateElem) ? stateElem.GetString() : null;
                         var message = authData.TryGetProperty("message", out var msgElem) ? msgElem.GetString() : null;
                         var errorCode = authData.TryGetProperty("errorCode", out var codeElem) ? codeElem.GetString() : null;
-                        // Mirror onto both properties so OnStatusChangeAsync can resolve either ingest path.
+                        // Mirror onto both properties so ApplyStatusAsync can resolve either ingest path.
                         var accountName = DaemonStatus.ParseAccountDisplayName(authData);
                         _logger?.LogInformation("Auth state changed: {State} - {Message}", state, message);
                         // Convert auth state to DaemonStatus for the status event
@@ -652,10 +658,24 @@ public abstract class DaemonClientBase : IDaemonClient
                     stream = _stream;
                 }
 
-                // Send length prefix (4 bytes, little-endian)
-                await stream.WriteAsync(BitConverter.GetBytes(bytes.Length), operationToken);
-                // Send message body
-                await stream.WriteAsync(bytes, operationToken);
+                // Length prefix (4 bytes, little-endian) and body go out as one write, so a cancel
+                // cannot land between them.
+                var frame = new byte[sizeof(int) + bytes.Length];
+                BitConverter.TryWriteBytes(frame, bytes.Length);
+                bytes.CopyTo(frame, sizeof(int));
+                operationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    await stream.WriteAsync(frame, operationToken);
+                }
+                catch
+                {
+                    // Part of the frame may be on the wire; the daemon would read the next command as the
+                    // rest of it.
+                    await EndConnectionAfterFailedSendAsync(stream);
+                    throw;
+                }
+
                 await stream.FlushAsync(operationToken);
                 onCommandDispatched?.Invoke();
 
@@ -682,6 +702,27 @@ public abstract class DaemonClientBase : IDaemonClient
         {
             _pendingCommands.TryRemove(command.Id, out _);
         }
+    }
+
+    /// <summary>
+    /// Ends the connection through the receive loop, so the drop is handled like any lost connection:
+    /// pending commands fail and <see cref="OnDisconnected"/> is raised. The caller holds the send lock,
+    /// so no other command can be written onto the damaged stream before the connection is gone.
+    /// </summary>
+    private async Task EndConnectionAfterFailedSendAsync(NetworkStream stream)
+    {
+        Task? receiveTask;
+        lock (_transportSync)
+        {
+            if (!ReferenceEquals(_stream, stream))
+                return;
+
+            receiveTask = _receiveTask;
+            _receiveCts?.Cancel();
+        }
+
+        if (receiveTask != null)
+            await receiveTask;
     }
 
     /// <summary>
@@ -722,7 +763,7 @@ public abstract class DaemonClientBase : IDaemonClient
                 expiresAtUtc: expiresAtUtc);
             if (response.Success && response.Data is JsonElement element)
             {
-                // Mirror onto both properties so OnStatusChangeAsync can resolve either ingest path.
+                // Mirror onto both properties so ApplyStatusAsync can resolve either ingest path.
                 var accountName = DaemonStatus.ParseAccountDisplayName(element);
                 DaemonStatus status;
                 try
@@ -732,9 +773,16 @@ public abstract class DaemonClientBase : IDaemonClient
                 }
                 catch (JsonException ex)
                 {
-                    // An older or partially upgraded daemon remains usable through the exclusive protocol.
-                    _logger?.LogWarning(ex, "Daemon capabilities are malformed; using exclusive prefill");
-                    status = new DaemonStatus();
+                    // A status the manager cannot read carries no capabilities: Start is refused with the generic retry failure until a later read succeeds.
+                    _logger?.LogWarning(ex, "Daemon capabilities are malformed; Start is refused until a status reads cleanly");
+                    // The drop code still starts the sign-in retry, so it survives a reply that did not deserialize.
+                    status = new DaemonStatus
+                    {
+                        ErrorCode = element.TryGetProperty("errorCode", out var errorCode)
+                            && errorCode.ValueKind == JsonValueKind.String
+                                ? errorCode.GetString()
+                                : null
+                    };
                 }
                 status.Status = element.TryGetProperty("isLoggedIn", out var loggedIn) && loggedIn.GetBoolean()
                     ? "logged-in" : "not-logged-in";
@@ -744,6 +792,7 @@ public abstract class DaemonClientBase : IDaemonClient
                 status.AccountDisplayName = accountName;
                 status.DisplayName = accountName;
                 status.Timestamp = DateTime.UtcNow;
+                status.ReadStamp = System.Diagnostics.Stopwatch.GetTimestamp();
                 if (_connectionLifecycle.CurrentGeneration != generation)
                 {
                     // A completed response remains valid for legacy status display, but cannot authorize a new run.
@@ -889,8 +938,8 @@ public abstract class DaemonClientBase : IDaemonClient
             ["tag"] = encrypted.Tag
         }, timeout: TimeSpan.FromSeconds(30), cancellationToken: cancellationToken);
 
-        // RC4: a fixed daemon replies Success=false when it had
-        // no matching pending challenge for this credential (the RC3 cross-session misroute). Surface
+        // A fixed daemon replies Success=false when it had
+        // no matching pending challenge for this credential (a cross-session misroute). Surface
         // that as a real error instead of returning as if the credential were accepted - the persistent
         // login REST layer maps it to a typed conflict the frontend can act on. An un-updated daemon
         // still masks the drop as Success=true; this check simply never trips against such an image.
@@ -1206,22 +1255,6 @@ public abstract class DaemonClientBase : IDaemonClient
     }
 
     /// <summary>
-    /// Cancel running prefill operation.
-    /// </summary>
-    public async Task CancelPrefillAsync(CancellationToken cancellationToken = default)
-    {
-        var response = await SendCommandAsync(
-            "cancel-prefill",
-            timeout: TimeSpan.FromSeconds(10),
-            cancellationToken: cancellationToken);
-        if (!response.Success)
-        {
-            throw new InvalidOperationException(
-                response.Error ?? response.Message ?? "Daemon rejected prefill cancellation.");
-        }
-    }
-
-    /// <summary>
     /// Log out and forget the daemon's stored account in place. See <see cref="IDaemonClient.LogoutAsync"/>
     /// for the caveat: an un-updated steam/epic image also reports success here, but without actually
     /// deleting the stored account file - this method has no way to distinguish that from a true
@@ -1289,91 +1322,6 @@ public abstract class DaemonClientBase : IDaemonClient
 
         if (!response.Success)
             throw new InvalidOperationException(response.Error ?? "Failed to set selected apps");
-    }
-
-    /// <summary>
-    /// Start prefill operation.
-    /// </summary>
-    public async Task<PrefillResult> PrefillAsync(
-        bool all = false,
-        bool recent = false,
-        bool recentlyPurchased = false,
-        int? top = null,
-        bool force = false,
-        List<string>? operatingSystems = null,
-        int? maxConcurrency = null,
-        List<CachedDepotInput>? cachedDepots = null,
-        CancellationToken cancellationToken = default,
-        Guid? runId = null,
-        Action? onCommandDispatched = null)
-    {
-        var parameters = new Dictionary<string, string>();
-        if (all) parameters["all"] = "true";
-        if (recent) parameters["recent"] = "true";
-        if (recentlyPurchased) parameters["recently_purchased"] = "true";
-        if (top.HasValue) parameters["top"] = top.Value.ToString();
-        if (force) parameters["force"] = "true";
-        if (maxConcurrency.HasValue && maxConcurrency.Value > 0)
-            parameters["maxConcurrency"] = maxConcurrency.Value.ToString();
-        // Always include all OS platforms by default
-        parameters["os"] = FormatOperatingSystems(operatingSystems);
-
-        // Pass cached depot manifests so daemon can skip up-to-date games
-        if (cachedDepots != null)
-        {
-            parameters["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions);
-            _logger?.LogInformation("Sending {Count} cached depot manifests to daemon", cachedDepots.Count);
-        }
-
-        await EnsureConnectedAsync(cancellationToken);
-        var response = await SendCoreAsync("prefill", parameters,
-            timeout: TimeSpan.FromHours(24),
-            cancellationToken: cancellationToken, onCommandDispatched: onCommandDispatched,
-            commandId: runId?.ToString());
-
-        if (response.RequiresLogin == true || response.ErrorCode == "auth-lost")
-        {
-            var failure = new DaemonCommandException(response.ErrorCode, true);
-            return new PrefillResult { Success = false, RequiresLogin = true, ErrorMessage = failure.Message, ErrorCode = failure.ErrorCode, StageKey = failure.StageKey };
-        }
-
-        if (!response.Success)
-        {
-            _logger?.LogWarning("Daemon prefill {RunId} failed with {ErrorCode}: {Error}",
-                runId, response.ErrorCode, response.Error);
-            if (response.Error?.Contains("already in progress", StringComparison.OrdinalIgnoreCase) == true)
-                throw new PrefillAlreadyRunningException("A prefill is already in progress.");
-            throw new DaemonCommandException(response.ErrorCode);
-        }
-
-        if (response.Data is JsonElement element)
-        {
-            PrefillResult result;
-            try
-            {
-                result = JsonSerializer.Deserialize<PrefillResult>(element.GetRawText(), _jsonOptions)
-                    ?? throw new JsonException("Required prefill result is null.");
-            }
-            catch (JsonException ex)
-            {
-                _logger?.LogWarning(ex, "Daemon prefill {RunId} returned an invalid result", runId);
-                throw new DaemonCommandException();
-            }
-            if (!result.Success || result.RequiresLogin)
-            {
-                _logger?.LogWarning("Daemon prefill {RunId} failed with {ErrorCode}: {Error}",
-                    runId, result.ErrorCode, result.ErrorMessage);
-                var failure = new DaemonCommandException(result.ErrorCode, result.RequiresLogin);
-                result.Success = false;
-                result.ErrorMessage = failure.Message;
-                result.StageKey = failure.StageKey;
-                result.ErrorCode = failure.ErrorCode;
-                result.RequiresLogin = failure.RequiresLogin;
-            }
-            return result;
-        }
-
-        return new PrefillResult { Success = true };
     }
 
     private static string FormatOperatingSystems(IReadOnlyList<string>? operatingSystems)
@@ -1711,14 +1659,14 @@ public abstract class DaemonClientBase : IDaemonClient
         return result;
     }
 
-    private static CacheStatusResult NormalizeCacheStatus(
+    private CacheStatusResult NormalizeCacheStatus(
         CommandResponse response,
         IEnumerable<string> requested,
         bool statusV2)
     {
         var ids = requested.ToList();
         if (!response.Success || response.RequiresLogin == true)
-            throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true);
+            throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true, SignInLostStageKey);
         if (response.Data is not JsonElement element)
             return CacheStatusResult.Unknown(ids,
                 statusV2 ? CacheReason.InvalidResult : CacheReason.UnsupportedDaemon);
@@ -1748,7 +1696,7 @@ public abstract class DaemonClientBase : IDaemonClient
             ["daemonInstanceId"] = daemonInstanceId
         }, TimeSpan.FromSeconds(10), cancellationToken);
         if (!response.Success)
-            throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true);
+            throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true, SignInLostStageKey);
         if (response.Data is not JsonElement element)
             throw new JsonException("Required cancellation result is absent.");
         var snapshot = JsonSerializer.Deserialize<DaemonRunSnapshot>(element.GetRawText(), _jsonOptions)
@@ -1769,7 +1717,7 @@ public abstract class DaemonClientBase : IDaemonClient
             ["limit"] = limit.ToString(System.Globalization.CultureInfo.InvariantCulture)
         }, TimeSpan.FromSeconds(10), cancellationToken);
         if (!response.Success)
-            throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true);
+            throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true, SignInLostStageKey);
         if (response.Data is not JsonElement element)
             throw new JsonException("Required operation page is absent.");
         return JsonSerializer.Deserialize<DaemonOperationPage>(element.GetRawText(), _jsonOptions)
@@ -1838,7 +1786,7 @@ public abstract class DaemonClientBase : IDaemonClient
             {
                 _logger?.LogWarning("Daemon query {Command} failed with {ErrorCode}: {Error}",
                     command, response.ErrorCode, response.Error);
-                throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true);
+                throw new DaemonCommandException(response.ErrorCode, response.RequiresLogin == true, SignInLostStageKey);
             }
 
             if (response.Data is not JsonElement element

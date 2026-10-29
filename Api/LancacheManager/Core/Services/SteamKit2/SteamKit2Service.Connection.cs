@@ -42,13 +42,13 @@ public partial class SteamKit2Service
             // Another caller may finish the handoff while this request waits for the gate.
             if (expectedVersion.HasValue && expectedVersion.Value != Interlocked.Read(ref _sessionVersion))
                 forceReconnect = false;
-            var correctMode = HasSessionMode(UseAnonymousSession());
-            if (!forceReconnect && correctMode && _isLoggedOn && _steamClient?.IsConnected == true)
+            var sessionMatchesMode = HasSessionMode(UseAnonymousSession());
+            if (!forceReconnect && sessionMatchesMode && _isLoggedOn && _steamClient?.IsConnected == true)
             {
                 return Interlocked.Read(ref _sessionVersion);
             }
 
-            if (forceReconnect || (_isLoggedOn && !correctMode))
+            if (forceReconnect || (_isLoggedOn && !sessionMatchesMode))
             {
                 // The caller saw the CM drop its job while the socket stayed up. The session
                 // looks healthy but the server is bad - rotate instead of reusing it.

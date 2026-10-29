@@ -14,8 +14,10 @@ public class DaemonClientEventDrainTests
     // status-update frame: the whole root deserializes to DaemonStatus and fans out to OnStatusUpdate.
     private const string StatusUpdateFrame = """{"type":"status-update","status":"logged-in"}""";
 
-    private static SocketDaemonClient NewSocketClient() => new("/nonexistent.sock", "secret", null);
-    private static TcpDaemonClient NewTcpClient() => new("127.0.0.1", 45555, "secret", null);
+    private static SocketDaemonClient NewSocketClient() =>
+        new("/nonexistent.sock", "secret", null) { SignInLostStageKey = "errors.steam.signInLost" };
+    private static TcpDaemonClient NewTcpClient() =>
+        new("127.0.0.1", 45555, "secret", null) { SignInLostStageKey = "errors.steam.signInLost" };
 
     [Fact]
     public Task SocketDaemonClient_TracksDispatchedEvent_DrainWaitsForIt()

@@ -18,10 +18,10 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     internal Task? LastHeadlessSelfAuthAttempt { get; private set; }
 
-    // Sessions whose automatic sign-in a person canceled. Filled when that stored mark is loaded and
-    // while the cancel is current. The keep itself is the stored mark, so a logged-in status cannot
-    // wipe it just because this set has not been filled yet.
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _canceledAutomaticSignIn = new();
+    // Sessions whose row missed the last write of the login state. Memory stays the truth: the state is
+    // written again in the background and at manager stop, and the next sign-in or Log in writes it again
+    // even when it changes no mark.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _loginStateRowsOutOfDate = new();
 
     /// <summary>
     /// Headless self-auth for a fresh persistent session whose named auth volume still holds a
@@ -65,7 +65,6 @@ public abstract partial class PrefillDaemonServiceBase
             return null;
         }
 
-        _canceledAutomaticSignIn.TryAdd(session.Id, 0);
         var abandonedLoginCleanup = new AbandonedLoginCleanupHolder();
         try
         {
@@ -83,12 +82,13 @@ public abstract partial class PrefillDaemonServiceBase
             // uses, so an already-authenticated daemon (anonymous services, or a login-required
             // daemon that authenticated earlier) reconciles to Authenticated and broadcasts through
             // the existing flows instead of being skipped silently.
+            var signOutCount = session.SignOutCount;
             var preflight = await session.Client.GetStatusAsync(loginStop);
             // The mark is read after the status round trip: a person's Cancel during it has to win.
-            // A logged-in report while that mark is set stays signed out and only arms the next drop.
+            // A logged-in report while that mark is set stays signed out.
             if (preflight?.Status == "logged-in")
             {
-                await OnStatusChangeAsync(session, preflight);
+                await ApplyStatusAsync(session, preflight, signOutCount);
                 lock (session.PrefillLock)
                 {
                     if (session.LoginCanceledByPerson)
@@ -102,17 +102,11 @@ public abstract partial class PrefillDaemonServiceBase
 
             lock (session.PrefillLock)
             {
-                if (session.LoginCanceledByPerson)
-                {
-                    return null;
-                }
-            }
-
-            lock (session.PrefillLock)
-            {
                 // A person canceled the last sign-in, so the container stays signed out until someone signs in. Read
                 // under the lock that marks this sign-in as automatic, so a person's cancel sees one or the other.
-                if (session.LoginCanceledByPerson)
+                // A sign-out the daemon reported without the drop code also leaves the saved login unused until a
+                // person signs in.
+                if (session.LoginCanceledByPerson || session.SignedOut)
                 {
                     return null;
                 }
@@ -142,6 +136,8 @@ public abstract partial class PrefillDaemonServiceBase
                         // attempt settles the session; a persistent container's image update waits for it.
                         // A person's cancel that landed while the command was in flight stays signed out,
                         // and an unconfirmed daemon cancel still has to be read before the session is left up.
+                        // The daemon is signed in under that mark, so the witness records it for the next drop and
+                        // for a later Log in.
                         bool personCanceledDuringAttempt;
                         lock (session.PrefillLock)
                         {
@@ -150,9 +146,14 @@ public abstract partial class PrefillDaemonServiceBase
                             {
                                 session.LoginSettled = true;
                             }
+                            else
+                            {
+                                session.LoggedInWhilePersonCanceled = true;
+                            }
                         }
                         if (personCanceledDuringAttempt)
                         {
+                            await SaveLoginStateAsync(session);
                             await CancelHeadlessLoginAsync(session, result, cancellationToken);
                         }
                         return LoginAttemptOutcome.Authenticated;
@@ -177,7 +178,7 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 // A person's sign-in takes over from the retry: end the login this attempt already sent,
                 // so theirs starts clean, and free the lock for it.
-                await CancelHeadlessLoginAsync(session, LoginAttemptResult.NoResponse, cancellationToken);
+                await CancelHeadlessLoginAsync(session, null, cancellationToken);
                 return null;
             }
             finally
@@ -188,32 +189,7 @@ public abstract partial class PrefillDaemonServiceBase
         }
         finally
         {
-            // A cancel that lands after this try has read the mark still has to keep the logged-in witness.
-            // Both the read and the clear stay inside the lock the cancel and the logged-in report use.
-            var clearedWitness = false;
-            lock (session.PrefillLock)
-            {
-                if (!session.LoginCanceledByPerson)
-                {
-                    _canceledAutomaticSignIn.TryRemove(session.Id, out _);
-                    if (session.LoggedInWhilePersonCanceled)
-                    {
-                        session.LoggedInWhilePersonCanceled = false;
-                        clearedWitness = true;
-                    }
-                }
-            }
-            try
-            {
-                if (clearedWitness)
-                {
-                    await SaveLoginCanceledByPersonAsync(session);
-                }
-            }
-            finally
-            {
-                ReleaseLoginLockAfterCleanup(session, abandonedLoginCleanup);
-            }
+            ReleaseLoginLockAfterCleanup(session, abandonedLoginCleanup);
         }
     }
 
@@ -261,22 +237,22 @@ public abstract partial class PrefillDaemonServiceBase
         }
     }
 
-    // Called under the session lock. The stored mark is the keep; the set matches it, and any logged-in
-    // seen before this cancel does not turn the cancel's own auth-lost into a later drop.
+    // Called under the session lock. The mark is the keep, and any logged-in seen before this cancel does
+    // not turn the cancel's own auth-lost into a later drop.
     private void RememberPersonCancel(DaemonSession session)
     {
         session.LoginCanceledByPerson = true;
-        _canceledAutomaticSignIn.TryAdd(session.Id, 0);
         session.LoggedInWhilePersonCanceled = false;
     }
 
-    // Stores the session's cancel mark and logged-in witness on its row. Each write reads both when it
-    // runs, one write at a time, so the last write stores the latest pair whatever order the callers
-    // arrive in. The write is tried once more after a failure. If it still fails, that failure is
-    // thrown and the mark is not treated as stored.
-    private async Task SaveLoginCanceledByPersonAsync(DaemonSession session)
+    // Stores the session's login state on its row: the cancel mark, the logged-in witness, the log-off mark,
+    // the last sign-in time and the re-login date. Each write reads all five when it runs, one write at a
+    // time, so the last write stores the latest state whatever order the callers arrive in. The write is
+    // tried once more after a failure. If it still fails, memory stays the truth: the session is recorded
+    // as out of date and the state is written again until a write lands.
+    private async Task SaveLoginStateAsync(DaemonSession session, CancellationToken cancellationToken = default)
     {
-        await session.LoginCanceledByPersonWrites.WaitAsync();
+        await session.LoginStateWrites.WaitAsync(cancellationToken);
         try
         {
             const int attempts = 2;
@@ -284,28 +260,67 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 var canceled = false;
                 var loggedInWhileCanceled = false;
+                var signedOut = false;
                 try
                 {
+                    DateTime lastLoginAt;
+                    DateTime expiresAt;
                     lock (session.PrefillLock)
                     {
                         canceled = session.LoginCanceledByPerson;
                         loggedInWhileCanceled = session.LoggedInWhilePersonCanceled;
+                        signedOut = session.SignedOut;
+                        lastLoginAt = session.LastLoginAt;
+                        expiresAt = session.ExpiresAt;
                     }
 
-                    await _sessionService.SetLoginCanceledByPersonAsync(session.Id, canceled, loggedInWhileCanceled);
+                    await _sessionService.SetLoginStateAsync(session.Id, canceled, loggedInWhileCanceled, signedOut,
+                        lastLoginAt, expiresAt, cancellationToken);
+                    _loginStateRowsOutOfDate.TryRemove(session.Id, out _);
                     return;
                 }
                 catch (Exception ex) when (attempt < attempts && ex is not OperationCanceledException)
                 {
                     _logger.LogError(ex,
-                        "Could not store the sign-in cancel mark ({Canceled}, logged in while canceled {LoggedInWhileCanceled}) for session {SessionId}; retrying the write",
-                        canceled, loggedInWhileCanceled, session.Id);
+                        "Could not store the login state (canceled {Canceled}, logged in while canceled {LoggedInWhileCanceled}, signed out {SignedOut}) for session {SessionId}; retrying the write",
+                        canceled, loggedInWhileCanceled, signedOut, session.Id);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    var firstMiss = _loginStateRowsOutOfDate.TryAdd(session.Id, 0);
+                    _logger.LogError(ex,
+                        "Could not store the login state (canceled {Canceled}, logged in while canceled {LoggedInWhileCanceled}, signed out {SignedOut}) for session {SessionId}; it is written again until a write lands",
+                        canceled, loggedInWhileCanceled, signedOut, session.Id);
+                    if (firstMiss)
+                    {
+                        FireAndForgetAsync(() => RewriteLoginStateAsync(session), nameof(RewriteLoginStateAsync));
+                    }
+                    return;
                 }
             }
         }
         finally
         {
-            session.LoginCanceledByPersonWrites.Release();
+            session.LoginStateWrites.Release();
+        }
+    }
+
+    // A row that missed its login state would let a manager restart sign the container back in or keep an old
+    // re-login date, so it is written again every 30 s while the session lives, until one write lands.
+    private async Task RewriteLoginStateAsync(DaemonSession session)
+    {
+        var sessionEnded = session.CancellationTokenSource.Token;
+        try
+        {
+            while (_loginStateRowsOutOfDate.ContainsKey(session.Id))
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), CacheStatusClock, sessionEnded);
+                await SaveLoginStateAsync(session);
+            }
+        }
+        catch (OperationCanceledException) when (sessionEnded.IsCancellationRequested)
+        {
+            // The session ended. A container that replaces it copies the marks from this session's memory.
         }
     }
 
@@ -388,8 +403,8 @@ public abstract partial class PrefillDaemonServiceBase
             }
             catch (OperationCanceledException)
             {
-                // Something cancelled the sign-in this try was making (a discarded schedule edit cancels
-                // whatever sign-in is current), not the retry itself; try again at the next wait.
+                // Something else canceled the sign-in this try was making, not the retry itself; try again
+                // at the next wait.
                 continue;
             }
             catch (ObjectDisposedException)
@@ -425,25 +440,14 @@ public abstract partial class PrefillDaemonServiceBase
     /// so the next start replaces it, unless a person's cancel finds the daemon logged in (the mark
     /// rule leaves it signed out) or gets a later cancel through and finds the daemon idle.
     /// </summary>
-    private async Task CancelHeadlessLoginAsync(DaemonSession session, LoginAttemptResult result, CancellationToken cancellationToken)
+    private async Task CancelHeadlessLoginAsync(DaemonSession session, LoginAttemptResult? result, CancellationToken cancellationToken)
     {
         // Publication was suppressed, so nothing should be cached - clear defensively anyway, plus
         // the client's own queued copy, before the daemon round-trip.
         ClearPendingLoginChallenge(session);
         session.Client.ClearPendingChallenges();
 
-        bool cancelConfirmed;
-        try
-        {
-            cancelConfirmed = await session.Client.CancelLoginWithOutcomeAsync(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex,
-                "cancel-login round-trip failed while cleaning up a headless login attempt for session {SessionId}",
-                session.Id);
-            cancelConfirmed = false;
-        }
+        var cancelConfirmed = await session.Client.CancelLoginWithOutcomeAsync(cancellationToken);
 
         if (cancelConfirmed)
         {
@@ -451,11 +455,23 @@ public abstract partial class PrefillDaemonServiceBase
             session.LoginSettled = true;
             await NotifyAuthStateChangeAsync(session);
 
+            // A person's sign-in took over before the attempt had an outcome, so there is nothing to report.
+            if (result is null)
+            {
+                return;
+            }
+
             if (result.Outcome == LoginAttemptOutcome.ChallengeIssued)
             {
                 _logger.LogWarning(
                     "Headless self-auth for persistent {ServiceName} session {SessionId} found no usable stored login (daemon answered with a {CredentialType} challenge); attempt cancelled - awaiting interactive login",
                     ServiceName, session.Id, result.Challenge!.CredentialType);
+            }
+            else if (result.Outcome == LoginAttemptOutcome.Authenticated)
+            {
+                _logger.LogInformation(
+                    "Headless self-auth for persistent {ServiceName} session {SessionId} signed in after a person canceled; the container stays signed out until they log in",
+                    ServiceName, session.Id);
             }
             else
             {
@@ -513,6 +529,7 @@ public abstract partial class PrefillDaemonServiceBase
         {
             DaemonStatus? live = null;
             var readFailed = false;
+            var signOutCount = session.SignOutCount;
             try
             {
                 live = await session.Client.GetStatusAsync(cancellationToken);
@@ -531,7 +548,7 @@ public abstract partial class PrefillDaemonServiceBase
 
             if (!readFailed && live is { Status: "logged-in" })
             {
-                await OnStatusChangeAsync(session, live);
+                await ApplyStatusAsync(session, live, signOutCount);
                 await PresentPersonCancelSignedOutAsync(session);
                 return true;
             }
@@ -620,18 +637,23 @@ public abstract partial class PrefillDaemonServiceBase
             return null;
         }
 
+        var signInCount = session.SignInCount;
+        var signOutCount = session.SignOutCount;
         var status = await session.Client.GetStatusAsync(cancellationToken);
-        if (status?.SupportsConcurrentPrefill == true || !session.Runs.IsEmpty)
+        if (status is not null)
         {
-            if (status is not null)
-            {
-                // A sign-in in flight reads the daemon's idle "awaiting-login" until the daemon itself reports
-                // the result, so only a logged-in reply may change the session's sign-in state from here.
-                if (session.LoginOperationId is null || status.Status == "logged-in")
-                    await OnStatusChangeAsync(session, status);
-                await RecoverRunsAsync(session, status, cancellationToken);
-            }
-            else session.Recovering = true;
+            // A sign-in in flight reads the daemon's idle "awaiting-login" until the daemon itself reports
+            // the result, so only a logged-in reply may change the session's sign-in state from here. A
+            // signed-out reply read before a sign-in finished is older than that sign-in.
+            if ((session.LoginOperationId is null || status.Status == "logged-in")
+                && (status.Status == "logged-in" || session.SignInCount == signInCount))
+                await ApplyStatusAsync(session, status, signOutCount);
+            await RecoverRunsAsync(session, status, cancellationToken);
+        }
+        else if (!session.Runs.IsEmpty)
+        {
+            session.Recovering = true;
+            await SendRecoveryUpdateAsync(session);
         }
         return status;
     }
@@ -654,14 +676,15 @@ public abstract partial class PrefillDaemonServiceBase
             cancellationToken);
 
     /// <summary>
-    /// Edit-session login entry point that reports the exact point a fresh daemon login command has
-    /// been dispatched. Cached challenge resumes do not invoke the callback because they start no new
+    /// Login entry point of the persistent session's Log in route. Calls <paramref name="onCommandDispatched"/>
+    /// once a fresh daemon login command has been sent, which picks the route's "Logged in" or "Already
+    /// logged in" answer. Cached challenge resumes do not invoke the callback because they start no new
     /// daemon work.
     /// </summary>
     /// <param name="ownerSessionId">The auth session that started this sign-in; only its browser
     /// draws the sign-in's card. A persistent session belongs to the system owner, so its own
     /// <see cref="DaemonSession.UserId"/> cannot name the caller.</param>
-    internal Task<CredentialChallenge?> StartLoginForEditAsync(
+    internal Task<CredentialChallenge?> StartPersistentLoginAsync(
         string sessionId,
         TimeSpan? timeout,
         Action onCommandDispatched,
@@ -681,11 +704,11 @@ public abstract partial class PrefillDaemonServiceBase
     }
 
     /// <summary>
-    /// Edit-session entry point for importing the server-side integration login into the exact
-    /// persistent daemon session.
+    /// Imports the server-side integration login into the exact persistent daemon session, and calls
+    /// <paramref name="onCommandDispatched"/> once the login command has been sent.
     /// </summary>
-    /// <param name="ownerSessionId">See <see cref="StartLoginForEditAsync"/>.</param>
-    internal Task<CredentialChallenge?> ReuseIntegrationLoginForEditAsync(
+    /// <param name="ownerSessionId">See <see cref="StartPersistentLoginAsync"/>.</param>
+    internal Task<CredentialChallenge?> ReusePersistentIntegrationLoginAsync(
         string sessionId,
         Guid? accountId,
         Action onCommandDispatched,
@@ -868,9 +891,9 @@ public abstract partial class PrefillDaemonServiceBase
         }
 
         // Refused before its request is recorded, so a later cancel of it finds nothing it could stop.
-        if (!session.Runs.IsEmpty && (session.IsPrefilling || session.Recovering))
+        if (session.Runs.Values.Any(run => run.TerminalCompletedFlag != 2))
             throw new ConflictException("Wait for active prefill runs to finish before signing in.")
-            { StageKey = "errors.prefill.containerBusy" };
+            { StageKey = "errors.prefill.prefillRunning" };
 
         if (loginId is { } id)
         {
@@ -1017,22 +1040,83 @@ public abstract partial class PrefillDaemonServiceBase
                         Context = new() { ["sessionId"] = sessionId }
                     };
                 }
-                await CancelLoginAsync(sessionId, cancellationToken, loginAttempt: unfinishedAttempt);
+                bool markedBeforeCancel;
+                lock (session.PrefillLock)
+                {
+                    markedBeforeCancel = session.LoginCanceledByPerson;
+                }
+                try
+                {
+                    await CancelLoginAsync(sessionId, cancellationToken, loginAttempt: unfinishedAttempt);
+                }
+                catch when (!markedBeforeCancel)
+                {
+                    // This Log in made the cancel, not a press of Cancel. One the daemon did not answer leaves the earlier
+                    // sign-in running, and a mark left behind would keep it signed out once it finishes. A person who
+                    // canceled this Log in meanwhile did press Cancel, so their mark stays.
+                    var cleared = false;
+                    lock (session.PrefillLock)
+                    {
+                        if (loginId is not { } ownId || !session.LoginRequests[ownId].Canceled)
+                        {
+                            session.LoginCanceledByPerson = false;
+                            session.LoggedInWhilePersonCanceled = false;
+                            cleared = true;
+                        }
+                    }
+                    if (cleared) await SaveLoginStateAsync(session);
+                    throw;
+                }
+            }
+            // A person's cancel can keep a logged-in daemon shown as signed out; the witness records it. This Log in
+            // signs in the account the person chooses now, so the account the daemon still holds is logged out while
+            // the mark still keeps its logged-in reports from signing the container in.
+            bool keptLoggedIn;
+            lock (session.PrefillLock)
+            {
+                keptLoggedIn = session.LoginCanceledByPerson && session.LoggedInWhilePersonCanceled;
+            }
+            // A logout that did not land leaves that account on the daemon, so the mark and the witness stay and this
+            // Log in is refused instead of letting the held account sign the container in.
+            if (keptLoggedIn
+                && !await TryBestEffortLogoutAsync(session, "Log in while a person's cancel kept the daemon signed out"))
+            {
+                throw new ConflictException($"The account held on session {sessionId} could not be logged out.")
+                {
+                    StageKey = "errors.prefill.heldAccountNotLoggedOut",
+                    Context = new() { ["sessionId"] = sessionId }
+                };
+            }
+            // A sign-in whose cleanup cancel the daemon did not acknowledge may still be running there, and the daemon
+            // would refuse this one or answer it with that sign-in's prompt. It is ended first, before any operation is
+            // registered; the saved login cancels its own way.
+            if (!reuseIntegration && session.LoginCancelUnconfirmed)
+            {
+                if (!await session.Client.CancelLoginWithOutcomeAsync(cancellationToken))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    throw new ConflictException("A login attempt is already in progress for this session.")
+                    {
+                        StageKey = "errors.prefill.loginInProgress"
+                    };
+                }
+                session.LoginCancelUnconfirmed = false;
             }
             // This sign-in is the person's new attempt: an earlier cancel no longer speaks for it.
-            bool cancelMarkCleared;
+            bool marksCleared;
             lock (session.PrefillLock)
             {
                 // A cancel of this Log in that landed while the unfinished sign-in above ended set the mark; it stays.
                 ThrowIfLoginRevoked(session, loginId);
-                cancelMarkCleared = session.LoginCanceledByPerson || session.LoggedInWhilePersonCanceled;
+                marksCleared = session.LoginCanceledByPerson || session.LoggedInWhilePersonCanceled
+                    || session.SignedOut || _loginStateRowsOutOfDate.ContainsKey(session.Id);
                 session.LoginCanceledByPerson = false;
                 session.LoggedInWhilePersonCanceled = false;
-                _canceledAutomaticSignIn.TryRemove(session.Id, out _);
+                session.SignedOut = false;
             }
-            if (cancelMarkCleared)
+            if (marksCleared)
             {
-                await SaveLoginCanceledByPersonAsync(session);
+                await SaveLoginStateAsync(session);
             }
             session.PreserveLoginExpiry = false;
             session.LoginSettled = false;
@@ -1120,6 +1204,7 @@ public abstract partial class PrefillDaemonServiceBase
             ClearPendingLoginChallenge(session);
         }
 
+        var signOutCount = session.SignOutCount;
         var currentStatus = await session.Client.GetStatusAsync(cancellationToken);
         lock (session.PrefillLock)
         {
@@ -1127,7 +1212,7 @@ public abstract partial class PrefillDaemonServiceBase
         }
         if (currentStatus?.Status == "logged-in")
         {
-            await OnStatusChangeAsync(session, currentStatus);
+            await ApplyStatusAsync(session, currentStatus, signOutCount);
             throw new ConflictException("Log out the current account before using a saved login.")
             {
                 StageKey = "errors.prefill.logoutBeforeSavedLogin"
@@ -1274,6 +1359,7 @@ public abstract partial class PrefillDaemonServiceBase
             }
 
             EnsureCurrentSession(session);
+            signOutCount = session.SignOutCount;
             var finalStatus = await session.Client.GetStatusAsync(cancellationToken);
             // Epic and Xbox acknowledge admission before their background authentication finishes.
             if (finalStatus?.Status != "logged-in")
@@ -1295,7 +1381,7 @@ public abstract partial class PrefillDaemonServiceBase
                 {
                     finalStatus.AccountDisplayName = integrationDisplayName;
                 }
-                await OnStatusChangeAsync(session, finalStatus);
+                await ApplyStatusAsync(session, finalStatus, signOutCount);
                 return null;
             }
 
@@ -1331,17 +1417,9 @@ public abstract partial class PrefillDaemonServiceBase
         {
             session.Client.OnStatusUpdate -= OnLoginStatus;
             session.Client.OnDisconnected -= OnLoginDisconnected;
-            if (dispatched && !authenticated)
-            {
-                try
-                {
-                    await session.Client.CancelLoginAsync(CancellationToken.None);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Could not cancel unfinished saved login for session {SessionId}", session.Id);
-                }
-            }
+            // A cancel the daemon does not acknowledge may leave this sign-in running, so the next Log in ends it first.
+            if (dispatched && !authenticated && !await session.Client.CancelLoginWithOutcomeAsync(CancellationToken.None))
+                session.LoginCancelUnconfirmed = true;
             session.SuppressLoginChallengePublication = challengePublicationWasSuppressed;
         }
     }
@@ -1590,12 +1668,13 @@ public abstract partial class PrefillDaemonServiceBase
                 return LoginAttemptResult.ForChallenge(pendingChallenge);
             }
 
+            var signOutCount = session.SignOutCount;
             var status = await session.Client.GetStatusAsync(cancellationToken);
             if (status?.Status == "logged-in")
             {
-                // Route through OnStatusChangeAsync so username capture, ban re-enforcement, and
+                // Route through ApplyStatusAsync so username capture, ban re-enforcement, and
                 // SessionUpdated run exactly once - do not also fire OnSessionAuthenticated here.
-                await OnStatusChangeAsync(session, status);
+                await ApplyStatusAsync(session, status, signOutCount);
 
                 _logger.LogInformation("Session {SessionId} already authenticated - no challenge needed", sessionId);
                 return LoginAttemptResult.Authenticated;
@@ -1613,11 +1692,12 @@ public abstract partial class PrefillDaemonServiceBase
             // daemon emits no challenge. Re-check the live daemon status before failing - if it reports
             // logged-in, treat this as an already-authenticated result (no challenge needed) rather than
             // throwing, so a stray login attempt on an already-logged-in container does not error.
+            signOutCount = session.SignOutCount;
             var finalStatus = await session.Client.GetStatusAsync(cancellationToken);
             if (finalStatus?.Status == "logged-in")
             {
                 // Same single-path rule as the earlier already-logged-in branch.
-                await OnStatusChangeAsync(session, finalStatus);
+                await ApplyStatusAsync(session, finalStatus, signOutCount);
                 _logger.LogInformation(
                     "Session {SessionId} already authenticated per daemon status - no challenge needed", sessionId);
                 return LoginAttemptResult.Authenticated;
@@ -1662,8 +1742,8 @@ public abstract partial class PrefillDaemonServiceBase
             if (!commandDispatched)
             {
                 // The state was moved to LoggingIn immediately before the transport call. If no
-                // command reached the daemon, restore the pre-attempt state and leave no edit-owned
-                // work for cleanup to claim.
+                // command reached the daemon, restore the pre-attempt state; the dispatch callback
+                // never ran.
                 session.AuthState = restoreAuthState;
                 await NotifyAuthStateChangeAsync(session);
             }
@@ -1716,16 +1796,9 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     private async Task ObserveAbandonedLoginTaskAsync(DaemonSession session, Task<CredentialChallenge?> daemonTask)
     {
-        try
-        {
-            await session.Client.CancelLoginAsync(CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex,
-                "CancelLoginAsync failed while abandoning a fail-fast-superseded login task for session {SessionId}",
-                session.Id);
-        }
+        // A cancel the daemon does not acknowledge may leave this sign-in running, so the next Log in ends it first.
+        if (!await session.Client.CancelLoginWithOutcomeAsync(CancellationToken.None))
+            session.LoginCancelUnconfirmed = true;
 
         try
         {
@@ -1952,11 +2025,10 @@ public abstract partial class PrefillDaemonServiceBase
         }
         if (loginId is { } startId)
         {
-            // A person's cancel of a Log in that has not begun its sign-in yet. One the server recorded and has not
-            // refused or ended is on its way to its sign-in. The mark stops that automatic sign-in from signing the
-            // container in. The attempt token stays so a login command already in flight can report its status; aborting
-            // it here would settle on the status from before that command finished. One the server has not seen yet, or
-            // one that already ended, starts nothing: its id is kept only so that a late start of it is refused.
+            // A person's cancel of a Log in that has not begun its sign-in. An automatic sign-in it waits behind
+            // keeps running, and the mark keeps the container signed out if that finishes. The attempt token stays
+            // so a login command already in flight still reports its status. A Log in the server has not seen, or
+            // one already ended, starts nothing: its id is kept only to refuse a late start.
             bool startPending;
             var startMarked = false;
             lock (session.PrefillLock)
@@ -1985,7 +2057,7 @@ public abstract partial class PrefillDaemonServiceBase
             }
             if (startPending)
             {
-                if (startMarked) await SaveLoginCanceledByPersonAsync(session);
+                if (startMarked) await SaveLoginStateAsync(session);
                 return false;
             }
         }
@@ -2070,13 +2142,12 @@ public abstract partial class PrefillDaemonServiceBase
         retryStop?.Cancel();
         if (joined is not null)
         {
-            if (personCanceled) await SaveLoginCanceledByPersonAsync(session);
+            if (personCanceled) await SaveLoginStateAsync(session);
             return await joined.WaitAsync(cancellationToken);
         }
 
         Exception? failure = null;
         var signedInMeanwhile = false;
-        Exception? markWriteFailure = null;
         try
         {
             _logger.LogInformation("Cancelling login for session {SessionId}", sessionId);
@@ -2125,17 +2196,11 @@ public abstract partial class PrefillDaemonServiceBase
             try
             {
                 // Stored before the daemon writes its drop code for this cancel, so a manager restart in between
-                // still finds the mark. A write that still fails after its retry must not be reported as stored.
+                // still finds the mark. A write that still fails after its retry leaves the mark in memory, and
+                // the cancel still reaches the daemon.
                 if (personCanceled)
                 {
-                    try
-                    {
-                        await SaveLoginCanceledByPersonAsync(session);
-                    }
-                    catch (Exception ex)
-                    {
-                        markWriteFailure = ex;
-                    }
+                    await SaveLoginStateAsync(session);
                 }
                 // Send cancel-login command to daemon - this will abort any pending credential waits
                 acknowledged = dispatch is null || await dispatch.WaitAsync(cancellationToken)
@@ -2149,8 +2214,15 @@ public abstract partial class PrefillDaemonServiceBase
                 throw;
             }
             // A refused or timed-out cancel of a container login is a failed cancel, not a successful one;
-            // the scheduled prefill dialog reports it. Guest sessions keep their best-effort cancel.
-            if (!acknowledged && session.IsPersistent)
+            // the scheduled prefill dialog reports it. Guest sessions keep their best-effort cancel. A person's
+            // cancel that met a sign-in the daemon already finished is done: the mark holds the container signed
+            // out and the witness lets the next real drop sign in, so the daemon has nothing left to answer.
+            bool finishedUnderMark;
+            lock (session.PrefillLock)
+            {
+                finishedUnderMark = personCanceled && session.LoggedInWhilePersonCanceled;
+            }
+            if (!acknowledged && session.IsPersistent && !finishedUnderMark)
             {
                 RestorePendingChallenge();
                 _logger.LogWarning("Daemon did not acknowledge cancel-login for session {SessionId}; login was not cancelled", sessionId);
@@ -2195,6 +2267,7 @@ public abstract partial class PrefillDaemonServiceBase
                 if (!signedInBeforeAnswer)
                 {
                     DaemonStatus? daemonStatus = null;
+                    var signOutCount = session.SignOutCount;
                     try
                     {
                         daemonStatus = await session.Client.GetStatusAsync(cancellationToken);
@@ -2206,12 +2279,28 @@ public abstract partial class PrefillDaemonServiceBase
 
                     if (daemonStatus is { Status: "logged-in" })
                     {
-                        await OnStatusChangeAsync(session, daemonStatus);
+                        await ApplyStatusAsync(session, daemonStatus, signOutCount);
+                        // A cancel cannot undo a sign-in the daemon already finished, so no drop code for this cancel
+                        // follows. The person's mark keeps the container signed out, and the next real drop signs in once.
+                        var witnessArmed = false;
+                        lock (session.PrefillLock)
+                        {
+                            if (session.LoginCanceledByPerson && !session.LoggedInWhilePersonCanceled)
+                            {
+                                session.LoggedInWhilePersonCanceled = true;
+                                witnessArmed = true;
+                            }
+                        }
+                        if (witnessArmed)
+                        {
+                            await SaveLoginStateAsync(session);
+                        }
                     }
                 }
                 // A daemon whose sign-in finished during the round trip leaves a finished sign-in alone when the cancel
-                // reaches it, so the session stays signed in instead of disagreeing with the daemon. Either way the
-                // sign-in is over, so the session is settled.
+                // reaches it, so a cancel the app made leaves the session signed in instead of disagreeing with the
+                // daemon, and a person's mark keeps it signed out. Either way the sign-in is over, so the session is
+                // settled.
                 lock (session.PrefillLock)
                 {
                     signedInMeanwhile = session.AuthState == DaemonAuthState.Authenticated;
@@ -2227,11 +2316,6 @@ public abstract partial class PrefillDaemonServiceBase
                     _logger.LogInformation("Login cancelled for session {SessionId}, ready for new attempt", sessionId);
                 }
             }
-
-            if (markWriteFailure is not null)
-            {
-                failure = markWriteFailure;
-            }
         }
         catch (Exception ex)
         {
@@ -2245,7 +2329,7 @@ public abstract partial class PrefillDaemonServiceBase
                 // A cancel that failed did not end the sign-in, so its reason must not end a later one.
                 if (failure is not null && stopReason is not null) session.LoginStopReason = null;
                 // A person's cancel mark stays: they canceled a running sign-in, and only their accepted Log in or a
-                // completed sign-in clears it.
+                // real connection drop after the daemon reached signed-in clears it.
                 if (failure is not null && ReferenceEquals(session.LoginCancelTask, completion!.Task))
                     session.LoginCancelTask = null;
             }
@@ -2264,10 +2348,9 @@ public abstract partial class PrefillDaemonServiceBase
     /// cached resume challenge is cleared, and <see cref="DaemonSession.NeedsRelogin"/> is reset. On
     /// failure - the daemon reports failure, or the round-trip itself throws (socket error, timeout)
     /// - this performs no teardown and returns a not-forgotten result while the container keeps its
-    /// last confirmed authentication state. NOTE: an un-updated steam/epic daemon image reports SUCCESS here while
-    /// only tearing down the live session, without deleting the stored account file - that case is
-    /// in-band indistinguishable from a true success and is not detected by this method; it
-    /// self-resolves once the daemon image is rebuilt with the account-file-delete fix.
+    /// last confirmed authentication state. A logout the daemon confirms stores the log-off mark
+    /// (<see cref="DaemonSession.SignedOut"/>), so a manager restart or a recreate does not sign the account in
+    /// again, also when an older steam/epic daemon image reported success while keeping its stored account file.
     /// The pending login challenge / resume wait is cleared BEFORE the daemon round-trip, same
     /// ordering as <see cref="CancelLoginAsync"/> - a logout must not leave a stale challenge
     /// resumable while the (possibly slow) daemon call is in flight. Unlike
@@ -2304,7 +2387,7 @@ public abstract partial class PrefillDaemonServiceBase
                 await Task.WhenAll(session.Runs.Values.Where(run => run.TerminalCompletedFlag != 2)
                     .Select(run => run.Completion.Task)).WaitAsync(cancellationToken);
             }
-            catch
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 if (IsSessionLive(session) && ReferenceEquals(session.Client, client))
                 {
@@ -2312,6 +2395,19 @@ public abstract partial class PrefillDaemonServiceBase
                     session.LoginSettled = true;
                 }
                 throw;
+            }
+            catch (Exception ex)
+            {
+                // A run whose end the daemon has not confirmed may still be downloading, so the logout is not sent.
+                _logger.LogInformation(ex,
+                    "Daemon did not confirm the prefill cancel before logout for persistent session {SessionId}; the container remains running",
+                    sessionId);
+                if (IsSessionLive(session) && ReferenceEquals(session.Client, client))
+                {
+                    session.AdmissionClosed = false;
+                    session.LoginSettled = true;
+                }
+                return new PersistentLogoutResult(false);
             }
         }
 
@@ -2371,14 +2467,22 @@ public abstract partial class PrefillDaemonServiceBase
             return new PersistentLogoutResult(false);
         }
 
+        // Only this logout's own run cancel closed admission: an image replacement needs LoginSettled,
+        // which this logout cleared first, so reopening it leaves EnsureCurrentSession testing replacement.
+        lock (session.PrefillLock) session.AdmissionClosed = false;
         EnsureCurrentSession(session);
         if (!ReferenceEquals(session.Client, client))
         {
             return new PersistentLogoutResult(false);
         }
-        session.AuthState = DaemonAuthState.NotAuthenticated;
-        session.AdmissionClosed = false;
+        lock (session.PrefillLock)
+        {
+            session.SignOutCount++;
+            session.AuthState = DaemonAuthState.NotAuthenticated;
+        }
         session.NeedsRelogin = false;
+        lock (session.PrefillLock) session.SignedOut = true;
+        await SaveLoginStateAsync(session);
         session.LoginSettled = true;
         await NotifyAuthStateChangeAsync(session);
 
@@ -2390,22 +2494,20 @@ public abstract partial class PrefillDaemonServiceBase
     /// Removes this service's persistent auth volume when no session is currently running for it -
     /// used by the admin "clear all logins" endpoint (<c>POST .../persistent/clear-logins</c>) to
     /// forget a STOPPED service's stored login even though there is no live session/socket to send a
-    /// <c>logout</c> command to. Never throws: Docker's "no such volume" (already gone) and "volume in
-    /// use" (a stopped-but-still-attached container still references it) are both reported as typed
-    /// results rather than propagated - the end state the caller cares about (no lingering login) is
-    /// either already true, or requires the admin to remove the attached container first, which this
-    /// method cannot force.
+    /// <c>logout</c> command to. Returns a typed result when the volume is missing, still attached to a
+    /// container, or Docker does not answer in time; throws on any other Docker error.
     /// </summary>
     // virtual: the escalation in ForgetRunningPersistentLoginAsync calls this, and unit tests override
     // it to exercise the hard-remove path without a live Docker daemon.
     public virtual async Task<PersistentVolumeClearResult> ClearPersistentAuthVolumeAsync(CancellationToken cancellationToken = default)
     {
+        await ConnectDockerAsync(cancellationToken);
         if (!_containerGateway.IsAvailable)
         {
             return PersistentVolumeClearResult.DockerUnavailable;
         }
 
-        // RC5: with deterministic naming a STOPPED
+        // With deterministic naming a STOPPED
         // {ContainerPrefix}persistent container keeps this service's named auth volume ATTACHED, so the
         // force:false remove below 409s -> InUse and "clear stored logins" silently no-ops. Reap the
         // lingering stopped container first so the volume can actually be removed. A still-RUNNING
@@ -2429,6 +2531,11 @@ public abstract partial class PrefillDaemonServiceBase
         {
             _logger.LogWarning("Persistent {ServiceName} auth volume {Volume} is still attached to a container; not removed", ServiceName, volumeName);
             return PersistentVolumeClearResult.InUse;
+        }
+        catch (TimeoutException ex)
+        {
+            _logger.LogWarning(ex, "Docker did not answer the removal of persistent {ServiceName} auth volume {Volume}", ServiceName, volumeName);
+            return PersistentVolumeClearResult.DockerUnavailable;
         }
     }
 
@@ -2499,20 +2606,42 @@ public abstract partial class PrefillDaemonServiceBase
             "and deleting its named auth volume so the stored login cannot survive",
             sessionId);
 
-        await TerminateSessionAsync(
-            sessionId,
-            reason: "Clear stored logins: hard-remove stale persistent login",
-            force: true,
-            terminatedBy: "admin");
+        // A Start, adopt or image pass waits until the container is gone and its volume cleared, so it never
+        // removes the container under this teardown or mounts the volume this is erasing. The caller runs
+        // after its adopt released the lock, and neither call below takes it.
+        await _persistentStartLock.WaitAsync(cancellationToken);
+        try
+        {
+            try
+            {
+                await TerminateSessionAsync(
+                    sessionId,
+                    reason: "Clear stored logins: hard-remove stale persistent login",
+                    force: true,
+                    terminatedBy: "admin");
+            }
+            catch (Exception ex)
+            {
+                // The container still holds the volume, so this service's login survives; the caller reports it
+                // and goes on to the next service.
+                _logger.LogWarning(ex,
+                    "Could not terminate persistent session {SessionId} while clearing its stored login", sessionId);
+                return PersistentRunningLoginClearOutcome.HardRemoveFailed;
+            }
 
-        var volumeResult = await ClearPersistentAuthVolumeAsync(cancellationToken);
-        return volumeResult is PersistentVolumeClearResult.Removed or PersistentVolumeClearResult.NotFound
-            ? PersistentRunningLoginClearOutcome.HardRemoved
-            : PersistentRunningLoginClearOutcome.HardRemoveFailed;
+            var volumeResult = await ClearPersistentAuthVolumeAsync(cancellationToken);
+            return volumeResult is PersistentVolumeClearResult.Removed or PersistentVolumeClearResult.NotFound
+                ? PersistentRunningLoginClearOutcome.HardRemoved
+                : PersistentRunningLoginClearOutcome.HardRemoveFailed;
+        }
+        finally
+        {
+            _persistentStartLock.Release();
+        }
     }
 
     /// <summary>
-    /// RC5: force-removes any STOPPED
+    /// Force-removes any STOPPED
     /// <c>{ContainerPrefix}persistent</c> container that still holds this service's named auth volume
     /// attached, so <see cref="ClearPersistentAuthVolumeAsync"/> can actually delete the volume. A
     /// RUNNING container is deliberately skipped (the caller's <c>GetActivePersistentSession()==null</c>
@@ -2533,6 +2662,7 @@ public abstract partial class PrefillDaemonServiceBase
         IList<ContainerListResponse> matches;
         try
         {
+            // A list Docker does not answer in time is logged below like any failed list.
             matches = await _containerGateway.ListContainersAsync(
                 new ContainersListParameters
                 {
@@ -2564,11 +2694,18 @@ public abstract partial class PrefillDaemonServiceBase
                 continue;
             }
 
-            if (await RemoveContainerForceAsync(match.ID, cancellationToken) == ContainerRemovalOutcome.Removed)
+            try
             {
-                _logger.LogInformation(
-                    "Removed stopped persistent {ServiceName} container {Id} so its auth volume can be cleared",
-                    ServiceName, ShortContainerId(match.ID));
+                if (await RemoveContainerForceAsync(match.ID, cancellationToken) == ContainerRemovalOutcome.Removed)
+                {
+                    _logger.LogInformation(
+                        "Removed stopped persistent {ServiceName} container {Id} so its auth volume can be cleared",
+                        ServiceName, ShortContainerId(match.ID));
+                }
+            }
+            catch (ServiceUnavailableException)
+            {
+                // Logged by the helper; the volume remove reports whether the container still holds the volume.
             }
         }
     }
@@ -2588,6 +2725,9 @@ public abstract partial class PrefillDaemonServiceBase
         CancellationToken cancellationToken)
     {
         var results = new List<ClearPersistentLoginServiceResultDto>();
+        // Every service's gateway talks to the same Docker, so after one connect times out the later services
+        // report it instead of waiting for the same timeout again.
+        var dockerUnavailable = false;
 
         foreach (var service in Enum.GetValues<PrefillPlatform>())
         {
@@ -2598,38 +2738,90 @@ public abstract partial class PrefillDaemonServiceBase
             }
 
             var session = daemon.GetActivePersistentSession();
-            if (session is not null)
+            try
             {
-                // Hard guarantee for a RUNNING container (see ForgetRunningPersistentLoginAsync): the
-                // daemon's in-place logout is tried first, verified against its LIVE status, and - only
-                // when it did not verifiably forget the login (old image that lies about success, or a
-                // reported failure) - escalated to terminate the container + delete its named auth
-                // volume. Report the honest outcome so the UI never celebrates a login that survived.
-                var outcome = await daemon.ForgetRunningPersistentLoginAsync(session.Id, cancellationToken);
+                // A container kept running after a startup Docker timeout has no session until it is adopted,
+                // so its login is cleared through the daemon like any running container's.
+                if (session is null && !dockerUnavailable)
+                {
+                    try
+                    {
+                        session = await daemon.AdoptRunningPersistentSessionAsync(cancellationToken);
+                    }
+                    catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        // Docker unreachable or slow, a refused removal, or a pending image update whose new
+                        // container failed: the adopt's failure is logged and the volume clear below answers
+                        // for this service. A Docker that never connected answers here instead, since the
+                        // volume clear would wait for another connect.
+                        daemon._logger.LogWarning(ex,
+                            "Could not adopt the running {Service} container while clearing its stored login", service);
+                        dockerUnavailable = !daemon._containerGateway.IsAvailable;
+                    }
+                }
+
+                if (session is null && dockerUnavailable)
+                {
+                    results.Add(new ClearPersistentLoginServiceResultDto
+                    {
+                        Service = service,
+                        WasRunning = false,
+                        Success = false,
+                        Detail = PersistentVolumeClearResult.DockerUnavailable.ToString()
+                    });
+                    continue;
+                }
+
+                if (session is not null)
+                {
+                    // The daemon's logout is tried first and checked against its live status. When the login
+                    // survived (an older image that reports success anyway, or a failed logout), the container
+                    // is removed with its auth volume. The result says which happened.
+                    var outcome = await daemon.ForgetRunningPersistentLoginAsync(session.Id, cancellationToken);
+                    results.Add(new ClearPersistentLoginServiceResultDto
+                    {
+                        Service = service,
+                        WasRunning = true,
+                        Success = outcome is PersistentRunningLoginClearOutcome.LoggedOut
+                            or PersistentRunningLoginClearOutcome.HardRemoved,
+                        Detail = outcome switch
+                        {
+                            PersistentRunningLoginClearOutcome.LoggedOut => "logged-out",
+                            PersistentRunningLoginClearOutcome.HardRemoved => "hard-removed",
+                            _ => "hard-remove-failed"
+                        }
+                    });
+                    continue;
+                }
+
+                // A person's Stop whose teardown failed is finished first, so its session ends with the
+                // Stop's own reason and the card that kept that Stop's error hears it end.
+                if (daemon.GetFailedStopSession() is { } failedStop)
+                {
+                    await daemon.TerminateSessionAsync(failedStop.Id);
+                }
+
+                var volumeResult = await daemon.ClearPersistentAuthVolumeAsync(cancellationToken);
                 results.Add(new ClearPersistentLoginServiceResultDto
                 {
                     Service = service,
-                    WasRunning = true,
-                    Success = outcome is PersistentRunningLoginClearOutcome.LoggedOut
-                        or PersistentRunningLoginClearOutcome.HardRemoved,
-                    Detail = outcome switch
-                    {
-                        PersistentRunningLoginClearOutcome.LoggedOut => "logged-out",
-                        PersistentRunningLoginClearOutcome.HardRemoved => "hard-removed",
-                        _ => "hard-remove-failed"
-                    }
+                    WasRunning = false,
+                    Success = volumeResult is PersistentVolumeClearResult.Removed or PersistentVolumeClearResult.NotFound,
+                    Detail = volumeResult.ToString()
                 });
-                continue;
             }
-
-            var volumeResult = await daemon.ClearPersistentAuthVolumeAsync(cancellationToken);
-            results.Add(new ClearPersistentLoginServiceResultDto
+            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
             {
-                Service = service,
-                WasRunning = false,
-                Success = volumeResult is PersistentVolumeClearResult.Removed or PersistentVolumeClearResult.NotFound,
-                Detail = volumeResult.ToString()
-            });
+                // One service's Docker failure must not stop the others from being cleared.
+                daemon._logger.LogWarning(ex, "Could not clear the stored {Service} login", service);
+                results.Add(new ClearPersistentLoginServiceResultDto
+                {
+                    Service = service,
+                    WasRunning = session is not null,
+                    Success = false,
+                    Detail = "remove-failed"
+                });
+            }
         }
 
         return results;

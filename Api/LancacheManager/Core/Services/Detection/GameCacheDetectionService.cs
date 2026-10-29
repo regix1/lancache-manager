@@ -1596,7 +1596,7 @@ public partial class GameCacheDetectionService : IDisposable
                         ownerCompletes: true,
                         detectionScanType: scanType))
                 {
-                    // core-7: the tracker did NOT adopt this CTS (ID already in use), so we still own it.
+                    // The tracker did NOT adopt this CTS (ID already in use), so we still own it.
                     // Dispose the just-created CTS before continuing so it is not leaked.
                     cancellationSource.Dispose();
                     _logger.LogWarning("[GameDetection] Persisted operation {Id} already registered - skipping", persistedGuid);

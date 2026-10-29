@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Middleware;
 
 namespace LancacheManager.Infrastructure.Utilities;
 
@@ -208,15 +209,32 @@ public partial class RustProcessHelper
 
         _processManager.Track(process);
 
-        // rust-5: associate immediately after Start (no intervening work) so a concurrent
-        // tracker cancel/force-kill can find the process; then close the race by killing right
-        // away if cancellation already fired before/while we wired everything up.
+        // The scan and every other tracked child share this container memory limit with the
+        // manager, so ask the kernel to take the child first when the limit is hit. The
+        // child can already have exited here, and /proc can refuse the write; either way the
+        // run continues and the failure is visible in the log.
+        if (OperatingSystem.IsLinux())
+        {
+            AllowOneProcessToBeKilled();
+            try
+            {
+                File.WriteAllText($"/proc/{process.Id}/oom_score_adj", "1000");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                _logger.LogWarning(ex, "Could not raise the out-of-memory score for {ProcessLabel} process {ProcessId}", processLabel, process.Id);
+            }
+        }
+
+        // Associate after the Linux oom_score_adj write above so a concurrent tracker
+        // cancel/force-kill can find the process; then close the race by killing right away if
+        // cancellation already fired before/while we wired everything up.
         if (operationId.HasValue)
         {
             _operationTracker.AssociateProcess(operationId.Value, process);
         }
 
-        // P2-D: always register a token-cancel kill callback, even when an operationId is set.
+        // Always register a token-cancel kill callback, even when an operationId is set.
         // A linked/host-shutdown token can cancel outside tracker.CancelOperation; without this the
         // finally would Untrack+Dispose the wrapper while leaving the OS child running. The tracker
         // kills as well, so a normal cancel kills twice, and HasExited does not make the second kill
@@ -227,7 +245,7 @@ public partial class RustProcessHelper
                 _processManager.KillProcessTree(process, $"{processLabel} token-cancel"))
             : default(CancellationTokenRegistration);
 
-        // rust-5: if the token was already cancelled by the time we started, kill now so we don't
+        // If the token was already canceled by the time we started, kill now so we don't
         // run the child to completion past a cancel that landed during startup.
         if (cancellationToken.IsCancellationRequested)
         {
@@ -484,9 +502,12 @@ public partial class RustProcessHelper
     /// <summary>
     /// Set by a repair attempt for its own async flow. A child started in that flow that prints no
     /// progress event and uses no CPU time for this long is killed, and its run throws
-    /// <see cref="TimeoutException"/>.
+    /// <see cref="ServiceUnavailableException"/> with <see cref="SilenceStopStageKey"/>.
     /// </summary>
     internal static readonly AsyncLocal<TimeSpan?> ChildSilenceLimit = new();
+
+    /// <summary>The ending of a child stopped by <see cref="ChildSilenceLimit"/>.</summary>
+    internal const string SilenceStopStageKey = "signalr.generic.stoppedWithoutProgress";
 
     /// <summary>
     /// Runs a tracked Rust process, consuming LIVE structured progress events from its stdout
@@ -561,8 +582,12 @@ public partial class RustProcessHelper
                 "[{ProcessLabel}] Stopped after {Minutes:0} minutes without progress or CPU time",
                 processLabel,
                 limit.TotalMinutes);
-            throw new TimeoutException(
-                $"{processLabel} wrote no progress and used no CPU time for {limit.TotalMinutes:0} minutes, so it was stopped");
+            // The key reaches the repair card in the reader's language; the text stays for the log.
+            throw new ServiceUnavailableException(
+                $"{processLabel} wrote no progress and used no CPU time for {limit.TotalMinutes:0} minutes, so it was stopped")
+            {
+                StageKey = SilenceStopStageKey
+            };
         }
 
         // A child counts as working while it prints progress events or uses CPU time; one blocked on
@@ -642,14 +667,62 @@ public partial class RustProcessHelper
     }
 
     /// <summary>
+    /// When set, progress lines are delivered to the callback and then discarded, and the returned
+    /// text is only the latest line that is not a progress event. Only a run with a callback
+    /// parses events; the eviction scan always has one (the silence limit adds one to a repair),
+    /// and its result is that line. Keeping every progress line holds the whole run in the web
+    /// process.
+    /// </summary>
+    internal static readonly AsyncLocal<bool> DropProgressStdout = new();
+
+    // Per instance: the app registers one helper, and a test's own helper is not blocked by
+    // another test's.
+    private int _oomGroupRelaxed;
+
+    /// <summary>The container's group out-of-memory switch. A test points it at its own file.</summary>
+    internal string OomGroupPath { get; init; } = "/sys/fs/cgroup/memory.oom.group";
+
+    /// <summary>
+    /// A container set to kill every process together stops the site when the scan hits the
+    /// memory cap. Clearing that flag lets the kernel kill only the scan child, which is marked
+    /// to be chosen first. The file is owned by the container runtime and may not be writable.
+    /// </summary>
+    private void AllowOneProcessToBeKilled()
+    {
+        if (Interlocked.Exchange(ref _oomGroupRelaxed, 1) != 0)
+        {
+            return;
+        }
+
+        var path = OomGroupPath;
+        try
+        {
+            if (!File.Exists(path) || File.ReadAllText(path).Trim() == "0")
+            {
+                return;
+            }
+
+            File.WriteAllText(path, "0\n");
+            _logger.LogInformation(
+                "A scan that runs out of memory will stop on its own. The site stays up.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not turn off group out-of-memory kills. A scan that hits the container limit can still stop the site.");
+        }
+    }
+
+    /// <summary>
     /// Reads a process's stdout continuously via ReadLineAsync (no polling, mirrors
     /// RustSpeedTrackerService's stdout-consumption technique), parsing each non-empty line as a
     /// progress_events.rs-shaped JSON event and invoking <paramref name="onProgressEvent"/> for
     /// each one successfully parsed. A malformed/partial line is logged at Debug and skipped
     /// rather than throwing or being silently swallowed. Returns the raw stdout text
-    /// (newline-joined) for callers that also want the verbatim output, mirroring what
-    /// ReadToEndAsync captured on the old polling path. Public so a caller with a bespoke process
-    /// closure (e.g. one that also needs the raw <see cref="Process"/> for other reasons) can
+    /// (newline-joined); while <see cref="DropProgressStdout"/> is set it returns only the last
+    /// line that is not a progress event, and an empty string when no callback is given. Public so
+    /// a caller with a bespoke process closure (e.g. one that also needs the raw <see cref="Process"/> for other reasons) can
     /// consume the live event stream directly instead of going through
     /// <see cref="ExecuteTrackedProcessWithProgressEventsAsync"/>.
     /// </summary>
@@ -659,7 +732,9 @@ public partial class RustProcessHelper
         string processLabel,
         CancellationToken cancellationToken)
     {
+        var dropProgressLines = DropProgressStdout.Value;
         var stdoutLines = new List<string>();
+        string? keptResult = null;
 
         string? line;
         while ((line = await process.StandardOutput.ReadLineAsync(cancellationToken)) != null)
@@ -669,10 +744,9 @@ public partial class RustProcessHelper
                 continue;
             }
 
-            stdoutLines.Add(line);
-
             if (onProgressEvent == null)
             {
+                stdoutLines.Add(line);
                 continue;
             }
 
@@ -683,6 +757,7 @@ public partial class RustProcessHelper
             var trimmed = line.Trim();
             if (!trimmed.StartsWith('{') || !trimmed.EndsWith('}'))
             {
+                RememberStdoutLine(line);
                 continue;
             }
 
@@ -694,6 +769,7 @@ public partial class RustProcessHelper
             catch (JsonException ex)
             {
                 _logger.LogDebug(ex, "[{ProcessLabel}] Skipping unparseable stdout line: {Line}", processLabel, line);
+                RememberStdoutLine(line);
                 continue;
             }
 
@@ -701,20 +777,38 @@ public partial class RustProcessHelper
             // method sets a non-empty event); e.g. cache_eviction_scan prints its one-shot
             // ScanResult on this same stdout stream. Skip those so a non-envelope line can't fire a
             // spurious extra terminal callback (duplicate SignalR emit / progress-file read).
-            if (progressEvent != null && !string.IsNullOrEmpty(progressEvent.Event))
+            var isProgress = progressEvent != null && !string.IsNullOrEmpty(progressEvent.Event);
+            if (isProgress)
             {
                 try
                 {
-                    await onProgressEvent(progressEvent);
+                    await onProgressEvent(progressEvent!);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "[{ProcessLabel}] Progress event callback threw for event {Event} ({StageKey})", processLabel, progressEvent.Event, progressEvent.StageKey);
+                    _logger.LogError(ex, "[{ProcessLabel}] Progress event callback threw for event {Event} ({StageKey})", processLabel, progressEvent!.Event, progressEvent.StageKey);
                 }
+            }
+
+            if (!dropProgressLines || !isProgress)
+            {
+                RememberStdoutLine(line);
             }
         }
 
-        return string.Join(Environment.NewLine, stdoutLines);
+        void RememberStdoutLine(string stdoutLine)
+        {
+            if (dropProgressLines)
+            {
+                keptResult = stdoutLine;
+            }
+            else
+            {
+                stdoutLines.Add(stdoutLine);
+            }
+        }
+
+        return dropProgressLines ? keptResult ?? string.Empty : string.Join(Environment.NewLine, stdoutLines);
     }
 
     /// <summary>
@@ -1212,7 +1306,7 @@ public partial class RustProcessHelper
         Func<RustProgressEvent, Task>? onProgressEvent,
         Action<ProcessStartInfo>? configureProcess)
     {
-        // D-rust-4: the Rust `remove` command's only data sink is its progress_json file, which the
+        // The Rust `remove` command's only data sink is its progress_json file, which the
         // CALLER monitors on a 500ms poll loop (CacheController). Previously that same caller path was
         // ALSO passed here as the "output JSON" we read back after exit — so the poller and the
         // result-reader raced on one file (a poll could read a half-written final-summary tick).
@@ -1397,10 +1491,13 @@ public partial class RustProcessHelper
 
             _logger.LogInformation("[cache_eviction_scan] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
-            // services-3: fail fast if cancellation already fired so we never spawn the child.
+            // Fail fast if cancellation already fired so we never spawn the child.
             cancellationToken.ThrowIfCancellationRequested();
 
             var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
+            DropProgressStdout.Value = true;
+            try
+            {
             var result = await ExecuteTrackedProcessWithProgressEventsAsync(
                 startInfo,
                 operationId,
@@ -1413,36 +1510,42 @@ public partial class RustProcessHelper
                 _logger.LogInformation("[cache_eviction_scan] stderr: {Error}", result.Error);
             }
 
+            // cache_eviction_scan.rs prints its one-shot ScanResult JSON after every progress
+            // envelope; on a failure only its failed envelope follows. While progress lines are
+            // dropped the reader returns just the last line that is not a progress event, which is
+            // that ScanResult. The ScanResult never carries an "event" field, so a JSON object with
+            // one is never read as the result (it would read as a success with zero counts).
+            JsonElement? scanResult = null;
+            foreach (var line in result.Output
+                         .Split('\n')
+                         .Select(l => l.TrimEnd('\r'))
+                         .Reverse())
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var element = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(line);
+                    if (element.ValueKind == JsonValueKind.Object && !element.TryGetProperty("event", out _))
+                    {
+                        scanResult = element;
+                        break;
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Failed to parse cache_eviction_scan stdout JSON line: {Line}", line);
+                }
+            }
+
             if (result.ExitCode == 0)
             {
-                // cache_eviction_scan.rs prints its one-shot ScanResult JSON as the FINAL stdout
-                // line, AFTER every NDJSON progress-event envelope. Envelopes always carry an
-                // "event" field; the ScanResult never does. Walk stdout backward for the last JSON
-                // object WITHOUT an "event" field so a truncated or duplicated trailing envelope is
-                // never mis-parsed as the result (that would deserialize to Success=true with zero
-                // processed/evicted counts and let the caller false-complete the scan).
-                foreach (var line in result.Output
-                             .Split('\n')
-                             .Select(l => l.TrimEnd('\r'))
-                             .Reverse())
+                if (scanResult is { } completed)
                 {
-                    if (string.IsNullOrWhiteSpace(line))
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        var element = System.Text.Json.JsonSerializer.Deserialize<JsonElement>(line);
-                        if (element.ValueKind == JsonValueKind.Object && !element.TryGetProperty("event", out _))
-                        {
-                            return new RustExecutionResult { Success = true, Data = element, Error = null };
-                        }
-                    }
-                    catch (JsonException ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to parse cache_eviction_scan stdout JSON line: {Line}", line);
-                    }
+                    return new RustExecutionResult { Success = true, Data = completed, Error = null };
                 }
 
                 // Exit 0 but no ScanResult line (empty/truncated stdout, or only progress
@@ -1457,23 +1560,45 @@ public partial class RustProcessHelper
                 };
             }
 
+            // A failed scan printed its ScanResult with its own error, and a child killed after its
+            // result keeps that result; a child killed before it printed none, and the exit code
+            // tells the caller it ended from outside.
+            if (scanResult is null)
+            {
+                _logger.LogWarning(
+                    "[cache_eviction_scan] Exited with code {ExitCode} before printing a result",
+                    result.ExitCode);
+            }
+
             return new RustExecutionResult
             {
                 Success = false,
-                Data = null,
+                ExitCode = result.ExitCode,
+                Data = scanResult,
                 Error = result.Error
             };
+            }
+            finally
+            {
+                DropProgressStdout.Value = false;
+            }
         }
         catch (OperationCanceledException)
         {
-            // services-3: let cancellation propagate so the caller's OCE handling runs instead of
+            // Let cancellation propagate so the caller's OCE handling runs instead of
             // being masked as a generic failure result.
             throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error running cache_eviction_scan");
-            return new RustExecutionResult { Success = false, Data = null, Error = ex.Message };
+            // A keyed stop (the repair silence limit) keeps its key for the repair card.
+            return new RustExecutionResult
+            {
+                Success = false,
+                Data = null,
+                Error = ex is ApiException { StageKey: { } stageKey } ? stageKey : ex.Message
+            };
         }
     }
 }

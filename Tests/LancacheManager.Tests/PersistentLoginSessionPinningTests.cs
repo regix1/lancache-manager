@@ -1,4 +1,7 @@
+using System.Collections.Concurrent;
+using System.Net.Http.Json;
 using System.Reflection;
+using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
@@ -13,6 +16,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -75,6 +79,69 @@ public class PersistentLoginSessionPinningTests
             controller.GetGamesAsync(PrefillPlatform.Steam, CancellationToken.None, "session-A"));
         Assert.True(failure.RequiresLogin);
         Assert.Equal("errors.steam.signInLost", failure.StageKey);
+    }
+
+    [Fact]
+    public async Task GetGames_XboxLoginLossAsksThePersonToLogIn()
+    {
+        var session = CreatePersistentSession("session-A");
+        var client = DispatchProxy.Create<IDaemonClient, RecordingDaemonClientProxy>();
+        ((RecordingDaemonClientProxy)client).Games =
+            () => Task.FromException<List<OwnedGame>>(new DaemonCommandException("auth-lost"));
+        session.Client = client;
+        var database = new InMemoryDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"session_pinning_{Guid.NewGuid():N}")
+            .Options);
+        var controller = new PersistentPrefillController(
+            new SingleDaemonServiceProvider(CreateXboxDaemon(session)),
+            (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>(),
+            new PrefillCacheService(database, NullLogger<PrefillCacheService>.Instance),
+            NullLogger<PersistentPrefillController>.Instance);
+
+        var failure = await Assert.ThrowsAsync<DaemonCommandException>(() =>
+            controller.GetGamesAsync(PrefillPlatform.Xbox, CancellationToken.None, "session-A"));
+
+        Assert.True(failure.RequiresLogin);
+        Assert.Equal("errors.prefill.loginRequired", failure.StageKey);
+    }
+
+    [Fact]
+    public async Task Prefill_XboxSignedOutAsksThePersonToLogInWithoutNamingSteam()
+    {
+        var session = CreatePersistentSession("session-A");
+        session.Capabilities = new DaemonStatus
+        {
+            ProtocolVersion = 2,
+            DaemonInstanceId = Guid.NewGuid().ToString(),
+            MaxConcurrentRuns = 1,
+            MaxConcurrentRequests = 1,
+            Features = ["concurrentPrefill", "operationProgress", "targetedCancel", "inlineSelection", "activeOperations"],
+            ActiveOperations = [],
+            RecentOperations = []
+        };
+        var daemon = CreateXboxDaemon(session);
+
+        var failure = await Assert.ThrowsAsync<DaemonCommandException>(() =>
+            daemon.PrefillAsync("session-A", recent: true));
+
+        Assert.True(failure.RequiresLogin);
+        Assert.Equal("errors.prefill.loginRequired", failure.StageKey);
+        Assert.DoesNotContain("Steam", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetChallenge_PersonsCancelHoldsTheContainerSignedOut()
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-A");
+        client.LiveStatus = "logged-in";
+
+        var before = await controller.GetChallengeAsync(PrefillPlatform.Steam, sessionId: "session-A");
+        daemon.GetSession("session-A")!.LoginCanceledByPerson = true;
+        var held = await controller.GetChallengeAsync(PrefillPlatform.Steam, sessionId: "session-A");
+
+        var loggedIn = Assert.IsType<PersistentLoginStatusResponse>(Assert.IsType<OkObjectResult>(before.Result).Value);
+        Assert.Equal("logged-in", loggedIn.Status);
+        Assert.IsType<NoContentResult>(held.Result);
     }
 
     [Fact]
@@ -163,7 +230,8 @@ public class PersistentLoginSessionPinningTests
         var dependencyToken = await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         clock.Advance(TimeSpan.FromSeconds(120));
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5)));
+        var timedOut = await Assert.ThrowsAsync<ServiceUnavailableException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal("errors.prefill.ownedGamesTimedOut", timedOut.StageKey);
         Assert.True(dependencyToken.IsCancellationRequested);
         Assert.False(caller.IsCancellationRequested);
     }
@@ -189,11 +257,14 @@ public class PersistentLoginSessionPinningTests
         var dependencyToken = await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         clock.Advance(TimeSpan.FromSeconds(120));
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5)));
+        var timedOut = await Assert.ThrowsAsync<ServiceUnavailableException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal("errors.prefill.ownedGamesTimedOut", timedOut.StageKey);
         Assert.True(dependencyToken.IsCancellationRequested);
         Assert.False(caller.IsCancellationRequested);
     }
 
+    // The caller's own cancel is the only other thing that ends the read, and it still reaches the
+    // middleware as a cancel, never as the timeout answer.
     [Fact]
     public async Task GetGames_CallerCancellationCancelsOwnedGamesRead()
     {
@@ -418,6 +489,44 @@ public class PersistentLoginSessionPinningTests
     }
 
     [Fact]
+    public async Task Logout_AfterANewerDaemonRunFinished_ReturnsForgotten()
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-A");
+        client.Logout = _ => Task.FromResult(new LogoutOutcome(Success: true, RequiresLogin: false));
+        var session = daemon.GetSession("session-A")!;
+        session.AuthState = DaemonAuthState.Authenticated;
+        var runId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        session.Runs[runId] = new DaemonRun
+        {
+            PrefillRunId = runId,
+            SessionId = session.Id,
+            DaemonInstanceId = "instance",
+            Options = new DaemonRunOptions(),
+            Snapshot = new DaemonRunSnapshot
+            {
+                OperationId = runId.ToString(),
+                DaemonInstanceId = "instance",
+                StartedAt = now,
+                UpdatedAt = now,
+                State = "completed"
+            },
+            TerminalCompletedFlag = 2,
+            CompletedAtUtc = DateTime.UtcNow
+        };
+
+        var result = await controller.LogoutAsync(
+            new PersistentLoginRequest { Service = PrefillPlatform.Steam, SessionId = "session-A" },
+            CancellationToken.None);
+
+        var response = Assert.IsType<PersistentLogoutResponseDto>(
+            Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.True(response.Forgotten);
+        Assert.False(session.AdmissionClosed);
+        Assert.Equal(DaemonAuthState.NotAuthenticated, session.AuthState);
+    }
+
+    [Fact]
     public async Task CancelLogin_RequiresAValidAttemptIdentity()
     {
         var (controller, _, client) = CreateControllerWithActiveSession("session-B");
@@ -560,83 +669,36 @@ public class PersistentLoginSessionPinningTests
     }
 
     [Fact]
-    public async Task StartLogin_EditCommandDispatchedWithoutChallenge_CleanupCancelsAndResetsLogin()
+    public async Task LoginAndCredential_BodiesWithOldEditIds_StillSucceed()
     {
-        const string sessionId = "session-shared";
-        const string editSessionId = "edit-session-login-timeout";
-        var (controller, daemon, activeClient) = CreateControllerWithActiveSession(sessionId);
+        var (controller, _, client) = CreateControllerWithActiveSession("session-B");
+        client.LoginChallenge = new CredentialChallenge { ChallengeId = "c1", CredentialType = "password", ServerPublicKey = "k" };
+        // Same settings as the MVC JSON options in Program.cs, so an unknown member is skipped as it is in production.
+        var jsonOptions = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
+        {
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+            DictionaryKeyPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+        };
+        var login = System.Text.Json.JsonSerializer.Deserialize<PersistentLoginRequest>(
+            $$"""{"service":"Steam","sessionId":"session-B","loginId":"{{Guid.NewGuid()}}","editSessionId":"old-edit","editActionId":"old-login"}""",
+            jsonOptions)!;
+        var credential = System.Text.Json.JsonSerializer.Deserialize<PersistentProvideCredentialRequest>(
+            """{"service":"Steam","sessionId":"session-B","challenge":{"challengeId":"c1","credentialType":"password","serverPublicKey":"k"},"credential":"secret","editSessionId":"old-edit","editActionId":"old-credential"}""",
+            jsonOptions)!;
 
-        var login = await controller.StartLoginAsync(
-            new PersistentLoginRequest
-            {
-                Service = PrefillPlatform.Steam,
-                SessionId = sessionId,
-                EditSessionId = editSessionId,
-                EditActionId = "login-timeout"
-            },
-            CancellationToken.None);
+        var loginResult = await controller.StartLoginAsync(login, CancellationToken.None);
+        var credentialResult = await controller.ProvideCredentialAsync(credential, CancellationToken.None);
 
-        Assert.IsType<BadRequestObjectResult>(login.Result);
-        Assert.Contains(
-            nameof(IDaemonClient.StartLoginWithDispatchAsync),
-            activeClient.InvokedMethods);
-        Assert.Equal(
-            DaemonAuthState.LoggingIn,
-            daemon.GetSession(sessionId)!.AuthState);
-        Assert.Single(daemon.PersistentEditSessionGate.GetCompensableResources(
-            editSessionId,
-            PersistentPrefillEditResourceKind.Login));
-
-        var cleanup = await controller.CleanupEditSessionAsync(
-            CreateCleanupRequest(editSessionId, sessionId),
-            CancellationToken.None);
-
-        Assert.IsType<OkResult>(cleanup);
-        Assert.Equal(
-            1,
-            activeClient.InvokedMethods.Count(
-                method => method == nameof(IDaemonClient.CancelLoginWithOutcomeAsync)));
-        Assert.Equal(
-            DaemonAuthState.NotAuthenticated,
-            daemon.GetSession(sessionId)!.AuthState);
-        Assert.Empty(daemon.PersistentEditSessionGate.GetCompensableResources(
-            editSessionId,
-            PersistentPrefillEditResourceKind.Login));
-    }
-
-    [Fact]
-    public async Task CleanupSignsOutALoginTheDaemonFinishedWhileItsCancelWasOnTheWayAsync()
-    {
-        const string sessionId = "session-shared";
-        const string editSessionId = "edit-session-login-finished-during-cancel";
-        var (controller, daemon, activeClient) = CreateControllerWithActiveSession(sessionId);
-        await controller.StartLoginAsync(
-            new PersistentLoginRequest
-            {
-                Service = PrefillPlatform.Steam,
-                SessionId = sessionId,
-                EditSessionId = editSessionId,
-                EditActionId = "login-timeout"
-            },
-            CancellationToken.None);
-        // The daemon finished its sign-in and announced it before the cancel reached it, then answered "no login in progress".
-        activeClient.BeforeCancelAnswer = () => activeClient.EmitStatusAsync(new DaemonStatus { Status = "logged-in" });
-        activeClient.Logout = _ => Task.FromResult(new LogoutOutcome(Success: true, RequiresLogin: false));
-        // The cleanup reads the status before it cancels; the daemon still reads awaiting-login at that moment.
-        activeClient.LiveStatus = "awaiting-login";
-
-        var cleanup = await controller.CleanupEditSessionAsync(
-            CreateCleanupRequest(editSessionId, sessionId),
-            CancellationToken.None);
-
-        Assert.IsType<OkResult>(cleanup);
-        Assert.Contains(nameof(IDaemonClient.LogoutWithReasonAsync), activeClient.InvokedMethods);
+        Assert.Equal("c1", Assert.IsType<CredentialChallenge>(Assert.IsType<OkObjectResult>(loginResult.Result).Value).ChallengeId);
+        Assert.IsType<OkObjectResult>(credentialResult.Result);
+        Assert.Contains(nameof(IDaemonClient.ProvideCredentialAsync), client.InvokedMethods);
     }
 
     [Fact]
     public async Task CancelLogin_BeforeDispatchWaitsForReceiptWithoutSendingDaemonCancel()
     {
-        var (controller, _, client) = CreateControllerWithActiveSession("session-B");
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-B");
         client.HoldLoginDispatch = true;
         client.FailLoginDispatch = true;
         var loginId = Guid.NewGuid();
@@ -659,6 +721,7 @@ public class PersistentLoginSessionPinningTests
         await Assert.ThrowsAsync<IOException>(() => start);
         Assert.IsType<OkObjectResult>((await cancel.WaitAsync(TimeSpan.FromSeconds(5))).Result);
         Assert.DoesNotContain(nameof(IDaemonClient.CancelLoginWithOutcomeAsync), client.InvokedMethods);
+        Assert.Equal(DaemonAuthState.NotAuthenticated, daemon.GetSession("session-B")!.AuthState);
     }
 
     [Fact]
@@ -686,280 +749,6 @@ public class PersistentLoginSessionPinningTests
         Assert.Contains(nameof(IDaemonClient.CancelLoginWithOutcomeAsync), client.InvokedMethods);
         client.ReleaseLoginResult.SetResult();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => start.WaitAsync(TimeSpan.FromSeconds(5)));
-    }
-
-    [Fact]
-    public async Task StartLogin_EditCommandDispatchFails_CleanupDoesNotClaimOrCancelLogin()
-    {
-        const string sessionId = "session-shared";
-        const string editSessionId = "edit-session-login-dispatch-failure";
-        var (controller, daemon, activeClient) = CreateControllerWithActiveSession(sessionId);
-        activeClient.FailLoginDispatch = true;
-
-        await Assert.ThrowsAsync<IOException>(() => controller.StartLoginAsync(
-            new PersistentLoginRequest
-            {
-                Service = PrefillPlatform.Steam,
-                SessionId = sessionId,
-                EditSessionId = editSessionId,
-                EditActionId = "login-dispatch-failure"
-            },
-            CancellationToken.None));
-
-        Assert.Empty(daemon.PersistentEditSessionGate.GetCompensableResources(
-            editSessionId,
-            PersistentPrefillEditResourceKind.Login));
-        Assert.Equal(
-            DaemonAuthState.NotAuthenticated,
-            daemon.GetSession(sessionId)!.AuthState);
-
-        var cleanup = await controller.CleanupEditSessionAsync(
-            CreateCleanupRequest(editSessionId, sessionId),
-            CancellationToken.None);
-
-        Assert.IsType<OkResult>(cleanup);
-        Assert.DoesNotContain(
-            nameof(IDaemonClient.CancelLoginAsync),
-            activeClient.InvokedMethods);
-    }
-
-    [Fact]
-    public async Task PrefillConflict_CleanupDoesNotCancelExistingRun()
-    {
-        var (controller, daemon, activeClient) = CreateControllerWithActiveSession(
-            activeSessionId: "session-shared");
-        daemon.GetSession("session-shared")!.IsPrefilling = true;
-
-        var start = await controller.StartPrefillAsync(
-            new PersistentStartPrefillRequest
-            {
-                Service = PrefillPlatform.Steam,
-                SessionId = "session-shared",
-                AppIds = ["10"],
-                EditSessionId = "edit-session-a",
-                EditActionId = "prefill-a"
-            },
-            CancellationToken.None);
-
-        Assert.IsType<ConflictObjectResult>(start.Result);
-
-        var cleanup = await controller.CleanupEditSessionAsync(
-            new PersistentPrefillEditSessionCleanupRequest
-            {
-                EditSessionId = "edit-session-a",
-                CleanupId = "cleanup-a",
-                Services =
-                [
-                    new PersistentPrefillEditSessionCleanupServiceRequest
-                    {
-                        Service = PrefillPlatform.Steam,
-                        BaselineSessionId = "session-shared",
-                        BaselineSelectedAppIds = ["baseline"],
-                        StartSessionId = null,
-                        LoginSessionId = null,
-                        PrefillSessionId = "session-shared",
-                        SelectionSessionId = "session-shared"
-                    }
-                ]
-            },
-            CancellationToken.None);
-
-        Assert.IsType<OkResult>(cleanup);
-        Assert.DoesNotContain(
-            nameof(IDaemonClient.CancelPrefillAsync),
-            activeClient.InvokedMethods);
-        Assert.DoesNotContain(
-            nameof(IDaemonClient.SetSelectedAppsAsync),
-            activeClient.InvokedMethods);
-        Assert.True(daemon.GetSession("session-shared")!.IsPrefilling);
-    }
-
-    [Theory]
-    [InlineData("awaiting-login")]
-    [InlineData("logging-in")]
-    public async Task PrefillLiveLoginRequired_DoesNotDispatchOrAllocateRun(string status)
-    {
-        var (controller, daemon, client) = CreateControllerWithActiveSession("session-shared");
-        var session = daemon.GetSession("session-shared")!;
-        session.AuthState = DaemonAuthState.Authenticated;
-        client.LiveStatus = status;
-        var exception = await Assert.ThrowsAsync<ValidationException>(() => controller.StartPrefillAsync(
-            new PersistentStartPrefillRequest
-            {
-                Service = PrefillPlatform.Steam,
-                SessionId = session.Id,
-                AppIds = ["10"],
-                EditSessionId = "edit-live",
-                EditActionId = "start-live"
-            }, CancellationToken.None));
-        Assert.Equal("management.schedules.services.scheduledPrefill.config.persistentContainer.downloadRequiresAuth", exception.StageKey);
-        Assert.Null(session.PrefillRunId);
-        Assert.False(session.IsPrefilling);
-        Assert.DoesNotContain(nameof(IDaemonClient.PrefillAsync), client.InvokedMethods);
-        Assert.DoesNotContain(nameof(IDaemonClient.SetSelectedAppsAsync), client.InvokedMethods);
-        Assert.Empty(daemon.PersistentEditSessionGate.GetCompensableResources("edit-live", PersistentPrefillEditResourceKind.Prefill));
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task PrefillStatusUnavailable_DoesNotDispatch(bool throws)
-    {
-        var (controller, daemon, _) = CreateControllerWithActiveSession("session-shared");
-        var session = daemon.GetSession("session-shared")!;
-        var client = new FakeReconnectDaemonClient
-        {
-            StatusHandler = _ => throws ? Task.FromException<DaemonStatus?>(new IOException("offline")) : Task.FromResult<DaemonStatus?>(null)
-        };
-        session.Client = client;
-        var exception = await Assert.ThrowsAsync<ServiceUnavailableException>(() => controller.StartPrefillAsync(
-            new PersistentStartPrefillRequest { Service = PrefillPlatform.Steam, SessionId = session.Id, AppIds = ["10"] }, CancellationToken.None));
-        Assert.Equal("errors.prefill.statusUnavailable", exception.StageKey);
-        Assert.Equal(0, client.SelectionCount);
-        Assert.Equal(0, client.PrefillCount);
-        Assert.Null(session.PrefillRunId);
-    }
-
-    [Fact]
-    public async Task PrefillScheduledOutcomePending_RemainsBusy()
-    {
-        var (controller, daemon, client) = CreateControllerWithActiveSession("session-shared");
-        daemon.GetSession("session-shared")!.PrefillScheduleId = Guid.NewGuid();
-        var result = await controller.StartPrefillAsync(
-            new PersistentStartPrefillRequest { Service = PrefillPlatform.Steam, SessionId = "session-shared" }, CancellationToken.None);
-        Assert.IsType<ConflictObjectResult>(result.Result);
-        Assert.Empty(client.InvokedMethods);
-    }
-
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task PrefillRejected_AfterLiveLogin_ReturnsTypedFailure(bool requiresLogin)
-    {
-        var (controller, daemon, _) = CreateControllerWithActiveSession("session-shared");
-        var session = daemon.GetSession("session-shared")!;
-        var client = new FakeReconnectDaemonClient
-        {
-            StatusHandler = _ => Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = "logged-in" }),
-            SelectionHandler = (_, _) => Task.CompletedTask,
-            PrefillHandler = _ => Task.FromResult(new PrefillResult { Success = false, RequiresLogin = requiresLogin, ErrorMessage = "Rejected" })
-        };
-        session.Client = client;
-        var exception = await Record.ExceptionAsync(() => controller.StartPrefillAsync(
-            new PersistentStartPrefillRequest { Service = PrefillPlatform.Steam, SessionId = session.Id, AppIds = ["10"], Force = true }, CancellationToken.None));
-        if (requiresLogin)
-        {
-            Assert.IsType<ValidationException>(exception);
-        }
-        else
-        {
-            Assert.IsType<ServiceUnavailableException>(exception);
-        }
-        Assert.Equal(1, client.SelectionCount);
-        Assert.Equal(1, client.PrefillCount);
-        Assert.False(session.IsPrefilling);
-        Assert.Equal(new DaemonCommandException(requiresLogin: requiresLogin).Message, session.ErrorMessage);
-    }
-
-    [Fact]
-    public async Task PrefillLivePoll_CallerCancellationPropagates()
-    {
-        var (controller, daemon, _) = CreateControllerWithActiveSession("session-shared");
-        using var cancellation = new CancellationTokenSource();
-        var client = new FakeReconnectDaemonClient
-        {
-            StatusHandler = ct => { cancellation.Cancel(); return Task.FromCanceled<DaemonStatus?>(ct); }
-        };
-        daemon.GetSession("session-shared")!.Client = client;
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => controller.StartPrefillAsync(
-            new PersistentStartPrefillRequest { Service = PrefillPlatform.Steam, SessionId = "session-shared" }, cancellation.Token));
-        Assert.Equal(0, client.PrefillCount);
-        Assert.Equal(0, client.SelectionCount);
-        Assert.True(daemon.PersistentEditSessionGate.TryEnterMutation(out var mutation));
-        await mutation!.DisposeAsync();
-    }
-
-    [Fact]
-    public async Task PrefillAcknowledgedWithoutTerminal_WatchdogClearsRun()
-    {
-        var (controller, daemon, _) = CreateControllerWithActiveSession("session-shared");
-        var session = daemon.GetSession("session-shared")!;
-        session.Client = new FakeReconnectDaemonClient
-        {
-            StatusHandler = _ => Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = "logged-in" }),
-            PrefillHandler = _ => Task.FromResult(new PrefillResult { Success = true }),
-            CancelPrefillHandler = _ => Task.CompletedTask
-        };
-        var started = await controller.StartPrefillAsync(
-            new PersistentStartPrefillRequest { Service = PrefillPlatform.Steam, SessionId = session.Id, Force = true }, CancellationToken.None);
-        Assert.IsType<OkObjectResult>(started.Result);
-        Assert.Equal(1, (await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddSeconds(181))).StalledFailed);
-        Assert.False(session.IsPrefilling);
-        Assert.NotNull(session.PrefillRunId);
-    }
-
-    [Fact]
-    public async Task CreatedSessionAdoptedByLaterEdit_IsRetainedAndEarlierSelectionIsRestored()
-    {
-        var (controller, daemon, activeClient) = CreateControllerWithActiveSession(
-            activeSessionId: "session-shared");
-
-        var selection = await controller.SetSelectedAppsAsync(
-            new PersistentSelectedAppsRequest
-            {
-                Service = PrefillPlatform.Steam,
-                SessionId = "session-shared",
-                AppIds = ["10"],
-                EditSessionId = "edit-session-a",
-                EditActionId = "selection-a"
-            },
-            CancellationToken.None);
-        Assert.IsType<OkResult>(selection);
-
-        _ = daemon.PersistentEditSessionGate.BeginStart("edit-session-a", "start-a");
-        daemon.PersistentEditSessionGate.CompleteStart(
-            "edit-session-a",
-            "start-a",
-            new PersistentPrefillEditSessionStartRecord(
-                "start-a",
-                "session-shared",
-                CreatedByEditSession: true));
-        _ = daemon.PersistentEditSessionGate.BeginStart("edit-session-b", "start-b");
-        daemon.PersistentEditSessionGate.CompleteStart(
-            "edit-session-b",
-            "start-b",
-            new PersistentPrefillEditSessionStartRecord(
-                "start-b",
-                "session-shared",
-                CreatedByEditSession: false));
-
-        var cleanup = await controller.CleanupEditSessionAsync(
-            new PersistentPrefillEditSessionCleanupRequest
-            {
-                EditSessionId = "edit-session-a",
-                CleanupId = "cleanup-a",
-                Services =
-                [
-                    new PersistentPrefillEditSessionCleanupServiceRequest
-                    {
-                        Service = PrefillPlatform.Steam,
-                        BaselineSessionId = "session-shared",
-                        BaselineSelectedAppIds = ["baseline"],
-                        StartSessionId = "session-shared",
-                        LoginSessionId = null,
-                        PrefillSessionId = null,
-                        SelectionSessionId = "session-shared"
-                    }
-                ]
-            },
-            CancellationToken.None);
-
-        Assert.IsType<OkResult>(cleanup);
-        Assert.NotNull(daemon.GetSession("session-shared"));
-        Assert.Equal(
-            2,
-            activeClient.InvokedMethods.Count(
-                method => method == nameof(IDaemonClient.SetSelectedAppsAsync)));
     }
 
     // ---- RC3: dead-session challenge guard (#10) ------------------------------------------------
@@ -1237,7 +1026,7 @@ public class PersistentLoginSessionPinningTests
         Assert.False(pending.IsCompleted);
         await cancellation.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await pending);
-        Assert.Contains(nameof(IDaemonClient.CancelLoginAsync), recorder.InvokedMethods);
+        Assert.Contains(nameof(IDaemonClient.CancelLoginWithOutcomeAsync), recorder.InvokedMethods);
         Assert.Equal(0, recorder.StatusSubscribers);
     }
 
@@ -1299,6 +1088,94 @@ public class PersistentLoginSessionPinningTests
         Assert.Null(daemon.ReuseAccountId);
     }
 
+    // ---- Persistent list: a failed status read is unknown, never "not signed in" ----------------
+
+    [Fact]
+    public async Task List_StatusReadAnswersNothing_ReportsSignInUnknown()
+    {
+        var (controller, _, client) = CreateControllerWithActiveSession("session-A");
+        client.StatusRead = () => Task.FromResult<DaemonStatus?>(null);
+
+        var row = await ListSingleRowAsync(controller);
+
+        Assert.True(ListFlag(row, "authUnknown"));
+        Assert.False(ListFlag(row, "isAuthenticated"));
+    }
+
+    [Fact]
+    public async Task List_StatusReadThrows_ReportsSignInUnknown()
+    {
+        var (controller, _, client) = CreateControllerWithActiveSession("session-A");
+        client.StatusRead = () => Task.FromException<DaemonStatus?>(new IOException("status read failed"));
+
+        var row = await ListSingleRowAsync(controller);
+
+        Assert.True(ListFlag(row, "authUnknown"));
+        Assert.False(ListFlag(row, "isAuthenticated"));
+    }
+
+    [Theory]
+    [InlineData("logged-in", true)]
+    [InlineData("awaiting-login", false)]
+    public async Task List_StatusReadAnswers_IsNeverUnknown(string daemonStatus, bool expectedSignedIn)
+    {
+        var (controller, _, client) = CreateControllerWithActiveSession("session-A");
+        client.LiveStatus = daemonStatus;
+
+        var row = await ListSingleRowAsync(controller);
+
+        Assert.False(ListFlag(row, "authUnknown"));
+        Assert.Equal(expectedSignedIn, ListFlag(row, "isAuthenticated"));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ThePersistentListSendsNoSingleRunFields(bool protocolTwo)
+    {
+        var (controller, _, client) = CreateControllerWithActiveSession("session-A");
+        // The list reads the daemon's status first, so the capabilities come from what the daemon answers.
+        if (protocolTwo)
+        {
+            var status = new DaemonStatus
+            {
+                Status = "logged-in",
+                ProtocolVersion = 2,
+                DaemonInstanceId = Guid.NewGuid().ToString(),
+                MaxConcurrentRuns = 3,
+                MaxConcurrentRequests = 1,
+                Features = ["concurrentPrefill", "operationProgress", "targetedCancel", "inlineSelection", "activeOperations"],
+                ActiveOperations = [],
+                RecentOperations = []
+            };
+            client.StatusRead = () => Task.FromResult<DaemonStatus?>(status);
+        }
+
+        var row = await ListSingleRowAsync(controller);
+
+        foreach (var name in new[] { "isPrefilling", "runId", "totalBytesTransferred", "currentAppName" })
+            Assert.False(row.TryGetProperty(name, out _), $"the list row still carries '{name}'");
+        var limit = row.GetProperty("maxConcurrentRuns");
+        if (protocolTwo)
+            Assert.Equal(3, limit.GetInt32());
+        else
+            Assert.Equal(JsonValueKind.Null, limit.ValueKind);
+        Assert.Equal(0, row.GetProperty("activeRunCount").GetInt32());
+    }
+
+    private static async Task<JsonElement> ListSingleRowAsync(PersistentPrefillController controller)
+    {
+        var answer = Assert.IsType<OkObjectResult>((await controller.ListAsync(CancellationToken.None)).Result);
+        var rows = Assert.IsType<List<PersistentPrefillSessionDto>>(answer.Value);
+        return JsonSerializer.SerializeToElement(Assert.Single(rows), new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+
+    private static bool ListFlag(JsonElement row, string name)
+    {
+        Assert.True(row.TryGetProperty(name, out var value), $"the list row carries no '{name}' field");
+        return value.GetBoolean();
+    }
+
     // ---- Fixtures -------------------------------------------------------------------------------
 
     private static (PersistentPrefillController Controller, TestableSteamDaemonService Daemon, RecordingDaemonClientProxy ActiveClient)
@@ -1355,27 +1232,6 @@ public class PersistentLoginSessionPinningTests
         return (controller, daemon, recorder);
     }
 
-    private static PersistentPrefillEditSessionCleanupRequest CreateCleanupRequest(
-        string editSessionId,
-        string baselineSessionId) => new()
-        {
-            EditSessionId = editSessionId,
-            CleanupId = $"cleanup-{editSessionId}",
-            Services =
-        [
-            new PersistentPrefillEditSessionCleanupServiceRequest
-            {
-                Service = PrefillPlatform.Steam,
-                BaselineSessionId = baselineSessionId,
-                BaselineSelectedAppIds = [],
-                StartSessionId = null,
-                LoginSessionId = baselineSessionId,
-                PrefillSessionId = null,
-                SelectionSessionId = null
-            }
-        ]
-        };
-
     private static TestableSteamDaemonService CreateDaemon(TimeProvider? cacheStatusClock = null)
     {
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
@@ -1406,6 +1262,29 @@ public class PersistentLoginSessionPinningTests
         ExpiresAt = DateTime.UtcNow.AddDays(30),
         Client = (IDaemonClient)DispatchProxy.Create<IDaemonClient, NullReturningProxy>()
     };
+
+    private static XboxPrefillDaemonService CreateXboxDaemon(DaemonSession session)
+    {
+        var database = new InMemoryDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"session_pinning_xbox_{Guid.NewGuid():N}")
+            .Options);
+        var daemon = new XboxPrefillDaemonService(
+            NullLogger<XboxPrefillDaemonService>.Instance,
+            (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+            new ConfigurationBuilder().Build(),
+            (IPathResolver)DispatchProxy.Create<IPathResolver, NullReturningProxy>(),
+            (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>(),
+            new PrefillSessionService(database, NullLogger<PrefillSessionService>.Instance),
+            new PrefillCacheService(database, NullLogger<PrefillCacheService>.Instance),
+            null!,
+            new StaticOptionsMonitor<PrefillNetworkOptions>(new PrefillNetworkOptions()),
+            new TestLancacheServerLocator(),
+            new UnavailableContainerGatewayFactory());
+        var sessions = (ConcurrentDictionary<string, DaemonSession>)typeof(PrefillDaemonServiceBase)
+            .GetField("_sessions", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(daemon)!;
+        sessions[session.Id] = session;
+        return daemon;
+    }
 
     private sealed class TestableSteamDaemonService : SteamDaemonService
     {
@@ -1438,6 +1317,14 @@ public class PersistentLoginSessionPinningTests
             return CacheStatus is null
                 ? base.GetCacheStatusAsync(sessionId, appIds, expiresAtUtc, cancellationToken)
                 : CacheStatus();
+        }
+
+        public int AuthVolumeClears { get; private set; }
+
+        public override Task<PersistentVolumeClearResult> ClearPersistentAuthVolumeAsync(CancellationToken cancellationToken = default)
+        {
+            AuthVolumeClears++;
+            return Task.FromResult(PersistentVolumeClearResult.Removed);
         }
 
         public Guid? AvailabilityAccountId { get; private set; }
@@ -1502,18 +1389,18 @@ public class PersistentLoginSessionPinningTests
     }
 
     /// <summary>
-    /// Minimal <see cref="IServiceProvider"/> that resolves only <see cref="SteamDaemonService"/> - the
-    /// single concrete type the exercised endpoints request via
+    /// Minimal <see cref="IServiceProvider"/> that resolves only the one daemon service it holds - the
+    /// single platform type the exercised endpoints request via
     /// <see cref="PrefillDaemonServiceBase.ResolveDaemon"/>.
     /// </summary>
     private sealed class SingleDaemonServiceProvider : IServiceProvider
     {
-        private readonly SteamDaemonService _steam;
+        private readonly PrefillDaemonServiceBase _daemon;
 
-        public SingleDaemonServiceProvider(SteamDaemonService steam) => _steam = steam;
+        public SingleDaemonServiceProvider(PrefillDaemonServiceBase daemon) => _daemon = daemon;
 
         public object? GetService(Type serviceType)
-            => serviceType == typeof(SteamDaemonService) ? _steam : null;
+            => serviceType.IsInstanceOfType(_daemon) ? _daemon : null;
     }
 
     /// <summary>
@@ -1536,11 +1423,13 @@ public class PersistentLoginSessionPinningTests
         public TaskCompletionSource LoginResultEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseLoginResult { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool AcknowledgeLoginCancel { get; set; } = true;
-        public Func<Task>? BeforeCancelAnswer { get; set; }
         public string LiveStatus { get; set; } = "awaiting-login";
+        public CredentialChallenge? LoginChallenge { get; set; }
         public Func<Task<List<OwnedGame>>>? Games { get; set; }
         public Func<CancellationToken, Task<List<OwnedGame>>>? GamesWithToken { get; set; }
         public Func<CancellationToken, Task<LogoutOutcome>>? Logout { get; set; }
+        public Func<Task>? CancelPrefill { get; set; }
+        public Func<Task<DaemonStatus?>>? StatusRead { get; set; }
         private Func<DaemonStatus, Task>? StatusChanged { get; set; }
         public int StatusSubscribers => StatusChanged?.GetInvocationList().Length ?? 0;
 
@@ -1579,20 +1468,31 @@ public class PersistentLoginSessionPinningTests
 
             if (targetMethod?.Name == nameof(IDaemonClient.GetStatusAsync))
             {
+                if (StatusRead is not null)
+                {
+                    return StatusRead();
+                }
+
                 return Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = LiveStatus });
             }
 
             if (targetMethod?.Name == nameof(IDaemonClient.CancelLoginWithOutcomeAsync))
             {
-                return BeforeCancelAnswer is null
-                    ? Task.FromResult(AcknowledgeLoginCancel)
-                    : BeforeCancelAnswer().ContinueWith(_ => AcknowledgeLoginCancel, TaskScheduler.Default);
+                return Task.FromResult(AcknowledgeLoginCancel);
             }
 
             if (targetMethod?.Name == nameof(IDaemonClient.LogoutWithReasonAsync)
                 && Logout is not null)
             {
                 return Logout((CancellationToken)args![0]!);
+            }
+
+            // The single-argument overload is the older daemon's cancel of its one run.
+            if (targetMethod?.Name == nameof(IDaemonClient.CancelPrefillAsync)
+                && targetMethod.GetParameters().Length == 1
+                && CancelPrefill is not null)
+            {
+                return CancelPrefill();
             }
 
             if (targetMethod?.Name == nameof(IDaemonClient.GetOwnedGamesAsync))
@@ -1614,7 +1514,7 @@ public class PersistentLoginSessionPinningTests
             onCommandDispatched();
             LoginResultEntered.TrySetResult();
             if (HoldLoginResult) await ReleaseLoginResult.Task;
-            return null;
+            return LoginChallenge;
         }
     }
 
@@ -1688,5 +1588,27 @@ public class PersistentLoginSessionPinningTests
         }
 
         return null;
+    }
+}
+
+/// <summary>
+/// The persistent container has no download route of its own: schedules start their downloads in
+/// process, so a signed-in caller posting to the old path reaches the API's not-found answer while the
+/// container's cancel route beside it still binds its body.
+/// </summary>
+[Collection(nameof(EndpointAuthorizationCollection))]
+public sealed class PersistentPrefillDownloadRouteTests
+{
+    [Fact]
+    public async Task PostingToThePersistentDownloadPath_AnswersNotFound()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var client = await host.CreateAdminClientAsync();
+
+        using var download = await client.PostAsJsonAsync("/api/system/prefill/persistent/prefill", new { });
+        using var cancel = await client.PostAsJsonAsync("/api/system/prefill/persistent/cancel-prefill", new { });
+
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, download.StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, cancel.StatusCode);
     }
 }

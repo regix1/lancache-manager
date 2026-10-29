@@ -347,7 +347,7 @@
         "logRemoval": "Log Removal",
         "serviceRemoval": "Service Cache Removal",
         "gameRemoval": "Game Cache Removal",
-        "corruptionRemoval": "Suspect Cache File Removal",
+        "corruptionRemoval": "Corruption Cleanup",
         "corruptionDetection": "Corruption Scan",
         "databaseReset": "Database Reset",
         "depotMapping": "Depot Mapping",
@@ -378,7 +378,7 @@
       "cacheFilesDeleted": "{{formattedCount}} cache file deleted",
       "cacheFilesDeleted_other": "{{formattedCount}} cache files deleted",
       "cancelCacheClearing": "Cancel cache clearing",
-      "cancelCorruptionRemoval": "Cancel suspect cache file removal",
+      "cancelCorruptionRemoval": "Cancel corruption cleanup",
       "cancelCorruptionDetection": "Cancel corruption scan",
       "cancelDepotMapping": "Cancel depot mapping",
       "cancelGameDetection": "Cancel game detection",
@@ -429,6 +429,8 @@
         "datasourcesNotRepaired": "The repair finished but skipped these datasources because they were removed or their folders changed: {{datasources}}.",
         "cacheScansSkipped": "The repair finished but did not recheck the cache of these datasources because their log layout changed: {{datasources}}. The next eviction scan checks them once each log folder holds one layout.",
         "servicesFailed": "{{failedCount}} of {{serviceCount}} services failed and keep their own red cards; the other services finished.",
+        "serviceNotStarted": "{{failedCount}} of {{serviceCount}} services failed. {{service}} failed before its removal started, so it has no card of its own; the server log has its error.",
+        "servicesNotStarted": "{{failedCount}} of {{serviceCount}} services failed. {{services}} failed before their removal started, so they have no cards of their own; the server log has their errors.",
         "datasourcesFailed": "Not finished on these datasources: {{datasources}}. The work done everywhere else was kept.",
         "databaseErrorAfterSaving": "A database error stopped the run after {{entriesSaved}} entries were saved: {{error}}. The next run reads on from where this one stopped.",
         "logPurgeProgramMissing": "The downloads were removed, but their log lines stay in these datasources because the log cleanup program is missing from this install: {{datasources}}. Reading those logs again from the start can bring them back.",
@@ -462,7 +464,7 @@
       },
       "operationWaitingCancelled": "Cancelled while waiting in queue",
       "willQueueBehindCurrent": "Will start after the current operation finishes",
-      "corruptedChunksRemoved": "Suspect cache files successfully removed",
+      "corruptedChunksRemoved": "Corruption cleanup finished",
       "filesDeleted": "{{formattedCount}} file deleted",
       "filesDeleted_other": "{{formattedCount}} files deleted",
       "failedTimesInRow": "Failed {{formattedCount}} time in a row.",
@@ -2349,7 +2351,7 @@
           "events": "All events and their download associations are deleted.",
           "userSessions": "All devices are logged out and cleared, and the Steam, Epic, Xbox and prefill sign-ins go with them, so everyone has to authenticate again.",
           "clientGroups": "All client groups and their members are deleted.",
-          "prefillSessions": "All prefill sessions are deleted.",
+          "prefillSessions": "Prefill sessions and their history are deleted. A container that is still running keeps its own entry and the run in progress, and each platform keeps the entry of its latest persistent container.",
           "bannedPrefillUsers": "Banned prefill users are unblocked and can prefill again.",
           "epicGameMappings": "Epic games will show as \"Unknown\" until mappings are rebuilt.",
           "epicCdnPatterns": "Epic game detection may not work until CDN patterns are re-fetched.",
@@ -2874,26 +2876,30 @@
         "aboutTitle": "About",
         "methodsTitle": "Which method to use",
         "structuralWhen": "Reads the files themselves and reports only damage it can prove. Use it when you want a definite answer.",
-        "repeatedMissWhen": "Infers suspect files from downloads that keep missing the cache. Catches more, but it is evidence rather than proof.",
+        "repeatedMissWhen": "Flags files from downloads that keep missing the cache. Catches more, but it is evidence rather than proof.",
         "scanModesTitle": "Structural scan modes",
         "vsOthersTitle": "What this does not cover",
         "vsOthers": "This looks for damage. A file can be perfectly intact and still have no game or service claiming it, which is what the Unmapped section of the Game Cache Detection scan lists. A download whose files have gone missing is the Eviction scan's job."
       },
       "title": "Corruption Detection and Removal",
       "titleShort": "Corruption",
-      "summary": "Find structurally invalid cache files or repeated-MISS suspects, then remove only exact paths verified by the saved scan.",
+      "summary": "Find structurally invalid cache files or repeated-MISS flagged files, then remove only exact paths verified by the saved scan.",
       "scanningMessage": "Scanning logs for repeated cache misses on files still present on disk… This may take several minutes for large log files.",
       "scanningRepeatedMissMessage": "Scanning logs for repeated cache misses on files still present on disk… This may take several minutes for large log files.",
       "scanningStructuralMessage": "Checking nginx cache headers, payload offsets, and authoritative payload lengths… Only proven structural failures are flagged.",
       "loadingCachedData": "Loading cached scan data…",
+      "checkingPermissions": "Unavailable while the cache and log folder permissions are checked.",
+      "cacheRemovalRunning": "Unavailable while a cache removal is running. Try again once it finishes.",
+      "removalActive": "Unavailable while {{operation}} is running or waiting. Try again once it finishes.",
+      "nothingSelected": "Select at least one service first.",
       "loadingDetails": "Loading stored evidence…",
       "removeAllServices": "Remove All",
       "removeAllInvalid": "Remove All Invalid Files",
-      "removeAllSuspects": "Remove All Suspects",
+      "removeAllSuspects": "Remove All Flagged Files",
       "removeSelectedInvalid": "Remove Selected Invalid Files",
-      "removeSelectedSuspects": "Remove Selected Suspects",
-      "removeInvalid": "Remove invalid file",
-      "removeSuspect": "Remove suspect",
+      "removeSelectedSuspects": "Remove Selected Flagged Files",
+      "removeInvalid": "Remove invalid files",
+      "removeSuspect": "Remove flagged files",
       "removing": "Removing…",
       "runScan": "Run scan",
       "runAgain": "Run again",
@@ -2916,8 +2922,8 @@
       "repeatedMissBadge": "Repeated MISS",
       "observedAt": "Observed:",
       "observedWindow": "{{first}}–{{last}}",
-      "suspectCount": "{{formattedCount}} suspect file",
-      "suspectCount_other": "{{formattedCount}} suspect files",
+      "suspectCount": "{{formattedCount}} flagged file",
+      "suspectCount_other": "{{formattedCount}} flagged files",
       "flaggedCount": "{{formattedCount}} flagged file",
       "flaggedCount_other": "{{formattedCount}} flagged files",
       "expandDetails": "Show flagged files for {{service}}",
@@ -2940,7 +2946,7 @@
         "repeatedMiss": {
           "label": "Repeated MISS",
           "shortLabel": "Repeated MISS",
-          "description": "Uses repeated successful MISS responses as a heuristic for suspect files still on disk."
+          "description": "Uses repeated successful MISS responses as a heuristic to flag files still on disk."
         },
         "structural": {
           "label": "Structural integrity",
@@ -3027,7 +3033,7 @@
         "noCorrupted": {
           "structuralTitle": "No structurally invalid cache files found",
           "structuralSubtitle": "Ambiguous, unsupported, or changing files were skipped, not marked corrupt.",
-          "repeatedMissTitle": "No repeated-MISS suspects found",
+          "repeatedMissTitle": "No repeated-MISS flagged files found",
           "repeatedMissSubtitle": "No file still present on disk met the selected repeated-MISS threshold."
         },
         "noCachedData": {
@@ -3050,35 +3056,35 @@
         "unsafeDetails": "Saved scan evidence could not be displayed safely. Run a new scan."
       },
       "modal": {
-        "title": "Remove Suspect Cache Files",
+        "title": "Remove Flagged Cache Files",
         "confirmRemove": "Remove the exact cache paths verified by this scan for {{service}}?",
         "removalSummaryStructural": "Deletes the matching cache files and their saved scan records. Files that changed since the scan are skipped, and this cannot be undone.",
         "removalSummaryRepeatedMiss": "Deletes the matching cache files along with their log and database records. Files already gone are skipped, and this cannot be undone.",
         "removalScopeService": "Removes up to {{count}} files for {{service}}.",
         "removalScopeAllServices": "Runs across every affected service in turn.",
         "deleteCacheAndLogs": "Delete Cache & Logs",
-        "removeAllTitle": "Remove All Suspect Cache Files",
-        "confirmRemoveAll": "Remove {{candidates}} suspect cache files across {{services}} services?",
-        "confirmRemoveSelected": "Remove {{candidates}} suspect cache files across {{services}} selected services?",
-        "removeAllConfirm": "Remove All Suspects",
+        "removeAllTitle": "Remove All Flagged Cache Files",
+        "confirmRemoveAll": "Remove {{candidates}} flagged cache files across {{services}} services?",
+        "confirmRemoveSelected": "Remove {{candidates}} flagged cache files across {{services}} selected services?",
+        "removeAllConfirm": "Remove All Flagged Files",
         "structuralTitle": "Remove Invalid Cache Files",
-        "repeatedMissTitle": "Remove Repeated-MISS Suspects",
+        "repeatedMissTitle": "Remove Repeated-MISS Flagged Files",
         "confirmRemoveStructural": "Remove the invalid cache files found for {{service}}?",
-        "confirmRemoveRepeatedMiss": "Remove the repeated-MISS suspects found for {{service}}?",
+        "confirmRemoveRepeatedMiss": "Remove the repeated-MISS flagged files found for {{service}}?",
         "removeAllStructuralTitle": "Remove All Invalid Cache Files",
-        "removeAllRepeatedMissTitle": "Remove All Repeated-MISS Suspects",
+        "removeAllRepeatedMissTitle": "Remove All Repeated-MISS Flagged Files",
         "removeSelectedStructuralTitle": "Remove Selected Invalid Cache Files",
-        "removeSelectedRepeatedMissTitle": "Remove Selected Repeated-MISS Suspects",
+        "removeSelectedRepeatedMissTitle": "Remove Selected Repeated-MISS Flagged Files",
         "confirmRemoveAllStructural": "Remove {{candidates}} invalid cache files across {{services}} services?",
-        "confirmRemoveAllRepeatedMiss": "Remove {{candidates}} repeated-MISS suspects across {{services}} services?",
+        "confirmRemoveAllRepeatedMiss": "Remove {{candidates}} repeated-MISS flagged files across {{services}} services?",
         "confirmRemoveSelectedStructural": "Remove {{candidates}} invalid cache files across {{services}} selected services?",
-        "confirmRemoveSelectedRepeatedMiss": "Remove {{candidates}} repeated-MISS suspects across {{services}} selected services?",
+        "confirmRemoveSelectedRepeatedMiss": "Remove {{candidates}} repeated-MISS flagged files across {{services}} selected services?",
         "removeInvalidFiles": "Remove Invalid Files",
-        "removeSuspects": "Remove Suspects",
+        "removeSuspects": "Remove Flagged Files",
         "removeAllStructuralConfirm": "Remove All Invalid Files",
-        "removeAllRepeatedMissConfirm": "Remove All Suspects",
+        "removeAllRepeatedMissConfirm": "Remove All Flagged Files",
         "removeSelectedStructuralConfirm": "Remove invalid files ({{count}} services)",
-        "removeSelectedRepeatedMissConfirm": "Remove suspects ({{count}} services)"
+        "removeSelectedRepeatedMissConfirm": "Remove flagged files ({{count}} services)"
       },
       "history": {
         "help": {
@@ -3224,6 +3230,8 @@
       "logsInUse": "Unavailable while log processing or a Start from End count is reading the logs. Try again once it finishes.",
       "resetRunning": "Unavailable while a log position reset is running. Try again once it finishes.",
       "resetRunningUnknown": "Unavailable until the server reports whether a log position reset is running.",
+      "repositionLoading": "Unavailable until the log positions and folder permissions finish loading.",
+      "processStarting": "Unavailable while a processing request is being sent. Try again once it starts.",
       "noLogLines": "There are no log lines to process for this datasource.",
       "layout": {
         "bareMetal": "Bare metal",
@@ -4330,8 +4338,6 @@
               "authPathsPersistent": "Persistent containers are used for library browse and game selection on every platform. Starting the container and logging in there is the only login scheduled prefill needs."
             },
             "errors": {
-              "editSessionLoading": "Scheduled-prefill edit session data is still loading.",
-              "cleanupPending": "Previous container changes could not be cleared. Retry this action.",
               "recordAction": "Could not update this schedule.",
               "sharedSettings": "Could not save the shared container settings."
             },
@@ -5014,7 +5020,7 @@
       "signInExpired": "Sign-in has expired",
       "loginTimeRemaining": "Expires in {{time}}",
       "loginAttemptExpired": "Login attempt has expired",
-      "needsRelogin": "Login expired. Please log in again.",
+      "needsRelogin": "Login expired. Log out, then log in again.",
       "actions": {
         "start": "Start container",
         "stop": "Stop container"
@@ -5111,6 +5117,7 @@
       "ipv6NotDetected": "IPv6 not detected",
       "ipv6Detected": "IPv6 detected",
       "notTested": "Not tested",
+      "checksDidNotFinish": "Some checks did not finish",
       "notResolved": "Not resolved",
       "trySetting": "Try setting",
       "inDockerCompose": "in your docker-compose.yml",
@@ -5151,7 +5158,6 @@
       "etaMinutesSeconds": "{{minutes}}m {{seconds}}s",
       "etaHoursMinutes": "{{hours}}h {{minutes}}m",
       "failedCount": "({{count}} failed)",
-      "startingMessage": "Contacting daemon...",
       "cancelling": "Cancelling..."
     },
     "duration": {
@@ -5165,10 +5171,6 @@
       "hoursMinutes": "{{hours}}h {{minutes}}m",
       "minutesSeconds": "{{minutes}}m {{seconds}}s",
       "seconds": "{{seconds}}s"
-    },
-    "completion": {
-      "title": "Download Completed",
-      "message": "Prefill completed in {{duration}}"
     },
     "sections": {
       "prefillOptions": "Prefill Options",
@@ -5292,7 +5294,7 @@
       "topTitle": "Download Top 50 Games",
       "topMessage": "This will download the top 50 popular games. This may take a while and use significant bandwidth.",
       "forceTitle": "Force Re-download",
-      "forceMessage": "This will re-download games even if they are already cached. Use this if you suspect cache corruption.",
+      "forceMessage": "This will re-download games even if they are already cached. Use this if you think the cache is corrupted.",
       "clearDbTitle": "Clear Cache Database",
       "clearDbMessage": "This will remove all cache records from the database. Cached files will remain but tracking data will be lost.",
       "defaultMessage": "Are you sure you want to proceed?",
@@ -5308,6 +5310,7 @@
       "failedConnect": "Failed to connect to the prefill service",
       "failedCreateSession": "Failed to create session",
       "sessionExpired": "Session expired",
+      "sessionErrored": "This prefill session ran into a problem. Start a new session to continue.",
       "unableEstimateSize": "Unable to estimate size",
       "saveSelectionFailed": "Failed to save game selection",
       "saveServiceSelectionFailed": "Could not save your service selection for next time.",
@@ -5324,6 +5327,10 @@
       "message": "This prefill session has expired. Start a new session to continue using {{service}} prefill.",
       "startNew": "Start new session"
     },
+    "sessionErrored": {
+      "title": "Session error",
+      "message": "This prefill session ran into a problem and can no longer run prefills. Start a new session to continue using {{service}} prefill."
+    },
     "log": {
       "loginSuccess": "Successfully logged in to {{service}}",
       "credentialsRequired": "{{service}} credentials required",
@@ -5337,13 +5344,6 @@
       "gamesCached": "{{count}} game already cached in lancache",
       "gamesCached_other": "{{count}} games already cached in lancache",
       "unnamedApp": "App {{appId}}",
-      "gameDownloaded": "{{gameName}} - Downloaded {{size}}",
-      "gameAlreadyUpToDate": "{{gameName}} - Already up to date",
-      "summaryDownloaded_one": "{{count}} game downloaded ({{size}})",
-      "summaryDownloaded_other": "{{count}} games downloaded ({{size}})",
-      "summaryAlreadyUpToDate_one": "{{count}} game already up to date",
-      "summaryAlreadyUpToDate_other": "{{count}} games already up to date",
-      "summary": "Summary: {{parts}}",
       "failedLoadLibrary": "Failed to load game library",
       "noGamesSelected": "No games selected. Use \"Select Apps\" to choose games for prefill first.",
       "startingPrefillSelected": "Starting prefill of {{count}} selected app...",
@@ -5353,7 +5353,6 @@
       "startingPrefillRecentPurchased": "Starting prefill of recently purchased games...",
       "startingPrefillTop": "Starting prefill of top 50 popular games...",
       "startingPrefillForce": "Starting force prefill (re-downloading)...",
-      "prefillFailed": "Prefill failed",
       "clearingTempCache": "Clearing temporary cache...",
       "tempCacheCleared": "Temporary cache cleared",
       "failedClearCache": "Failed to clear cache",
@@ -5374,13 +5373,10 @@
       "removeFromCacheSharedFiles": "Nothing was removed for {{game}} because its files are shared with another game",
       "removeFromCacheFailed": "Failed to remove {{game}} from the cached list",
       "sessionEnded": "Session ended: {{reason}}",
+      "sessionEndedOnServer": "The session ended on the server.",
       "statusMessage": "Status: {{message}}",
-      "prefillStarted": "Prefill operation started",
-      "prefillCompleted": "Prefill completed in {{duration}}",
-      "prefillCancelled": "Prefill operation cancelled",
       "connectionLostReconnecting": "Connection lost, reconnecting...",
       "reconnected": "Reconnected to server",
-      "prefillCompletedWhileDisconnected": "Prefill completed while disconnected ({{duration}})",
       "reconnectingExistingSession": "Reconnecting to existing session...",
       "sessionDetail": "Session: {{id}}",
       "reconnectedExistingSession": "Reconnected to existing session",
@@ -5388,7 +5384,6 @@
       "sessionExpiresIn": "Session expires in {{time}}",
       "alreadyLoggedIn": "Already logged in to {{service}}",
       "loginPrompt": "Please log in to {{service}} to start prefilling",
-      "prefillCompletedWhileAway": "Prefill completed while away ({{duration}})",
       "creatingSession": "Creating prefill session...",
       "connectedExistingSession": "Connected to existing session",
       "sessionCreated": "Session created successfully",
@@ -5741,7 +5736,7 @@
       "summaryGameCounted": "Deletes {{formattedCount}} cache files ({{size}}), every one on disk for this game right now, along with its log entries and download records. This cannot be undone.",
       "summaryServiceCounted": "Deletes {{formattedCount}} cache files ({{size}}), every one on disk for this service right now, along with every log entry and download record for it. This cannot be undone.",
       "counting": "Counting the cache files this will delete. On a large service this takes several minutes.",
-      "countFailed": "The cache files could not be counted, so there is no number to confirm against. Close this and try again.",
+      "countFailed": "The cache files could not be counted, so there is no number to confirm against. Retry the count, or close this and try again later.",
       "summaryEvicted": "Removes {{count}} download records and their log entries, covering about {{size}} of past downloads. No cached files are deleted, and this does not check whether those files are still on disk. This cannot be undone.",
       "depotScope": "Covers {{count}} depot.",
       "depotScope_other": "Covers {{count}} depots.",
@@ -7544,7 +7539,10 @@
       "complete": "Operation complete",
       "cancelled": "Operation cancelled",
       "skipped": "Operation skipped",
-      "nothingToDo": "Nothing to do"
+      "nothingToDo": "Nothing to do",
+      "interruptedByRestart": "Operation interrupted by application restart",
+      "stoppedWithoutProgress": "It made no progress and used no CPU time for 30 minutes, so it was stopped. Check that the cache and log folders are reachable, then press Retry.",
+      "nativeProcessesStillRunning": "A program from the earlier job is still running, so the repair waited and stopped. Press Retry once it has exited."
     },
     "cacheClear": {
       "initializing": "Initializing cache clear...",
@@ -7594,8 +7592,8 @@
           "hoursMinutes": "{{hours}} hr {{minutes}} min"
         }
       },
-      "complete": "Corruption scan complete: {{count}} suspect files found.",
-      "completeRepeatedMiss": "Repeated-MISS scan complete: {{count}} suspect files found.",
+      "complete": "Corruption scan complete: {{count}} flagged files found.",
+      "completeRepeatedMiss": "Repeated-MISS scan complete: {{count}} flagged files found.",
       "completeStructural": "Structural scan complete: {{count}} invalid cache files found.",
       "completeStructuralFull": "Full structural scan complete: {{count}} invalid cache files found and the incremental baseline was refreshed.",
       "completeStructuralIncremental": "Incremental structural scan complete: {{count}} invalid cache files found.",
@@ -7604,33 +7602,33 @@
       "failed": "Corruption scan failed: {{errorDetail}}"
     },
     "corruptionRemove": {
-      "starting": "Starting suspect cache file removal for {{service}}",
+      "starting": "Starting corruption cleanup for {{service}}",
       "startingStructural": "Starting invalid cache-file removal for {{service}}",
-      "startingService": "Removing suspect cache files for {{service}} ({{serviceIndex}} of {{serviceCount}})",
+      "startingService": "Removing flagged cache files for {{service}} ({{serviceIndex}} of {{serviceCount}})",
       "startingStructuralService": "Removing invalid cache files for {{service}} ({{serviceIndex}} of {{serviceCount}})",
-      "noChunksFoundService": "No suspect cache files were found for {{service}}; nothing to remove",
+      "noChunksFoundService": "No flagged cache files were found for {{service}}; nothing to remove",
       "filteringLogs": "Filtering log files",
       "filteringFile": "Filtering file {{fileIndex}}/{{totalFiles}}",
       "logsPartial": "Log cleanup for {{service}} was partial: {{logLines}} lines removed before {{permissionErrors}} file(s) could not be modified. Database evidence was kept for a retry.",
-      "removingCacheFiles": "Removing {{totalFiles}} suspect cache files",
+      "removingCacheFiles": "Removing {{totalFiles}} flagged cache files",
       "removingCacheFile": "Removing verified cache file {{fileIndex}}/{{totalFiles}}",
-      "deletingDb": "Deleting database records attached to removed suspects",
-      "scanningFiles": "Scanning {{totalFiles}} log files for suspect cache files…",
-      "complete": "Removed {{count}} suspect cache files for {{service}} ({{files}} cache files deleted, {{logLines}} log lines removed, {{downloads}} downloads deleted, {{logEntries}} log entries deleted)",
+      "deletingDb": "Deleting database records attached to removed flagged files",
+      "scanningFiles": "Scanning {{totalFiles}} log files for flagged cache files…",
+      "complete": "Removed {{count}} flagged cache files for {{service}} ({{files}} cache files deleted, {{logLines}} log lines removed, {{downloads}} downloads deleted, {{logEntries}} log entries deleted)",
       "completeStructural": "Processed {{count}} invalid cache files for {{service}} ({{files}} deleted, {{alreadyMissing}} already missing, {{healed}} now valid)",
-      "success": "Successfully removed verified suspect cache files for {{service}}",
+      "success": "Successfully removed verified flagged cache files for {{service}}",
       "successStructural": "Successfully removed revalidated invalid cache files for {{service}}",
       "cancelled": "Operation was cancelled.",
-      "allComplete": "Suspect cache file removal completed across {{serviceCount}} services: {{count}} suspect files removed ({{files}} cache files, {{logLines}} log lines, {{logEntries}} database entries)",
+      "allComplete": "Corruption cleanup completed across {{serviceCount}} services: {{count}} flagged files removed ({{files}} cache files, {{logLines}} log lines, {{logEntries}} database entries)",
       "allCompleteStructural": "Invalid cache-file removal completed across {{serviceCount}} services: {{files}} files deleted, {{alreadyMissing}} already missing, {{healed}} now valid",
-      "allCompleteWithFailures": "Suspect cache file removal completed with {{failedCount}} of {{serviceCount}} services failing. Removed {{count}} suspect files ({{files}} cache files, {{logLines}} log lines)",
+      "allCompleteWithFailures": "Corruption cleanup completed with {{failedCount}} of {{serviceCount}} services failing. Removed {{count}} flagged files ({{files}} cache files, {{logLines}} log lines)",
       "allCompleteWithFailuresStructural": "Invalid cache-file removal completed with {{failedCount}} of {{serviceCount}} services failing. Deleted {{files}} files; {{alreadyMissing}} were already missing and {{healed}} are now valid",
-      "allStoppedWithFailures": "Suspect cache file removal stopped after {{completedCount}} of {{serviceCount}} services, with {{failedCount}} failing. Removed {{count}} suspect files ({{files}} cache files, {{logLines}} log lines)",
+      "allStoppedWithFailures": "Corruption cleanup stopped after {{completedCount}} of {{serviceCount}} services, with {{failedCount}} failing. Removed {{count}} flagged files ({{files}} cache files, {{logLines}} log lines)",
       "allStoppedWithFailuresStructural": "Invalid cache-file removal stopped after {{completedCount}} of {{serviceCount}} services, with {{failedCount}} failing. Deleted {{files}} files; {{alreadyMissing}} were already missing and {{healed}} are now valid",
-      "allCancelled": "Suspect cache file removal cancelled after {{completedCount}} of {{serviceCount}} services",
+      "allCancelled": "Corruption cleanup cancelled after {{completedCount}} of {{serviceCount}} services",
       "allCancelledStructural": "Invalid cache-file removal cancelled after {{completedCount}} of {{serviceCount}} services",
       "error": {
-        "fatal": "Suspect cache file removal failed: {{errorDetail}}"
+        "fatal": "Corruption cleanup failed: {{errorDetail}}"
       },
       "failed": {
         "generic": "Operation failed. Check server logs for details."
@@ -7813,6 +7811,11 @@
       "refreshingSummary": "Refreshing detection summary of cached files...",
       "complete": "Scan complete: {{totalProcessed}} processed, {{totalEvicted}} evicted, {{totalUnEvicted}} un-evicted",
       "cancelled": "Eviction scan cancelled",
+      "stoppedBySystem": "The scan stopped before it finished, most likely because the container ran out of memory. Give the container more memory and run the scan again.",
+      "repairStopped": "The cache check after this job stopped before it finished, most likely because the container ran out of memory. Give the container more memory, then press Retry.",
+      "repairFailed": "The cache check after this job failed. The server log has the reason. Press Retry.",
+      "noFolderChecked": "No cache folder could be checked. Each one is missing, empty or unreadable.",
+      "capabilityRefused": "The scan did not run because a datasource cannot match cache files to downloads, or no datasource is enabled. The server log names the reason.",
       "error": {
         "fatal": "Eviction scan failed: {{errorDetail}}"
       }
@@ -7950,7 +7953,10 @@
       "complete": "Processing complete",
       "completedEntries": "Successfully processed {{entriesProcessed}} entries",
       "completedDetail": "Successfully processed {{entriesProcessed}} entries from {{linesProcessed}} lines in {{elapsed}} minutes.",
-      "recoveryDetail": "{{entriesProcessed}} entries processed"
+      "recoveryDetail": "{{entriesProcessed}} entries processed",
+      "failed": "Log processing failed",
+      "failedForDatasource": "Log processing failed for datasource {{datasource}}",
+      "failedForDatasourceWithError": "Log processing failed for datasource {{datasource}}: {{databaseError}}"
     },
     "logProcessor": {
       "starting": "Starting log processing...",
@@ -8058,13 +8064,16 @@
     "scheduledPrefill": {
       "skippedNoDaemon": "No daemon registered for this service",
       "skippedNoContainer": "No running persistent container. Start the persistent container before scheduling.",
-      "skippedContainerNotReady": "The persistent container is running but has not reported ready yet. This platform needs no login, so wait for the container to finish starting.",
-      "skippedAlreadyRunning": "A prefill is already in progress",
+      "skippedContainerBusy": "The persistent container is busy",
       "skippedOverlap": "Another schedule is using this platform. This attempt was skipped and was not queued.",
       "needsPersistentContainer": "No running persistent container. Start and log in the persistent container before scheduling.",
       "needsPersistentLogin": "The persistent container is running but not logged in. Log in, then run again, or wait for the next scheduled attempt.",
       "reusingContainer": "Reusing persistent container",
       "failedToStart": "Prefill failed to start",
+      "starting": "Starting scheduled prefill",
+      "preparing": "Preparing prefill",
+      "reconnecting": "Waiting for the prefill daemon to reconnect",
+      "stopping": "Stopping prefill",
       "running": "Prefill in progress",
       "runningWithCounts": "Prefill in progress ({{completed}} of {{total}} games)",
       "downloadingGame": "Downloading {{game}} ({{completed}} of {{total}} games)",
@@ -8086,7 +8095,15 @@
       "runAllSkipped": "All enabled services were skipped"
     },
     "prefillSession": {
-      "superseded": "Superseded by new prefill operation"
+      "superseded": "Superseded by new prefill operation",
+      "stopped": "Session stopped",
+      "expired": "Session expired",
+      "serviceShutdown": "Service shut down",
+      "banned": "Banned by an administrator",
+      "stoppedByAdmin": "Stopped by an administrator",
+      "endedByUser": "Ended by the person who started it",
+      "accessEnded": "Access ended",
+      "imageUpdated": "Container image updated"
     },
     "statusCheck": {
       "dnsTimeout": "DNS query timed out",
@@ -8139,7 +8156,9 @@
       "credentialsRejected": "The username or password does not meet the requirements."
     },
     "cache": {
-      "readOnly": "Cannot clear cache: cache directory is read-only. This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. The LANCache container is configured to run as UID/GID {{uidGid}} (configured via PUID/PGID environment variables)."
+      "readOnly": "Cannot clear cache: cache directory is read-only. This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. The LANCache container is configured to run as UID/GID {{uidGid}} (configured via PUID/PGID environment variables).",
+      "countFailed": "The count stopped with an error, so there is no number to confirm against. Try again; the server log has the details.",
+      "countStopped": "The count was stopped before it finished, so there is no number to confirm against. Try again to count."
     },
     "clientGroups": {
       "nicknameTaken": "A client group with this nickname already exists",
@@ -8245,17 +8264,33 @@
     },
     "prefill": {
       "banned": "You are banned from using the prefill feature.",
-      "containerBusy": "An existing persistent {{service}} container is still being removed or restarting. Please try again shortly.",
+      "containerBusy": "An existing persistent $t(errors.prefill.serviceNames.{{service}}) container is still being removed or restarting. Please try again shortly.",
+      "containerRemovalFailed": "Docker did not remove the $t(errors.prefill.serviceNames.{{service}}) container.",
+      "containerExitedOnStart": "The prefill daemon stopped as soon as it started. Check the prefill daemon image, then try again.",
+      "serviceNames": {
+        "Steam": "Steam",
+        "Epic": "Epic Games",
+        "Xbox": "Xbox",
+        "battlenet": "Battle.net",
+        "riot": "Riot",
+        "BattleNet": "Battle.net",
+        "Riot": "Riot"
+      },
+      "prefillRunning": "A prefill is running on this container. Wait for it to finish, then log in.",
       "loginInProgress": "A login attempt is already in progress for session {{sessionId}}.",
-      "dockerUnavailable": "Docker is not running or not accessible. Please start Docker Desktop and try again.",
-      "daemonShuttingDown": "{{service}} daemon is shutting down; the persistent session {{sessionId}} cannot be stopped right now. Its login is preserved for re-adoption on the next start; stop it again after the manager restarts.",
-      "editCleanupWaiting": "Edit-session cleanup is waiting for a persistent start before releasing session {{sessionId}}.",
-      "noRunningSession": "No running persistent session for service '{{service}}'",
+      "dockerUnavailable": "Docker is not running or not reachable. Start Docker, or mount /var/run/docker.sock into the LANCache Manager container, then try again.",
+      "accessEnded": "Session access is no longer valid.",
+      "sessionStopped": "This prefill session was stopped.",
+      "cleanupInProgress": "Prefill cleanup is in progress. Retry after it completes.",
+      "daemonShuttingDown": "$t(errors.prefill.serviceNames.{{service}}) daemon is shutting down; the persistent session {{sessionId}} cannot be stopped right now. Its login is preserved for re-adoption on the next start; stop it again after the manager restarts.",
+      "noRunningSession": "No running persistent $t(errors.prefill.serviceNames.{{service}}) session",
       "sessionReplaced": "This persistent session was replaced by a newer one. Please start it again.",
       "logoutBeforeSavedLogin": "Log out the current account before using your saved login.",
-      "statusUnavailable": "The container login status could not be checked. Try again.",
+      "heldAccountNotLoggedOut": "The account from the canceled sign-in could not be logged out of the container. Try again.",
       "requestFailed": "The prefill daemon could not complete the request. Try again.",
+      "ownedGamesTimedOut": "The service did not return the game list in time. Try again.",
       "runLimit": "The prefill daemon has no available run slots.",
+      "daemonOutdated": "This prefill daemon image is too old for this version of LANCache Manager. Stop the container and start it again from LANCache Manager to use the newest image. If you pinned the prefill image tag in LANCache Manager's environment settings, change it to a current tag first.",
       "operationConflict": "This operation identifier already belongs to a different prefill.",
       "operationNotFound": "The daemon no longer has this prefill operation.",
       "instanceChanged": "The prefill daemon restarted. Its previous runs were interrupted.",
@@ -8264,8 +8299,15 @@
       "startUnavailable": "The container could not start the prefill. Try again.",
       "gameDownloadFailed": "This game did not finish downloading.",
       "signInLost": "The service account was signed out before this finished. An always-on container may sign in again by itself with its saved login. If it is still signed out, log in again, then run it again.",
+      "loginRequired": "The service account is signed out. Log in again, then run it again.",
       "gameDetailsUnavailable": "The service did not return details for this game.",
-      "runNotFound": "This run is no longer stored, so its failed games cannot be shown."
+      "runNotFound": "This run is no longer stored, so its failed games cannot be shown.",
+      "cleanupIncomplete": "Prefill cleanup is incomplete. Retry this action.",
+      "terminateAllIncomplete": "Some prefill sessions could not be ended. Retry this action.",
+      "banSavedCleanupIncomplete": "The ban was saved, but prefill cleanup is incomplete. Retry this action.",
+      "validityDatesNotSaved": "The validity was saved, but the re-login dates were not updated. Save again to finish.",
+      "lancacheIpUnresolved": "The LANCache address set in Prefill__LancacheIp could not be resolved to an IP address. Check that setting, then try again.",
+      "shuttingDown": "LANCache Manager is shutting down, so no new prefill session can start. Try again after it restarts."
     },
     "rateLimit": {
       "tooManyRequests": "Too many requests from this address. Wait for the limit to reset and try again."

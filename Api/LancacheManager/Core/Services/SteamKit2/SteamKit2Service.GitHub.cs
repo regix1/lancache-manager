@@ -132,6 +132,15 @@ public partial class SteamKit2Service
             }
 
             await _picsDataService.ImportToDatabaseAsync(downloadedData, true, reporter.Token, ImportProgressCallback);
+            try
+            {
+                await _prefillCache.RestoreDepotMappingsAsync();
+            }
+            catch (Exception ex)
+            {
+                // The PICS rows are committed; names for prefill-only depots return with the next GitHub import.
+                _logger.LogWarning(ex, "[GitHub Mode] Could not restore prefill depot mappings after the replace");
+            }
             await NotifyGitHubProgressAsync(reporter, "Applying mappings to downloads...", 90);
             await ManuallyApplyDepotMappingsCoreAsync(reporter, reporter.Token, replace: true);
             await NotifyGitHubProgressAsync(reporter, "Finalizing import...", 98);

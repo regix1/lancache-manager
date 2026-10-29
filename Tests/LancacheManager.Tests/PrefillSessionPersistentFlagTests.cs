@@ -201,6 +201,7 @@ public class PrefillSessionPersistentFlagTests
             containerId: "container-1",
             containerName: "steam-daemon-persistent",
             expiresAt: DateTime.UtcNow.AddHours(1),
+            lastLoginAt: DateTime.UtcNow,
             platform: "Steam");
 
         Assert.True(created.IsPersistent);
@@ -222,6 +223,7 @@ public class PrefillSessionPersistentFlagTests
             containerId: "container-2",
             containerName: "steam-daemon-a1b2c3d4e5f6a1b2",
             expiresAt: DateTime.UtcNow.AddHours(1),
+            lastLoginAt: DateTime.UtcNow,
             platform: "Steam");
 
         Assert.False(created.IsPersistent);
@@ -288,8 +290,8 @@ public class PrefillSessionPersistentFlagTests
         var options = NewInMemoryOptions();
         var service = NewSessionService(options);
 
-        await service.CreateSessionAsync("steam-active", Guid.NewGuid(), "c-steam", "steam-daemon-persistent", DateTime.UtcNow.AddHours(1), "Steam");
-        await service.CreateSessionAsync("epic-active", Guid.NewGuid(), "c-epic", "epic-daemon-persistent", DateTime.UtcNow.AddHours(1), "Epic");
+        await service.CreateSessionAsync("steam-active", Guid.NewGuid(), "c-steam", "steam-daemon-persistent", DateTime.UtcNow.AddHours(1), DateTime.UtcNow, "Steam");
+        await service.CreateSessionAsync("epic-active", Guid.NewGuid(), "c-epic", "epic-daemon-persistent", DateTime.UtcNow.AddHours(1), DateTime.UtcNow, "Epic");
 
         await service.MarkOrphansAsync(PrefillPlatform.Steam);
 
@@ -309,10 +311,10 @@ public class PrefillSessionPersistentFlagTests
         var options = NewInMemoryOptions();
         var service = NewSessionService(options);
 
-        await service.CreateSessionAsync("steam-old", Guid.NewGuid(), "c1", "steam-daemon-persistent", DateTime.UtcNow.AddHours(1), "Steam");
+        await service.CreateSessionAsync("steam-old", Guid.NewGuid(), "c1", "steam-daemon-persistent", DateTime.UtcNow.AddHours(1), DateTime.UtcNow, "Steam");
         await Task.Delay(5); // ensure a distinct CreatedAtUtc so the ordering is deterministic
-        await service.CreateSessionAsync("steam-new", Guid.NewGuid(), "c2", "steam-daemon-persistent", DateTime.UtcNow.AddHours(1), "Steam");
-        await service.CreateSessionAsync("epic-new", Guid.NewGuid(), "c3", "epic-daemon-persistent", DateTime.UtcNow.AddHours(1), "Epic");
+        await service.CreateSessionAsync("steam-new", Guid.NewGuid(), "c2", "steam-daemon-persistent", DateTime.UtcNow.AddHours(1), DateTime.UtcNow, "Steam");
+        await service.CreateSessionAsync("epic-new", Guid.NewGuid(), "c3", "epic-daemon-persistent", DateTime.UtcNow.AddHours(1), DateTime.UtcNow, "Epic");
 
         var latest = await service.GetLatestPersistentSessionAsync(PrefillPlatform.Steam);
 
@@ -327,7 +329,7 @@ public class PrefillSessionPersistentFlagTests
         var service = NewSessionService(options);
 
         // A guest (non-persistent) row must never be returned as the "latest persistent" session.
-        await service.CreateSessionAsync("steam-guest", Guid.NewGuid(), "c1", "steam-daemon-a1b2c3d4e5f6a1b2", DateTime.UtcNow.AddHours(1), "Steam");
+        await service.CreateSessionAsync("steam-guest", Guid.NewGuid(), "c1", "steam-daemon-a1b2c3d4e5f6a1b2", DateTime.UtcNow.AddHours(1), DateTime.UtcNow, "Steam");
 
         var latest = await service.GetLatestPersistentSessionAsync(PrefillPlatform.Steam);
 

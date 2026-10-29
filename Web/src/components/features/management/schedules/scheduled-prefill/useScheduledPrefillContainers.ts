@@ -4,10 +4,11 @@ import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
 import { useSteamAuth } from '@contexts/useSteamAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import type { DaemonSessionTerminatedEvent } from '@contexts/SignalRContext/types';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
-import { sessionStore } from '@utils/storage';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import {
+  dropUnlistedFinishedRuns,
   isPrefillRunActive,
   mergePrefillRuns
 } from '@components/features/prefill/hooks/prefillTypes';
@@ -43,7 +44,6 @@ import {
   updatePersistentLoginState,
   usePersistentLoginStoreVersion
 } from './persistentLoginStore';
-import { recoverScheduledPrefillEditSession } from './scheduledPrefillEditSessionLedger';
 import { normalizePersistentLoginClearResults } from './persistentLoginClearResult';
 import type { ScheduledPrefillPersistentActionState } from './scheduledPrefillPersistentTypes';
 import type { ScheduledPrefillServiceKey } from './types';
@@ -112,63 +112,82 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
   const persistentContainersRequestRef = useRef<{
     controller: AbortController;
     again: boolean;
-    promise: Promise<void>;
+    // Callers waiting for the read that starts next, each given that read's list, or null when it
+    // failed or was dropped.
+    waiting: ((listed: PersistentPrefillContainerDto[] | null) => void)[];
   } | null>(null);
-  const persistentContainersRevisionRef = useRef(0);
 
   const loadPersistentContainers = useCallback(async (signal?: AbortSignal) => {
-    if (signal?.aborted) return;
-    persistentContainersRevisionRef.current += 1;
-    if (
-      persistentContainersRequestRef.current &&
-      !persistentContainersRequestRef.current.controller.signal.aborted
-    ) {
-      persistentContainersRequestRef.current.again = true;
-      return persistentContainersRequestRef.current.promise;
+    if (signal?.aborted) return null;
+    // A load asked while one is out only queues another fetch; the answer in flight still applies.
+    // The caller waits for that next read alone, never for reads queued after it, so a push that
+    // lands during every read cannot hold an awaiting action open.
+    const inFlight = persistentContainersRequestRef.current;
+    if (inFlight && !inFlight.controller.signal.aborted) {
+      inFlight.again = true;
+      return new Promise<PersistentPrefillContainerDto[] | null>((resolve) =>
+        inFlight.waiting.push(resolve)
+      );
     }
 
     const controller = new AbortController();
     const abort = () => controller.abort();
     signal?.addEventListener('abort', abort, { once: true });
-    const request = { controller, again: false, promise: Promise.resolve() };
+    const waiting: ((listed: PersistentPrefillContainerDto[] | null) => void)[] = [];
+    const request = { controller, again: false, waiting };
+    const firstRead = new Promise<PersistentPrefillContainerDto[] | null>((resolve) =>
+      request.waiting.push(resolve)
+    );
     persistentContainersRequestRef.current = request;
     setLoadingPersistentContainers(persistentContainersRef.current === null);
-    request.promise = (async () => {
+    void (async () => {
       try {
         do {
           request.again = false;
-          const revision = persistentContainersRevisionRef.current;
+          const readers = request.waiting;
+          request.waiting = [];
+          let listed: PersistentPrefillContainerDto[] | null = null;
           try {
             const nextContainers = await ApiService.getPersistentPrefillContainers(
               controller.signal
             );
             if (controller.signal.aborted || persistentContainersRequestRef.current !== request)
               return;
-            if (revision !== persistentContainersRevisionRef.current) continue;
             setPersistentContainers((current) => {
               const next = nextContainers.map((container) => {
                 const previous = current?.find((item) => item.sessionId === container.sessionId);
                 return previous?.runs && container.runs
-                  ? { ...container, runs: mergePrefillRuns(previous.runs, container.runs) }
+                  ? {
+                      ...container,
+                      runs: mergePrefillRuns(
+                        dropUnlistedFinishedRuns(previous.runs, container.runs),
+                        container.runs
+                      )
+                    }
                   : container;
               });
               persistentContainersRef.current = next;
               return next;
             });
             setPersistentError(null);
+            listed = nextContainers;
           } catch (error: unknown) {
             if (
               !controller.signal.aborted &&
               persistentContainersRequestRef.current === request &&
-              revision === persistentContainersRevisionRef.current &&
+              !request.again &&
               !isAbortError(error)
             ) {
               setPersistentError(getErrorMessage(error));
             }
+          } finally {
+            for (const resolve of readers) resolve(listed);
           }
         } while (request.again && !controller.signal.aborted);
       } finally {
         signal?.removeEventListener('abort', abort);
+        // An abort ends the loop before the read these callers queued.
+        for (const resolve of request.waiting) resolve(null);
         if (persistentContainersRequestRef.current === request) {
           persistentContainersRequestRef.current = null;
           setLoadingPersistentContainers(false);
@@ -176,7 +195,7 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
       }
     })();
 
-    return request.promise;
+    return firstRead;
   }, []);
 
   const integrationLoginRequestRef = useRef<AbortController | null>(null);
@@ -539,7 +558,7 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
     [persistentContainers, persistentLoginTarget]
   );
 
-  usePersistentPrefillContainerSignalR({
+  const { signalR } = usePersistentPrefillContainerSignalR({
     enabled: opened,
     onRefresh: () => {
       void loadPersistentContainers();
@@ -573,7 +592,7 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
     Partial<Record<ScheduledPrefillServiceKey, ScheduledPrefillPersistentActionState['action']>>
   >({});
   // A running container means someone started it after this tab's Start failed, so that failure
-  // no longer describes the row and must not return when the container later stops [88]
+  // no longer describes the row and must not return when the container later stops.
   useEffect(() => {
     const stale = SCHEDULED_PREFILL_SERVICE_RUN_ORDER.filter(
       (serviceKey) =>
@@ -584,23 +603,62 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
     setErrors((previous) => ({ ...previous, ...cleared }));
     setErrorActions((previous) => ({ ...previous, ...cleared }));
   }, [containersByServiceKey, errorActions]);
+  // The session each Stop attempt was sent for. A failed Stop keeps its error while the list no
+  // longer shows that session, so the error leaves when a different session is listed for
+  // the service or the teardown of that session ends. A reconnect refetch with no row for the
+  // service also clears it, because a restart or a missed event reaches the tab only through a
+  // reconnect.
+  const errorActionsRef = useRef(errorActions);
+  errorActionsRef.current = errorActions;
+  const [stoppedSessions, setStoppedSessions] = useState<
+    Partial<Record<ScheduledPrefillServiceKey, string>>
+  >({});
+  const clearErrors = useCallback((serviceKeys: readonly ScheduledPrefillServiceKey[]) => {
+    const cleared = Object.fromEntries(serviceKeys.map((serviceKey) => [serviceKey, undefined]));
+    setErrors((previous) => ({ ...previous, ...cleared }));
+    setErrorActions((previous) => ({ ...previous, ...cleared }));
+  }, []);
+  useEffect(() => {
+    const replaced = SCHEDULED_PREFILL_SERVICE_RUN_ORDER.filter((serviceKey) => {
+      const listed = containersByServiceKey.get(serviceKey)?.sessionId;
+      return (
+        errorActions[serviceKey] === 'stop' &&
+        listed !== undefined &&
+        listed !== stoppedSessions[serviceKey]
+      );
+    });
+    if (replaced.length > 0) clearErrors(replaced);
+  }, [containersByServiceKey, errorActions, stoppedSessions, clearErrors]);
+  useEffect(() => {
+    const kept = SCHEDULED_PREFILL_SERVICE_RUN_ORDER.filter(
+      (serviceKey) => errorActions[serviceKey] === 'stop'
+    );
+    if (kept.length === 0) return;
+    const terminatedEvents = [
+      'DaemonSessionTerminated',
+      'EpicDaemonSessionTerminated',
+      'XboxDaemonSessionTerminated',
+      'BattleNetDaemonSessionTerminated',
+      'RiotDaemonSessionTerminated'
+    ];
+    const handleTerminated = (event: DaemonSessionTerminatedEvent) => {
+      const ended = kept.filter((serviceKey) => stoppedSessions[serviceKey] === event.sessionId);
+      if (ended.length > 0) clearErrors(ended);
+    };
+    for (const eventName of terminatedEvents) signalR.on(eventName, handleTerminated);
+    return () => {
+      for (const eventName of terminatedEvents) signalR.off(eventName, handleTerminated);
+    };
+  }, [signalR, errorActions, stoppedSessions, clearErrors]);
   const attempts = useRef(new Map<ScheduledPrefillServiceKey, object>());
   const activeRef = useRef(activeService);
   activeRef.current = activeService;
   const view = useRef({ service: activeService });
   if (view.current.service !== activeService) view.current = { service: activeService };
-  const recover = useCallback(
-    () =>
-      recoverScheduledPrefillEditSession(sessionStore, (request) =>
-        ApiService.cleanupPersistentPrefillEditSession(request)
-      ),
-    []
-  );
   useEffect(() => {
     const controller = new AbortController();
     void loadPersistentContainers(controller.signal);
     return () => {
-      persistentContainersRevisionRef.current += 1;
       controller.abort();
       persistentContainersRequestRef.current?.controller.abort();
       if (login.current) login.current.visible = false;
@@ -608,7 +666,15 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
     };
   }, [loadPersistentContainers]);
   useReconnectRefetch(isConnected, () => {
-    void loadPersistentContainers();
+    void loadPersistentContainers().then((listed) => {
+      if (listed === null) return;
+      const ended = SCHEDULED_PREFILL_SERVICE_RUN_ORDER.filter(
+        (serviceKey) =>
+          errorActionsRef.current[serviceKey] === 'stop' &&
+          !listed.some((container) => container.service === getPersistentServiceId(serviceKey))
+      );
+      if (ended.length > 0) clearErrors(ended);
+    });
     void loadIntegrationLoginAvailability();
   });
   const act = async (
@@ -625,27 +691,33 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
       getPersistentServiceId(serviceKey)
     )?.sessionId;
     attempts.current.set(serviceKey, attempt);
-    const current = () =>
-      attempts.current.get(serviceKey) === attempt &&
-      identity === privateAvailabilityIdentityRef.current &&
-      (action !== 'login' || view.current === opening) &&
-      (action === 'start' ||
-        session ===
-          persistentContainerByServiceRef.current.get(getPersistentServiceId(serviceKey))
-            ?.sessionId);
+    const current = () => {
+      const listed = persistentContainerByServiceRef.current.get(
+        getPersistentServiceId(serviceKey)
+      )?.sessionId;
+      // A session being torn down leaves the server's list before its removal ends, so a Stop
+      // is superseded only by a different session, not by its own session going missing.
+      return (
+        attempts.current.get(serviceKey) === attempt &&
+        identity === privateAvailabilityIdentityRef.current &&
+        (action !== 'login' || view.current === opening) &&
+        (action === 'start' || session === listed || (action === 'stop' && listed === undefined))
+      );
+    };
     setActions((value) => ({ ...value, [serviceKey]: action }));
-    setErrors((previous) => ({ ...previous, [serviceKey]: undefined }));
-    setErrorActions((previous) => ({ ...previous, [serviceKey]: undefined }));
+    // The last error stays on the card while this attempt runs; its outcome replaces it.
     try {
-      await recover();
-      if (!current()) return;
       await run(current);
+      setErrors((previous) => ({ ...previous, [serviceKey]: undefined }));
+      setErrorActions((previous) => ({ ...previous, [serviceKey]: undefined }));
       await loadPersistentContainers();
     } catch (error: unknown) {
-      if (current()) {
-        setErrors((previous) => ({ ...previous, [serviceKey]: getErrorMessage(error) }));
-        setErrorActions((previous) => ({ ...previous, [serviceKey]: action }));
-      }
+      const failed = current();
+      setErrors((previous) => ({
+        ...previous,
+        [serviceKey]: failed ? getErrorMessage(error) : undefined
+      }));
+      setErrorActions((previous) => ({ ...previous, [serviceKey]: failed ? action : undefined }));
     } finally {
       if (attempts.current.get(serviceKey) === attempt) {
         attempts.current.delete(serviceKey);
@@ -663,6 +735,7 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
     const container = containersByServiceKey.get(serviceKey);
     if (!container) return Promise.resolve();
     return act(serviceKey, 'stop', async (current) => {
+      setStoppedSessions((previous) => ({ ...previous, [serviceKey]: container.sessionId }));
       await ApiService.stopPersistentPrefillContainer(container.sessionId);
       if (
         current() &&
@@ -759,13 +832,7 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
       };
       login.current = admitted;
       if (!hasActivePersistentLogin(serviceId)) {
-        setPersistentLoginStartSessionId(
-          serviceId,
-          container.sessionId,
-          undefined,
-          undefined,
-          reuseIntegration
-        );
+        setPersistentLoginStartSessionId(serviceId, container.sessionId, reuseIntegration);
       }
       setPersistentLoginTarget(serviceKey);
       requestPersistentLoginAttempt(serviceId);
@@ -809,27 +876,24 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
   })();
   const handleCancelPersistentDownload = async (
     serviceKey: ScheduledPrefillServiceKey,
-    runId?: string
+    runId: string
   ) => {
     const serviceId = getPersistentServiceId(serviceKey);
     const container = persistentContainerByService.get(serviceId);
-    const targetId = runId ?? container?.runId;
-    const run = container?.runs?.find((item) => item.runId === targetId);
+    const run = container?.runs?.find((item) => item.runId === runId);
     if (
       !container?.isRunning ||
-      !targetId ||
-      cancellingRunsRef.current.has(targetId) ||
+      cancellingRunsRef.current.has(runId) ||
       (run && (!isPrefillRunActive(run) || run.cancelRequested))
     ) {
       return;
     }
-    cancellingRunsRef.current.add(targetId);
+    cancellingRunsRef.current.add(runId);
     setCancellingRunIds([...cancellingRunsRef.current]);
-    setRunErrors((errors) => ({ ...errors, [targetId]: '' }));
+    setRunErrors((errors) => ({ ...errors, [runId]: '' }));
 
     try {
-      await recover();
-      await ApiService.cancelPersistentPrefill(serviceId, container.sessionId, targetId);
+      await ApiService.cancelPersistentPrefill(serviceId, container.sessionId, runId);
       setPersistentContainers(
         (current) =>
           current?.map((item) =>
@@ -837,7 +901,7 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
               ? {
                   ...item,
                   runs: item.runs?.map((itemRun) =>
-                    itemRun.runId === targetId ? { ...itemRun, cancelRequested: true } : itemRun
+                    itemRun.runId === runId ? { ...itemRun, cancelRequested: true } : itemRun
                   )
                 }
               : item
@@ -845,15 +909,14 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
       );
       await loadPersistentContainers();
     } catch (error: unknown) {
-      setRunErrors((errors) => ({ ...errors, [targetId]: getErrorMessage(error) }));
+      setRunErrors((errors) => ({ ...errors, [runId]: getErrorMessage(error) }));
     } finally {
-      cancellingRunsRef.current.delete(targetId);
+      cancellingRunsRef.current.delete(runId);
       setCancellingRunIds([...cancellingRunsRef.current]);
     }
   };
 
   const clearLogins = async () => {
-    await recover();
     const response = await ApiService.clearPersistentLogins();
     for (const serviceKey of SCHEDULED_PREFILL_SERVICE_RUN_ORDER)
       resetPersistentLoginState(getPersistentServiceId(serviceKey));
@@ -890,7 +953,6 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
     cancellingRunIds,
     runErrors,
     clearLogins,
-    recover,
     privateAvailabilityIdentity
   };
 }

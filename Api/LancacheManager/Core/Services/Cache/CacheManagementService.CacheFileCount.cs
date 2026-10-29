@@ -244,14 +244,19 @@ public partial class CacheManagementService
     /// <param name="CacheFilesFound">Null until every datasource has been walked.</param>
     /// <param name="BytesFound">Bytes of the files found; null until every datasource has been walked.</param>
     /// <param name="UnmappedServices">The unmapped count's files by service; null for the other counts.</param>
+    /// <param name="EndingKey">
+    /// The reason key of a count that ended without a number. Kept as its answer, because the
+    /// tracker drops the count's operation 10 s after it ends and a sleeping dialog asks later.
+    /// </param>
     public sealed record CacheFileCountState(
         Guid OperationId,
         IReadOnlyDictionary<string, object?>? Context,
         int? CacheFilesFound,
         long? BytesFound,
-        IReadOnlyList<UnmappedService>? UnmappedServices);
+        IReadOnlyList<UnmappedService>? UnmappedServices,
+        string? EndingKey = null);
 
-    /// <summary>The named count's latest state, or null if it is unknown, ended without an answer, or its dialog already read its answer.</summary>
+    /// <summary>The named count's latest state, or null if it is unknown, was dropped as an unanswered progress entry, or its dialog already read its answer.</summary>
     public CacheFileCountState? GetCacheFileCount(Guid operationId)
     {
         if (!_cacheFileCounts.TryGetValue(operationId, out var state))
@@ -259,7 +264,7 @@ public partial class CacheManagementService
             return null;
         }
 
-        if (state.CacheFilesFound != null)
+        if (state.CacheFilesFound != null || state.EndingKey != null)
         {
             // The dialog stops asking once it has its answer, so the answer is dropped here.
             lock (_unreadCounts)
@@ -286,16 +291,17 @@ public partial class CacheManagementService
 
     internal void PublishCount(CacheFileCountState state)
     {
-        if (state.CacheFilesFound == null)
+        if (state.CacheFilesFound == null && state.EndingKey == null)
         {
             if (_cacheFileCounts.TryAdd(state.OperationId, state))
             {
-                // A cancelled or failed count never publishes an answer, so its progress entry is
-                // dropped here, once its operation has ended, instead of staying for the life of
-                // the process.
+                // A count that ended before publishing an answer leaves its progress entry, so it
+                // is dropped here, once its operation has ended, instead of staying for the life
+                // of the process.
                 foreach (var (id, count) in _cacheFileCounts)
                 {
                     if (count.CacheFilesFound == null
+                        && count.EndingKey == null
                         && id != state.OperationId
                         && _operationTracker.GetOperation(id) is not { CompletedAt: null })
                     {

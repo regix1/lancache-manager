@@ -316,7 +316,7 @@ public sealed class KeptEndingPerScheduleTests
 
     // Every order the terminal handlers can run in leaves the newest failure counting the failures
     // in a row that end at it, and noting a later success; one order runs the success's handler
-    // before the failures it follows. [68]
+    // before the failures it follows.
     [Theory]
     [InlineData("FFS", 2, true)]
     [InlineData("FSFF", 2, false)]
@@ -335,7 +335,7 @@ public sealed class KeptEndingPerScheduleTests
         }
     }
 
-    // Closing the card does not reset the streak: the next failure counts on. [68]
+    // Closing the card does not reset the streak: the next failure counts on.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -356,7 +356,7 @@ public sealed class KeptEndingPerScheduleTests
         Assert.Equal(3, kept.ConsecutiveFailures);
     }
 
-    // A kept ending replaces only the older kept ending of its own kind. [72]
+    // A kept ending replaces only the older kept ending of its own kind.
     [Theory]
     [InlineData("skipped,warning")]
     [InlineData("warning,skipped")]
@@ -382,7 +382,7 @@ public sealed class KeptEndingPerScheduleTests
     }
 
     // A mapping sign-in run belongs to no schedule: its failure and the schedule's failure both stay
-    // kept, and the schedule's count holds only its own failures, in either arrival order. [70]
+    // kept, and the schedule's count holds only its own failures, in either arrival order.
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

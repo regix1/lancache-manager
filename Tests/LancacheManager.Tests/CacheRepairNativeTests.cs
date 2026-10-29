@@ -369,7 +369,7 @@ public sealed class CacheRepairNativeTests
             Assert.Equal(operationId, completedRepair.Id);
             Assert.Equal(OperationRepairPhase.Completed, completedRepair.Phase);
             Assert.Equal(OperationStatus.Failed, completedRepair.Outcome);
-            Assert.Equal("Operation interrupted by application restart", completedRepair.Error);
+            Assert.Equal("signalr.generic.interruptedByRestart", completedRepair.Error);
             Assert.Null(completedRepair.RetryAtUtc);
             Assert.NotNull(completedRepair.CompletedAt);
             Assert.NotNull(completedRepair.EvictionScanId);

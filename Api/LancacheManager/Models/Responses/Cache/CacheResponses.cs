@@ -266,6 +266,12 @@ public class RsyncAvailableResponse
     public bool Available { get; set; }
 }
 
+/// <summary>Whether an all-services corruption removal is still going.</summary>
+public sealed class RemoveAllRunResponse
+{
+    public bool Running { get; set; }
+}
+
 /// <summary>
 /// Recovery response for the cache-size scan notification card. Reused for both the idle and
 /// actively-scanning states so the frontend polls one shape regardless of which it gets back.

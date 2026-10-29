@@ -332,6 +332,27 @@ const evaluateDeclaration = (relativePath, name, bindings) => {
   return bindLifted(`() => (${text.slice(text.indexOf('=') + 1)})`, bindings)();
 };
 
+// The shipped expression of one attribute on the sole `<tagName>` carrying `marker`, evaluated
+// against `bindings`.
+const evaluateAttribute = (relativePath, tagName, marker, name, bindings) => {
+  const sourceFile = parseSource(relativePath, typescript.ScriptKind.TSX);
+  const element = findSoleNode(
+    sourceFile,
+    `${tagName} with ${marker}`,
+    (node) =>
+      (typescript.isJsxOpeningElement(node) || typescript.isJsxSelfClosingElement(node)) &&
+      node.tagName.getText(sourceFile) === tagName &&
+      node.attributes.getText(sourceFile).includes(marker)
+  );
+  const expression = element.attributes.properties
+    .find(
+      (property) =>
+        typescript.isJsxAttribute(property) && property.name.getText(sourceFile) === name
+    )
+    .initializer.expression.getText(sourceFile);
+  return bindLifted(`() => (${expression})`, bindings)();
+};
+
 test('Cancel in the reset dialog stays live while the reset waits', () => {
   const cancel = jsxAttributes(datasourcesPath, 'Button', 'onClick={closeResetModal}');
   assert.doesNotMatch(cancel, /disabled=/);
@@ -484,6 +505,109 @@ test('the per-service Clear is disabled while an unmapped removal runs, but sele
   assert.match(row, /clearTooltip=\{[\s\S]*isUnmappedRemovalRunning\s*\?\s*unmappedRemovalReason/);
 });
 
+test('the row whose own removal runs shows its label and no reason; the other rows say why', () => {
+  const sourceFile = parseSource(logRemovalPath, typescript.ScriptKind.TSX);
+  const row = findSoleNode(
+    sourceFile,
+    'ServiceRow with isDisabled={rowDisabled}',
+    (node) =>
+      typescript.isJsxSelfClosingElement(node) &&
+      node.tagName.getText(sourceFile) === 'ServiceRow' &&
+      node.attributes.getText(sourceFile).includes('isDisabled={rowDisabled}')
+  );
+  const attributeText = (name) =>
+    row.attributes.properties
+      .find(
+        (property) =>
+          typescript.isJsxAttribute(property) && property.name.getText(sourceFile) === name
+      )
+      .initializer.expression.getText(sourceFile);
+  const removalRunning = 'management.logRemoval.removalRunning';
+  const clearTooltip = (rowRemoving) =>
+    bindLifted(`() => (${attributeText('clearTooltip')})`, {
+      rowRemoving,
+      ds: { logsWritable: true },
+      isUnmappedRemovalRunning: false,
+      unmappedRemovalReason: '',
+      logRemovalActiveReason: removalRunning,
+      nginxReopenGate: { messageKey: null },
+      nginxReopenMessage: '',
+      isBareMetalLayout: false,
+      t: (key) => key
+    })();
+
+  assert.equal(clearTooltip(true), '');
+  assert.equal(clearTooltip(false), removalRunning);
+  assert.equal(attributeText('isRemoving'), 'rowRemoving');
+  assert.match(
+    declarationText(logRemovalPath, 'rowRemoving'),
+    /^rowRemoving\s*=\s*activeLogRemoval === service \|\| isServiceRemovalPending\(key\)$/
+  );
+});
+
+const logWriterCheck = 'log writer check';
+const rowClearTooltip = (rowRemoving, logRemovalActiveReason) =>
+  evaluateAttribute(logRemovalPath, 'ServiceRow', 'isDisabled={rowDisabled}', 'clearTooltip', {
+    rowRemoving,
+    ds: { logsWritable: true },
+    isUnmappedRemovalRunning: false,
+    unmappedRemovalReason: '',
+    logRemovalActiveReason,
+    nginxReopenGate: { messageKey: logWriterCheck },
+    nginxReopenMessage: logWriterCheck,
+    isBareMetalLayout: false,
+    t: (key) => key
+  });
+
+test('while a Clear waits for the server to list it, the other rows and Delete Log File give the removal reason', () => {
+  const removalRunning = 'management.logRemoval.removalRunning';
+  const logRemovalActiveReason = evaluateDeclaration(logRemovalPath, 'logRemovalActiveReason', {
+    logRemovalRowBusy: false,
+    anyServiceRemovalPending: true,
+    t: (key) => key
+  });
+
+  assert.equal(rowClearTooltip(false, logRemovalActiveReason), removalRunning);
+  assert.equal(
+    evaluateAttribute(
+      logRemovalPath,
+      'DisabledActionGate',
+      'disabled={deleteLogFileDisabled}',
+      'reason',
+      {
+        ds: { logsWritable: true },
+        isUnmappedRemovalRunning: false,
+        unmappedRemovalReason: '',
+        logRemovalActiveReason,
+        otherRemovalReason: '',
+        nginxReopenMessage: logWriterCheck,
+        t: (key) => key
+      }
+    ),
+    removalRunning
+  );
+});
+
+test('the row whose own removal is canceling keeps its spinner and label and gives no reason', () => {
+  const activeLogRemovalNotification = evaluateDeclaration(
+    logRemovalPath,
+    'activeLogRemovalNotification',
+    { runs: [{ type: 'log_removal', status: 'cancelling', details: { service: 'steam' } }] }
+  );
+  const activeLogRemoval = evaluateDeclaration(logRemovalPath, 'activeLogRemoval', {
+    activeLogRemovalNotification
+  });
+  const rowRemoving = evaluateDeclaration(logRemovalPath, 'rowRemoving', {
+    activeLogRemoval,
+    service: 'steam',
+    key: 'alpha:steam',
+    isServiceRemovalPending: () => false
+  });
+
+  assert.equal(rowRemoving, true);
+  assert.equal(rowClearTooltip(rowRemoving, 'management.logRemoval.removalRunning'), '');
+});
+
 test('every log control an unmapped removal disables says why', () => {
   const reason = 'management.storage.unmappedRemovalRunning';
   for (const path of [datasourcesPath, logRemovalPath]) {
@@ -504,22 +628,29 @@ test('every log control an unmapped removal disables says why', () => {
     isProcessing,
     resetAll = false,
     serverReset = false,
-    resetKnown = true
+    resetKnown = true,
+    loading = false,
+    checkingPermissions = false
   ) =>
     evaluateDeclaration(datasourcesPath, 'repositionAllReason', {
+      mockMode: false,
       isUnmappedRemovalRunning,
       unmappedRemovalReason: isUnmappedRemovalRunning ? reason : '',
       resetAllRunningReason: resetAll ? 'management.datasources.resetRunning' : '',
       logResetRunningKnown: resetKnown,
       serverLogResetRunning: serverReset,
       logsInUseReason: isProcessing ? 'management.datasources.logsInUse' : '',
+      loading,
+      checkingPermissions,
       t: (key) => key
     });
   const repositionRowReason = (isUnmappedRemovalRunning, isProcessing) =>
     evaluateDeclaration(datasourcesPath, 'repositionRowReason', {
+      mockMode: false,
       isUnmappedRemovalRunning,
       unmappedRemovalReason: isUnmappedRemovalRunning ? reason : '',
-      logsInUseReason: isProcessing ? 'management.datasources.logsInUse' : ''
+      logsInUseReason: isProcessing ? 'management.datasources.logsInUse' : '',
+      t: (key) => key
     });
   assert.equal(repositionAllReason(true, false), reason);
   assert.equal(repositionAllReason(true, true), reason);
@@ -532,6 +663,14 @@ test('every log control an unmapped removal disables says why', () => {
   assert.equal(
     repositionAllReason(false, false, false, true, false),
     'management.datasources.resetRunningUnknown'
+  );
+  assert.equal(
+    repositionAllReason(false, false, false, false, true, true),
+    'management.datasources.repositionLoading'
+  );
+  assert.equal(
+    repositionAllReason(false, false, false, false, true, false, true),
+    'management.datasources.repositionLoading'
   );
   assert.equal(repositionAllReason(false, false), '');
   assert.equal(repositionRowReason(true, false), reason);
@@ -716,7 +855,18 @@ test('a Start from End count or a processing pass gives Reposition and Process a
   }
   assert.match(
     jsxAttributes(datasourcesPath, 'DisabledActionGate', 'disabled={processAllDisabled}'),
-    /reason=\{logsInUseReason\}/
+    /reason=\{processAllReason\}/
+  );
+  assert.equal(
+    evaluateDeclaration(datasourcesPath, 'processAllReason', {
+      mockMode: false,
+      logsInUseReason: 'management.datasources.logsInUse',
+      loading: false,
+      checkingPermissions: false,
+      actionLoading: null,
+      t
+    }),
+    'management.datasources.logsInUse'
   );
   assert.match(
     jsxAttributes(datasourcesPath, 'DisabledActionGate', 'disabled={processDisabled}'),
@@ -792,4 +942,102 @@ test('the keyboard stop goes away when the control is enabled or has no reason',
   }
   // An enabled control keeps its hover text; the control itself takes keyboard focus.
   assert.match(renderGate(DisabledActionGate, false, 'Logs in use'), /data-tooltip="Logs in use"/);
+});
+
+test('Process, Process All and Reposition all say why in Demo Mode, while loading and while a process request is sent', async () => {
+  const t = (key) => key;
+  const mockReason = 'management.sections.settings.mockModeActive';
+  const loadingReason = 'management.datasources.repositionLoading';
+  const sendingReason = 'management.datasources.processStarting';
+  const processAllReason = ({
+    mockMode = false,
+    isProcessing = false,
+    loading = false,
+    checkingPermissions = false,
+    actionLoading = null
+  }) =>
+    evaluateDeclaration(datasourcesPath, 'processAllReason', {
+      mockMode,
+      logsInUseReason: isProcessing ? 'management.datasources.logsInUse' : '',
+      loading,
+      checkingPermissions,
+      actionLoading,
+      t
+    });
+  assert.equal(processAllReason({ mockMode: true }), mockReason);
+  assert.equal(processAllReason({ mockMode: true, loading: true }), mockReason);
+  assert.equal(processAllReason({ loading: true }), loadingReason);
+  assert.equal(processAllReason({ checkingPermissions: true }), loadingReason);
+  assert.equal(processAllReason({ actionLoading: 'access-alpha' }), sendingReason);
+  assert.equal(processAllReason({ actionLoading: 'all' }), sendingReason);
+  assert.equal(processAllReason({}), '');
+  assert.equal(
+    evaluateDeclaration(datasourcesPath, 'repositionAllReason', {
+      mockMode: true,
+      isUnmappedRemovalRunning: false,
+      unmappedRemovalReason: '',
+      resetAllRunningReason: '',
+      logResetRunningKnown: true,
+      serverLogResetRunning: false,
+      logsInUseReason: '',
+      loading: true,
+      checkingPermissions: false,
+      t
+    }),
+    mockReason
+  );
+
+  const sourceFile = parseSource(datasourcesPath, typescript.ScriptKind.TSX);
+  const rowGate = findSoleNode(
+    sourceFile,
+    'row Process gate',
+    (node) =>
+      typescript.isJsxOpeningElement(node) &&
+      node.tagName.getText(sourceFile) === 'DisabledActionGate' &&
+      node.attributes.getText(sourceFile).includes('disabled={processDisabled}')
+  );
+  const rowReasonText = rowGate.attributes.properties
+    .find(
+      (property) =>
+        typescript.isJsxAttribute(property) && property.name.getText(sourceFile) === 'reason'
+    )
+    .initializer.expression.getText(sourceFile);
+  const rowProcessReason = (actionLoading, mockMode = false, isProcessing = false) =>
+    bindLifted(`() => (${rowReasonText})`, {
+      mockMode,
+      logsInUseReason: isProcessing ? 'management.datasources.logsInUse' : '',
+      position: { totalLines: 5 },
+      actionLoading,
+      t
+    })();
+  assert.equal(rowProcessReason('access-beta'), sendingReason);
+  assert.equal(rowProcessReason('all'), sendingReason);
+  assert.equal(rowProcessReason(null), '');
+  // Demo Mode disables both row buttons, so it gives both their reason first.
+  assert.equal(rowProcessReason(null, true), mockReason);
+  assert.equal(rowProcessReason('all', true, true), mockReason);
+  const rowRepositionReason = (isUnmappedRemovalRunning, isProcessing) =>
+    evaluateDeclaration(datasourcesPath, 'repositionRowReason', {
+      mockMode: true,
+      isUnmappedRemovalRunning,
+      unmappedRemovalReason: isUnmappedRemovalRunning
+        ? 'management.storage.unmappedRemovalRunning'
+        : '',
+      logsInUseReason: isProcessing ? 'management.datasources.logsInUse' : '',
+      t
+    });
+  assert.equal(rowRepositionReason(false, false), mockReason);
+  assert.equal(rowRepositionReason(true, true), mockReason);
+
+  const english = JSON.parse(
+    await readFile(new URL('../src/i18n/locales/en.json', import.meta.url), 'utf8')
+  );
+  const lookup = (key) => key.split('.').reduce((node, part) => node?.[part], english);
+  const DisabledActionGate = await loadGate();
+  for (const reason of [mockReason, loadingReason, sendingReason]) {
+    assert.equal(typeof lookup(reason), 'string', reason);
+    const markup = renderGate(DisabledActionGate, true, lookup(reason));
+    assert.match(markup, /tabindex="0"/, reason);
+    assert.ok(markup.includes(`class="sr-only">${lookup(reason)}</span>`), reason);
+  }
 });

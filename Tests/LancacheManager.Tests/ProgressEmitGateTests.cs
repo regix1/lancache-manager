@@ -64,82 +64,6 @@ public class ProgressEmitGateTests
         Assert.Equal(1, emitted);
     }
 
-    [Theory]
-    [InlineData(false, false)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public async Task ScheduledProgressCallbackDoesNotWaitForBlockedBrowserDelivery(bool replay, bool fails)
-    {
-        var notifications = DispatchProxy.Create<ISignalRNotificationService, BlockedSend>();
-        var blocked = (BlockedSend)(object)notifications;
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase($"progress_emit_{Guid.NewGuid():N}")
-            .Options;
-        var dbContexts = new TestDbContexts(options);
-        var daemon = new TestDaemon(
-            NullLogger<SteamDaemonService>.Instance,
-            notifications,
-            new ConfigurationBuilder().Build(),
-            DispatchProxy.Create<IPathResolver, NullReturningProxy>(),
-            DispatchProxy.Create<IStateService, NullReturningProxy>(),
-            new PrefillSessionService(dbContexts, NullLogger<PrefillSessionService>.Instance),
-            new PrefillCacheService(dbContexts, NullLogger<PrefillCacheService>.Instance),
-            new StaticOptionsMonitor<PrefillNetworkOptions>(new PrefillNetworkOptions()));
-        var session = new DaemonSession
-        {
-            Id = Guid.NewGuid().ToString("N")[..16],
-            UserId = Guid.NewGuid(),
-            Status = DaemonSessionStatus.Active,
-            AuthState = DaemonAuthState.Authenticated,
-            IsPrefilling = true,
-            PrefillRunId = Guid.NewGuid(),
-            PrefillState = PrefillState.Downloading,
-            CurrentAppId = "app-1",
-            CurrentAppName = "Game",
-            CreatedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddHours(1)
-        };
-        daemon.InjectSession(session);
-        daemon.AddSubscriber(session.Id, "blocked-client");
-        var callbackSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        daemon.PrefillProgressUpdated += (_, _, _) =>
-        {
-            callbackSeen.TrySetResult();
-            return Task.CompletedTask;
-        };
-
-        var progress = new PrefillProgress
-        {
-            State = "downloading",
-            CurrentAppId = session.CurrentAppId,
-            CurrentAppName = session.CurrentAppName,
-            BytesDownloaded = 1,
-            TotalBytes = 10,
-            TotalApps = 1
-        };
-        session.LastProgress = progress;
-        var publish = replay ? daemon.ReplayProgressAsync(session.Id, "blocked-client")
-            : daemon.PublishProgressAsync(session, progress);
-
-        await blocked.SendStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        if (!replay) await callbackSeen.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.False(publish.IsCompleted);
-        var terminal = daemon.PublishProgressAsync(session, new PrefillProgress
-        {
-            OperationId = session.PrefillRunId.ToString(),
-            State = "error",
-            ErrorCode = "auth-lost"
-        });
-        Assert.False(terminal.IsCompleted);
-        Assert.Equal(0, session.TerminalCompletedFlag);
-
-        if (fails) blocked.ReleaseSend.TrySetException(new IOException("Send failed"));
-        else blocked.ReleaseSend.TrySetResult();
-        await Task.WhenAll(publish, terminal).WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(2, session.TerminalCompletedFlag);
-        Assert.Null(session.LastProgress);
-    }
-
     [Fact]
     public async Task SlowRunSubscriberAsync()
     {
@@ -206,9 +130,6 @@ public class ProgressEmitGateTests
         }
 
         public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
-
-        public Task PublishProgressAsync(DaemonSession session, PrefillProgress progress)
-            => NotifyPrefillProgressAsync(session, progress);
     }
 
     private class BlockedSend : NullReturningProxy

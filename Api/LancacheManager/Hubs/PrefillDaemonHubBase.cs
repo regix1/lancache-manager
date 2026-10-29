@@ -1,3 +1,4 @@
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Middleware;
@@ -95,54 +96,18 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     }
 
     /// <summary>
-    /// Creates a new daemon session and returns session info.
+    /// Creates a new daemon session and returns session info. A page still open from the previous version calls
+    /// this and stores the answer as its session, so it keeps that answer and refuses with a hub error; current
+    /// pages call <see cref="OpenSessionAsync"/>.
     /// </summary>
     public async Task<DaemonSessionDto> CreateSessionAsync()
     {
-        var authSessionId = GetSessionId();
-        if (!authSessionId.HasValue)
-        {
-            throw new HubException("Session required");
-        }
-
+        var authSessionId = GetSessionId() ?? throw new HubException("Session required");
         try
         {
-            var httpContext = Context.GetHttpContext();
-            var ipAddress = httpContext?.Connection.RemoteIpAddress?.ToString();
-            var userAgent = httpContext?.Request.Headers["User-Agent"].FirstOrDefault();
-
-            var rawToken = httpContext != null ? Security.SessionService.TokenFromCookie(httpContext) : null;
-            var userSession = string.IsNullOrEmpty(rawToken) ? null : await _sessionService.ValidateSessionAsync(rawToken);
-            if (userSession == null || userSession.Id != authSessionId.Value
-                || (!_sessionService.CanManage(userSession) && !(GetPrefillExpiry(userSession) > DateTime.UtcNow)))
-                throw new ForbiddenException("Session access is no longer valid.");
-            var sessionType = userSession.SessionType;
-
-            _logger.LogInformation("Creating {Hub} session for auth session {SessionId} (type {SessionType})",
-                HubDisplayName, authSessionId, sessionType);
-            var session = await _daemonService.CreateSessionAsync(authSessionId.Value, ipAddress, userAgent, sessionType);
-
-            var current = await _sessionService.GetSessionByIdAsync(authSessionId.Value);
-            if (current == null || current.IsRevoked || current.ExpiresAtUtc <= DateTime.UtcNow
-                || current.SessionType != sessionType
-                || (!_sessionService.CanManage(current) && !(GetPrefillExpiry(current) > DateTime.UtcNow))
-                || !ReferenceEquals(_daemonService.GetSession(session.Id), session))
-            {
-                await _daemonService.TerminateSessionAsync(session.Id, "Session access is no longer valid", force: true);
-                throw new ForbiddenException("Session access is no longer valid.");
-            }
-
-            _daemonService.AddSubscriber(session.Id, Context.ConnectionId);
-
-            return DaemonSessionDto.FromSession(session);
+            return await CreateSubscribedSessionAsync(authSessionId);
         }
-        catch (ForbiddenException ex)
-        {
-            _logger.LogWarning("Refused to create {Hub} session for auth session {SessionId}: {Message}",
-                HubDisplayName, authSessionId, ex.Message);
-            throw new HubException(ex.Message);
-        }
-        catch (InvalidOperationException ex)
+        catch (Exception ex) when (ex is ApiException or InvalidOperationException or DockerTimeoutException)
         {
             _logger.LogWarning("Failed to create {Hub} session for auth session {SessionId}: {Message}",
                 HubDisplayName, authSessionId, ex.Message);
@@ -154,6 +119,88 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
                 HubDisplayName, authSessionId);
             throw new HubException($"Failed to create {HubDisplayName} daemon session");
         }
+    }
+
+    /// <summary>
+    /// Creates a new daemon session and answers it, or the key and values of the refusal.
+    /// </summary>
+    public async Task<CreateSessionResult> OpenSessionAsync()
+    {
+        var authSessionId = GetSessionId() ?? throw new HubException("Session required");
+        try
+        {
+            return new CreateSessionResult { Session = await CreateSubscribedSessionAsync(authSessionId) };
+        }
+        // A hub error carries only a sentence, so a keyed failure, a keyed refusal such as a ban among them, is
+        // answered with its key and values for the guest's own language.
+        catch (ApiException ex) when (ex.StageKey is not null)
+        {
+            _logger.LogWarning("Failed to create {Hub} session for auth session {SessionId}: {Message}",
+                HubDisplayName, authSessionId, ex.Message);
+            return new CreateSessionResult { StageKey = ex.StageKey, Context = ex.Context };
+        }
+        // The HTTP routes answer the same timeout with this key.
+        catch (DockerTimeoutException ex)
+        {
+            _logger.LogWarning("Failed to create {Hub} session for auth session {SessionId}: {Message}",
+                HubDisplayName, authSessionId, ex.Message);
+            return new CreateSessionResult { StageKey = "errors.prefill.dockerUnavailable" };
+        }
+        // A failure with no key of its own is answered with the key the HTTP routes give the same failure.
+        catch (Exception ex) when (ex is InvalidOperationException or ServiceUnavailableException)
+        {
+            _logger.LogWarning("Failed to create {Hub} session for auth session {SessionId}: {Message}",
+                HubDisplayName, authSessionId, ex.Message);
+            return new CreateSessionResult { StageKey = "errors.http.unexpected" };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating {Hub} session for auth session {SessionId}",
+                HubDisplayName, authSessionId);
+            return new CreateSessionResult { StageKey = "errors.http.unexpected" };
+        }
+    }
+
+    // Creates the session, checks the caller's access again once it is up, and subscribes the caller to it.
+    private async Task<DaemonSessionDto> CreateSubscribedSessionAsync(Guid authSessionId)
+    {
+        var httpContext = Context.GetHttpContext();
+        var ipAddress = httpContext?.Connection.RemoteIpAddress?.ToString();
+        var userAgent = httpContext?.Request.Headers["User-Agent"].FirstOrDefault();
+
+        var rawToken = httpContext != null ? Security.SessionService.TokenFromCookie(httpContext) : null;
+        var userSession = string.IsNullOrEmpty(rawToken) ? null : await _sessionService.ValidateSessionAsync(rawToken);
+        if (userSession == null || userSession.Id != authSessionId
+            || (!_sessionService.CanManage(userSession) && !(GetPrefillExpiry(userSession) > DateTime.UtcNow)))
+            throw new ForbiddenException("Session access is no longer valid.") { StageKey = "errors.prefill.accessEnded" };
+        var sessionType = userSession.SessionType;
+
+        _logger.LogInformation("Creating {Hub} session for auth session {SessionId} (type {SessionType})",
+            HubDisplayName, authSessionId, sessionType);
+        var session = await _daemonService.CreateSessionAsync(authSessionId, ipAddress, userAgent, sessionType);
+
+        var current = await _sessionService.GetSessionByIdAsync(authSessionId);
+        if (current == null || current.IsRevoked || current.ExpiresAtUtc <= DateTime.UtcNow
+            || current.SessionType != sessionType
+            || (!_sessionService.CanManage(current) && !(GetPrefillExpiry(current) > DateTime.UtcNow))
+            || !ReferenceEquals(_daemonService.GetSession(session.Id), session))
+        {
+            try
+            {
+                await _daemonService.TerminateSessionAsync(session.Id, "Session access is no longer valid", force: true,
+                    reasonKey: PrefillDaemonServiceBase.AccessEndedReasonKey);
+            }
+            catch (Exception ex)
+            {
+                // The refusal below is the reason the guest sees; the unfinished removal stays registered for a retry.
+                _logger.LogWarning(ex, "Could not remove the {Hub} session {SessionId} of an ended access", HubDisplayName, session.Id);
+            }
+            throw new ForbiddenException("Session access is no longer valid.") { StageKey = "errors.prefill.accessEnded" };
+        }
+
+        _daemonService.AddSubscriber(session.Id, Context.ConnectionId);
+
+        return DaemonSessionDto.FromSession(session);
     }
 
     /// <summary>
@@ -201,7 +248,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
         catch (DaemonCredentialRejectedException ex)
         {
             // A guest/mapping-flow session is never adopted or replaced (each login is its own
-            // standalone session), so a rejected credential here can't be the RC3 cross-session leak
+            // standalone session), so a rejected credential here can't be the cross-session leak
             // that this exception exists to catch on the persistent flow - it is a redundant, already-
             // resolved credential (e.g. the device-confirmation "confirm" ack, which this event-driven
             // flow can deliver more than once for the same challenge). Log and swallow rather than
@@ -240,17 +287,6 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
         return await _daemonService.CancelLoginAsync(sessionId, loginAttempt: loginAttempt);
     }
 
-    /// <summary>
-    /// Cancels a running prefill operation.
-    /// </summary>
-    public async Task CancelPrefillAsync(string sessionId)
-    {
-        ValidateSessionAccess(sessionId, out _);
-
-        _logger.LogInformation("Cancelling prefill for {Hub} session {SessionId}", HubDisplayName, sessionId);
-        await _daemonService.CancelPrefillAsync(sessionId);
-    }
-
     public async Task CancelPrefillRunAsync(string sessionId, Guid runId)
     {
         ValidateSessionAccess(sessionId, out _);
@@ -286,64 +322,37 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     }
 
     /// <summary>
-    /// Terminates a session immediately (force kill).
+    /// Terminates a session immediately (force kill). A removal the daemon host could not finish answers
+    /// the key of the failure, because a hub error carries only a sentence; a page from the previous release
+    /// ignores the answer.
     /// </summary>
-    public async Task EndSessionAsync(string sessionId)
+    public async Task<EndSessionResult> EndSessionAsync(string sessionId)
     {
-        ValidateSessionAccess(sessionId, out _);
+        // A session whose teardown failed has left the live list, so the caller's own guest session is
+        // also found among the unfinished teardowns and pressing End session again reruns it.
+        var authSessionId = GetSessionId();
+        var session = _daemonService.GetAllSessions(includeTerminating: true)
+            .FirstOrDefault((DaemonSession candidate) => candidate.Id == sessionId);
+        if (session == null)
+        {
+            throw new HubException("Session not found");
+        }
+        if (session.IsPersistent || !authSessionId.HasValue || session.UserId != authSessionId.Value)
+        {
+            throw new HubException("Access denied");
+        }
 
         _logger.LogInformation("Force ending {Hub} session {SessionId}", HubDisplayName, sessionId);
-        await _daemonService.TerminateSessionAsync(sessionId, "User ended session", force: true);
-    }
-
-    /// <summary>
-    /// Gets the last prefill result for a session.
-    /// Used by clients to check if prefill completed while they were disconnected.
-    /// </summary>
-    public LastPrefillResultDto? GetLastPrefillResult(string sessionId)
-    {
-        ValidateSessionAccess(sessionId, out var session);
-
-        if (!session.LastPrefillCompletedAt.HasValue)
+        try
         {
-            return null;
+            await _daemonService.TerminateSessionAsync(sessionId, "User ended session", force: true,
+                reasonKey: PrefillDaemonServiceBase.EndedByUserReasonKey);
+            return new EndSessionResult();
         }
-
-        return new LastPrefillResultDto
+        catch (ServiceUnavailableException ex)
         {
-            Status = session.LastPrefillStatus ?? PrefillProgressState.Unknown.ToWireString(),
-            CompletedAt = session.LastPrefillCompletedAt.Value,
-            DurationSeconds = session.LastPrefillDurationSeconds ?? 0
-        };
-    }
-
-    /// <summary>
-    /// Gets the live prefill progress snapshot for a session.
-    /// Used by clients to re-hydrate the progress bar after connect / reconnect / tab-return
-    /// while a prefill is still running. Returns the retained <see cref="PrefillProgress"/>
-    /// snapshot when the session is prefilling, else null. Mirrors the owned-session check
-    /// and shape of <see cref="GetLastPrefillResult"/>. This is a hub INVOKE (not a broadcast
-    /// event), so it is intentionally absent from SIGNALR_EVENTS.
-    /// </summary>
-    public PrefillProgress? GetCurrentPrefillProgress(string sessionId)
-    {
-        ValidateSessionAccess(sessionId, out var session, allowPersistentAccountHolder: true);
-
-        // Snapshot the (IsPrefilling, LastProgress) pair into locals with single reads each.
-        // These two fields are written on the daemon-event thread (NotifyPrefillProgressAsync /
-        // TransitionToTerminalAsync) and read here on the hub-invoke thread with no lock. Reading
-        // each once means this call returns a self-consistent pair (never IsPrefilling==true with a
-        // LastProgress that a concurrent terminal transition has already nulled). A torn read just
-        // self-heals on the next tick, and the frontend already handles a null snapshot. (V9)
-        var isPrefilling = session.IsPrefilling;
-        var snapshot = session.LastProgress;
-
-        if (!isPrefilling)
-        {
-            return null;
+            return new EndSessionResult { StageKey = ex.StageKey, Context = ex.Context };
         }
-
-        return snapshot;
     }
 
     /// <summary>
@@ -395,4 +404,24 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
 
         session = s;
     }
+}
+
+/// <summary>
+/// The answer to a guest's create: the new session, or the translation key and values of the refusal.
+/// </summary>
+public sealed class CreateSessionResult
+{
+    public DaemonSessionDto? Session { get; init; }
+    public string? StageKey { get; init; }
+    public Dictionary<string, object?>? Context { get; init; }
+}
+
+/// <summary>
+/// The answer to a guest's End session: the translation key and values of the failure, or no key when the
+/// session ended.
+/// </summary>
+public sealed class EndSessionResult
+{
+    public string? StageKey { get; init; }
+    public Dictionary<string, object?>? Context { get; init; }
 }

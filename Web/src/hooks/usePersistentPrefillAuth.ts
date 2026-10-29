@@ -21,7 +21,6 @@ import {
   extractPersistentSessionId,
   getPersistentLoginEpoch,
   getPersistentLoginState,
-  getPersistentLoginEditAction,
   getPersistentLoginSessionId,
   getPersistentLoginStartPromise,
   finishPersistentLoginStep,
@@ -59,19 +58,20 @@ function isPersistentSessionConflictError(
 }
 
 // A login POST refused because something else already holds this session's login. The daemon throws
-// ConflictException, which the global exception middleware renders as a 409 whose body is a plain
-// { error, statusCode, traceId } - none of the structured conflict fields buildApiError looks for
+// ConflictException, which the global exception middleware renders as a 409 whose body is
+// { error, stageKey, context, statusCode, traceId } - none of the structured conflict fields buildApiError looks for
 // (apiError.ts), so `.cause` stays unset and isPersistentSessionConflictError above can never see
 // it. Hence a second guard rather than widening that one: the two are different endings, and only
-// that one resets the store as a replaced session. The two session-pinning reasons are excluded by
-// their code so a replaced session keeps its own message. Matched on status and code, never on the
-// message text (the rule is written at the top of apiError.ts).
+// that one resets the store as a replaced session. Only the login-in-progress key is busy; every
+// other 409 (a running prefill, a session that must be started again, a held account) shows its own
+// stage key's text. Matched on status and key, never on the message text (the rule is written at
+// the top of apiError.ts).
 function isPersistentLoginBusyError(error: unknown): error is ApiError {
-  if (!(error instanceof ApiError) || error.status !== 409) {
-    return false;
-  }
-  const reason = error.body?.error;
-  return reason !== 'session_replaced' && reason !== 'credential_rejected';
+  return (
+    error instanceof ApiError &&
+    error.status === 409 &&
+    error.body?.stageKey === 'errors.prefill.loginInProgress'
+  );
 }
 
 interface UsePersistentPrefillAuthOptions {
@@ -225,14 +225,11 @@ export function usePersistentPrefillAuth(
       // same way start() fences its own settlement.
       const attemptEpoch = getPersistentLoginEpoch(service);
       try {
-        const editAction = getPersistentLoginEditAction(service);
         await ApiService.providePersistentCredential(
           service,
           challenge,
           credential,
-          getPersistentLoginSessionId(service) ?? '',
-          editAction?.editSessionId,
-          editAction?.editActionId
+          getPersistentLoginSessionId(service) ?? ''
         );
       } catch (err) {
         if (!ownsStep()) return { status: 'pending' };
@@ -337,14 +334,19 @@ export function usePersistentPrefillAuth(
         const loginAttempt = isPersistentLoginCredentialChallenge(response)
           ? (response.loginAttempt ?? null)
           : null;
-        // The open-tab clock ends this wait with the expiry reason. This follow-up has to name
-        // that same reason; omitting it is stored as the person's Cancel. Cancel, close, and
-        // Logout still go through endPersistentLogin and omit the reason.
-        await ApiService.cancelPersistentLogin(
-          service,
-          sessionId,
-          { loginId, loginAttempt },
-          'common.notifications.warnings.signInExpired'
+        // Only the open-tab clock ending this wait names the expiry reason, the same one its own
+        // ending sends. A reset or a person's Cancel sends none, so a person's Cancel is not
+        // stored as a sign-in that ran out of time.
+        const identity = { loginId, loginAttempt };
+        await (
+          getPersistentLoginState(service).endReason === 'timedOut'
+            ? ApiService.cancelPersistentLogin(
+                service,
+                sessionId,
+                identity,
+                'common.notifications.warnings.signInExpired'
+              )
+            : ApiService.cancelPersistentLogin(service, sessionId, identity)
         ).catch(() => undefined);
       };
       // Captured AFTER the synchronous writes above: every reset path (container stop/start, the
@@ -358,8 +360,6 @@ export function usePersistentPrefillAuth(
         const challenge = await ApiService.startPersistentLogin(
           service,
           startRequest?.sessionId,
-          startRequest?.editSessionId,
-          startRequest?.editActionId,
           startRequest?.reuseIntegration,
           loginId
         );

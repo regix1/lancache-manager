@@ -5,6 +5,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -283,7 +284,7 @@ public sealed class ProcessKillAfterDisposeTests
 
         // Well under the child's own 30 s exit, so only the stop can end the run in time; the
         // message tells the stop apart from the bound running out.
-        var stopped = await Assert.ThrowsAsync<TimeoutException>(
+        var stopped = await Assert.ThrowsAsync<ServiceUnavailableException>(
             () => helper.ExecuteTrackedProcessWithProgressEventsAsync(
                     child.Start,
                     operationId: null,
@@ -293,6 +294,8 @@ public sealed class ProcessKillAfterDisposeTests
                 .WaitAsync(TimeSpan.FromSeconds(15)));
 
         Assert.StartsWith("silent wrote no progress", stopped.Message);
+        // The repair card shows the stop in the reader's language.
+        Assert.Equal("signalr.generic.stoppedWithoutProgress", stopped.StageKey);
         Assert.Empty(Process.GetProcessesByName(child.Name));
     }
 

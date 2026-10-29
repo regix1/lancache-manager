@@ -1,11 +1,14 @@
 using System.Data.Common;
+using System.Reflection;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Models;
+using LancacheManager.Infrastructure.Services;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Npgsql;
 
 namespace LancacheManager.Tests;
@@ -19,6 +22,27 @@ public sealed class AccountResetStartupTests
         using var host = new EndpointAuthorizationHost(authenticationEnabled: false);
         await using var context = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext();
         Assert.False(await context.AccountResets.AnyAsync());
+    }
+
+    [Fact]
+    public async Task StoppingTheAppStartsTheStopBudget()
+    {
+        // The setup-only boot registers the scheduler as a singleton without hosting it, so it is added as a
+        // hosted service here; Program.cs then finds it through app.Services.GetServices<IHostedService>().
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: false);
+        using var application = host.Application.WithWebHostBuilder(webHost => webHost.ConfigureTestServices(
+            services => services.AddSingleton<IHostedService>(resolver => resolver.GetRequiredService<ScheduledPrefillService>())));
+        var scheduler = application.Services.GetRequiredService<ScheduledPrefillService>();
+        var budgetField = typeof(ScheduledPrefillService).GetField("_stopBudget", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        Assert.False(((CancellationToken)budgetField.GetValue(scheduler)!).CanBeCanceled);
+
+        application.Services.GetRequiredService<IHostApplicationLifetime>().StopApplication();
+
+        var budget = (CancellationToken)budgetField.GetValue(scheduler)!;
+        Assert.True(budget.CanBeCanceled);
+        var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        budget.Register(() => canceled.SetResult());
+        await canceled.Task.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     [Fact]
@@ -131,8 +155,11 @@ public sealed class AccountResetStartupTests
     [Fact]
     public void ProgramAwaitsResetInsideNormalDatabaseStartupBeforeHostedServiceResolution()
     {
-        var source = File.ReadAllText(Path.Combine(EndpointAuthorizationHost.FindRepositoryRoot(), "Api", "LancacheManager", "Program.cs"));
-        var setupOnly = source.IndexOf("if (externalCredsMissing)", source.IndexOf("// IMPORTANT: Apply database migrations", StringComparison.Ordinal), StringComparison.Ordinal);
+        // Commented-out lines are dropped so a disabled call is not found; the anchor comment stays because the search starts from it.
+        var source = string.Join('\n', File.ReadAllLines(Path.Combine(EndpointAuthorizationHost.FindRepositoryRoot(), "Api", "LancacheManager", "Program.cs"))
+            .Where(line => !line.TrimStart().StartsWith("//", StringComparison.Ordinal)
+                || line.TrimStart().StartsWith("// IMPORTANT: Apply database migrations", StringComparison.Ordinal)));
+        var setupOnly =source.IndexOf("if (externalCredsMissing)", source.IndexOf("// IMPORTANT: Apply database migrations", StringComparison.Ordinal), StringComparison.Ordinal);
         var normal = source.IndexOf("else", setupOnly, StringComparison.Ordinal);
         var reset = source.IndexOf("await scope.ServiceProvider.GetRequiredService<AccountResetService>()", normal, StringComparison.Ordinal);
         var reconcile = source.IndexOf("await detectionDataService.ReconcileMissingDiskSummaryAsync()", normal, StringComparison.Ordinal);

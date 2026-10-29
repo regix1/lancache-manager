@@ -1020,6 +1020,11 @@ builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
 
 var app = builder.Build();
 
+// Docker kills the app 10 s after it asks it to stop. One stop budget starts when the stop begins and
+// ends the prefill daemons' round trips and the scheduler's cancel together.
+app.Lifetime.ApplicationStopping.Register(
+    () => PrefillDaemonServiceBase.BeginStopBudget(app.Services.GetServices<IHostedService>()));
+
 // Log the effective CORS posture once at startup so operators can tell at a glance whether
 // they are running the safe default or an opted-in permissive configuration.
 if (string.IsNullOrWhiteSpace(allowedOrigins))

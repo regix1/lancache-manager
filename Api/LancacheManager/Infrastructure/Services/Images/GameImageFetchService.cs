@@ -471,7 +471,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         if (totalDownloads == 0)
         {
             _logger.LogInformation("[GameImageFetch] Downloads table is empty - log processing hasn't completed yet, will retry next cycle");
-            // A Run Now reports itself skipped so the click is answered; an automatic run stays quiet. [59]
+            // A Run Now reports itself skipped so the click is answered; an automatic run stays quiet.
             if (reporter is { IsStarted: false } && CurrentRunNotice.Trigger == RunTrigger.Manual)
             {
                 await reporter.StartAsync($"{StageBase}.starting");

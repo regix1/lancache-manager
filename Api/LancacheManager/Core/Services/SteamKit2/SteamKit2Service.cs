@@ -32,6 +32,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     // state into the unified activity registry so the Steam integration status dot reads the one
     // ActivityUpdated event.
     private readonly IActivityRegistry? _activityRegistry;
+    private readonly PrefillCacheService _prefillCache;
     private readonly uint _steamLoginId;
     private SteamClient? _steamClient;
     private CallbackManager? _manager;
@@ -172,6 +173,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         SteamWebApiService steamWebApiService,
         SteamAuthStorageService steamAuthRepository,
         IUnifiedOperationTracker operationTracker,
+        PrefillCacheService prefillCache,
         IActivityRegistry? activityRegistry = null)
         : base(logger, TimeSpan.FromHours(1)) // Default: 1 hour crawl interval
     {
@@ -184,6 +186,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         _steamWebApiService = steamWebApiService;
         _steamAuthRepository = steamAuthRepository;
         _operationTracker = operationTracker;
+        _prefillCache = prefillCache;
         _activityRegistry = activityRegistry;
 
         // Use range 16384-65535 to avoid collision with steam-prefill-daemon (0-16383)

@@ -21,7 +21,11 @@ import {
   isPlainRecord
 } from '@components/features/management/cache/corruptionContractValidation';
 import { SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY } from '@components/features/management/schedules/scheduled-prefill/constants';
-import { translateRecoveryStage, translateStageKeyMessage } from '@utils/stageKeyMessage';
+import {
+  datasourceFailureValues,
+  translateRecoveryStage,
+  translateStageKeyMessage
+} from '@utils/stageKeyMessage';
 import { formatCount, formatWarningCounts } from '@utils/formatters';
 import { sessionStore } from '@utils/storage';
 import type { OperationStatus } from '../../types/operations';
@@ -199,6 +203,8 @@ export function readOperationRun(value: unknown): OperationRun | null {
     isRevision(value.revision) &&
     isIsoDate(value.startedAt) &&
     isOptionalText(value.error) &&
+    isOptionalText(value.failedDatasource) &&
+    isOptionalText(value.databaseError) &&
     isOptionalText(value.blockedByName) &&
     isOptionalText(value.target) &&
     isOptionalText(value.scheduleKey) &&
@@ -1268,7 +1274,7 @@ function drawRun(entry: RunEntry): UnifiedNotification {
                         ? // An ended run no event described says how it ended, never "in progress".
                           translateRecoveryStage(
                             run.message,
-                            undefined,
+                            datasourceFailureValues(run.failedDatasource, run.databaseError),
                             {
                               completed: GENERIC_COMPLETION_I18N_KEY,
                               failed: GENERIC_FAILURE_I18N_KEY,
@@ -1293,10 +1299,18 @@ function drawRun(entry: RunEntry): UnifiedNotification {
     startedAt: entry.startedAt,
     error:
       run.status === 'failed'
-        ? (detail.error ?? (run.error ? translateStageKeyMessage(run.error) : undefined))
+        ? (detail.error ??
+          (run.error
+            ? translateStageKeyMessage(
+                run.error,
+                datasourceFailureValues(run.failedDatasource, run.databaseError)
+              )
+            : undefined))
         : undefined,
     details: {
       ...(run.serviceId ? { service: run.serviceId } : {}),
+      // A corruption removal row names its service only as its target, which is the service key.
+      ...(cardType(run) === 'corruption_removal' && run.target ? { service: run.target } : {}),
       ...(run.scheduleId ? { scheduleId: run.scheduleId } : {}),
       // A detection's row names the scan it runs or waits to run, before any event describes it.
       ...(cardType(run) === 'game_detection' && run.scanMode ? { scanType: run.scanMode } : {}),

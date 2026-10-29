@@ -1,4 +1,5 @@
 using System.Reflection;
+using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
@@ -8,6 +9,7 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -17,485 +19,11 @@ using Microsoft.Extensions.Options;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Proves the scheduled run path for the ANONYMOUS
-/// services (Battle.net/Riot) with SelectedAppIds populated. The one real unknown from the plan was
-/// whether <see cref="ScheduledPrefillService.RunServiceAsync"/>'s step-2b live-status poll
-/// (<c>status?.Status == "logged-in"</c>) would wrongly skip anonymous daemons. Investigation found
-/// BattleNetPrefill/RiotPrefill's <c>HandleStatus</c> always answers <c>{ isLoggedIn: true }</c>
-/// (both daemons' <c>Api/SocketCommandInterface.cs:127-141</c>), which
-/// <c>DaemonClientBase.GetStatusAsync</c> (shared by both transports) turns into
-/// <c>Status = "logged-in"</c> - so the gate already passes today; no production fix was needed.
-/// This test exercises the full chain (gate pass -> SetSelectedAppsAsync -> PrefillAsync with the
-/// preset forced off by SelectedAppIds) end-to-end with a fake <see cref="IDaemonClient"/> standing
-/// in for the real socket, using that REAL "logged-in" string rather than an invented one.
+/// Scheduled run endings that hold on every platform: a run that ends with a warning keeps its amber row, and a
+/// person's cancel landing during a Stop's logout ends the run as stopped.
 /// </summary>
 public class ScheduledPrefillAnonymousRunPathTests
 {
-    [Theory]
-    [InlineData("completed")]
-    [InlineData("failed")]
-    [InlineData("needs-login")]
-    public async Task DueSchedules_FirstPlatformRecordWinsAsync(string outcome)
-    {
-        var (steam, steamClient) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
-        var (riot, riotClient) = CreateRunnablePersistentDaemon(PrefillPlatform.Riot);
-        using var steamLifetime = steam;
-        using var riotLifetime = riot;
-        var config = ScheduledPrefillConfigFactory.CreateDefault();
-        config.BattleNet.Schedules.Clear();
-        var first = new ScheduledPrefillSchedule
-        {
-            Id = config.Steam.Schedules[0].Id,
-            Name = "Daily selected",
-            Enabled = true,
-            IntervalHours = -1,
-            SelectedAppIds = ["10"],
-            NotificationMode = NotificationMode.Silent,
-            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
-        };
-        config.Steam.Schedules.Clear();
-        config.Steam.Schedules.Add(first);
-        var second = new ScheduledPrefillSchedule
-        {
-            Id = Guid.NewGuid(),
-            Name = "Weekly selected",
-            Enabled = true,
-            IntervalHours = -1,
-            SelectedAppIds = ["20"],
-            NotificationMode = NotificationMode.All,
-            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
-        };
-        config.Steam.Schedules.Add(second);
-        var riotSchedule = new ScheduledPrefillSchedule
-        {
-            Id = config.Riot.Schedules[0].Id,
-            Name = "Default",
-            Enabled = true,
-            IntervalHours = -1,
-            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
-        };
-        config.Riot.Schedules.Clear();
-        config.Riot.Schedules.Add(riotSchedule);
-        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        steamClient.PrefillHandler = async token =>
-        {
-            entered.TrySetResult();
-            await release.Task.WaitAsync(token);
-            var session = steam.GetActivePersistentSession()!;
-            session.IsPrefilling = false;
-            session.TotalBytesTransferred = 1024;
-            return new PrefillResult { Success = outcome == "completed", RequiresLogin = outcome == "needs-login" };
-        };
-        var state = DispatchProxy.Create<IStateService, RecordingNotificationsProxy>();
-        ((RecordingNotificationsProxy)(object)state).Config = config;
-        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RecordingNotificationsProxy>();
-        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
-        var skipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        ((RecordingNotificationsProxy)(object)notifications).Notification = (eventName, message) =>
-        {
-            if (eventName == SignalREvents.ScheduledPrefillCompleted
-                && message.GetType().GetProperty("scheduleId")?.GetValue(message) is Guid id && id == second.Id)
-            {
-                Assert.Equal("skipped", message.GetType().GetProperty("status")!.GetValue(message));
-                Assert.Equal("signalr.scheduledPrefill.skippedOverlap", message.GetType().GetProperty("stageKey")!.GetValue(message));
-                skipped.TrySetResult();
-            }
-        };
-        using var services = new ServiceCollection()
-            .AddSingleton((SteamDaemonService)steam).AddSingleton((RiotDaemonService)riot)
-            .AddSingleton(tracker).AddSingleton(notifications).BuildServiceProvider();
-        using var scheduler = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
-            services.GetRequiredService<IServiceScopeFactory>(), state);
-        var execute = typeof(ScheduledPrefillService).GetMethod("ExecuteWorkAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var run = (Task)execute.Invoke(scheduler, [CancellationToken.None])!;
-        try
-        {
-            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            await skipped.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            await riotClient.PrefillStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.True(riotClient.PrefillCalled);
-            Assert.Equal(["10"], steamClient.SelectedAppIdsSent);
-            Assert.Equal(1, steamClient.PrefillCalls);
-        }
-        finally
-        {
-            release.TrySetResult();
-            await run.WaitAsync(TimeSpan.FromSeconds(5));
-        }
-        Assert.Equal(1, steamClient.PrefillCalls);
-        Assert.Equal(["10"], steamClient.SelectedAppIdsSent);
-        var calls = ((RecordingNotificationsProxy)(object)state).Calls;
-        Assert.Contains(calls, call => call.Method == nameof(IStateService.SetScheduledPrefillServiceLastRun)
-            && call.Args[0] as string == second.Id.ToString("N"));
-        Assert.DoesNotContain(calls, call => call.Method == nameof(IStateService.SetScheduledPrefillServiceLastActualRun)
-            && call.Args[0] as string == second.Id.ToString("N"));
-        await (Task)execute.Invoke(scheduler, [CancellationToken.None])!;
-        Assert.Equal(1, steamClient.PrefillCalls);
-    }
-
-    private static readonly Guid SystemUserId = ScheduledPrefillConstants.DeriveSystemUserId();
-
-    public static IEnumerable<object[]> AnonymousServices()
-    {
-        yield return new object[] { PrefillPlatform.BattleNet };
-        yield return new object[] { PrefillPlatform.Riot };
-    }
-
-    [Theory]
-    [MemberData(nameof(AnonymousServices))]
-    public async Task RunServiceAsync_AnonymousServiceWithSelectedApps_PassesLiveStatusGate_AndSendsSelection(
-        PrefillPlatform platform)
-    {
-        var (daemon, client) = CreateRunnablePersistentDaemon(platform);
-        using var daemonProvider = BuildProviderWithDaemon(platform, daemon);
-        using var schedulerProvider = new ServiceCollection().BuildServiceProvider();
-        var scheduledPrefillService = new ScheduledPrefillService(
-            NullLogger<ScheduledPrefillService>.Instance,
-            schedulerProvider.GetRequiredService<IServiceScopeFactory>(),
-            (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>());
-
-        var serviceConfig = new ScheduledPrefillServiceConfigDto
-        {
-            ServiceId = platform,
-            ScheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(platform),
-            ScheduleName = "Default",
-            Enabled = true,
-            NotificationMode = NotificationMode.Silent,
-            IntervalHours = 24,
-            Preset = ScheduledPrefillPreset.All,
-            TopCount = null,
-            SelectedAppIds = new List<string> { "wow", "d3" },
-            OperatingSystems = new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows },
-            Force = false,
-            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
-        };
-        var config = ScheduledPrefillConfigFactory.CreateDefault();
-
-        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
-        var recorder = (RecordingNotificationsProxy)notifications;
-
-        var runServiceAsync = typeof(ScheduledPrefillService).GetMethod(
-            "RunServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-
-        // The platform run's row decides how it shows, so no relayed event carries a visibility.
-        var result = await (Task<ScheduledPrefillServiceRunResult>)runServiceAsync.Invoke(
-            scheduledPrefillService,
-            new object?[] { MakeServiceRun(serviceConfig), daemonProvider, notifications, config })!;
-
-        scheduledPrefillService.Dispose();
-
-        // The gate must not skip: an anonymous daemon reporting the REAL "logged-in" status must be
-        // treated as runnable, exactly like an authenticated Steam/Epic/Xbox persistent container.
-        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, result);
-        Assert.DoesNotContain("needs-login", recorder.Stages);
-        Assert.Contains("completed", recorder.Stages);
-        Assert.Equal(0, recorder.VisibilityFieldCount);
-
-        // The selection must actually reach the daemon, and the preset must be forced off in favor
-        // of it (ScheduledPrefillService.cs:338-348's hasSelectedApps branch).
-        Assert.Equal(new List<string> { "wow", "d3" }, client.SelectedAppIdsSent);
-        Assert.True(client.PrefillCalled);
-        Assert.False(client.PrefillAllRequested);
-        Assert.False(client.PrefillRecentRequested);
-        Assert.Null(client.PrefillTopRequested);
-    }
-
-    [Fact]
-    public async Task RunServiceAsync_EmptySelectionClearsDaemonSelectionBeforePresetRun()
-    {
-        var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.BattleNet);
-
-        var (result, _) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
-
-        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, result);
-        Assert.NotNull(client.SelectedAppIdsSent);
-        Assert.Empty(client.SelectedAppIdsSent);
-        Assert.True(client.PrefillAllRequested);
-    }
-
-    [Fact]
-    public async Task RunServiceAsync_SteamNeedsLogin_CanOnlyRunAfterExplicitSecondAttempt()
-    {
-        var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
-        client.LiveStatus = "awaiting-login";
-        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.Steam, daemon);
-        Assert.Equal(ScheduledPrefillServiceRunResult.NeedsLogin, result);
-        Assert.Contains("needs-login", recorder.Stages);
-        Assert.Contains(
-            "Persistent container for Steam is running but not logged in. Log in, then run again or wait for the next scheduled interval.",
-            recorder.Messages);
-        Assert.Null(client.SelectedAppIdsSent);
-        Assert.False(client.PrefillCalled);
-        client.LiveStatus = "logged-in";
-        Assert.False(client.PrefillCalled);
-        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, (await RunSingleServiceAsync(PrefillPlatform.Steam, daemon)).Result);
-        Assert.Null(daemon.GetActivePersistentSession()!.PrefillScheduleId);
-    }
-
-    [Fact]
-    public async Task RunServiceAsync_DispatchNeedsLogin_ClearsScheduledOwnership()
-    {
-        var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
-        client.RequiresLogin = true;
-        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.Steam, daemon);
-        Assert.Equal(ScheduledPrefillServiceRunResult.NeedsLogin, result);
-        Assert.Contains("needs-login", recorder.Stages);
-        Assert.True(client.PrefillCalled);
-        Assert.Null(daemon.GetActivePersistentSession()!.PrefillScheduleId);
-        Assert.False(daemon.GetActivePersistentSession()!.IsPrefilling);
-    }
-
-    [Fact]
-    public async Task RunAndStampServiceAsync_NeedsLogin_CompletesFailedAndOnlyStampsBasis()
-    {
-        var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
-        client.LiveStatus = "awaiting-login";
-        using var daemonProvider = BuildProviderWithDaemon(PrefillPlatform.Steam, daemon);
-        using var schedulerProvider = new ServiceCollection().BuildServiceProvider();
-        var state = DispatchProxy.Create<IStateService, RecordingNotificationsProxy>();
-        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RecordingNotificationsProxy>();
-        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
-        using var scheduler = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
-            schedulerProvider.GetRequiredService<IServiceScopeFactory>(), state);
-        var config = ScheduledPrefillConfigFactory.CreateDefault();
-        var serviceConfig = config.GetSchedulesInRunOrder().First(s => s.ServiceId == PrefillPlatform.Steam);
-        var method = typeof(ScheduledPrefillService).GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var result = await (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
-            new object[] { MakeServiceRun(serviceConfig), tracker, daemonProvider, notifications, config, CancellationToken.None, true })!;
-        Assert.Equal(ScheduledPrefillServiceRunResult.NeedsLogin, result);
-        var stateCalls = ((RecordingNotificationsProxy)(object)state).Calls;
-        Assert.Single(stateCalls, c => c.Method == nameof(IStateService.SetScheduledPrefillServiceLastRun));
-        Assert.DoesNotContain(stateCalls, c => c.Method == nameof(IStateService.SetScheduledPrefillServiceLastActualRun));
-        Assert.Single(((RecordingNotificationsProxy)(object)tracker).Calls,
-            c => c.Method == nameof(IUnifiedOperationTracker.CompleteOperation));
-        var completed = Assert.Single(((RecordingNotificationsProxy)(object)notifications).Calls,
-            c => c.Args.Length > 1 && c.Args[0] as string == SignalREvents.ScheduledPrefillCompleted);
-        Assert.Null(completed.Args[1]!.GetType().GetProperty("status")!.GetValue(completed.Args[1]));
-        Assert.False((bool)completed.Args[1]!.GetType().GetProperty("success")!.GetValue(completed.Args[1])!);
-        Assert.False(client.PrefillCalled);
-        Assert.Null(client.SelectedAppIdsSent);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task RunServiceAsync_DispatchThrows_ClearsScheduledOwnership(bool cancelled)
-    {
-        var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
-        client.PrefillHandler = _ => cancelled
-            ? Task.FromCanceled<PrefillResult>(new CancellationToken(canceled: true))
-            : Task.FromException<PrefillResult>(new IOException("disconnected"));
-        var exception = await Record.ExceptionAsync(() => RunSingleServiceAsync(PrefillPlatform.Steam, daemon));
-        Assert.NotNull(exception);
-        Assert.Null(daemon.GetActivePersistentSession()!.PrefillScheduleId);
-        Assert.False(daemon.GetActivePersistentSession()!.IsPrefilling);
-    }
-
-    [Theory]
-    // A drop's card reads as the run row: the app may sign the always-on container in again by itself.
-    [InlineData("auth-lost", "errors.prefill.signInLost")]
-    [InlineData("game-details-unavailable", "errors.steam.gameDetailsUnavailable")]
-    [InlineData(null, "errors.prefill.requestFailed")]
-    public async Task RunAndStampServiceAsync_ThrownFailurePreservesSafeStage(string? code, string stageKey)
-    {
-        var (daemon, client) = CreateRunnablePersistentDaemon(PrefillPlatform.Steam);
-        client.PrefillHandler = _ => Task.FromException<PrefillResult>(
-            code is null ? new IOException("Remote.JobFailure: stack details") : new DaemonCommandException(code));
-        using var daemonProvider = BuildProviderWithDaemon(PrefillPlatform.Steam, daemon);
-        using var schedulerProvider = new ServiceCollection().BuildServiceProvider();
-        var state = DispatchProxy.Create<IStateService, RecordingNotificationsProxy>();
-        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RecordingNotificationsProxy>();
-        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
-        using var scheduler = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
-            schedulerProvider.GetRequiredService<IServiceScopeFactory>(), state);
-        var config = ScheduledPrefillConfigFactory.CreateDefault();
-        var serviceConfig = config.GetSchedulesInRunOrder().First(s => s.ServiceId == PrefillPlatform.Steam);
-        var method = typeof(ScheduledPrefillService).GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var result = await (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
-            new object[] { MakeServiceRun(serviceConfig), tracker, daemonProvider, notifications, config, CancellationToken.None, true })!;
-
-        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
-        var completed = Assert.Single(((RecordingNotificationsProxy)(object)notifications).Calls,
-            c => c.Args.Length > 1 && c.Args[0] as string == SignalREvents.ScheduledPrefillCompleted);
-        var terminal = completed.Args[1]!;
-        Assert.Equal(stageKey, terminal.GetType().GetProperty("stageKey")!.GetValue(terminal));
-        Assert.DoesNotContain("Remote.JobFailure", (string)terminal.GetType().GetProperty("error")!.GetValue(terminal)!, StringComparison.Ordinal);
-        Assert.False((bool)terminal.GetType().GetProperty("success")!.GetValue(terminal)!);
-        // The run row keeps the key, so a card drawn from it after a reload reads in the reader's language.
-        var complete = Assert.Single(((RecordingNotificationsProxy)(object)tracker).Calls,
-            c => c.Method == nameof(IUnifiedOperationTracker.CompleteOperation));
-        Assert.Equal(stageKey, complete.Args[2]);
-    }
-
-    // A failed line that needs its counts keeps the English sentence on the run row: a reloaded card
-    // translates the row's error with no values.
-    [Fact]
-    public async Task RunAndStampServiceAsync_FailedLineWithCountsKeepsItsSentenceOnTheRunRow()
-    {
-        var (daemon, _) = CreateRunnablePersistentDaemon(
-            PrefillPlatform.BattleNet, failedApps: 2, totalApps: 2, transferredBytes: 0);
-        using var daemons = BuildProviderWithDaemon(PrefillPlatform.BattleNet, daemon);
-        using var schedulerServices = new ServiceCollection().BuildServiceProvider();
-        var state = DispatchProxy.Create<IStateService, RecordingNotificationsProxy>();
-        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RecordingNotificationsProxy>();
-        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
-        using var scheduler = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
-            schedulerServices.GetRequiredService<IServiceScopeFactory>(), state);
-        var config = ScheduledPrefillConfigFactory.CreateDefault();
-        var serviceConfig = config.GetSchedulesInRunOrder().First(s => s.ServiceId == PrefillPlatform.BattleNet);
-        var method = typeof(ScheduledPrefillService).GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var result = await (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
-            new object[] { MakeServiceRun(serviceConfig), tracker, daemons, notifications, config, CancellationToken.None, true })!;
-
-        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
-        var complete = Assert.Single(((RecordingNotificationsProxy)(object)tracker).Calls,
-            c => c.Method == nameof(IUnifiedOperationTracker.CompleteOperation));
-        Assert.Equal("2 of 2 games failed to download", complete.Args[2]);
-    }
-
-    /// <summary>
-    /// INVERTED on purpose. This used to assert that a live guest/manual session deferred the run,
-    /// and that is the behavior being removed: a temporary or guest container is a separate entity
-    /// with its own container and its own download, so it must never hold up a scheduled run. Driven
-    /// through the real run path rather than the pure gate because the whole point is that the run no
-    /// longer even shows the gate the other sessions on the daemon.
-    /// </summary>
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task RunServiceAsync_ManualSessionActive_StillRuns(bool manualSessionIsPrefilling)
-    {
-        var (daemon, _) = CreateRunnablePersistentDaemon(PrefillPlatform.BattleNet);
-
-        var manualSession = new DaemonSession
-        {
-            Id = Guid.NewGuid().ToString("N")[..16],
-            UserId = Guid.NewGuid(),
-            Status = DaemonSessionStatus.Active,
-            IsPersistent = false,
-            IsPrefilling = manualSessionIsPrefilling,
-            CreatedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddHours(1)
-        };
-        manualSession.Client = new FakeAnonymousDaemonClient(manualSession);
-        InjectSession(daemon, manualSession);
-
-        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
-
-        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, result);
-        Assert.Contains("completed", recorder.Stages);
-        Assert.DoesNotContain("skipped", recorder.Stages);
-        Assert.DoesNotContain("signalr.scheduledPrefill.skippedManualActive", recorder.StageKeys);
-    }
-
-    /// <summary>
-    /// The second busy branch: a prior scheduled run is still going on the persistent container. It
-    /// shares the system user id with the scheduler, so only <c>IsPrefilling</c> can defer it, and it
-    /// must reach the card as a different key than the manual-session skip above.
-    /// </summary>
-    [Fact]
-    public async Task RunServiceAsync_PersistentSessionAlreadyPrefilling_SkipsWithAlreadyRunningStageKey()
-    {
-        var (daemon, _) = CreateRunnablePersistentDaemon(PrefillPlatform.BattleNet);
-        daemon.GetActivePersistentSession()!.IsPrefilling = true;
-
-        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
-
-        Assert.Equal(ScheduledPrefillServiceRunResult.Skipped, result);
-        Assert.Equal(new List<string> { "skipped" }, recorder.Stages);
-        Assert.Equal(new List<string?> { "signalr.scheduledPrefill.skippedAlreadyRunning" }, recorder.StageKeys);
-    }
-
-    /// <summary>
-    /// A run the daemon ends with an error transfers no bytes, which the completion message reads as
-    /// "everything was already cached" - so before this was fixed a total prefill outage was
-    /// announced as a success and stamped a successful last run.
-    /// </summary>
-    [Fact]
-    public async Task RunServiceAsync_DaemonEndedTheRunFailed_ReportsFailedWithTheDaemonReason()
-    {
-        const string daemonReason = "Prefill failed: Steam connection was lost before metadata could be loaded";
-        var (daemon, _) = CreateRunnablePersistentDaemon(
-            PrefillPlatform.BattleNet, terminalFailureMessage: daemonReason, transferredBytes: 0);
-
-        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
-
-        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
-        Assert.Equal("failed", recorder.Stages[^1]);
-        Assert.Equal(daemonReason, recorder.Messages[^1]);
-        Assert.Null(recorder.StageKeys[^1]);
-        Assert.DoesNotContain("completed", recorder.Stages);
-    }
-
-    /// <summary>
-    /// The daemon finishes a run whose every app failed by reporting success: nothing threw, so its
-    /// result carries Success=true and the session never reaches a Failed state. Only its per-app
-    /// failure count says the run downloaded none of the games it was asked for.
-    /// </summary>
-    [Fact]
-    public async Task RunServiceAsync_EveryAppFailedButDaemonReportedSuccess_ReportsFailedWithTheCount()
-    {
-        var (daemon, _) = CreateRunnablePersistentDaemon(
-            PrefillPlatform.BattleNet, failedApps: 2, totalApps: 2, transferredBytes: 0);
-
-        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
-
-        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
-        Assert.Equal("failed", recorder.Stages[^1]);
-        Assert.Equal("2 of 2 games failed to download", recorder.Messages[^1]);
-        Assert.Equal("signalr.scheduledPrefill.failedApps", recorder.StageKeys[^1]);
-        Assert.DoesNotContain("completed", recorder.Stages);
-    }
-
-    /// <summary>
-    /// A run that lost some games but downloaded others completes, and its card names how many games
-    /// failed instead of failing the whole platform.
-    /// </summary>
-    [Fact]
-    public async Task RunServiceAsync_SomeAppsFailed_CompletesWithAWarningNamingHowMany()
-    {
-        var (daemon, _) = CreateRunnablePersistentDaemon(
-            PrefillPlatform.BattleNet, failedApps: 1, totalApps: 3, transferredBytes: 1024);
-        // RunSingleServiceAsync's body, keeping the platform run so its warning can be read.
-        using var daemonServices = BuildProviderWithDaemon(PrefillPlatform.BattleNet, daemon);
-        using var schedulerServices = new ServiceCollection().BuildServiceProvider();
-        var scheduledPrefillService = new ScheduledPrefillService(
-            NullLogger<ScheduledPrefillService>.Instance,
-            schedulerServices.GetRequiredService<IServiceScopeFactory>(),
-            (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>());
-        var serviceRun = MakeServiceRun(new ScheduledPrefillServiceConfigDto
-        {
-            ServiceId = PrefillPlatform.BattleNet,
-            ScheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet),
-            ScheduleName = "Default",
-            Enabled = true,
-            NotificationMode = NotificationMode.Silent,
-            IntervalHours = 24,
-            Preset = ScheduledPrefillPreset.All,
-            TopCount = null,
-            SelectedAppIds = new List<string>(),
-            OperatingSystems = new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows },
-            Force = false,
-            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
-        });
-        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
-        var recorder = (RecordingNotificationsProxy)notifications;
-
-        var result = await (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
-            .GetMethod("RunServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(scheduledPrefillService,
-                new object?[] { serviceRun, daemonServices, notifications, ScheduledPrefillConfigFactory.CreateDefault() })!;
-        scheduledPrefillService.Dispose();
-
-        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, result);
-        Assert.Equal("completed", recorder.Stages[^1]);
-        var warning = Assert.IsType<RunWarning>(serviceRun.State.Warning);
-        Assert.Equal("signalr.scheduledPrefill.failedApps", warning.StageKey);
-        Assert.Equal(1, warning.Context["failed"]);
-        Assert.Equal(3, warning.Context["total"]);
-    }
-
     [Fact]
     public async Task CompleteServiceRunAsync_RanWithAWarning_EndsAsAKeptAmberRow()
     {
@@ -528,242 +56,81 @@ public class ScheduledPrefillAnonymousRunPathTests
     }
 
     /// <summary>
-    /// The daemon's own reported reason names the actual cause, so it must not be replaced by the
-    /// generic count when a run both failed outright and lost individual games.
+    /// A person's Cancel landing while Stop is still logging the container out ends a newer daemon's
+    /// scheduled run as stopped once Stop ends it, and sends the daemon no cancel.
     /// </summary>
     [Fact]
-    public async Task RunServiceAsync_DaemonErrorAndFailedApps_KeepsTheDaemonReason()
+    public async Task RunAndStampServiceAsync_NewerDaemonCancelDuringStop_EndsAsStopped()
     {
-        const string daemonReason = "Prefill failed: Steam connection was lost";
-        var (daemon, _) = CreateRunnablePersistentDaemon(
-            PrefillPlatform.BattleNet,
-            terminalFailureMessage: daemonReason,
-            failedApps: 2,
-            totalApps: 2,
-            transferredBytes: 0);
-
-        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
-
-        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
-        Assert.Equal(daemonReason, recorder.Messages[^1]);
-        Assert.Null(recorder.StageKeys[^1]);
-    }
-
-    /// <summary>
-    /// The counterpart the failure branch must not swallow: a run that really did finish with
-    /// everything already cached still transfers zero bytes, and still has to say it completed.
-    /// </summary>
-    [Fact]
-    public async Task RunServiceAsync_RunFinishedWithZeroBytes_StillReportsCompleted()
-    {
-        var (daemon, _) = CreateRunnablePersistentDaemon(PrefillPlatform.BattleNet, transferredBytes: 0);
-
-        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
-
-        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, result);
-        Assert.Equal("completed", recorder.Stages[^1]);
-        Assert.Equal("signalr.scheduledPrefill.completeNoBytes", recorder.StageKeys[^1]);
-    }
-
-    [Fact]
-    public async Task NotifyPrefillProgressAsync_SmallerSecondGame_KeepsAggregateAndHeartbeatMoving()
-    {
-        var (daemon, _) = CreateRunnablePersistentDaemon(PrefillPlatform.BattleNet);
-        var testableDaemon = Assert.IsType<TestableBattleNetDaemonService>(daemon);
-        var session = Assert.IsType<DaemonSession>(daemon.GetActivePersistentSession());
-        session.IsPrefilling = true;
-        session.PrefillRunId = Guid.NewGuid();
-        session.PrefillState = PrefillState.Downloading;
-
-        await testableDaemon.PublishProgressAsync(session, new PrefillProgress
-        {
-            State = "downloading",
-            CurrentAppId = "1",
-            CurrentAppName = "Large game",
-            BytesDownloaded = 1_000,
-            TotalBytes = 1_000,
-            TotalApps = 2
-        });
-        await testableDaemon.PublishProgressAsync(session, new PrefillProgress
-        {
-            State = "app_completed",
-            CurrentAppId = "1",
-            CurrentAppName = "Large game",
-            BytesDownloaded = 1_000,
-            TotalBytes = 1_000,
-            TotalApps = 2,
-            UpdatedApps = 1,
-            Result = "Success"
-        });
-        await testableDaemon.PublishProgressAsync(session, new PrefillProgress
-        {
-            State = "downloading",
-            CurrentAppId = "2",
-            CurrentAppName = "Smaller game",
-            BytesDownloaded = 0,
-            TotalBytes = 500,
-            TotalApps = 2,
-            UpdatedApps = 1
-        });
-
-        var staleHeartbeat = DateTime.UtcNow.AddMinutes(-10).Ticks;
-        Volatile.Write(ref session.LastProgressTicksUtc, staleHeartbeat);
-
-        await testableDaemon.PublishProgressAsync(session, new PrefillProgress
-        {
-            State = "downloading",
-            CurrentAppId = "2",
-            CurrentAppName = "Smaller game",
-            BytesDownloaded = 100,
-            TotalBytes = 500,
-            TotalApps = 2,
-            UpdatedApps = 1
-        });
-
-        Assert.Equal(1_100, session.TotalBytesTransferred);
-        Assert.Equal(1_000, session.CompletedBytesTransferred);
-        Assert.True(Volatile.Read(ref session.LastProgressTicksUtc) > staleHeartbeat);
-        Assert.False(PrefillDaemonServiceBase.IsPrefillStalled(
-            session,
-            DateTime.UtcNow,
-            TimeSpan.FromMinutes(3)));
-    }
-
-    [Fact]
-    public async Task ScheduledRelay_UnknownTotal_RecordsCurrentGameAndBytesWithoutPercent()
-    {
-        using var schedulerProvider = new ServiceCollection().BuildServiceProvider();
-        using var scheduledPrefillService = new ScheduledPrefillService(
-            NullLogger<ScheduledPrefillService>.Instance,
-            schedulerProvider.GetRequiredService<IServiceScopeFactory>(),
-            (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>());
-        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
-        var recorder = (RecordingNotificationsProxy)notifications;
+        var fixture = await RunFixture.CreateAsync(persistent: true);
+        var client = DispatchProxy.Create<IDaemonClient, HeldLogoutRunClient>();
+        var held = (HeldLogoutRunClient)(object)client;
+        fixture.Session.Client = client;
+        fixture.Session.Capabilities = RunClient.Capabilities(held.InstanceId);
+        var operationId = Guid.NewGuid();
+        var config = ScheduledPrefillConfigFactory.CreateDefault();
+        using var person = new CancellationTokenSource();
         var serviceRun = MakeServiceRun(new ScheduledPrefillServiceConfigDto
         {
-            ServiceId = PrefillPlatform.BattleNet,
-            ScheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet),
-            ScheduleName = "Default",
-            Enabled = true,
-            NotificationMode = NotificationMode.Silent,
-            IntervalHours = 24,
-            Preset = ScheduledPrefillPreset.Recent,
-            SelectedAppIds = new List<string>(),
-            OperatingSystems = new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows },
-            Force = false,
-            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
-        });
-        serviceRun.State.Record("running", "Prefill in progress", "signalr.scheduledPrefill.running", 1d);
-        var session = new DaemonSession
-        {
-            Id = "unknown-total",
-            IsPrefilling = true,
-            PrefillState = PrefillState.Downloading
-        };
-
-        var relayType = typeof(ScheduledPrefillService).GetNestedType(
-            "ScheduledPrefillProgressRelay",
-            BindingFlags.NonPublic)!;
-        var relay = Activator.CreateInstance(
-            relayType,
-            BindingFlags.Instance | BindingFlags.NonPublic,
-            binder: null,
-            args: new object[] { scheduledPrefillService, notifications, session, serviceRun, session.Id },
-            culture: null)!;
-        relayType.GetMethod("Arm", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(relay, null);
-        var onProgress = relayType.GetMethod("OnProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
-
-        await (Task)onProgress.Invoke(relay, new object[]
-        {
-            session,
-            new PrefillProgress
-            {
-                State = "downloading",
-                CurrentAppId = "123",
-                CurrentAppName = "Battlefield 1",
-                BytesDownloaded = 33_200,
-                TotalBytes = 100_000,
-                TotalApps = 0
-            },
-            1L
-        })!;
-
-        Assert.Equal("Downloading Battlefield 1", serviceRun.State.Message);
-        object? recoveredPercent = serviceRun.State.PercentComplete;
-        Assert.Null(recoveredPercent);
-        Assert.Equal("signalr.scheduledPrefill.downloadingGameUnknownTotal", recorder.StageKeys.Single());
-        Assert.Equal(33_200, recorder.BytesDownloaded.Single());
-        Assert.Equal(100_000, recorder.TotalBytes.Single());
-        Assert.Null(recorder.PercentCompleteValues.Single());
-    }
-
-    [Fact]
-    public async Task RunServiceAsync_Stall_CancelsAndFailsTheExactSession()
-    {
-        var (daemon, client) = CreateRunnablePersistentDaemon(
-            PrefillPlatform.BattleNet,
-            leavePrefilling: true);
-        var session = Assert.IsType<DaemonSession>(daemon.GetActivePersistentSession());
-
-        var (result, recorder) = await RunSingleServiceAsync(PrefillPlatform.BattleNet, daemon);
-
-        Assert.Equal(ScheduledPrefillServiceRunResult.Failed, result);
-        Assert.Equal(1, client.CancelPrefillCalls);
-        Assert.False(session.IsPrefilling);
-        Assert.Equal(PrefillState.Failed, session.PrefillState);
-        Assert.Equal("Prefill stalled (no progress)", recorder.Messages[^1]);
-        Assert.Null(session.PrefillScheduleId);
-    }
-
-    /// <summary>
-    /// Drives the real <c>RunServiceAsync</c> against an already-prepared daemon and returns the run
-    /// result with the notifications it emitted. The preset and selection fields are left empty
-    /// because the busy gate answers at step 3, before step 4 ever reads them.
-    /// </summary>
-    private static async Task<(ScheduledPrefillServiceRunResult Result, RecordingNotificationsProxy Recorder)> RunSingleServiceAsync(
-        PrefillPlatform platform,
-        PrefillDaemonServiceBase daemon)
-    {
-        using var daemonProvider = BuildProviderWithDaemon(platform, daemon);
-        using var schedulerProvider = new ServiceCollection().BuildServiceProvider();
-        var scheduledPrefillService = new ScheduledPrefillService(
-            NullLogger<ScheduledPrefillService>.Instance,
-            schedulerProvider.GetRequiredService<IServiceScopeFactory>(),
-            (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>());
-
-        var serviceConfig = new ScheduledPrefillServiceConfigDto
-        {
-            ServiceId = platform,
-            ScheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(platform),
+            ServiceId = PrefillPlatform.Steam,
+            ScheduleId = ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Steam),
             ScheduleName = "Default",
             Enabled = true,
             NotificationMode = NotificationMode.Silent,
             IntervalHours = 24,
             Preset = ScheduledPrefillPreset.All,
             TopCount = null,
-            SelectedAppIds = new List<string>(),
+            SelectedAppIds = new List<string> { "10" },
             OperatingSystems = new List<ScheduledPrefillOperatingSystem> { ScheduledPrefillOperatingSystem.Windows },
             Force = false,
             MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
-        };
+        }) with { OperationId = operationId, OperationIdString = operationId.ToString(), Token = person.Token };
 
-        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
-        var recorder = (RecordingNotificationsProxy)notifications;
+        var run = RunAndStampAsync(PrefillPlatform.Steam, fixture.Daemon, serviceRun, config);
+        var startDeadline = DateTime.UtcNow.AddSeconds(5);
+        while (fixture.Daemon.GetRun(fixture.Session.Id, operationId) is null && DateTime.UtcNow < startDeadline)
+        {
+            await Task.Delay(20);
+        }
+        Assert.NotNull(fixture.Daemon.GetRun(fixture.Session.Id, operationId));
+        var stop = fixture.Daemon.TerminateSessionAsync(fixture.Session.Id, "Persistent session stopped");
+        await held.LogoutStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await person.CancelAsync();
+        // The watch sends the cancel every 250 ms, so a second inside the hold covers several of them.
+        await Task.WhenAny(run, Task.Delay(TimeSpan.FromSeconds(1)));
+        held.Logout.TrySetResult(new LogoutOutcome(Success: true, RequiresLogin: false));
+        await stop.WaitAsync(TimeSpan.FromSeconds(10));
 
-        var runServiceAsync = typeof(ScheduledPrefillService).GetMethod(
-            "RunServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var (result, stageKey) = await run.WaitAsync(TimeSpan.FromSeconds(10));
 
-        var result = await (Task<ScheduledPrefillServiceRunResult>)runServiceAsync.Invoke(
-            scheduledPrefillService,
-            new object?[]
-            {
-                MakeServiceRun(serviceConfig), daemonProvider, notifications,
-                ScheduledPrefillConfigFactory.CreateDefault()
-            })!;
+        Assert.Equal(ScheduledPrefillServiceRunResult.Cancelled, result);
+        Assert.Equal("signalr.scheduledPrefill.stopped", stageKey);
+        Assert.Empty(held.Cancelled);
+    }
 
-        scheduledPrefillService.Dispose();
-
-        return (result, recorder);
+    /// <summary>
+    /// Drives the real <c>RunAndStampServiceAsync</c>, which turns a thrown failure or a cancel into the
+    /// run's end, and returns the run result with the stage key its closing event carries.
+    /// </summary>
+    private static async Task<(ScheduledPrefillServiceRunResult Result, string? StageKey)> RunAndStampAsync(
+        PrefillPlatform platform,
+        PrefillDaemonServiceBase daemon,
+        ScheduledPrefillServiceRun serviceRun,
+        ScheduledPrefillConfigDto config)
+    {
+        using var daemons = BuildProviderWithDaemon(platform, daemon);
+        using var schedulerServices = new ServiceCollection().BuildServiceProvider();
+        var state = DispatchProxy.Create<IStateService, RecordingNotificationsProxy>();
+        var tracker = DispatchProxy.Create<IUnifiedOperationTracker, RecordingNotificationsProxy>();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationsProxy>();
+        using var scheduler = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
+            schedulerServices.GetRequiredService<IServiceScopeFactory>(), state);
+        var method = typeof(ScheduledPrefillService).GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var result = await (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
+            new object?[] { serviceRun, tracker, daemons, notifications, config, serviceRun.Token, true, null })!;
+        var completed = Assert.Single(((RecordingNotificationsProxy)(object)notifications).Calls,
+            c => c.Args.Length > 1 && c.Args[0] as string == SignalREvents.ScheduledPrefillCompleted);
+        return (result, (string?)completed.Args[1]!.GetType().GetProperty("stageKey")!.GetValue(completed.Args[1]));
     }
 
     /// <summary>
@@ -784,75 +151,6 @@ public class ScheduledPrefillAnonymousRunPathTests
                 new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled)),
             CancellationToken.None);
 
-    private static (PrefillDaemonServiceBase Daemon, FakeAnonymousDaemonClient Client) CreateRunnablePersistentDaemon(
-        PrefillPlatform platform,
-        string? terminalFailureMessage = null,
-        long transferredBytes = 1024,
-        int failedApps = 0,
-        int totalApps = 0,
-        bool leavePrefilling = false)
-    {
-        var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase($"anon_run_path_{Guid.NewGuid():N}")
-            .Options;
-        var dbFactory = new InMemoryDbContextFactory(dbOptions);
-        var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
-        var cacheService = new PrefillCacheService(dbFactory, NullLogger<PrefillCacheService>.Instance);
-        var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
-        var configuration = new ConfigurationBuilder().Build();
-        var pathResolver = (IPathResolver)DispatchProxy.Create<IPathResolver, NullReturningProxy>();
-        var stateService = (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>();
-        var networkOptions = new StaticOptionsMonitor<PrefillNetworkOptions>(new PrefillNetworkOptions());
-
-        PrefillDaemonServiceBase daemon = platform switch
-        {
-            PrefillPlatform.Steam => new TestableSteamDaemonService(
-                notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions),
-            PrefillPlatform.BattleNet => new TestableBattleNetDaemonService(
-                NullLogger<BattleNetDaemonService>.Instance, notifications, configuration, pathResolver,
-                stateService, sessionService, cacheService, networkOptions),
-            PrefillPlatform.Riot => new TestableRiotDaemonService(
-                NullLogger<RiotDaemonService>.Instance, notifications, configuration, pathResolver,
-                stateService, sessionService, cacheService, networkOptions),
-            _ => throw new ArgumentOutOfRangeException(nameof(platform), platform, "Only anonymous services are covered here")
-        };
-
-        var session = new DaemonSession
-        {
-            Id = Guid.NewGuid().ToString("N")[..16],
-            UserId = SystemUserId,
-            Status = DaemonSessionStatus.Active,
-            IsPersistent = true,
-            IsPrefilling = false,
-            AuthState = DaemonAuthState.Authenticated,
-            CreatedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddDays(30)
-        };
-        var client = new FakeAnonymousDaemonClient(
-            session, terminalFailureMessage, transferredBytes, failedApps, totalApps, leavePrefilling);
-        session.Client = client;
-
-        InjectSession(daemon, session);
-
-        return (daemon, client);
-    }
-
-    private static void InjectSession(PrefillDaemonServiceBase daemon, DaemonSession session)
-    {
-        switch (daemon)
-        {
-            case TestableSteamDaemonService steam:
-                steam.InjectSession(session);
-                break;
-            case TestableBattleNetDaemonService bnet:
-                bnet.InjectSession(session);
-                break;
-            case TestableRiotDaemonService riot:
-                riot.InjectSession(session);
-                break;
-        }
-    }
-
     private static ServiceProvider BuildProviderWithDaemon(PrefillPlatform platform, PrefillDaemonServiceBase daemon)
     {
         var services = new ServiceCollection();
@@ -870,98 +168,6 @@ public class ScheduledPrefillAnonymousRunPathTests
         }
 
         return services.BuildServiceProvider();
-    }
-
-    // Test-only seam: _sessions is `protected` on PrefillDaemonServiceBase so production code never
-    // exposes a way to inject a session without going through real Docker container creation.
-    private sealed class TestableBattleNetDaemonService : BattleNetDaemonService
-    {
-        public TestableBattleNetDaemonService(
-            Microsoft.Extensions.Logging.ILogger<BattleNetDaemonService> logger,
-            ISignalRNotificationService notifications,
-            IConfiguration configuration,
-            IPathResolver pathResolver,
-            IStateService stateService,
-            PrefillSessionService sessionService,
-            PrefillCacheService cacheService,
-            IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
-        {
-        }
-
-        public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
-
-        public Task PublishProgressAsync(DaemonSession session, PrefillProgress progress)
-            => NotifyPrefillProgressAsync(session, progress);
-    }
-
-    private sealed class TestableSteamDaemonService : SteamDaemonService
-    {
-        public TestableSteamDaemonService(
-            ISignalRNotificationService notifications, IConfiguration configuration,
-            IPathResolver pathResolver, IStateService stateService,
-            PrefillSessionService sessionService, PrefillCacheService cacheService,
-            IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(NullLogger<SteamDaemonService>.Instance, notifications, configuration, pathResolver,
-                stateService, sessionService, cacheService, networkOptions,
-                new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
-        {
-        }
-
-        public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
-    }
-
-    private sealed class TestableRiotDaemonService : RiotDaemonService
-    {
-        public TestableRiotDaemonService(
-            Microsoft.Extensions.Logging.ILogger<RiotDaemonService> logger,
-            ISignalRNotificationService notifications,
-            IConfiguration configuration,
-            IPathResolver pathResolver,
-            IStateService stateService,
-            PrefillSessionService sessionService,
-            PrefillCacheService cacheService,
-            IOptionsMonitor<PrefillNetworkOptions> networkOptions)
-            : base(logger, notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), new UnavailableContainerGatewayFactory())
-        {
-        }
-
-        public void InjectSession(DaemonSession session) => _sessions[session.Id] = session;
-    }
-
-    private sealed class InMemoryDbContextFactory : IDbContextFactory<AppDbContext>
-    {
-        private readonly DbContextOptions<AppDbContext> _options;
-
-        public InMemoryDbContextFactory(DbContextOptions<AppDbContext> options)
-        {
-            _options = options;
-        }
-
-        public AppDbContext CreateDbContext() => new AppDbContext(_options);
-
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new AppDbContext(_options));
-    }
-
-    private sealed class StaticOptionsMonitor<T> : IOptionsMonitor<T>
-    {
-        public StaticOptionsMonitor(T value)
-        {
-            CurrentValue = value;
-        }
-
-        public T CurrentValue { get; }
-
-        public T Get(string? name) => CurrentValue;
-
-        public IDisposable OnChange(Action<T, string?> listener) => NullDisposable.Instance;
-
-        private sealed class NullDisposable : IDisposable
-        {
-            public static readonly NullDisposable Instance = new();
-            public void Dispose() { }
-        }
     }
 
     /// <summary>
@@ -1094,193 +300,20 @@ public class ScheduledPrefillAnonymousRunPathTests
     }
 
     /// <summary>
-    /// Stands in for the real socket-based <see cref="IDaemonClient"/>. <see cref="GetStatusAsync"/>
-    /// returns the REAL status string BattleNet/Riot daemons report ("logged-in" via isLoggedIn:true
-    /// on every status poll, per the daemon-side investigation cited on this class). Members outside
-    /// this test's happy path throw, so an unexpected call fails loudly instead of returning a
-    /// silently-wrong default.
+    /// A newer daemon whose logout waits until the test answers it, holding Stop's teardown open.
+    /// Not sealed, because <see cref="DispatchProxy"/> derives from it.
     /// </summary>
-    private sealed class FakeAnonymousDaemonClient : IDaemonClient
+    private class HeldLogoutRunClient : RunClient
     {
-        private readonly DaemonSession _session;
-        private readonly string? _terminalFailureMessage;
-        private readonly long _transferredBytes;
-        private readonly int _failedApps;
-        private readonly int _totalApps;
-        private readonly bool _leavePrefilling;
+        public TaskCompletionSource LogoutStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<LogoutOutcome> Logout { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public FakeAnonymousDaemonClient(
-            DaemonSession session,
-            string? terminalFailureMessage = null,
-            long transferredBytes = 1024,
-            int failedApps = 0,
-            int totalApps = 0,
-            bool leavePrefilling = false)
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
-            _session = session;
-            _terminalFailureMessage = terminalFailureMessage;
-            _transferredBytes = transferredBytes;
-            _failedApps = failedApps;
-            _totalApps = totalApps;
-            _leavePrefilling = leavePrefilling;
+            if (targetMethod?.Name != nameof(IDaemonClient.LogoutWithReasonAsync))
+                return base.Invoke(targetMethod, args);
+            LogoutStarted.TrySetResult();
+            return Logout.Task;
         }
-
-        public List<string>? SelectedAppIdsSent { get; private set; }
-        public bool PrefillCalled { get; private set; }
-        public int PrefillCalls { get; private set; }
-        public TaskCompletionSource PrefillStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public string LiveStatus { get; set; } = "logged-in";
-        public bool RequiresLogin { get; set; }
-        public Func<CancellationToken, Task<PrefillResult>>? PrefillHandler { get; set; }
-        public bool PrefillAllRequested { get; private set; }
-        public bool PrefillRecentRequested { get; private set; }
-        public int? PrefillTopRequested { get; private set; }
-        public int CancelPrefillCalls { get; private set; }
-
-        public event Func<CredentialChallenge, Task>? OnCredentialChallenge { add { } remove { } }
-        public event Func<DaemonStatus, Task>? OnStatusUpdate { add { } remove { } }
-        public event Func<SocketPrefillProgress, Task>? OnProgressUpdate { add { } remove { } }
-        public event Func<string, Task>? OnError { add { } remove { } }
-        public event Func<Task>? OnDisconnected { add { } remove { } }
-
-        public Task ConnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = LiveStatus });
-
-        public Task<CommandResponse> SendCommandAsync(
-            string type, Dictionary<string, string>? parameters = null, TimeSpan? timeout = null,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException($"Unexpected SendCommandAsync({type}) in this test.");
-
-        public Task<CredentialChallenge?> StartLoginAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("Anonymous services never start a login.");
-
-        public Task ProvideCredentialAsync(CredentialChallenge challenge, string credential, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("Anonymous services never provide a credential.");
-
-        public Task<CredentialChallenge?> GetAutoLoginChallengeAsync(string sessionId, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<bool> ProvideAutoLoginAsync(string sessionId, string username, string refreshToken, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<bool> ProvideEpicAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<bool> ProvideXboxAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<CredentialChallenge?> WaitForChallengeAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task CancelLoginAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("Anonymous services are not exercised for logout in this test.");
-
-        public Task CancelPrefillAsync(CancellationToken cancellationToken = default)
-        {
-            CancelPrefillCalls++;
-            return Task.CompletedTask;
-        }
-
-        public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new List<OwnedGame>());
-
-        public Task<List<CdnInfo>> GetCdnInfoAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(new List<CdnInfo>());
-
-        public Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)
-        {
-            SelectedAppIdsSent = appIds;
-            return Task.CompletedTask;
-        }
-
-        public Task<PrefillResult> PrefillAsync(
-            bool all = false,
-            bool recent = false,
-            bool recentlyPurchased = false,
-            int? top = null,
-            bool force = false,
-            List<string>? operatingSystems = null,
-            int? maxConcurrency = null,
-            List<CachedDepotInput>? cachedDepots = null,
-            CancellationToken cancellationToken = default,
-            Guid? runId = null,
-            Action? onCommandDispatched = null)
-        {
-            PrefillCalled = true;
-            PrefillCalls++;
-            PrefillStarted.TrySetResult();
-            onCommandDispatched?.Invoke();
-            Assert.NotNull(_session.PrefillScheduleId);
-            if (PrefillHandler is not null)
-            {
-                return PrefillHandler(cancellationToken);
-            }
-            if (RequiresLogin)
-            {
-                return Task.FromResult(new PrefillResult { Success = false, RequiresLogin = true, ErrorMessage = "Login expired" });
-            }
-            PrefillAllRequested = all;
-            PrefillRecentRequested = recent;
-            PrefillTopRequested = top;
-
-            if (_leavePrefilling)
-            {
-                Volatile.Write(ref _session.LastProgressTicksUtc, DateTime.UtcNow.AddDays(-1).Ticks);
-                return Task.FromResult(new PrefillResult { Success = true, TotalTime = TimeSpan.FromSeconds(1) });
-            }
-
-            // The real terminal transition (IsPrefilling -> false) is driven by a later socket
-            // event; this fake has no socket, so it flips the flag itself to simulate a run that
-            // completes instantaneously, letting RunServiceAsync's poll loop exit immediately.
-            //
-            // The daemon reports a failed run the same way it reports a finished one - the socket
-            // stops prefilling and the terminal funnel stamps the state - so the failure shape here
-            // differs only in the state and the reason it leaves behind.
-            // The per-app counters ride on the daemon's progress ticks, and the run picks the last
-            // one up through the relay's catch-up replay. Leaving the snapshot here is what a real
-            // run's final app_completed tick leaves behind.
-            if (_failedApps > 0 || _totalApps > 0)
-            {
-                _session.LastProgress = new PrefillProgress
-                {
-                    State = "app_completed",
-                    FailedApps = _failedApps,
-                    TotalApps = _totalApps
-                };
-                Interlocked.Increment(ref _session.ProgressSequence);
-            }
-
-            _session.IsPrefilling = false;
-            _session.TotalBytesTransferred = _transferredBytes;
-            if (_terminalFailureMessage is not null)
-            {
-                _session.PrefillState = PrefillState.Failed;
-                _session.ErrorMessage = _terminalFailureMessage;
-            }
-
-            return Task.FromResult(new PrefillResult { Success = true, TotalTime = TimeSpan.FromSeconds(1) });
-        }
-
-        public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<ClearCacheResult> GetCacheInfoAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(List<string>? operatingSystems = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<CacheStatusResult> CheckCacheStatusAsync(List<uint> appIds, List<CachedDepotInput> cachedDepots, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task ShutdownAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-
-        public void ClearPendingChallenges() { }
-
-        public void Dispose() { }
     }
 }

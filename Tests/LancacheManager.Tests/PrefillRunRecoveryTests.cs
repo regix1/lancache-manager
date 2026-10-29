@@ -84,7 +84,7 @@ public sealed class PrefillRunRecoveryTests
         Assert.Equal("instance-changed", (await second.Completion.Task).Snapshot.Reason);
         Assert.True(first.HistoryIncomplete);
         Assert.Equal(2, fixture.Client.StartCount);
-        Assert.False(fixture.Session.IsPrefilling);
+        Assert.DoesNotContain(fixture.Session.Runs.Values, run => run.TerminalCompletedFlag != 2);
     }
 
     [Fact]

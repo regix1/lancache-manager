@@ -6,13 +6,13 @@ internal sealed class SessionTermination
 {
     public required DaemonSession Session { get; init; }
     public required string Reason { get; init; }
-    public string? TerminatedBy { get; init; }
+    public required string ReasonKey { get; init; }
+    public string? TerminatedBy { get; set; }
     public PersistentImageChange? ImageChange { get; init; }
+    public bool KeepLogin { get; set; }
     public Task? Work { get; set; }
     public Task? Removal { get; set; }
     public bool Removed { get; set; }
-    public bool HistoryClosed { get; set; }
-    public bool EntryClosed { get; set; }
     public bool ActivityRetired { get; set; }
     public bool Persisted { get; set; }
     public bool GlobalSent { get; set; }

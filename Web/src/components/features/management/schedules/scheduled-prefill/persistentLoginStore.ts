@@ -32,7 +32,7 @@ interface PersistentLoginStoreState {
    */
   dismissed: boolean;
   /**
-   * RC3 fix: the `DaemonSession.Id` this login flow is
+   * The `DaemonSession.Id` this login flow is
    * currently pinned to, taken from the `sessionId` every persistent-login REST response now
    * carries. Every follow-up call (challenge read, provide-credential, cancel-login) sends this
    * back so the server can reject a request that has been superseded by a newer session instead of
@@ -105,7 +105,7 @@ const INITIAL_PERSISTENT_LOGIN_STATE: PersistentLoginStoreState = {
 };
 
 /**
- * Reads the `sessionId` field a persistent-login REST response now carries (RC3 fix),
+ * Reads the `sessionId` field a persistent-login REST response now carries,
  * regardless of which response variant it is (challenge object,
  * `{authenticated:true}`, `{status:...}`, or the SignalR `CredentialChallengePayload` wrapper -
  * all of them put `sessionId` at the top level). Returns `null` for the legacy bare `'authenticated'`
@@ -194,29 +194,19 @@ const retiredChallengeIds = new Map<PersistentPrefillServiceId, Set<string>>();
 
 interface PersistentLoginStartRequest {
   sessionId: string;
-  editSessionId?: string;
-  editActionId?: string;
   reuseIntegration?: boolean;
-}
-
-interface PersistentLoginEditAction {
-  editSessionId: string;
-  editActionId: string;
 }
 
 const requestedLoginStarts = new Map<PersistentPrefillServiceId, PersistentLoginStartRequest>();
 // Cancel round trips still in flight per service; see usePersistentLoginCanceling.
 const cancelingLogins = new Map<PersistentPrefillServiceId, number>();
-const activeLoginEditActions = new Map<PersistentPrefillServiceId, PersistentLoginEditAction>();
 
 export function setPersistentLoginStartSessionId(
   service: PersistentPrefillServiceId,
   sessionId: string,
-  editSessionId?: string,
-  editActionId?: string,
   reuseIntegration?: boolean
 ): void {
-  requestedLoginStarts.set(service, { sessionId, editSessionId, editActionId, reuseIntegration });
+  requestedLoginStarts.set(service, { sessionId, reuseIntegration });
   if (reuseIntegration) {
     integrationReuseEpochs.set(service, getPersistentLoginEpoch(service));
   } else {
@@ -255,27 +245,7 @@ export function consumePersistentLoginStartRequest(
 ): PersistentLoginStartRequest | undefined {
   const request = requestedLoginStarts.get(service);
   requestedLoginStarts.delete(service);
-  if (request?.editSessionId && request.editActionId) {
-    activeLoginEditActions.set(service, {
-      editSessionId: request.editSessionId,
-      editActionId: request.editActionId
-    });
-  }
   return request;
-}
-
-export function getPersistentLoginEditAction(
-  service: PersistentPrefillServiceId
-): PersistentLoginEditAction | undefined {
-  const active = activeLoginEditActions.get(service);
-  if (active) {
-    return active;
-  }
-
-  const requested = requestedLoginStarts.get(service);
-  return requested?.editSessionId && requested.editActionId
-    ? { editSessionId: requested.editSessionId, editActionId: requested.editActionId }
-    : undefined;
 }
 
 /** Reads the current login epoch for a service - see `loginEpochs`. Captured by start() when an
@@ -298,7 +268,6 @@ function invalidateInFlightLogin(service: PersistentPrefillServiceId): void {
   loginEpochs.set(service, (loginEpochs.get(service) ?? 0) + 1);
   integrationReuseEpochs.delete(service);
   startPromises.delete(service);
-  activeLoginEditActions.delete(service);
   retiredChallengeIds.delete(service);
   const cancelFlag = cancelFlags.get(service);
   if (cancelFlag) {
@@ -686,7 +655,6 @@ export function resetPersistentLoginState(service: PersistentPrefillServiceId): 
   clearPersistentLoginClock(service);
   clearPersistentLoginTimeout(service);
   requestedLoginStarts.delete(service);
-  activeLoginEditActions.delete(service);
   integrationReuseEpochs.delete(service);
   const current = states.get(service);
   if (current === undefined || current === INITIAL_PERSISTENT_LOGIN_STATE) {
@@ -706,10 +674,10 @@ export function resetPersistentLoginState(service: PersistentPrefillServiceId): 
 
 /**
  * Terminal reset for a REST call (challenge read or credential submit) that came back 409 because
- * the pinned session was superseded by a newer one (RC3 fix):
+ * the pinned session was superseded by a newer one:
  * the daemon session this login flow was pinned to is no longer the active one for this service
  * (the user stopped it and a fresh container started, or a scheduled run replaced it). Continuing
- * to poll/submit against the dead session is exactly the cross-session leak RC3 closed on the
+ * to poll/submit against the dead session is exactly the cross-session leak that was closed on the
  * backend, so the flow resets to idle - like `resetPersistentLoginState` - but carries a translated
  * `message` (set as `error`, the same field the card's existing login-error alert already renders)
  * so the reset explains itself instead of just silently going blank.
@@ -733,7 +701,7 @@ export function resetPersistentLoginSessionReplaced(
  * challenge, so `dismissed` is left untouched instead of being force-reset to false - otherwise a
  * modal the user deliberately dismissed would silently reopen itself.
  *
- * `sessionId` (RC3 fix) pins the store to the session this
+ * `sessionId` pins the store to the session this
  * challenge came from, when the caller has one to supply - omit it (`undefined`) to leave an
  * already-pinned session untouched (e.g. a caller that hasn't resolved a session id itself yet).
  * Pass `null` explicitly only to deliberately clear the pin.
@@ -877,7 +845,7 @@ export function usePersistentLoginStoreState(
   );
 }
 
-/** The error that makes the account read "Login failed"; a failed cancel shows its text but is not one [97]. */
+/** The error that makes the account read "Login failed"; a failed cancel shows its text but is not one. */
 export function getPersistentLoginFailure(state: PersistentLoginStoreState): string | null {
   return state.endReason === 'cancelFailed' ? null : state.error;
 }
@@ -894,11 +862,7 @@ export function hasActivePersistentLogin(service: PersistentPrefillServiceId): b
 }
 
 export function hasPersistentLoginIntent(service: PersistentPrefillServiceId): boolean {
-  return (
-    requestedLoginStarts.has(service) ||
-    activeLoginEditActions.has(service) ||
-    hasActivePersistentLogin(service)
-  );
+  return requestedLoginStarts.has(service) || hasActivePersistentLogin(service);
 }
 
 /**
@@ -912,8 +876,8 @@ export function isPersistentLoginDismissed(service: PersistentPrefillServiceId):
 }
 
 /**
- * Plain (non-hook) read of the sessionId a service's in-flight login is currently pinned to (RC3
- * fix). Used by the SignalR credential-challenge handler
+ * Plain (non-hook) read of the sessionId a service's in-flight login is currently pinned to.
+ * Used by the SignalR credential-challenge handler
  * (`usePersistentLoginChallengeSignalR`), which runs outside render and cannot subscribe via
  * `usePersistentLoginStoreState`: it fences an incoming push against this pin so a challenge for
  * an already-superseded session can never be applied, even if the caller's own `containersByService`
@@ -1077,7 +1041,7 @@ type PersistentLoginReconcileResult = 'authenticated' | 'challenge' | 'none' | '
  * survives a full page reload, not just a component remount. Transport failure remains a best-effort
  * probe miss; a cached challenge without matching clock authority exposes the admission error.
  *
- * `sessionId` (RC3 fix) is now REQUIRED by the challenge GET -
+ * `sessionId` is now REQUIRED by the challenge GET -
  * the caller passes the currently-known container's session id (`PersistentPrefillContainerDto.sessionId`,
  * already loaded for the reconcile effect's own running/authenticated checks). A 409
  * `session_replaced` here (the container list was momentarily stale) is just another "no pending

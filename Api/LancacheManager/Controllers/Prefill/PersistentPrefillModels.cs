@@ -1,4 +1,3 @@
-using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Models;
 
@@ -18,25 +17,6 @@ public sealed class PersistentSelectedAppsRequest
     public required PrefillPlatform Service { get; init; }
     public string? SessionId { get; init; }
     public required List<string> AppIds { get; init; }
-    public string? EditSessionId { get; init; }
-    public string? EditActionId { get; init; }
-}
-
-/// <summary>Starts prefill on the running persistent session (mirrors guest StartPrefillRequest).</summary>
-public sealed class PersistentStartPrefillRequest
-{
-    public required PrefillPlatform Service { get; init; }
-    public string? SessionId { get; init; }
-    public List<string>? AppIds { get; init; }
-    public bool All { get; init; }
-    public bool Recent { get; init; }
-    public bool RecentlyPurchased { get; init; }
-    public int? Top { get; init; }
-    public bool Force { get; init; }
-    public List<string>? OperatingSystems { get; init; }
-    public int? MaxConcurrency { get; init; }
-    public string? EditSessionId { get; init; }
-    public string? EditActionId { get; init; }
 }
 
 /// <summary>Request body for starting a persistent session.</summary>
@@ -44,9 +24,6 @@ public sealed class StartPersistentSessionRequest
 {
     /// <summary>Platform whose daemon should own the persistent session.</summary>
     public required PrefillPlatform Service { get; init; }
-
-    public string? EditSessionId { get; init; }
-    public string? EditActionId { get; init; }
 }
 
 /// <summary>
@@ -63,28 +40,8 @@ public sealed class PersistentLoginRequest
     /// require a pinned session validate only their own prerequisites.
     /// </summary>
     public string? SessionId { get; init; }
-    public string? EditSessionId { get; init; }
-    public string? EditActionId { get; init; }
     public bool ReuseIntegration { get; init; }
     public Guid? LoginId { get; init; }
-}
-
-public sealed class PersistentPrefillEditSessionCleanupRequest
-{
-    public required string EditSessionId { get; init; }
-    public required string CleanupId { get; init; }
-    public required List<PersistentPrefillEditSessionCleanupServiceRequest> Services { get; init; }
-}
-
-public sealed class PersistentPrefillEditSessionCleanupServiceRequest
-{
-    public required PrefillPlatform Service { get; init; }
-    public string? BaselineSessionId { get; init; }
-    public required List<string> BaselineSelectedAppIds { get; init; }
-    public string? StartSessionId { get; init; }
-    public string? LoginSessionId { get; init; }
-    public string? PrefillSessionId { get; init; }
-    public string? SelectionSessionId { get; init; }
 }
 
 /// <summary>
@@ -98,7 +55,7 @@ public sealed class PersistentProvideCredentialRequest
     public required PrefillPlatform Service { get; init; }
 
     /// <summary>
-    /// Id of the persistent session this credential answers a challenge for. REQUIRED (RC3):
+    /// Id of the persistent session this credential answers a challenge for. REQUIRED:
     /// a mismatch against the currently-active session yields a 409
     /// <c>session_replaced</c> rather than letting the credential land on a replacement session.
     /// </summary>
@@ -109,13 +66,11 @@ public sealed class PersistentProvideCredentialRequest
 
     /// <summary>The encrypted credential value (same shape as the user credential route).</summary>
     public string? Credential { get; init; }
-    public string? EditSessionId { get; init; }
-    public string? EditActionId { get; init; }
 }
 
 /// <summary>
 /// Request body for cancelling a persistent interactive login. Carries the pinned session id so a
-/// cancel for a since-replaced session (RC3) is an idempotent
+/// cancel for a since-replaced session is an idempotent
 /// no-op that never cancels the replacement session's login.
 /// </summary>
 public sealed class PersistentCancelLoginRequest
@@ -166,7 +121,8 @@ public sealed class PersistentPrefillSessionDto
     public IReadOnlyList<DaemonRunStatus> Runs { get; init; } = [];
     public string? DaemonInstanceId { get; init; }
     public IReadOnlyList<string> Features { get; init; } = [];
-    public int MaxConcurrentRuns { get; init; } = 1;
+    /// <summary>The most runs the daemon allows at once. Null before status negotiation or for an outdated daemon.</summary>
+    public int? MaxConcurrentRuns { get; init; }
     public int ActiveRunCount { get; init; }
     public bool Recovering { get; init; }
     /// <summary>Daemon session id.</summary>
@@ -186,19 +142,18 @@ public sealed class PersistentPrefillSessionDto
     public required bool IsAuthenticated { get; init; }
 
     /// <summary>
+    /// True when the daemon's status could not be read for this list, so <see cref="IsAuthenticated"/>
+    /// says nothing about the login. A page shows the sign-in state as unknown and offers no Log in.
+    /// </summary>
+    public bool AuthUnknown { get; init; }
+
+    /// <summary>
     /// The date the admin has to log in again by, and the one every screen shows. The EARLIER of the
     /// manager's validity window (DaemonSession.ExpiresAt) and the daemon's real token expiry, capped
     /// by <see cref="PersistentPrefillController.ComputeEffectiveRelogin"/> at display time so no
     /// screen promises a window that outlives the token.
     /// </summary>
     public required DateTime AuthExpiresAtUtc { get; init; }
-
-    /// <summary>
-    /// UTC instant the session was created. The validity window is anchored here rather than on the
-    /// login, so the UI can show what a changed window would move the re-login date to before the
-    /// change is saved (see <see cref="PrefillDaemonServiceBase.UpdatePersistentSessionExpiryAsync"/>).
-    /// </summary>
-    public required DateTime CreatedAtUtc { get; init; }
 
     /// <summary>True when the session is past expiry and the admin must re-authenticate in place.</summary>
     public required bool NeedsRelogin { get; init; }
@@ -212,18 +167,6 @@ public sealed class PersistentPrefillSessionDto
     /// Null when the session is not running, the status call fails, or the daemon does not report it.
     /// </summary>
     public DateTimeOffset? DaemonAuthExpiresAtUtc { get; init; }
-
-    /// <summary>True while a prefill download is in progress on this session.</summary>
-    public bool IsPrefilling { get; init; }
-
-    /// <summary>Identity of the active prefill run, or null while no prefill is running.</summary>
-    public Guid? RunId { get; init; }
-
-    /// <summary>Aggregate bytes transferred during the current or last prefill run.</summary>
-    public long TotalBytesTransferred { get; init; }
-
-    /// <summary>Name of the app currently being prefilled, if any.</summary>
-    public string? CurrentAppName { get; init; }
 }
 
 /// <summary>Persistent login validity window, in days.</summary>

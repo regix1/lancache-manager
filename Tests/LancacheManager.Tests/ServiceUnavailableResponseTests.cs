@@ -19,7 +19,7 @@ namespace LancacheManager.Tests;
 /// <summary>
 /// What a caller receives when the request was fine but something the server depends on is not
 /// there. Two sites throw <see cref="ServiceUnavailableException"/>: Docker being unreachable in
-/// <c>PrefillDaemonServiceBase.StartPersistentSessionForEditAsync</c>, and the GitHub depot download
+/// <c>PrefillDaemonServiceBase.StartPersistentSessionAsync</c>, and the GitHub depot download
 /// failing in <c>DepotsController.ImportDepotMappingsAsync</c>. Both sentences name the dependency
 /// and say what to do about it, which is exactly what a 500 would throw away.
 ///
@@ -35,7 +35,9 @@ namespace LancacheManager.Tests;
 public class ServiceUnavailableResponseTests
 {
     private const string DockerUnavailableMessage =
-        "Docker is not running or not accessible. Please start Docker Desktop and try again.";
+        "Docker is not running or not reachable. Start Docker, or mount /var/run/docker.sock into the LANCache Manager container, then try again.";
+
+    private const string DockerUnavailableStageKey = "errors.prefill.dockerUnavailable";
 
     private const string DepotImportFailedMessage =
         "Failed to download and import pre-created depot data from GitHub";
@@ -48,36 +50,36 @@ public class ServiceUnavailableResponseTests
     /// on the type the method actually throws rather than on one constructed here.
     /// </summary>
     [Fact]
-    public async Task DockerUnavailable_StartingEditSession_ThrowsServiceUnavailable()
+    public async Task DockerUnavailable_StartingPersistentSession_ThrowsServiceUnavailable()
     {
         var daemon = CreateDaemonWithUnavailableDocker();
 
         var thrown = await Assert.ThrowsAsync<ServiceUnavailableException>(
-            () => daemon.StartPersistentSessionForEditAsync(
+            () => daemon.StartPersistentSessionAsync(
                 PrefillPlatform.Steam,
                 Guid.NewGuid(),
-                CancellationToken.None));
+                cancellationToken: CancellationToken.None));
 
         Assert.Equal(DockerUnavailableMessage, thrown.Message);
+        Assert.Equal(DockerUnavailableStageKey, thrown.StageKey);
     }
 
     [Fact]
     public async Task DockerUnavailable_ThrownAsServiceUnavailable_Returns503WithTheRealMessage()
     {
-        var response = await RunMiddlewareAsync(new ServiceUnavailableException(DockerUnavailableMessage));
+        var daemon = CreateDaemonWithUnavailableDocker();
+        var thrown = await Record.ExceptionAsync(
+            () => daemon.StartPersistentSessionAsync(
+                PrefillPlatform.Steam,
+                Guid.NewGuid(),
+                cancellationToken: CancellationToken.None));
+        Assert.NotNull(thrown);
+
+        var response = await RunMiddlewareAsync(thrown);
 
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, response.StatusCode);
         Assert.Equal(DockerUnavailableMessage, response.Error);
-    }
-
-    [Fact]
-    public async Task DockerUnavailable_ThrownAsInvalidOperation_Returns500AndLosesTheMessage()
-    {
-        var response = await RunMiddlewareAsync(new InvalidOperationException(DockerUnavailableMessage));
-
-        Assert.Equal(StatusCodes.Status500InternalServerError, response.StatusCode);
-        Assert.Equal(GenericServerMessage, response.Error);
-        Assert.DoesNotContain("Docker", response.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(DockerUnavailableStageKey, response.StageKey);
     }
 
     [Fact]
@@ -100,9 +102,9 @@ public class ServiceUnavailableResponseTests
     }
 
     /// <summary>
-    /// A daemon whose only configured behaviour is a docker seam that reports itself unavailable.
-    /// The availability check is the first statement in the method under test, so nothing past the
-    /// seam needs to work for the throw to be reached.
+    /// A daemon whose only configured behavior is a docker seam that reports itself unavailable.
+    /// The availability check comes before any container work in the method under test, so nothing
+    /// past the seam needs to work for the throw to be reached.
     /// </summary>
     private static SteamDaemonService CreateDaemonWithUnavailableDocker()
     {
@@ -146,11 +148,12 @@ public class ServiceUnavailableResponseTests
         using var document = JsonDocument.Parse(json);
         return new ErrorResponse(
             context.Response.StatusCode,
-            document.RootElement.GetProperty("error").GetString() ?? string.Empty);
+            document.RootElement.GetProperty("error").GetString() ?? string.Empty,
+            document.RootElement.TryGetProperty("stageKey", out var stageKey) ? stageKey.GetString() : null);
     }
 
-    /// <summary>The two parts of the middleware's reply this file asserts on.</summary>
-    private sealed record ErrorResponse(int StatusCode, string Error);
+    /// <summary>The parts of the middleware's reply this file asserts on.</summary>
+    private sealed record ErrorResponse(int StatusCode, string Error, string? StageKey);
 
     private sealed class InMemoryDbContextFactory : IDbContextFactory<AppDbContext>
     {

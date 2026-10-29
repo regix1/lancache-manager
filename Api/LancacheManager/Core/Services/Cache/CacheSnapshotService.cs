@@ -107,7 +107,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
 
         // Skip if no valid data (e.g., on Windows development). An automatic run returns before
         // starting so a run with nothing to record never surfaces a card, and a Run Now reports itself
-        // skipped below so the click is answered. [59]
+        // skipped below so the click is answered.
         var nothingToRecord = cacheInfo.TotalCacheSize == 0 && cacheInfo.UsedCacheSize == 0;
         if (nothingToRecord)
         {

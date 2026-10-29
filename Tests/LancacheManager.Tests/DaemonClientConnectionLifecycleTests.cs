@@ -964,11 +964,9 @@ public sealed class DaemonClientConnectionLifecycleTests
     }
 
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public async Task EmptyCacheSnapshotIsSentOverTheTransportAsync(bool useTcp, bool concurrent)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EmptyCacheSnapshotIsSentOverTheTransportAsync(bool useTcp)
     {
         using var endpoint = LoopbackEndpoint.Create(useTcp);
         using var client = endpoint.CreateClient();
@@ -980,14 +978,11 @@ public sealed class DaemonClientConnectionLifecycleTests
         {
             using var connection = await endpoint.AcceptAsync(timeout.Token);
             using var stream = new NetworkStream(connection, ownsSocket: false);
-            if (concurrent)
-            {
-                var status = await ReadRequestAsync(stream, timeout.Token);
-                Assert.Equal("status", status.Type);
-                await WriteResponseAsync(stream, status.Id, true, null, null, timeout.Token,
-                    result: JsonSerializer.SerializeToElement(RunClient.Capabilities(instanceId),
-                        new JsonSerializerOptions(JsonSerializerDefaults.Web)));
-            }
+            var status = await ReadRequestAsync(stream, timeout.Token);
+            Assert.Equal("status", status.Type);
+            await WriteResponseAsync(stream, status.Id, true, null, null, timeout.Token,
+                result: JsonSerializer.SerializeToElement(RunClient.Capabilities(instanceId),
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             var length = new byte[4];
             await ReadExactlyAsync(stream, length, timeout.Token);
             var body = new byte[BitConverter.ToInt32(length)];
@@ -1006,20 +1001,13 @@ public sealed class DaemonClientConnectionLifecycleTests
         }, timeout.Token);
         try
         {
-            if (concurrent)
+            Assert.True((await client.GetStatusAsync(timeout.Token))?.SupportsConcurrentPrefill);
+            Assert.True((await client.PrefillAsync(runId, instanceId, new DaemonRunOptions
             {
-                Assert.True((await client.GetStatusAsync(timeout.Token))?.SupportsConcurrentPrefill);
-                Assert.True((await client.PrefillAsync(runId, instanceId, new DaemonRunOptions
-                {
-                    AppIds = ["10"],
-                    Selection = "selected",
-                    MaxConcurrency = 1
-                }, [], timeout.Token)).Success);
-            }
-            else
-            {
-                Assert.True((await client.PrefillAsync(cachedDepots: [], cancellationToken: timeout.Token)).Success);
-            }
+                AppIds = ["10"],
+                Selection = "selected",
+                MaxConcurrency = 1
+            }, [], timeout.Token)).Success);
         }
         finally { release.TrySetResult(); }
         await server;
@@ -1132,6 +1120,53 @@ public sealed class DaemonClientConnectionLifecycleTests
         await responseServer;
     }
 
+    [Fact]
+    public async Task CanceledSendOfALargeCommand_EndsTheConnectionAndTheNextCommandUsesANewOneAsync()
+    {
+        using var endpoint = LoopbackEndpoint.Create(useTcp: true);
+        using var client = new UnbufferedSendClient(((IPEndPoint)endpoint.ListenerEndPoint).Port)
+        {
+            SignInLostStageKey = "errors.steam.signInLost"
+        };
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        using var cancelSend = new CancellationTokenSource();
+
+        // The first daemon accepts and never reads, so a command too large for the socket buffers stays
+        // half written until it is canceled.
+        var firstAccepted = endpoint.AcceptAsync(timeout.Token).AsTask();
+        var send = client.SendCommandAsync(
+            "large",
+            new Dictionary<string, string> { ["value"] = new string('x', 32 * 1024 * 1024) },
+            timeout: TimeSpan.FromSeconds(30),
+            cancellationToken: cancelSend.Token);
+        using var first = await firstAccepted;
+        await Task.Delay(500, timeout.Token);
+        Assert.False(send.IsCompleted);
+
+        cancelSend.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => send.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        // Part of the frame is on the wire, so the connection must not be reused.
+        Assert.True(SpinWait.SpinUntil(() => !IsConnected(client), TimeSpan.FromSeconds(3)));
+
+        var secondServer = Task.Run(async () =>
+        {
+            using var connection = await endpoint.AcceptAsync(timeout.Token);
+            using var stream = new NetworkStream(connection, ownsSocket: false);
+            var request = await ReadRequestAsync(stream, timeout.Token);
+            await WriteResponseAsync(stream, request.Id, success: true, request.Type, null, timeout.Token);
+        }, timeout.Token);
+
+        var response = await client.SendCommandAsync(
+            "after-cancel",
+            timeout: TimeSpan.FromSeconds(5),
+            cancellationToken: timeout.Token);
+
+        Assert.True(response.Success);
+        Assert.Equal("after-cancel", response.Message);
+        await secondServer;
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -1158,78 +1193,6 @@ public sealed class DaemonClientConnectionLifecycleTests
 
         Assert.Equal("first", responses[0].Message);
         Assert.Equal("second", responses[1].Message);
-        await server;
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task CancelPrefillAsync_RejectedResponseThrowsAsync(bool useTcp)
-    {
-        using var endpoint = LoopbackEndpoint.Create(useTcp);
-        using var client = endpoint.CreateClient();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-
-        var server = Task.Run(async () =>
-        {
-            using var connection = await endpoint.AcceptAsync(timeout.Token);
-            using var stream = new NetworkStream(connection, ownsSocket: false);
-            var request = await ReadRequestAsync(stream, timeout.Token);
-            Assert.Equal("cancel-prefill", request.Type);
-            await WriteResponseAsync(stream, request.Id, success: false, null, "still running", timeout.Token);
-        }, timeout.Token);
-
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => client.CancelPrefillAsync(timeout.Token));
-
-        Assert.Contains("still running", exception.Message, StringComparison.Ordinal);
-        await server;
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task PrefillAsync_LoginRejectionPreservesTypedResult(bool useTcp)
-    {
-        using var endpoint = LoopbackEndpoint.Create(useTcp);
-        using var client = endpoint.CreateClient();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-        var server = Task.Run(async () =>
-        {
-            using var connection = await endpoint.AcceptAsync(timeout.Token);
-            using var stream = new NetworkStream(connection, ownsSocket: false);
-            var request = await ReadRequestAsync(stream, timeout.Token);
-            Assert.Equal("prefill", request.Type);
-            await WriteResponseAsync(stream, request.Id, false, null, "Login expired", timeout.Token, requiresLogin: true);
-        }, timeout.Token);
-        var result = await client.PrefillAsync(cancellationToken: timeout.Token);
-        Assert.False(result.Success);
-        Assert.True(result.RequiresLogin);
-        Assert.Equal("Steam is no longer signed in. Sign in again, then retry the prefill.", result.ErrorMessage);
-        Assert.Equal("errors.steam.signInLost", result.StageKey);
-        await server;
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task PrefillAsync_UsesRunIdForCommandAndAcceptsLegacyAck(bool useTcp)
-    {
-        using var endpoint = LoopbackEndpoint.Create(useTcp);
-        using var client = endpoint.CreateClient();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-        var runId = Guid.NewGuid();
-        var server = Task.Run(async () =>
-        {
-            using var connection = await endpoint.AcceptAsync(timeout.Token);
-            using var stream = new NetworkStream(connection, ownsSocket: false);
-            var request = await ReadRequestAsync(stream, timeout.Token);
-            Assert.Equal(runId.ToString(), request.Id);
-            await WriteResponseAsync(stream, request.Id, true, "Prefill started", null, timeout.Token);
-        }, timeout.Token);
-
-        var result = await client.PrefillAsync(cancellationToken: timeout.Token, runId: runId);
-        Assert.True(result.Success);
         await server;
     }
 
@@ -1583,68 +1546,6 @@ public sealed class DaemonClientConnectionLifecycleTests
         await server;
     }
 
-    [Theory]
-    [InlineData("auth-lost", "errors.steam.signInLost")]
-    [InlineData("game-details-unavailable", "errors.steam.gameDetailsUnavailable")]
-    [InlineData(null, "errors.prefill.requestFailed")]
-    public async Task PrefillAsync_FailedResultUsesSafeClassification(string? code, string stageKey)
-    {
-        using var endpoint = LoopbackEndpoint.Create(true);
-        using var client = endpoint.CreateClient();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-        var server = Task.Run(async () =>
-        {
-            using var connection = await endpoint.AcceptAsync(timeout.Token);
-            using var stream = new NetworkStream(connection, ownsSocket: false);
-            var request = await ReadRequestAsync(stream, timeout.Token);
-            await WriteResponseAsync(stream, request.Id, true, null, null, timeout.Token,
-                result: JsonSerializer.SerializeToElement(new
-                {
-                    success = false,
-                    errorMessage = "Remote.JobFailure: stack details",
-                    errorCode = code,
-                    requiresLogin = code == "auth-lost"
-                }));
-        }, timeout.Token);
-
-        var result = await client.PrefillAsync(cancellationToken: timeout.Token);
-        Assert.False(result.Success);
-        Assert.Equal(stageKey, result.StageKey);
-        Assert.Equal(code == "auth-lost", result.RequiresLogin);
-        Assert.DoesNotContain("Remote.JobFailure", result.ErrorMessage!, StringComparison.Ordinal);
-        await server;
-    }
-
-    [Fact]
-    public async Task PrefillDispatchIsConfirmedBeforeItsResponse()
-    {
-        using var endpoint = LoopbackEndpoint.Create(true);
-        using var client = endpoint.CreateClient();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-        var read = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var dispatched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var server = Task.Run(async () =>
-        {
-            using var connection = await endpoint.AcceptAsync(timeout.Token);
-            using var stream = new NetworkStream(connection, ownsSocket: false);
-            var request = await ReadRequestAsync(stream, timeout.Token);
-            read.SetResult();
-            await release.Task.WaitAsync(timeout.Token);
-            await WriteResponseAsync(stream, request.Id, true, null, null, timeout.Token);
-        }, timeout.Token);
-        var pending = client.PrefillAsync(cancellationToken: timeout.Token,
-            onCommandDispatched: () => dispatched.TrySetResult());
-        try
-        {
-            await Task.WhenAll(read.Task, dispatched.Task).WaitAsync(timeout.Token);
-            Assert.False(pending.IsCompleted);
-        }
-        finally { release.TrySetResult(); }
-        Assert.True((await pending).Success);
-        await server;
-    }
-
     [Fact]
     public async Task PendingProgressHandlerDoesNotBlockCommandResponses()
     {
@@ -1717,6 +1618,36 @@ public sealed class DaemonClientConnectionLifecycleTests
         await ReadExactlyAsync(stream, requestBuffer, cancellationToken);
         using var request = JsonDocument.Parse(requestBuffer);
         return request.RootElement.Clone();
+    }
+
+    // An older daemon whose status reply does not fit the current shape still reports why it is signed out.
+    [Fact]
+    public async Task GetStatusAsync_MalformedReplyKeepsItsErrorCode()
+    {
+        using var endpoint = LoopbackEndpoint.Create(true);
+        using var client = endpoint.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var server = Task.Run(async () =>
+        {
+            using var connection = await endpoint.AcceptAsync(timeout.Token);
+            using var stream = new NetworkStream(connection, ownsSocket: false);
+            var request = await ReadRequestAsync(stream, timeout.Token);
+            Assert.Equal("status", request.Type);
+            await WriteResponseAsync(stream, request.Id, true, null, null, timeout.Token,
+                result: JsonSerializer.SerializeToElement(new
+                {
+                    isLoggedIn = false,
+                    isInitialized = true,
+                    errorCode = "auth-lost",
+                    features = 5
+                }));
+        }, timeout.Token);
+
+        var status = await client.GetStatusAsync(timeout.Token);
+
+        await server;
+        Assert.Equal("not-logged-in", status!.Status);
+        Assert.Equal("auth-lost", status.ErrorCode);
     }
 
     private static async Task WriteResponseAsync(
@@ -1793,6 +1724,36 @@ public sealed class DaemonClientConnectionLifecycleTests
 
     private sealed record DaemonRequest(string Id, string Type);
 
+    /// <summary>
+    /// A TCP client whose socket has no send buffer, so a send of a large command stays unfinished until
+    /// the daemon reads it.
+    /// </summary>
+    private sealed class UnbufferedSendClient : DaemonClientBase
+    {
+        private static readonly DaemonTransportLabels _labels = new("TCP connection", "TCP endpoint");
+        private readonly int _port;
+
+        public UnbufferedSendClient(int port)
+            : base(sharedSecret: null, logger: NullLogger.Instance)
+        {
+            _port = port;
+        }
+
+        protected override DaemonTransportLabels TransportLabels => _labels;
+
+        protected override Socket CreateSocket()
+            => new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp) { SendBufferSize = 0 };
+
+        protected override Task ConnectSocketAsync(Socket socket, CancellationToken cancellationToken)
+            => socket.ConnectAsync(IPAddress.Loopback, _port, cancellationToken).AsTask();
+
+        protected override async Task ConnectCoreAsync(CancellationToken cancellationToken)
+        {
+            await DisconnectCoreAsync();
+            await EstablishConnectionAsync(cancellationToken);
+        }
+    }
+
     private sealed class LoopbackEndpoint : IDisposable
     {
         private readonly Socket _listener;
@@ -1828,7 +1789,8 @@ public sealed class DaemonClientConnectionLifecycleTests
                 return new SocketDaemonClient(
                     _socketPath,
                     sharedSecret: null,
-                    logger: NullLogger<SocketDaemonClient>.Instance);
+                    logger: NullLogger<SocketDaemonClient>.Instance)
+                { SignInLostStageKey = "errors.steam.signInLost" };
             }
 
             var endpoint = (IPEndPoint)_listener.LocalEndPoint!;
@@ -1836,8 +1798,11 @@ public sealed class DaemonClientConnectionLifecycleTests
                 IPAddress.Loopback.ToString(),
                 endpoint.Port,
                 sharedSecret: null,
-                logger: NullLogger<TcpDaemonClient>.Instance);
+                logger: NullLogger<TcpDaemonClient>.Instance)
+            { SignInLostStageKey = "errors.steam.signInLost" };
         }
+
+        public EndPoint ListenerEndPoint => _listener.LocalEndPoint!;
 
         public ValueTask<Socket> AcceptAsync(CancellationToken cancellationToken)
             => _listener.AcceptAsync(cancellationToken);

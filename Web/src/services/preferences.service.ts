@@ -13,6 +13,8 @@ import {
 interface SignalRConnection {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   on: (eventName: string, handler: (...args: any[]) => void) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  off: (eventName: string, handler: (...args: any[]) => void) => void;
 }
 
 type UserPreferences = Omit<SessionUserPreferences, 'refreshRateLocked'>;
@@ -206,8 +208,11 @@ class PreferencesService {
    * - UserSessionRevoked
    *
    * Guest default preference events are handled by SessionPreferencesContext.
+   *
+   * Returns a function that removes both listeners; the connection state changes often, so each
+   * run has to take its listeners off before the next run adds its own.
    */
-  setupSignalRListener(signalR: SignalRConnection): void {
+  setupSignalRListener(signalR: SignalRConnection): () => void {
     let isProcessingReset = false;
     const recentRevocations = new Set<string>();
 
@@ -250,6 +255,11 @@ class PreferencesService {
 
     signalR.on('UserPreferencesReset', handlePreferencesReset);
     signalR.on('UserSessionRevoked', handleSessionRevoked);
+
+    return () => {
+      signalR.off('UserPreferencesReset', handlePreferencesReset);
+      signalR.off('UserSessionRevoked', handleSessionRevoked);
+    };
   }
 }
 

@@ -6,9 +6,11 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatCount } from '@utils/formatters';
 import { PrefillProgressCard } from './PrefillProgressCard';
 import { getPrefillRunProgress, isPrefillRunActive, type PrefillRun } from './hooks/prefillTypes';
+import type { GameServiceId } from '@/types/gameService';
 
 interface PrefillRunsProps {
   runs?: PrefillRun[];
+  serviceId: GameServiceId;
   activeCount?: number;
   disabled?: boolean;
   onCancel?: (runId: string) => void;
@@ -20,6 +22,7 @@ interface PrefillRunsProps {
 
 export function PrefillRuns({
   runs = [],
+  serviceId,
   activeCount = 0,
   disabled = false,
   onCancel,
@@ -50,6 +53,7 @@ export function PrefillRuns({
             <PrefillProgressCard
               key={`${run.sessionId}:${run.daemonInstanceId}:${run.runId}`}
               run={run}
+              serviceId={serviceId}
               progress={getPrefillRunProgress(run)}
               onCancel={onCancel ? () => onCancel(run.runId) : undefined}
               isCancelling={run.cancelRequested || Boolean(cancellingRunIds?.includes(run.runId))}
@@ -84,6 +88,7 @@ export function PrefillRuns({
               <PrefillProgressCard
                 key={`${run.sessionId}:${run.daemonInstanceId}:${run.runId}`}
                 run={run}
+                serviceId={serviceId}
                 progress={getPrefillRunProgress(run)}
                 history
               />

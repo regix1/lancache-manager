@@ -29,6 +29,7 @@ import type {
 import { corruptionNotificationDetails, formatCorruptionProgress } from './corruptionProgress';
 import {
   ACTIVE_PROGRESS_PERCENT_CAP,
+  GENERIC_CANCELLED_I18N_KEY,
   GENERIC_COMPLETION_I18N_KEY,
   GENERIC_FAILURE_I18N_KEY,
   REMOVING_GAME_I18N_KEY
@@ -81,6 +82,8 @@ import {
   stageKeyMessage
 } from './registryEntries';
 import {
+  blankStringValues,
+  datasourceFailureValues,
   hasUnresolvedInterpolation,
   translateRecoveryStage,
   translateStageKeyMessage
@@ -237,7 +240,7 @@ function scheduledPrefillDetails(
  * context) and the per-service terminal event (`ScheduledPrefillCompleted` likewise). Translating
  * `signalr.scheduledPrefill.runningWithCounts` without them put a literal
  * "Prefill in progress ({{completed}} of {{total}} games)" on the card. The English beside the key
- * is that same line already filled in, so it is what the reader gets instead. [35]
+ * is that same line already filled in, so it is what the reader gets instead.
  */
 function scheduledPrefillSentence(
   stageKey: string | null | undefined,
@@ -245,12 +248,15 @@ function scheduledPrefillSentence(
   english: string | null | undefined,
   fallbackKey?: string
 ): string {
-  const translated = translateStageKeyMessage(
-    stageKey ?? english,
-    stageContext ?? undefined,
+  const key = stageKey ?? english;
+  const translated = translateStageKeyMessage(key, stageContext ?? undefined, fallbackKey);
+  // A game name may hold `{{` or `}}`, so only a token with no value behind it counts as unfilled.
+  const blanked = translateStageKeyMessage(
+    key,
+    blankStringValues(stageContext ?? undefined),
     fallbackKey
   );
-  if (!hasUnresolvedInterpolation(translated)) {
+  if (!hasUnresolvedInterpolation(blanked)) {
     return translated;
   }
 
@@ -380,7 +386,18 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           event.entriesProcessed,
           event.linesProcessed,
           event.elapsed
-        )
+        ),
+      // The server sends a failure's reason in message; the event has no error field. A restart
+      // that cut the run short sends that reason as a key, and the reloaded card reads the same
+      // message the same way.
+      getFailureMessage: (event: LogProcessingCompleteEvent) =>
+        translateRecoveryStage(
+          event.message,
+          datasourceFailureValues(event.datasource, event.databaseError),
+          GENERIC_FAILURE_I18N_KEY
+        ),
+      // A cancel carries no reason, so the card always reads the one cancelled key.
+      getCancelledMessage: () => i18n.t(GENERIC_CANCELLED_I18N_KEY)
     }
   }),
 
@@ -478,8 +495,13 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         ...existing?.details,
         linesProcessed: event.linesProcessed
       }),
-      // The server sends a failure's reason in message; the event has no error field.
-      getFailureMessage: (event: LogRemovalCompleteEvent) => event.message
+      // The server sends a failure's reason in message; the event has no error field. A restart
+      // that cut the run short sends that reason as a key.
+      getFailureMessage: (event: LogRemovalCompleteEvent) =>
+        translateStageKeyMessage(event.message),
+      // A cancel's message is a fixed English sentence from the server, and its stage key is the last
+      // progress stage, so the card reads the generic key.
+      getCancelledMessage: () => i18n.t(GENERIC_CANCELLED_I18N_KEY)
     }
   }),
 
@@ -1188,7 +1210,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
               // so "everything was already cached (0 bytes)" exists nowhere else. Overwriting it with
               // the bare "<service> completed" left the user unable to tell a successful no-op from a
               // silent failure. Same shape as the skipped arm above. The generic sentence still covers
-              // a card that never saw that progress line, such as one rebuilt after a reload. [31]
+              // a card that never saw that progress line, such as one rebuilt after a reload.
               (existing?.message ??
               i18n.t('management.schedules.services.scheduledPrefill.events.completed', {
                 service: scheduledPrefillServiceLabel(event.serviceId ?? '', event.scheduleName)
@@ -1203,7 +1225,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getCancelledDetails: scheduledPrefillDetails,
       // The bytes line is a LIVE counter for the game downloading right now, so a finished card
       // kept showing a number that had stopped moving. The result sentence above already carries
-      // the run's total, so the terminal drops the line rather than restating it. [32]
+      // the run's total, so the terminal drops the line rather than restating it.
       getDetailMessage: () => undefined,
       getFailureMessage: (event: ScheduledPrefillCompletedEvent) =>
         i18n.t('management.schedules.services.scheduledPrefill.events.failed', {
@@ -1236,7 +1258,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         event.gameName
           ? i18n.t(REMOVING_GAME_I18N_KEY, { name: event.gameName })
           : i18n.t(event.stageKey ?? 'signalr.evictionRemove.starting.bulk', event.context ?? {}),
-      // Scope → identifier-field mapping for eviction_removal (T8.3 load-bearing comment):
+      // Scope → identifier-field mapping for eviction_removal:
       //
       // eviction_removal has a 4-way identifier union depending on scope:
       //   steam   → details.gameAppId: number (Number(event.gameAppId)), details.steamAppId: string (raw)
@@ -1652,8 +1674,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   },
 
   // The server run row opens and ends this card. This entry gives the card a cancel action that
-  // posts to the operation endpoint; it needs no client recovery. The completion event only
-  // refreshes the unmapped list.
+  // posts to the operation endpoint; it needs no client recovery. The completion event reloads the
+  // game detection results and refreshes the dashboard.
   {
     type: 'unmapped_file_removal',
     cancelKind: 'serverOp',

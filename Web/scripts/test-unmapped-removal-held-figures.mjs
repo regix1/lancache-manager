@@ -96,6 +96,7 @@ const { default: CacheRemovalModal } = await import(
     'react-i18next': i18nUrl,
     '@components/common/ConfirmationModal': passThroughUrl,
     '@components/ui/Alert': passThroughUrl,
+    '@components/ui/Button': passThroughUrl,
     '@hooks/useHeldValue': heldValueUrl,
     '@utils/formatters': formattersUrl
   })
@@ -113,6 +114,7 @@ const render = (props) => {
       onRetry: noop,
       confirming: false,
       error: null,
+      failureReason: null,
       statusMessage: 'Counting',
       ...props
     })
@@ -169,7 +171,15 @@ test('a closing game dialog keeps its counted figures when another dialog resets
   const renderGame = (props) => {
     globalThis.__heldFiguresIndex = 0;
     globalThis.__heldFiguresSlots = slots;
-    return renderToStaticMarkup(CacheRemovalModal({ onClose: noop, onConfirm: noop, ...props }));
+    return renderToStaticMarkup(
+      CacheRemovalModal({
+        onClose: noop,
+        onConfirm: noop,
+        confirming: false,
+        error: null,
+        ...props
+      })
+    );
   };
   const countedGame = {
     fileCount: 5,
@@ -193,6 +203,29 @@ test('a closing game dialog keeps its counted figures when another dialog resets
   const fadingAfterReset = renderGame({ target: null, ...resetGame });
   assert.match(fadingAfterReset, /modals\.cacheRemoval\.summaryGameCounted/);
   assert.match(fadingAfterReset, /CONFIRM-IDLE/);
+
+  // A refused removal keeps the dialog open with the reason, and Confirm busy while it runs.
+  slots = [];
+  assert.match(renderGame({ target, ...countedGame, confirming: true }), /CONFIRM-BUSY/);
+  const refused = renderGame({ target, ...countedGame, error: 'A download is in progress' });
+  assert.match(refused, /A download is in progress/);
+  assert.match(refused, /CONFIRM-IDLE/);
+});
+
+test('a failed count shows the reason the server gave under the failure line', () => {
+  slots = [];
+  const withReason = render({
+    opened: true,
+    ...reset,
+    failed: true,
+    failureReason: 'No cache files'
+  });
+  assert.match(withReason, /modals\.unmappedRemoval\.countFailed/);
+  assert.match(withReason, /No cache files/);
+
+  slots = [];
+  const withoutReason = render({ opened: true, ...reset, failed: true });
+  assert.match(withoutReason, /modals\.unmappedRemoval\.countFailed<\/p><\/div>/);
 });
 
 test('reopening the dialog shows the new count state, not the held figures', () => {
@@ -233,6 +266,10 @@ test('every count state sits in the box that reserves the counted figures room, 
   assert.ok(rule, 'modals.css defines .unmapped-removal-count');
   assert.match(rule[1], /(^|[\s;])height:\s*8rem/);
   assert.doesNotMatch(rule[1], /(min|max)-height/);
+  // The box lays out its own column rather than borrowing the dialog's content class.
+  assert.match(rule[1], /display:\s*flex/);
+  assert.match(rule[1], /flex-direction:\s*column/);
+  assert.match(rule[1], /gap:\s*1rem/);
 
   // Any number of services scrolls inside that height, in the app's own scroll area, which fills
   // what the summary leaves and scrolls its viewport.

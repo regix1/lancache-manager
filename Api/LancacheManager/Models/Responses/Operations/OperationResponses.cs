@@ -46,6 +46,12 @@ public class OperationStatusResponse
     public Guid? NextOperationId { get; set; }
     public OperationStatus? NextStatus { get; set; }
     public string? Error { get; set; }
+
+    /// <summary>The datasource a failed log processing run stopped on; the value its error key's text names.</summary>
+    public string? FailedDatasource { get; set; }
+
+    /// <summary>The database error that stopped that datasource, when there was one.</summary>
+    public string? DatabaseError { get; set; }
 }
 
 /// <summary>

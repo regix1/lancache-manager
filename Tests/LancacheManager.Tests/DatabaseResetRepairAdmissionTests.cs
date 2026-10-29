@@ -75,7 +75,7 @@ public sealed class DatabaseResetRepairAdmissionTests
                     StartedAt = now.AddMinutes(-3),
                     Phase = OperationRepairPhase.Repairing,
                     Outcome = OperationStatus.Failed,
-                    Error = "Operation interrupted by application restart",
+                    Error = "signalr.generic.interruptedByRestart",
                     Sources =
                     [
                         new OperationRepairSource
@@ -302,7 +302,7 @@ public sealed class DatabaseResetRepairAdmissionTests
                     repairId,
                     success: false,
                     cancelled: false,
-                    error: "Operation interrupted by application restart");
+                    error: "signalr.generic.interruptedByRestart");
                 releaseApply.TrySetResult();
                 await finish.WaitAsync(waitLimit);
                 await resetContexts.Entered.WaitAsync(waitLimit);

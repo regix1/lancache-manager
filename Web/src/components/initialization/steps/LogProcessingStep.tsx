@@ -27,6 +27,7 @@ import { useConfig } from '@contexts/useConfig';
 import { useSelectionSet } from '@hooks/useSelectionSet';
 import { getErrorMessage } from '@utils/error';
 import { formatCount } from '@utils/formatters';
+import { datasourceFailureValues, translateRecoveryStage } from '@utils/stageKeyMessage';
 
 interface LogProcessingStepProps {
   onComplete: () => void;
@@ -173,7 +174,8 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       if (data.cancelled) {
         setNotice({
           tone: 'info',
-          message: data.message || t('initialization.logProcessing.cancelled')
+          // A cancel carries no reason, so the notice uses the step's own key.
+          message: t('initialization.logProcessing.cancelled')
         });
         setProgress({
           isProcessing: false,
@@ -189,7 +191,13 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       if (!data.success) {
         setNotice({
           tone: 'error',
-          message: data.message || t('initialization.logProcessing.failedToProcess')
+          // The server sends the reason as a key with the values its text names; a message with no key
+          // reads as the step's own failure line, as the card and the reloaded step do.
+          message: translateRecoveryStage(
+            data.message,
+            datasourceFailureValues(data.datasource, data.databaseError),
+            'initialization.logProcessing.failedToProcess'
+          )
         });
         setProgress({
           isProcessing: false,
@@ -321,7 +329,11 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           } else if (run?.status === 'failed') {
             setNotice({
               tone: 'error',
-              message: t('initialization.logProcessing.failedToProcess')
+              message: translateRecoveryStage(
+                run.error,
+                datasourceFailureValues(run.failedDatasource, run.databaseError),
+                'initialization.logProcessing.failedToProcess'
+              )
             });
           } else if (run?.status === 'skipped') {
             // The queue could not start this pass; the person can start it again.

@@ -28,14 +28,17 @@ namespace LancacheManager.Tests;
 [Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class AccountHolderHubAccessTests
 {
+    // The page's create answers each refusal with the access key; a page still open from the previous version
+    // calls the older method and still reads the sentence.
     [Theory]
-    [InlineData("revoked")]
-    [InlineData("deleted")]
-    [InlineData("expired")]
-    [InlineData("grant")]
-    [InlineData("owner")]
-    [InlineData("cookie")]
-    public async Task GuestAuthorizationAsync(string change)
+    [InlineData("revoked", false)]
+    [InlineData("deleted", false)]
+    [InlineData("expired", false)]
+    [InlineData("grant", false)]
+    [InlineData("owner", false)]
+    [InlineData("cookie", false)]
+    [InlineData("revoked", true)]
+    public async Task GuestAuthorizationAsync(string change, bool previousPage)
     {
         using var host = new EndpointAuthorizationHost(authenticationEnabled: true);
         using var isolationClient = host.Application.CreateClient();
@@ -66,8 +69,19 @@ public sealed class AccountHolderHubAccessTests
             else row.SteamPrefillExpiresAtUtc = null;
             await database.SaveChangesAsync();
         }
-        var error = await Assert.ThrowsAsync<HubException>(() => hub.CreateSessionAsync());
-        Assert.Equal("Session access is no longer valid.", error.Message);
+        if (previousPage)
+        {
+            var error = await Assert.ThrowsAsync<HubException>(() => hub.CreateSessionAsync());
+            Assert.Equal("Session access is no longer valid.", error.Message);
+        }
+        else
+        {
+            CreateSessionResult? answer = null;
+            var refused = await Record.ExceptionAsync(async () => answer = await hub.OpenSessionAsync());
+            Assert.Null(refused);
+            Assert.Null(answer!.Session);
+            Assert.Equal("errors.prefill.accessEnded", answer.StageKey);
+        }
         Assert.Empty(host.Application.Services.GetRequiredService<SteamDaemonService>().GetUserSessions(owner));
     }
 
@@ -275,20 +289,11 @@ public sealed class AccountHolderHubAccessTests
         var userSession = await sessionService.ValidateSessionAsync(rawToken!);
         Assert.NotNull(userSession);
 
-        var progress = new PrefillProgress
-        {
-            State = "downloading",
-            CurrentAppName = "Shared game",
-            TotalBytesTransferred = 33_200_000_000
-        };
         var persistent = new DaemonSession
         {
             Id = "shared-persistent",
             UserId = Guid.NewGuid(),
             IsPersistent = true,
-            IsPrefilling = true,
-            PrefillRunId = Guid.NewGuid(),
-            LastProgress = progress,
             Status = DaemonSessionStatus.Active,
             AuthState = DaemonAuthState.Authenticated,
             Client = DispatchProxy.Create<IDaemonClient, NullReturningProxy>()
@@ -309,6 +314,29 @@ public sealed class AccountHolderHubAccessTests
             Status = DaemonSessionStatus.Active,
             Client = DispatchProxy.Create<IDaemonClient, NullReturningProxy>()
         };
+        var runId = Guid.NewGuid();
+        var startedAt = DateTimeOffset.UtcNow;
+        persistent.Runs[runId] = new DaemonRun
+        {
+            PrefillRunId = runId,
+            SessionId = persistent.Id,
+            DaemonInstanceId = "instance",
+            Options = new DaemonRunOptions(),
+            Snapshot = new DaemonRunSnapshot
+            {
+                OperationId = runId.ToString(),
+                DaemonInstanceId = "instance",
+                StartedAt = startedAt,
+                UpdatedAt = startedAt,
+                State = "downloading"
+            },
+            LastProgress = new PrefillProgress
+            {
+                State = "downloading",
+                CurrentAppName = "Shared game",
+                TotalBytesTransferred = 33_200_000_000
+            }
+        };
         daemon.InjectSession(persistent);
         daemon.InjectSession(ownedTemporary);
         daemon.InjectSession(otherTemporary);
@@ -317,14 +345,12 @@ public sealed class AccountHolderHubAccessTests
         await connection.Hub.SubscribeToSessionAsync(persistent.Id);
 
         Assert.Contains(connection.Context.ConnectionId, persistent.SubscribedConnections);
-        Assert.Same(progress, connection.Hub.GetCurrentPrefillProgress(persistent.Id));
         Assert.Contains(
             nameof(ISignalRNotificationService.SendToPrefillClientRawAsync),
             notificationRecorder.InvokedMethods);
         await connection.Hub.SubscribeToSessionAsync(ownedTemporary.Id);
         await Assert.ThrowsAsync<HubException>(
             () => connection.Hub.SubscribeToSessionAsync(otherTemporary.Id));
-        Assert.Throws<HubException>(() => { _ = connection.Hub.GetLastPrefillResult(persistent.Id); });
     }
 
     [Fact]
@@ -368,7 +394,6 @@ public sealed class AccountHolderHubAccessTests
 
     // Pins the ownership check on every hub method a guest with a grant can use to stop a prefill.
     [Theory]
-    [InlineData(nameof(SteamDaemonHub.CancelPrefillAsync))]
     [InlineData(nameof(SteamDaemonHub.CancelPrefillRunAsync))]
     [InlineData(nameof(SteamDaemonHub.CancelLoginAsync))]
     [InlineData(nameof(SteamDaemonHub.CancelLoginAttemptAsync))]
@@ -402,7 +427,6 @@ public sealed class AccountHolderHubAccessTests
                 Id = sessionId,
                 UserId = owner,
                 IsTemporary = true,
-                PrefillRunId = runId,
                 Status = DaemonSessionStatus.Active,
                 Client = DispatchProxy.Create<IDaemonClient, NullReturningProxy>()
             });
@@ -411,7 +435,6 @@ public sealed class AccountHolderHubAccessTests
         var connection = await ConnectToSteamDaemonHubAsync(host, scope, guestRequest, daemon);
         Func<string, Task> call = method switch
         {
-            nameof(SteamDaemonHub.CancelPrefillAsync) => connection.Hub.CancelPrefillAsync,
             nameof(SteamDaemonHub.CancelPrefillRunAsync) => sessionId => connection.Hub.CancelPrefillRunAsync(sessionId, runId),
             nameof(SteamDaemonHub.CancelLoginAsync) => sessionId => connection.Hub.CancelLoginAsync(sessionId),
             nameof(SteamDaemonHub.CancelLoginAttemptAsync) => sessionId => connection.Hub.CancelLoginAttemptAsync(sessionId, null),
@@ -421,7 +444,16 @@ public sealed class AccountHolderHubAccessTests
 
         var refused = await Assert.ThrowsAsync<HubException>(() => call("another-sessions-prefill"));
         Assert.Equal("Access denied", refused.Message);
-        await call("own-prefill");
+        if (method == nameof(SteamDaemonHub.CancelPrefillRunAsync))
+        {
+            // The own session passes the ownership check, so the cancel reaches the service, which has no such run.
+            var missing = await Assert.ThrowsAsync<DaemonCommandException>(() => call("own-prefill"));
+            Assert.Equal("operation-not-found", missing.ErrorCode);
+        }
+        else
+        {
+            await call("own-prefill");
+        }
     }
 
     /// <summary>

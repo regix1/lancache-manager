@@ -1,6 +1,6 @@
-using Docker.DotNet;
 using LancacheManager.Models;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Middleware;
 
 namespace LancacheManager.Core.Services;
@@ -8,14 +8,75 @@ namespace LancacheManager.Core.Services;
 public abstract partial class PrefillDaemonServiceBase
 {
     /// <summary>
-    /// Creates/starts a PERSISTENT admin daemon session. Reuses <see cref="CreateSessionAsync"/> with
-    /// <c>isPersistent=true</c>, which (a) stamps <see cref="DaemonSession.IsPersistent"/>, (b) sets the
-    /// expiry to the admin-configured validity window, and (c) mounts a stable named auth volume so the
-    /// daemon's OWN login persists inside the container across restarts. The container starts RUNNING;
-    /// the manager performs NO auto-login and NEVER injects/transfers a token. If the named volume
-    /// already holds a valid login the daemon auto-authenticates ITSELF; otherwise the admin logs in
-    /// interactively via the UI. The <paramref name="service"/> argument identifies the platform for the
-    /// caller; this daemon instance is already service-specific.
+    /// The one adopt a person's Start, a scheduled run, the scheduler tick and Clear stored logins use. It
+    /// connects Docker and refuses with the typed Docker-unavailable error, then under the start lock it
+    /// finishes a pending image update, returns the registered session, or adopts the running container.
+    /// Apart from finishing that image update, it creates no container and removes only a running container
+    /// whose session was stopped with no teardown left. Returns the active persistent session, or null when
+    /// no container can be adopted.
+    /// </summary>
+    public async Task<DaemonSession?> AdoptRunningPersistentSessionAsync(CancellationToken cancellationToken)
+    {
+        // The Docker sentence answers the HTTP Start as a 503 with its key, and the scheduler reports the key.
+        await ConnectDockerAsync(cancellationToken);
+        if (!_containerGateway.IsAvailable)
+        {
+            throw new ServiceUnavailableException(
+                "Docker is not running or not reachable. Start Docker, or mount /var/run/docker.sock into the LANCache Manager container, then try again.")
+            {
+                StageKey = "errors.prefill.dockerUnavailable"
+            };
+        }
+
+        await _persistentStartLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (GetPendingImageChange() is { } pending)
+            {
+                await ResumeImageChangeAsync(pending, cancellationToken);
+                return GetActivePersistentSession();
+            }
+
+            if (GetActivePersistentSession() is { } active)
+            {
+                return active;
+            }
+
+            var decision = await ResolvePersistentContainerDecisionAsync(cancellationToken);
+            if (decision.Action != PersistentContainerAction.Adopt)
+            {
+                return null;
+            }
+
+            // A stored teardown owns its container. With no teardown left, a stopped session's container
+            // would otherwise run until a Start or a restart, since a Stop finds no session to end.
+            var target = decision.Target!;
+            if (IsTearingDown(target))
+            {
+                return null;
+            }
+
+            if (await IsStoppedSessionContainerAsync(target))
+            {
+                _logger.LogInformation(
+                    "Removing running persistent {ServiceName} container {Id}; its session {SessionId} was stopped",
+                    ServiceName, ShortContainerId(target.ID), target.Labels[SessionIdLabelKey]);
+                await RemoveContainerForceAsync(target.ID, cancellationToken);
+                return null;
+            }
+
+            return await AdoptPersistentContainerAsync(target, null, cancellationToken);
+        }
+        finally
+        {
+            _persistentStartLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Starts a persistent daemon session through <see cref="CreateSessionAsync"/> with <c>isPersistent=true</c>.
+    /// A named auth volume keeps the daemon's own login across restarts, and the manager never injects a token.
+    /// <paramref name="service"/> names the platform for the caller; this daemon is already service-specific.
     /// </summary>
     public async Task<DaemonSession> StartPersistentSessionAsync(
         PrefillPlatform service,
@@ -24,14 +85,20 @@ public abstract partial class PrefillDaemonServiceBase
         string? userAgent = null,
         CancellationToken cancellationToken = default)
     {
+        // The adopt connects Docker and refuses first, so a Start that adopts a running container answers
+        // without waiting on the image check of a create. A session that was already registered goes on to
+        // the create, which checks its image before returning it.
+        var registered = GetActivePersistentSession();
+        var adopted = await AdoptRunningPersistentSessionAsync(cancellationToken);
+        if (adopted is not null && !ReferenceEquals(adopted, registered))
+        {
+            return adopted;
+        }
+
         _logger.LogInformation(
             "Starting persistent {Service} session for user {UserId}", service, userId);
 
-        // The persistent container starts RUNNING. There is intentionally NO manager-side auto-login
-        // here and the manager NEVER injects/transfers a token (that breaks Steam across servers).
-        // The container mounts its own named auth volume: if that volume already holds a valid login
-        // the daemon auto-authenticates ITSELF; otherwise the admin logs in interactively via the UI.
-        // The daemon's live status is the source of truth.
+        // Never inject a token: that breaks Steam across servers.
         var session = await CreateSessionAsync(
             userId,
             ipAddress,
@@ -41,154 +108,6 @@ public abstract partial class PrefillDaemonServiceBase
             cancellationToken: cancellationToken);
 
         return session;
-    }
-
-    internal async Task<(DaemonSession Session, bool CreatedByEditSession)> StartPersistentSessionForEditAsync(
-        PrefillPlatform service,
-        Guid userId,
-        CancellationToken cancellationToken = default)
-    {
-        if (!_containerGateway.IsAvailable)
-        {
-            // This method is only ever called over HTTP, so the sentence below survives to the client
-            // as a 503 instead of being swallowed by the generic 500 message. The sibling throw in
-            // CreateSessionAsync stays an InvalidOperationException because the hub catches that type
-            // by name to forward the message on the SignalR path.
-            throw new ServiceUnavailableException(
-                "Docker is not running or not accessible. Please start Docker Desktop and try again.")
-            {
-                StageKey = "errors.prefill.dockerUnavailable"
-            };
-        }
-
-        var persistentImageId = await EnsureImageExistsAsync(cancellationToken);
-        if (string.IsNullOrWhiteSpace(persistentImageId))
-        {
-            throw new InvalidOperationException($"Docker returned no immutable image ID for {ResolveImageName()}.");
-        }
-
-        await _persistentStartLock.WaitAsync(cancellationToken);
-        try
-        {
-            _logger.LogInformation(
-                "Starting edit-session-owned persistent {Service} session for user {UserId}",
-                service,
-                userId);
-
-            var createdByEditSession = false;
-            string? createdSessionId = null;
-            string? createdContainerId = null;
-            try
-            {
-                var session = await CreateSessionCoreAsync(
-                    userId,
-                    ipAddress: null,
-                    userAgent: null,
-                    SessionType.Admin,
-                    isPersistent: true,
-                    reuseExistingSession: true,
-                    persistentExpiresAtOverrideUtc: null,
-                    involuntaryRecreate: false,
-                    cancellationToken,
-                    persistentCreationResult: created => createdByEditSession = created,
-                    persistentContainerCreated: (sessionId, containerId) =>
-                    {
-                        createdSessionId = sessionId;
-                        createdContainerId = containerId;
-                    },
-                    resolvedImageId: persistentImageId);
-
-                return (session, createdByEditSession);
-            }
-            catch (Exception startError)
-                when (createdSessionId is not null && createdContainerId is not null)
-            {
-                try
-                {
-                    await RollbackPersistentSessionStartForEditCoreAsync(
-                        createdSessionId,
-                        createdContainerId);
-                }
-                catch (Exception rollbackError)
-                {
-                    throw new PersistentPrefillEditStartRollbackException(
-                        createdSessionId,
-                        createdContainerId,
-                        new AggregateException(startError, rollbackError));
-                }
-
-                throw;
-            }
-        }
-        finally
-        {
-            _persistentStartLock.Release();
-        }
-    }
-
-    internal async Task RollbackPersistentSessionStartForEditAsync(
-        string sessionId,
-        string containerId)
-    {
-        await _persistentStartLock.WaitAsync(CancellationToken.None);
-        try
-        {
-            await RollbackPersistentSessionStartForEditCoreAsync(sessionId, containerId);
-        }
-        finally
-        {
-            _persistentStartLock.Release();
-        }
-    }
-
-    private async Task RollbackPersistentSessionStartForEditCoreAsync(
-        string sessionId,
-        string containerId)
-    {
-        if (GetSession(sessionId) is { Runs.IsEmpty: false, IsPrefilling: true }) return;
-        if (GetSession(sessionId) is not null)
-        {
-            await TerminateSessionAsync(
-                sessionId,
-                "Scheduled-prefill edit start rolled back",
-                force: true,
-                terminatedBy: "edit-session-cleanup");
-        }
-        else
-        {
-            var removal = await RemoveContainerForceAsync(
-                containerId,
-                CancellationToken.None,
-                removeVolumes: false);
-            if (removal == ContainerRemovalOutcome.RemovalInProgress)
-            {
-                try
-                {
-                    await _containerGateway.InspectContainerAsync(
-                        containerId,
-                        CancellationToken.None);
-                }
-                catch (DockerContainerNotFoundException)
-                {
-                    return;
-                }
-
-                throw new InvalidOperationException(
-                    $"Persistent container {containerId} for edit-owned session {sessionId} is still being removed.");
-            }
-        }
-
-        try
-        {
-            await _containerGateway.InspectContainerAsync(containerId, CancellationToken.None);
-        }
-        catch (DockerContainerNotFoundException)
-        {
-            return;
-        }
-
-        throw new InvalidOperationException(
-            $"Persistent container {containerId} for edit-owned session {sessionId} survived rollback.");
     }
 
     /// <summary>
@@ -241,13 +160,9 @@ public abstract partial class PrefillDaemonServiceBase
     /// <summary>
     /// Runs the actual teardown under <see cref="_persistentStartLock"/> so a Stop can never interleave
     /// with a concurrent persistent Start/adopt/replace for this service - e.g. a Stop
-    /// racing a Start that is mid-adopt of the very container being stopped. Safe against the lock
-    /// already being held by <c>CreateSessionCoreAsync</c>'s Error-state-replacement call into
-    /// <see cref="TerminateSessionAsync"/>: that call happens on a DIFFERENT logical entry (the create
-    /// path already holds the lock and never re-enters it), and <see cref="TerminateSessionAsync"/>
-    /// itself never acquires <see cref="_persistentStartLock"/> - only the two public entry points
-    /// (this one and the persistent branch of <c>CreateSessionAsync</c>) do, so there is no reentrant
-    /// self-deadlock.
+    /// racing a Start that is mid-adopt of the very container being stopped. <see cref="TerminateSessionAsync"/>
+    /// never acquires <see cref="_persistentStartLock"/>, so a holder that calls it, such as this Stop or
+    /// <c>CreateSessionCoreAsync</c>'s Error-state replacement, cannot deadlock on itself.
     /// </summary>
     private async Task StopPersistentSessionCoreAsync(
         string sessionId,
@@ -268,7 +183,7 @@ public abstract partial class PrefillDaemonServiceBase
                 return;
             }
 
-            var session = GetSession(sessionId);
+            var session = GetSession(sessionId) ?? GetFailedTeardownSession(sessionId);
             if (session is null
                 && ((requestedSession is { IsPersistent: true } && !IsSessionLive(requestedSession))
                     || requestedChange is not null))
@@ -282,6 +197,26 @@ public abstract partial class PrefillDaemonServiceBase
                 return;
             }
 
+            // A teardown that Docker failed earlier, such as an errored session's replacement, is stored with
+            // its own login choice. This Stop makes it an explicit stop that erases the login, and records the
+            // stop before Docker is asked: that replacement already marked the row Orphaned.
+            bool storedTeardown;
+            lock (_terminationSync)
+            {
+                storedTeardown = _terminations.TryGetValue(session.Id, out var stored)
+                    && !stored.Complete && stored.ImageChange is null;
+                if (storedTeardown)
+                {
+                    stored!.KeepLogin = false;
+                    stored.TerminatedBy = terminatedBy;
+                }
+            }
+            if (storedTeardown)
+            {
+                await _sessionService.TerminateSessionAsync(
+                    session.Id, "Persistent session stopped", terminatedBy, replaceOrphaned: true);
+            }
+
             // Reuse the existing teardown; IsPersistent keeps RemoveVolumes=false so the daemon's auth survives.
             await TerminateSessionAsync(session.Id, "Persistent session stopped", force: false, terminatedBy: terminatedBy);
         }
@@ -291,80 +226,59 @@ public abstract partial class PrefillDaemonServiceBase
         }
     }
 
-    internal async Task<bool> StopPersistentSessionIfOwnedByEditAsync(
-        string sessionId,
-        Func<bool> stillOwned,
-        string? terminatedBy = null)
+    /// <summary>
+    /// A persistent session's re-login date: its last sign-in <paramref name="lastLoginAtUtc"/> plus the
+    /// admin-configured <paramref name="validityDays"/>. A fresh create and a person's finished Log in start a
+    /// window with it, and a validity save recomputes every date with it, so saving the same days again lands
+    /// on the same date.
+    /// </summary>
+    public static DateTime ComputePersistentExpiry(DateTime lastLoginAtUtc, int validityDays)
+        => lastLoginAtUtc.AddDays(validityDays);
+
+    /// <summary>
+    /// Sets every live persistent session's and stored row's re-login date to its last sign-in plus the saved
+    /// validity days, and clears a stale <see cref="DaemonSession.NeedsRelogin"/> when the date is ahead. Dates
+    /// never build on an earlier save, so saving again finishes a save that failed part way. Holds the start
+    /// lock so a session that is registering is set too, and rewrites each row from memory so a Log in that
+    /// lands during the save keeps its date.
+    /// </summary>
+    public async Task UpdatePersistentSessionExpiryAsync()
     {
         await _persistentStartLock.WaitAsync();
         try
         {
-            if (!stillOwned() || GetSession(sessionId) is not { IsPersistent: true } session
-                || (!session.Runs.IsEmpty && session.IsPrefilling))
+            var validityDays = _stateService.GetAdminPersistentLoginValidityDays();
+            var now = DateTime.UtcNow;
+            var running = _sessions.Values.Where(s => s.IsPersistent && s.Status != DaemonSessionStatus.Terminated).ToList();
+            foreach (var session in running)
             {
-                return false;
+                session.ExpiresAt = ComputePersistentExpiry(session.LastLoginAt, validityDays);
+                if (session.ExpiresAt > now)
+                {
+                    session.NeedsRelogin = false;
+                }
             }
 
-            await TerminateSessionAsync(
-                sessionId,
-                "Scheduled-prefill edit session cleaned up",
-                force: false,
-                terminatedBy: terminatedBy);
-            return true;
+            // An image update waiting on its new container registers that container with the date it carries.
+            lock (_imageStateLock)
+            {
+                if (_pendingImageChange is { } pending)
+                {
+                    pending.ExpiresAt = ComputePersistentExpiry(pending.LastLoginAt, validityDays);
+                }
+            }
+
+            await _sessionService.UpdateExpiryAsync(Platform, validityDays);
+            foreach (var session in running)
+            {
+                await SaveLoginStateAsync(session);
+                // Another open schedules tab reloads its container list on this event and shows the new date.
+                await NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session));
+            }
         }
         finally
         {
             _persistentStartLock.Release();
-        }
-    }
-
-    /// <summary>
-    /// Pure anchor for a persistent session's validity window: <paramref name="createdAtUtc"/> plus the
-    /// admin-configured <paramref name="validityDays"/>. This is the exact formula used at session
-    /// creation and preserved by the re-adopt path, so re-anchoring with the same validity is a no-op
-    /// and changing it moves the date deterministically (never silently extends like now+validity would).
-    /// </summary>
-    public static DateTime ComputePersistentExpiry(DateTime createdAtUtc, int validityDays)
-        => createdAtUtc.AddDays(validityDays);
-
-    /// <summary>
-    /// Expiry anchor for a FullPersistence container recreated after it died while the manager was down.
-    /// Prefers the prior life's still-future validity window (<paramref name="priorExpiresAtUtc"/>, the
-    /// last DB session row's <c>ExpiresAtUtc</c>) so an admin-configured window is not silently extended
-    /// by the outage; falls back to <paramref name="nowUtc"/> + <paramref name="validityDays"/> when no
-    /// future record survives. Mirrors the re-adopt anchor in
-    /// <see cref="ReconnectPersistentSessionAsync"/>.
-    /// </summary>
-    public static DateTime ResolveRecreatedPersistentExpiry(DateTime? priorExpiresAtUtc, DateTime nowUtc, int validityDays)
-        => priorExpiresAtUtc is { } prior && prior > nowUtc
-            ? prior
-            : ComputePersistentExpiry(nowUtc, validityDays);
-
-    /// <summary>
-    /// Re-anchors every RUNNING persistent session's <see cref="DaemonSession.ExpiresAt"/> to
-    /// <c>createdAt + validityDays</c> (idempotent) and clears a stale <see cref="DaemonSession.NeedsRelogin"/>
-    /// when the new window is in the future (the reaper re-flags it if it is already past). Also persists
-    /// the new <c>ExpiresAtUtc</c> to each session's DB record so a manager restart re-adopts the new
-    /// window rather than a stale longer one (the re-adopt path prefers a future <c>dbRecord.ExpiresAtUtc</c>).
-    /// </summary>
-    public async Task UpdatePersistentSessionExpiryAsync(int validityDays)
-    {
-        var now = DateTime.UtcNow;
-        var targets = _sessions.Values
-            .Where(s => s.IsPersistent && s.Status == DaemonSessionStatus.Active)
-            .ToList();
-
-        foreach (var session in targets)
-        {
-            session.ExpiresAt = ComputePersistentExpiry(session.CreatedAt, validityDays);
-            if (session.ExpiresAt > now)
-            {
-                session.NeedsRelogin = false;
-            }
-
-            // Persist so the new window survives a restart (the re-adopt path prefers a future
-            // dbRecord.ExpiresAtUtc; without this a shrink would leave the old longer value on disk).
-            await _sessionService.UpdateExpiryAsync(session.Id, session.ExpiresAt);
         }
     }
 }

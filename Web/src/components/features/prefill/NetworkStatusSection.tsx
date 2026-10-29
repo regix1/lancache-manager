@@ -93,18 +93,27 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
     !hasPrimaryConfigured &&
     diagnostics.dnsResults.some((r) => r.success && hasIpv6Resolution(r) && !r.isPrivateIp);
 
-  // Only flag as issue if: no internet, or primary domain not configured (without host networking)
+  // Null is an omitted check: Docker did not answer before this test produced a result.
+  const internetFailed = diagnostics.internetConnectivity === false;
+  const internetNotRun = diagnostics.internetConnectivity == null;
+  const dnsNotRun = diagnostics.dnsResults.length === 0;
+  // A stopped sweep still has the domains it already stored, so a non-empty list is not a full pass.
+  const dnsAbandoned = !internetNotRun && diagnostics.dnsFinished !== true;
   const hasRealIssue =
-    !diagnostics.internetConnectivity ||
-    (!diagnostics.useHostNetworking && !hasPrimaryConfigured) ||
+    internetFailed ||
+    (!internetNotRun && !dnsNotRun && !diagnostics.useHostNetworking && !hasPrimaryConfigured) ||
+    (diagnostics.dnsFinished === true && hasDnsFailure) ||
     hasIpv6BypassIssue;
+  const checksNotRun = internetNotRun;
+  // A stopped sweep is unfinished, not a failed check. The rows that were stored can all be passes.
+  const dnsStopped = dnsAbandoned && !hasRealIssue;
 
   // Show info state (not warning) when public DNS but host networking is in use
   const showInfoState = hasPublicDnsWithHostNetworking && !hasRealIssue;
 
   const statusBoxClass = hasRealIssue
     ? 'prefill-network-status-box--warning'
-    : showInfoState
+    : checksNotRun || dnsStopped || showInfoState
       ? 'prefill-network-status-box--info'
       : 'prefill-network-status-box--success';
 
@@ -140,9 +149,13 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
             <p className="text-sm text-themed-muted">
               {hasRealIssue
                 ? t('prefill.network.issuesDetected')
-                : showInfoState
-                  ? t('prefill.network.hostNetworking')
-                  : t('prefill.network.allChecksPassed')}
+                : checksNotRun
+                  ? t('prefill.network.notTested')
+                  : dnsStopped
+                    ? t('prefill.network.checksDidNotFinish')
+                    : showInfoState
+                      ? t('prefill.network.hostNetworking')
+                      : t('prefill.network.allChecksPassed')}
             </p>
           </div>
           <ChevronDown
@@ -197,20 +210,26 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
             </p>
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">
-                {diagnostics.internetConnectivity ? (
+                {diagnostics.internetConnectivity === true ? (
                   <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
-                ) : (
+                ) : internetFailed ? (
                   <XCircle className="h-4 w-4 flex-shrink-0 text-[var(--theme-error)]" />
+                ) : (
+                  <Info className="h-4 w-4 flex-shrink-0 text-[var(--theme-info)]" />
                 )}
                 <span className="text-sm text-themed-primary">
                   {t('prefill.network.internetConnectivity')}
                 </span>
               </div>
-              {diagnostics.internetConnectivity ? (
+              {diagnostics.internetConnectivity === true ? (
                 <span className="text-xs text-themed-muted">{t('prefill.network.ok')}</span>
-              ) : (
+              ) : internetFailed ? (
                 <span className="text-xs text-[var(--theme-error)]">
                   {t('prefill.network.failed')}
+                </span>
+              ) : (
+                <span className="text-xs text-[var(--theme-info)]">
+                  {t('prefill.network.notTested')}
                 </span>
               )}
             </div>
@@ -284,7 +303,7 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
             )}
 
             {/* The row above already says Failed; the troubleshooting steps are the way out. */}
-            {!diagnostics.internetConnectivity && <NetworkTroubleshooting />}
+            {internetFailed && <NetworkTroubleshooting />}
           </div>
 
           {/* DNS Resolution */}

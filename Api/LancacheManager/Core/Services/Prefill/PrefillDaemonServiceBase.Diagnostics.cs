@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using Docker.DotNet.Models;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.SteamPrefill;
 
 namespace LancacheManager.Core.Services;
@@ -16,29 +17,61 @@ public abstract partial class PrefillDaemonServiceBase
             LancacheIpSource = _lastLancacheIpSource
         };
 
-        if (!_containerGateway.IsAvailable) return diagnostics;
+        if (!_containerGateway.IsAvailable)
+        {
+            // The flag is nullable so an unanswered Docker call can stay unset. A missing client keeps the failed check.
+            diagnostics.InternetConnectivity = false;
+            return diagnostics;
+        }
 
         _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
         _logger.LogInformation("  PREFILL CONTAINER NETWORK DIAGNOSTICS - {ContainerName}", containerName);
         _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
 
         // Test 1: Internet connectivity
-        var (internetSuccess, internetError) = await TestInternetConnectivityAsync(containerId, cancellationToken);
+        var (internetSuccess, internetError, internetStop) = await TestInternetConnectivityAsync(containerId, cancellationToken);
         diagnostics.InternetConnectivity = internetSuccess;
         diagnostics.InternetConnectivityError = internetError;
-        var (ipv4Success, ipv4Error) = await TestConnectivityByFamilyAsync(containerId, AddressFamily.InterNetwork, cancellationToken);
+        // Docker did not answer. A result already stored stays; later execs would only repeat that wait.
+        if (internetStop)
+        {
+            return diagnostics;
+        }
+
+        var (ipv4Success, ipv4Error, ipv4Stop) = await TestConnectivityByFamilyAsync(containerId, AddressFamily.InterNetwork, cancellationToken);
         diagnostics.InternetConnectivityIpv4 = ipv4Success;
         diagnostics.InternetConnectivityIpv4Error = ipv4Error;
-        var (ipv6Success, ipv6Error) = await TestConnectivityByFamilyAsync(containerId, AddressFamily.InterNetworkV6, cancellationToken);
+        if (ipv4Stop)
+        {
+            return diagnostics;
+        }
+
+        var (ipv6Success, ipv6Error, ipv6Stop) = await TestConnectivityByFamilyAsync(containerId, AddressFamily.InterNetworkV6, cancellationToken);
         diagnostics.InternetConnectivityIpv6 = ipv6Success;
         diagnostics.InternetConnectivityIpv6Error = ipv6Error;
+        if (ipv6Stop)
+        {
+            return diagnostics;
+        }
 
         // Test 2: DNS resolution for service-specific lancache domains
+        var dnsFinished = true;
         foreach (var domain in DiagnosticsDnsDomains)
         {
-            var dnsResult = await TestDnsAsync(containerId, domain, cancellationToken);
-            diagnostics.DnsResults.Add(dnsResult);
+            var (dnsResult, dnsStop) = await TestDnsAsync(containerId, domain, cancellationToken);
+            if (dnsResult is not null)
+            {
+                diagnostics.DnsResults.Add(dnsResult);
+            }
+
+            if (dnsResult is null || dnsStop)
+            {
+                dnsFinished = false;
+                break;
+            }
         }
+
+        diagnostics.DnsFinished = dnsFinished;
 
         _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
         _logger.LogInformation("  END NETWORK DIAGNOSTICS");
@@ -51,11 +84,12 @@ public abstract partial class PrefillDaemonServiceBase
     /// Tests internet connectivity from inside a container by attempting to reach Steam API.
     /// </summary>
     /// <returns>
-    /// Success false both when the container genuinely has no route out and when the test could
-    /// not be run at all. Error carries which of the two it was, so a caller reporting this to a
-    /// reader should show it rather than just the flag.
+    /// Success is null when Docker did not answer and the test did not run.
+    /// Success is false when the test ran and the container could not reach the internet.
+    /// Error is set only for that failed test.
+    /// Stop is true when Docker did not answer, including after an earlier command in this test already failed.
     /// </returns>
-    private async Task<(bool Success, string? Error)> TestInternetConnectivityAsync(string containerId, CancellationToken cancellationToken)
+    private async Task<(bool? Success, string? Error, bool Stop)> TestInternetConnectivityAsync(string containerId, CancellationToken cancellationToken)
     {
         try
         {
@@ -73,6 +107,7 @@ public abstract partial class PrefillDaemonServiceBase
             };
 
             string? lastError = null;
+            var dockerUnanswered = false;
 
             foreach (var cmd in testCommands)
             {
@@ -82,13 +117,26 @@ public abstract partial class PrefillDaemonServiceBase
                     if (exitCode == 0)
                     {
                         _logger.LogInformation("  ✓ Internet connectivity: OK (reached {Url})", connectivityUrl);
-                        return (true, null);
+                        return (true, null, false);
                     }
                     lastError = $"Command {cmd[0]} failed with exit code {exitCode}";
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     throw;
+                }
+                catch (DockerTimeoutException)
+                {
+                    if (lastError is null)
+                    {
+                        // The command never ran, so a connectivity failure would be the wrong record.
+                        _logger.LogInformation("  • Internet connectivity: Not tested (Docker did not answer)");
+                        return (null, null, true);
+                    }
+
+                    // An earlier command already failed. Keep that result and do not start another exec.
+                    dockerUnanswered = true;
+                    break;
                 }
                 catch (TimeoutException)
                 {
@@ -110,7 +158,7 @@ public abstract partial class PrefillDaemonServiceBase
             _logger.LogWarning("    - Ensure your Docker network has internet access");
             _logger.LogWarning("    - Check firewall rules for outbound connections");
 
-            return (false, lastError ?? "No connectivity tool available");
+            return (false, lastError, dockerUnanswered);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -119,7 +167,7 @@ public abstract partial class PrefillDaemonServiceBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "  Could not test internet connectivity in container");
-            return (false, ex.Message);
+            return (false, ex.Message, false);
         }
     }
 
@@ -127,7 +175,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// Tests internet connectivity for a specific IP family (IPv4 or IPv6) from inside a container.
     /// Returns null when the container lacks tools that support the requested family flag.
     /// </summary>
-    private async Task<(bool? Success, string? Error)> TestConnectivityByFamilyAsync(
+    private async Task<(bool? Success, string? Error, bool Stop)> TestConnectivityByFamilyAsync(
         string containerId,
         AddressFamily family,
         CancellationToken cancellationToken)
@@ -144,6 +192,7 @@ public abstract partial class PrefillDaemonServiceBase
 
         string? lastError = null;
         var supportedCommandAttempted = false;
+        var dockerUnanswered = false;
 
         foreach (var cmd in testCommands)
         {
@@ -153,7 +202,7 @@ public abstract partial class PrefillDaemonServiceBase
                 if (exitCode == 0)
                 {
                     _logger.LogInformation("  ✓ {Family} connectivity: OK (reached {Url})", familyName, connectivityUrl);
-                    return (true, null);
+                    return (true, null, false);
                 }
 
                 if (IsUnsupportedToolOutput(output))
@@ -168,6 +217,19 @@ public abstract partial class PrefillDaemonServiceBase
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
+            }
+            catch (DockerTimeoutException)
+            {
+                if (lastError is null)
+                {
+                    // The command never ran, so a family failure would be the wrong record.
+                    _logger.LogInformation("  • {Family} connectivity: Not tested (Docker did not answer)", familyName);
+                    return (null, null, true);
+                }
+
+                // An earlier command already failed. Keep that result and do not start another exec.
+                dockerUnanswered = true;
+                break;
             }
             catch (TimeoutException)
             {
@@ -190,18 +252,18 @@ public abstract partial class PrefillDaemonServiceBase
         if (!supportedCommandAttempted)
         {
             _logger.LogInformation("  • {Family} connectivity: Not tested (tooling not available)", familyName);
-            return (null, lastError);
+            return (null, lastError, dockerUnanswered);
         }
 
         _logger.LogWarning("  ✗ {Family} connectivity: FAILED ({Error})", familyName, lastError);
-        return (false, lastError);
+        return (false, lastError, dockerUnanswered);
     }
 
     /// <summary>
     /// Tests DNS resolution for a specific domain from inside a container.
     /// For lancache domains, this should resolve to your cache server IP.
     /// </summary>
-    private async Task<DnsTestResult> TestDnsAsync(string containerId, string domain, CancellationToken cancellationToken)
+    private async Task<(DnsTestResult? Result, bool Stop)> TestDnsAsync(string containerId, string domain, CancellationToken cancellationToken)
     {
         var result = new DnsTestResult { Domain = domain };
 
@@ -221,6 +283,7 @@ public abstract partial class PrefillDaemonServiceBase
 
             List<string>? resolvedIps = null;
             string? lastError = null;
+            var dockerUnanswered = false;
 
             foreach (var cmd in dnsCommands)
             {
@@ -241,6 +304,19 @@ public abstract partial class PrefillDaemonServiceBase
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     throw;
+                }
+                catch (DockerTimeoutException)
+                {
+                    if (lastError is null && (resolvedIps is null || resolvedIps.Count == 0))
+                    {
+                        // The command never ran, so a failed lookup would be the wrong record.
+                        _logger.LogInformation("  • DNS resolution for {Domain}: Not tested (Docker did not answer)", domain);
+                        return (null, true);
+                    }
+
+                    // An earlier command already produced a result. Keep it and do not start another exec.
+                    dockerUnanswered = true;
+                    break;
                 }
                 catch (Exception ex)
                 {
@@ -277,6 +353,8 @@ public abstract partial class PrefillDaemonServiceBase
                 _logger.LogWarning("    If this is expected (no lancache-dns), you can ignore this warning.");
                 _logger.LogWarning("    Otherwise, check your DNS configuration.");
             }
+
+            return (result, dockerUnanswered);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -287,9 +365,8 @@ public abstract partial class PrefillDaemonServiceBase
             result.Success = false;
             result.Error = ex.Message;
             _logger.LogWarning(ex, "  Could not test DNS resolution for {Domain}", domain);
+            return (result, false);
         }
-
-        return result;
     }
 
     /// <summary>

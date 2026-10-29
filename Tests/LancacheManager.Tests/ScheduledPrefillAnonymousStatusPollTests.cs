@@ -35,7 +35,8 @@ public class ScheduledPrefillAnonymousStatusPollTests
 
         try
         {
-            using var client = new SocketDaemonClient(socketPath, sharedSecret: null, logger: NullLogger<SocketDaemonClient>.Instance);
+            using var client = new SocketDaemonClient(socketPath, sharedSecret: null, logger: NullLogger<SocketDaemonClient>.Instance)
+            { SignInLostStageKey = "errors.steam.signInLost" };
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
             var status = await client.GetStatusAsync(cts.Token);

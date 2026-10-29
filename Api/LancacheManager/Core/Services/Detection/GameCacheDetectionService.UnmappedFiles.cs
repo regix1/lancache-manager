@@ -58,6 +58,9 @@ public partial class GameCacheDetectionService
         // A remove child that ends without a report may have deleted files before it stopped.
         var removeChildUnreported = false;
         var savedListCleared = false;
+        // A list that could not be cleared would keep naming the files the child deletes, so the
+        // failure stops the child the way a download does.
+        Exception? clearFailure = null;
 
         try
         {
@@ -134,7 +137,17 @@ public partial class GameCacheDetectionService
                                 // this save; the catch below only covers a pass that ends while this process lives.
                                 if (removeLimits != null && !savedListCleared && stageKey == "signalr.unmappedRemove.running")
                                 {
-                                    await SaveRemainingUnmappedAsync(null);
+                                    // The helper only logs a fault in this callback and keeps reading the child.
+                                    try
+                                    {
+                                        await SaveRemainingUnmappedAsync(null);
+                                    }
+                                    catch (Exception error)
+                                    {
+                                        clearFailure = error;
+                                        await passCancellation.CancelAsync();
+                                        return;
+                                    }
                                     savedListCleared = true;
                                 }
 
@@ -150,6 +163,11 @@ public partial class GameCacheDetectionService
                     {
                         // The child writes its report only after its last delete, so stopping now saves
                         // no file, and the report is this datasource's result.
+                    }
+                    catch (OperationCanceledException) when (
+                        clearFailure is not null && !cancellationToken.IsCancellationRequested)
+                    {
+                        throw clearFailure;
                     }
                     finally
                     {
@@ -259,7 +277,15 @@ public partial class GameCacheDetectionService
         {
             // The run ended after files were deleted, so the saved list still names some of them.
             // It is cleared rather than kept, and the next full scan measures it again.
-            await SaveRemainingUnmappedAsync(null);
+            try
+            {
+                await SaveRemainingUnmappedAsync(null);
+            }
+            catch (Exception saveError)
+            {
+                // The card reports the failure that ended the run, not this one.
+                _logger.LogError(saveError, "[UnmappedFiles] Could not clear the saved list after the pass failed");
+            }
             throw;
         }
 

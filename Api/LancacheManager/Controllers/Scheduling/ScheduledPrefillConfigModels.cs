@@ -33,7 +33,7 @@ public sealed class ScheduledPrefillRunStatusDto
     /// <summary>
     /// One entry per platform currently prefilling in this run. Recovery rebuilds a notification card
     /// from each after a page reload, so a browser that reconnected mid-run sees every running
-    /// platform rather than only the run itself. Empty when nothing is running. [25]
+    /// platform rather than only the run itself. Empty when nothing is running.
     /// </summary>
     public required IReadOnlyList<ScheduledPrefillRunServiceStatus> Services { get; init; }
 }
@@ -98,7 +98,7 @@ public sealed class ScheduledPrefillServiceScheduleDto
     /// <summary>
     /// True while THIS platform has a run of its own in flight. Per service, not per schedule: the
     /// services run concurrently, so a row must not read "something is running" as "I am running" and
-    /// refuse a second start. [48]
+    /// refuse a second start.
     /// </summary>
     public required bool IsRunning { get; init; }
 

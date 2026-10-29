@@ -125,8 +125,6 @@ test('Run Now clears only optimistic state when no follow-up was queued', async 
     const pending = new Set();
     let completed = { other: 'completed' };
     const run = bindLifted(declaration.initializer.arguments[0].getText(file), {
-      recoverScheduledPrefillEditSession: async () => undefined,
-      sessionStore: {},
       markStarting: (key) => pending.add(key),
       clearPending: (key) => pending.delete(key),
       setCompletedKeys: (update) => {
@@ -200,8 +198,6 @@ const runNowOnce = async (key, answer) => {
   const notifications = [];
   const pending = new Set();
   const run = bindLifted(runNowSource, {
-    recoverScheduledPrefillEditSession: async () => undefined,
-    sessionStore: {},
     markStarting: (pendingKey) => pending.add(pendingKey),
     clearPending: (pendingKey) => pending.delete(pendingKey),
     setCompletedKeys: () => undefined,
@@ -277,8 +273,6 @@ test('a platform Run draws no popup when it starts or is already running', async
     const notifications = [];
     const pending = new Set();
     const run = bindLifted(source, {
-      recoverScheduledPrefillEditSession: async () => undefined,
-      sessionStore: {},
       markStarting: (key) => pending.add(key),
       clearPending: (key) => pending.delete(key),
       ApiService: {
@@ -319,8 +313,6 @@ test('Run All tells the person how many services were already running', async ()
     const steps = [];
     const run = bindLifted(source, {
       setRunningAll: (value) => steps.push(['busy', value]),
-      recoverScheduledPrefillEditSession: async () => undefined,
-      sessionStore: {},
       setRunAllConfirmOpen: (value) => steps.push(['confirm', value]),
       ApiService: {
         runAllSchedules: async () => ({ triggeredCount: 3, alreadyRunningCount })
@@ -1417,7 +1409,6 @@ test('service status reads container, account and next step for every container 
     isRunning: true,
     isAuthenticated: false,
     needsRelogin: false,
-    isPrefilling: false,
     activeRunCount: 0,
     ...patch
   });
@@ -1462,6 +1453,22 @@ test('service status reads container, account and next step for every container 
       'running',
       'loggedIn',
       'manage'
+    ],
+    [
+      'sign-in state could not be read',
+      'steam',
+      { container: running({ authUnknown: true }) },
+      'running',
+      'unknown',
+      'manage'
+    ],
+    [
+      'sign-in state read and not signed in',
+      'steam',
+      { container: running({ authUnknown: false }) },
+      'running',
+      'loginRequired',
+      'logIn'
     ],
     [
       'login error',
@@ -1827,6 +1834,8 @@ test('partial settings save retains only the failed dirty field for retry', asyn
     dirty,
     saved,
     revisions,
+    daysWrite: { current: { serial: 0, pending: 0 } },
+    modeWrite: { current: { serial: 0, pending: 0 } },
     setSaving: () => undefined,
     setMode: () => undefined,
     setReadErrors: () => undefined,
@@ -1870,6 +1879,8 @@ test('clearing stored logins waits for Save and runs before the other settings',
     dirty: { current: { days: true, mode: false } },
     saved: { current: { days: 30, mode: null } },
     revisions: { current: { days: 0, mode: 0 } },
+    daysWrite: { current: { serial: 0, pending: 0 } },
+    modeWrite: { current: { serial: 0, pending: 0 } },
     t: (key) => key,
     baseKey,
     setSaving: () => undefined,
@@ -2046,16 +2057,6 @@ test('Activity lists running and recent runs across services and cancels the exa
           ]
         }
       ],
-      // A daemon without concurrent runs reports one download on the container and no run list.
-      [
-        'epic',
-        {
-          maxConcurrentRuns: 1,
-          isPrefilling: true,
-          currentAppName: 'Example game',
-          totalBytesTransferred: 100
-        }
-      ],
       [
         'xbox',
         {
@@ -2092,11 +2093,13 @@ test('Activity lists running and recent runs across services and cancels the exa
     ]
   );
   const cancel = walk(tree, 'Button').filter((node) => textOf(node) === 'common.cancel');
-  assert.equal(cancel.length, 3);
-  assert.ok(textOf(tree).includes('Example game'));
+  assert.equal(cancel.length, 2);
   cancel[0].props.onClick();
-  cancel[2].props.onClick();
-  assert.deepEqual(calls, [['epic'], ['xbox', 'xbox-live']]);
+  cancel[1].props.onClick();
+  assert.deepEqual(calls, [
+    ['steam', 'steam-live'],
+    ['xbox', 'xbox-live']
+  ]);
   assert.equal(walk(tree, 'section').length, 2);
 
   const unread = render({
@@ -2224,6 +2227,8 @@ test('shared reads succeed independently and cannot overwrite a dirty field', as
     session: { current: { id: 1, opened: true } },
     dirty,
     revisions,
+    daysWrite: { current: { serial: 0, pending: 0 } },
+    modeWrite: { current: { serial: 0, pending: 0 } },
     saved: { current: { days: 30, mode: null } },
     t: (key) => key,
     baseKey,
@@ -2260,6 +2265,8 @@ test('shared successful writes cannot be replaced by their delayed opening reads
     dirty,
     revisions,
     saved,
+    daysWrite: { current: { serial: 0, pending: 0 } },
+    modeWrite: { current: { serial: 0, pending: 0 } },
     setDays: set('Days'),
     setMode: set('Mode'),
     setReadErrors: set('ReadErrors'),
@@ -2309,6 +2316,297 @@ test('shared successful writes cannot be replaced by their delayed opening reads
   assert.deepEqual(saved.current, { days: 60, mode: 'fullPersistence' });
   assert.equal(state.Days, 60);
   assert.equal(state.Mode, 'fullPersistence');
+});
+test('a closed settings save reloads containers and reports a failure on the page', async () => {
+  const run = async (finish, savedDays, notices) => {
+    const session = { current: { opened: true, id: 1 } };
+    const saved = { current: { days: 30, mode: 'keepAcrossRestart' } };
+    const pending = deferred();
+    const seen = [];
+    let reloads = 0;
+    let dialogErrors = {};
+    const bindings = {
+      saving: false,
+      clearing: false,
+      clearPending: false,
+      session,
+      days: 60,
+      mode: 'keepAcrossRestart',
+      dirty: { current: { days: true, mode: false } },
+      saved,
+      revisions: { current: { days: 1, mode: 1 } },
+      daysWrite: { current: { serial: 0, pending: 0 } },
+      modeWrite: { current: { serial: 0, pending: 0 } },
+      setSaving: () => undefined,
+      setClearing: () => undefined,
+      setClearOpen: () => undefined,
+      setClearPending: () => undefined,
+      setClearOutcome: () => undefined,
+      setMode: () => undefined,
+      setDays: () => undefined,
+      setReadErrors: () => undefined,
+      setSaveErrors: (update) => {
+        dialogErrors = update(dialogErrors);
+      },
+      getErrorMessage: (error) => error.message,
+      t: (key, values) => (values && values.error ? `${key}:${values.error}` : key),
+      baseKey,
+      notifyError: (message) => seen.push(message),
+      onClose: () => {
+        session.current = { opened: false, id: session.current.id + 1 };
+      },
+      containers: {
+        loadPersistentContainers: () => {
+          reloads += 1;
+        }
+      },
+      ApiService: {
+        updatePersistentPrefillValidity: () => pending.promise
+      }
+    };
+    const saving = arrow(sharedSource, 'save', bindings)();
+    arrow(sharedSource, 'close', { ...bindings, saving: true })();
+    finish(pending);
+    await saving;
+    assert.deepEqual(
+      { reloads, notices: seen, dialogErrors, savedDays: saved.current.days },
+      { reloads: 1, notices, dialogErrors: {}, savedDays }
+    );
+  };
+  await run((pending) => pending.reject(new Error('validity write failed')), 30, [
+    `${baseKey}.settings.saveError:validity write failed`
+  ]);
+  await run((pending) => pending.resolve(), 60, []);
+});
+test('a validity read that started before the write stored does not present the previous days', async () => {
+  const put = deferred();
+  const state = {};
+  const dirty = { current: { days: false, mode: false } };
+  const saved = { current: { days: 30, mode: 'keepAcrossRestart' } };
+  const revisions = { current: { days: 0, mode: 0 } };
+  const daysWrite = { current: { serial: 0, pending: 0 } };
+  const modeWrite = { current: { serial: 0, pending: 0 } };
+  const session = { current: { id: 1, opened: true } };
+  const set = (name) => (value) => {
+    state[name] = typeof value === 'function' ? value(state[name]) : value;
+  };
+  const common = {
+    opened: true,
+    session,
+    dirty,
+    revisions,
+    saved,
+    daysWrite,
+    modeWrite,
+    setDays: set('Days'),
+    setMode: set('Mode'),
+    setReadErrors: set('ReadErrors'),
+    setSaveErrors: set('SaveErrors'),
+    setSaving: set('Saving'),
+    setClearing: set('Clearing'),
+    setClearPending: set('ClearPending'),
+    setClearOpen: set('ClearOpen'),
+    setDiscardOpen: set('DiscardOpen'),
+    setClearOutcome: set('ClearOutcome'),
+    setOverrides: set('Overrides'),
+    t: (key) => key,
+    baseKey,
+    notifyError: () => undefined,
+    SCHEDULED_PREFILL_SERVICE_RUN_ORDER: order,
+    isAbortError: () => false,
+    getErrorMessage: (error) => error.message,
+    onClose: () => undefined,
+    containers: { loadPersistentContainers: () => undefined },
+    ApiService: {}
+  };
+  const open = (reads) =>
+    effect(sharedSource, 'ApiService.getPersistentPrefillValidity', {
+      ...common,
+      ApiService: {
+        getPersistentPrefillValidity: () => reads.days.promise,
+        getScheduledPrefillConfig: () => reads.mode.promise
+      }
+    })();
+  const first = { days: deferred(), mode: deferred() };
+  const stopFirst = open(first);
+  first.days.resolve({ days: 30 });
+  first.mode.resolve(configuration());
+  await flush();
+  stopFirst();
+  state.Days = 60;
+  state.Saving = true;
+  dirty.current.days = true;
+  let save;
+  try {
+    save = arrow(sharedSource, 'save', {
+      ...common,
+      saving: false,
+      clearing: false,
+      clearPending: false,
+      days: 60,
+      mode: 'keepAcrossRestart',
+      ApiService: { updatePersistentPrefillValidity: () => put.promise }
+    })();
+    await flush();
+    arrow(sharedSource, 'close', {
+      ...common,
+      clearing: false,
+      saving: true,
+      onClose: () => {
+        session.current = { opened: false, id: session.current.id + 1 };
+      }
+    })();
+    session.current = { opened: true, id: session.current.id + 1 };
+    const reopen = { days: deferred(), mode: deferred() };
+    open(reopen);
+    reopen.days.resolve({ days: 14 });
+    reopen.mode.resolve(configuration());
+    await flush();
+    assert.deepEqual(
+      {
+        days: state.Days,
+        saving: state.Saving,
+        savedDays: saved.current.days,
+        dirty: dirty.current.days
+      },
+      { days: 60, saving: true, savedDays: 30, dirty: true }
+    );
+    put.resolve();
+    await save;
+    assert.deepEqual(
+      {
+        days: state.Days,
+        saving: state.Saving,
+        savedDays: saved.current.days,
+        dirty: dirty.current.days
+      },
+      { days: 60, saving: false, savedDays: 60, dirty: false }
+    );
+  } finally {
+    put.resolve();
+    if (save) await save;
+  }
+});
+test('a persistence read that started before the write stored does not present the previous mode', async () => {
+  const put = deferred();
+  const state = {};
+  const dirty = { current: { days: false, mode: false } };
+  const saved = { current: { days: 30, mode: 'keepAcrossRestart' } };
+  const revisions = { current: { days: 0, mode: 0 } };
+  const daysWrite = { current: { serial: 0, pending: 0 } };
+  const modeWrite = { current: { serial: 0, pending: 0 } };
+  const session = { current: { id: 1, opened: true } };
+  const set = (name) => (value) => {
+    state[name] = typeof value === 'function' ? value(state[name]) : value;
+  };
+  const common = {
+    opened: true,
+    session,
+    dirty,
+    revisions,
+    saved,
+    daysWrite,
+    modeWrite,
+    setDays: set('Days'),
+    setMode: set('Mode'),
+    setReadErrors: set('ReadErrors'),
+    setSaveErrors: set('SaveErrors'),
+    setSaving: set('Saving'),
+    setClearing: set('Clearing'),
+    setClearPending: set('ClearPending'),
+    setClearOpen: set('ClearOpen'),
+    setDiscardOpen: set('DiscardOpen'),
+    setClearOutcome: set('ClearOutcome'),
+    setOverrides: set('Overrides'),
+    t: (key) => key,
+    baseKey,
+    notifyError: () => undefined,
+    SCHEDULED_PREFILL_SERVICE_RUN_ORDER: order,
+    isAbortError: () => false,
+    getErrorMessage: (error) => error.message,
+    onClose: () => undefined,
+    containers: { loadPersistentContainers: () => undefined },
+    ApiService: {}
+  };
+  const open = (reads) =>
+    effect(sharedSource, 'ApiService.getPersistentPrefillValidity', {
+      ...common,
+      ApiService: {
+        getPersistentPrefillValidity: () => reads.days.promise,
+        getScheduledPrefillConfig: () => reads.mode.promise
+      }
+    })();
+  const first = { days: deferred(), mode: deferred() };
+  const stopFirst = open(first);
+  first.days.resolve({ days: 30 });
+  first.mode.resolve(configuration());
+  await flush();
+  stopFirst();
+  state.Mode = 'fullPersistence';
+  state.Saving = true;
+  dirty.current.mode = true;
+  let save;
+  try {
+    save = arrow(sharedSource, 'save', {
+      ...common,
+      saving: false,
+      clearing: false,
+      clearPending: false,
+      days: 30,
+      mode: 'fullPersistence',
+      ApiService: {
+        setScheduledPrefillPersistence: () => put.promise
+      }
+    })();
+    await flush();
+    arrow(sharedSource, 'close', {
+      ...common,
+      clearing: false,
+      saving: true,
+      onClose: () => {
+        session.current = { opened: false, id: session.current.id + 1 };
+      }
+    })();
+    session.current = { opened: true, id: session.current.id + 1 };
+    const reopen = { days: deferred(), mode: deferred() };
+    const stale = configuration();
+    stale.persistenceMode = 'killOnRestart';
+    stale.steam.persistenceMode = 'fullPersistence';
+    open(reopen);
+    reopen.days.resolve({ days: 30 });
+    reopen.mode.resolve(stale);
+    await flush();
+    assert.deepEqual(
+      {
+        mode: state.Mode,
+        saving: state.Saving,
+        savedMode: saved.current.mode,
+        dirty: dirty.current.mode,
+        overrides: state.Overrides
+      },
+      {
+        mode: 'fullPersistence',
+        saving: true,
+        savedMode: 'keepAcrossRestart',
+        dirty: true,
+        overrides: [`${baseKey}.services.steam`]
+      }
+    );
+    put.resolve({ persistenceMode: 'fullPersistence' });
+    await save;
+    assert.deepEqual(
+      {
+        mode: state.Mode,
+        saving: state.Saving,
+        savedMode: saved.current.mode,
+        dirty: dirty.current.mode
+      },
+      { mode: 'fullPersistence', saving: false, savedMode: 'fullPersistence', dirty: false }
+    );
+  } finally {
+    put.resolve({ persistenceMode: 'fullPersistence' });
+    if (save) await save;
+  }
 });
 test('summary failure retains its populated rows and drains a queued refresh', async () => {
   const reads = [],
@@ -2924,6 +3222,7 @@ test('editor and shared persistence commits never write the full configuration',
     dirty: { current: { days: false, mode: true } },
     saved: { current: { days: null, mode: 'keepAcrossRestart' } },
     revisions: { current: { days: 0, mode: 0 } },
+    modeWrite: { current: { serial: 0, pending: 0 } },
     setSaving: () => undefined,
     setMode: () => undefined,
     setReadErrors: () => undefined,
@@ -3101,6 +3400,16 @@ test('outer editor composes record controls and selection save and clear remain 
   assert.equal(calls.length, 2);
   runtime.render(render, props);
   assert.equal(calls.length, 2);
+  props.container = { ...props.container, isAuthenticated: false, authUnknown: true };
+  runtime.render(render, props);
+  tree = runtime.render(render, props);
+  assert.equal(walk(tree, 'Button')[0].props.disabled, false);
+  assert.equal(walk(tree, 'GameSelectionModal')[0].props.opened, true);
+  assert.deepEqual(walk(tree, 'GameSelectionModal')[0].props.unknownAppIds, []);
+  assert.equal(calls.length, 2);
+  props.container = { ...props.container, isAuthenticated: true, authUnknown: false };
+  runtime.render(render, props);
+  tree = runtime.render(render, props);
   walk(tree, 'Button')[1].props.onClick();
   tree = runtime.render(render, props);
   assert.deepEqual(walk(tree, 'GameSelectionModal')[0].props.selectedAppIds, []);
@@ -3108,15 +3417,14 @@ test('outer editor composes record controls and selection save and clear remain 
   runtime.unmount();
 });
 
-test('retained login callback refuses a changed account before any mutation or cleanup', async () => {
+test('retained login callback refuses a changed account before any mutation', async () => {
   const attempted = [];
   const act = arrow(containerSource, 'act', {
     privateAvailabilityIdentity: 'account-a',
     privateAvailabilityIdentityRef: { current: 'account-b' },
     attempts: { current: new Map() },
     setActions: () => attempted.push('actions'),
-    setErrors: () => attempted.push('errors'),
-    recover: async () => attempted.push('cleanup')
+    setErrors: () => attempted.push('errors')
   });
   await arrow(containerSource, 'handlePersistentLogin', { act })('epic', true);
   assert.deepEqual(attempted, []);
@@ -3329,7 +3637,6 @@ test('logout keeps the shared container running on refusal and succeeds on retry
     setErrorActions: (update) => {
       errorActions = update(errorActions);
     },
-    recover: async () => undefined,
     loadPersistentContainers: async () => calls.push(['load']),
     getErrorMessage: (error) => error.message
   });
@@ -3346,6 +3653,7 @@ test('logout keeps the shared container running on refusal and succeeds on retry
     setPersistentLoginTarget: (update) => {
       target = update(target);
     },
+    setStoppedSessions: () => undefined,
     persistentContainerByServiceRef
   };
   const logout = arrow(containerSource, 'handleLogoutPersistent', bindings);
@@ -3390,6 +3698,256 @@ test('logout keeps the shared container running on refusal and succeeds on retry
   );
 });
 
+test('a failed Stop keeps its error when a list reload no longer holds the stopping session', async () => {
+  const run = async (action, reloaded) => {
+    const persistentContainerByServiceRef = {
+      current: new Map([['Steam', { service: 'Steam', sessionId: 'steam-session' }]])
+    };
+    let errors = {};
+    let errorActions = {};
+    const act = arrow(containerSource, 'act', {
+      privateAvailabilityIdentity: 'owner',
+      privateAvailabilityIdentityRef: { current: 'owner' },
+      attempts: { current: new Map() },
+      view: { current: { service: 'steam' } },
+      persistentContainerByServiceRef,
+      getPersistentServiceId: () => 'Steam',
+      setActions: () => undefined,
+      setErrors: (update) => {
+        errors = update(errors);
+      },
+      setErrorActions: (update) => {
+        errorActions = update(errorActions);
+      },
+      loadPersistentContainers: async () => undefined,
+      getErrorMessage: (error) => error.message
+    });
+    await act('steam', action, async () => {
+      persistentContainerByServiceRef.current = reloaded;
+      throw new Error('removal failed');
+    });
+    return { error: errors.steam, errorAction: errorActions.steam };
+  };
+
+  assert.deepEqual(await run('stop', new Map()), {
+    error: 'removal failed',
+    errorAction: 'stop'
+  });
+  assert.deepEqual(
+    await run('stop', new Map([['Steam', { service: 'Steam', sessionId: 'replacement' }]])),
+    { error: undefined, errorAction: undefined }
+  );
+  assert.deepEqual(await run('logout', new Map()), { error: undefined, errorAction: undefined });
+});
+
+// Mounts the whole container hook over a list the test controls and a SignalR stub it can emit on.
+const mountContainers = (initial) => {
+  const runtime = hooks();
+  const listeners = new Map();
+  let listed = initial;
+  // The refetches the latest render registered, which a SignalR reconnect runs.
+  let reconnectRefetches = [];
+  const common = {
+    ...runtime,
+    useTranslation: () => ({ t: (key) => key }),
+    useSignalR: () => ({
+      on: (event, handler) => {
+        if (!listeners.has(event)) listeners.set(event, new Set());
+        listeners.get(event).add(handler);
+      },
+      off: (event, handler) => listeners.get(event)?.delete(handler),
+      isConnected: true
+    }),
+    useReconnectRefetch: (_isConnected, refetch) => {
+      reconnectRefetches.push(refetch);
+    }
+  };
+  const api = {
+    getPersistentPrefillContainers: async () => listed,
+    getPersistentIntegrationLoginAvailability: async () => ({
+      available: false,
+      reason: 'not-signed-in'
+    }),
+    startPersistentPrefillContainer: async () => undefined,
+    stopPersistentPrefillContainer: async () => {
+      throw new Error('removal failed');
+    }
+  };
+  const serviceIds = ['Steam', 'Epic', 'Xbox', 'BattleNet', 'Riot'];
+  const getPersistentServiceId = (key) => serviceIds[order.indexOf(key)];
+  const hook = component(containerSource, 'useScheduledPrefillContainers', {
+    ...common,
+    ApiService: api,
+    useAuth: () => ({ authenticationEnabled: false, isLoading: false }),
+    useSteamAuth: () => ({ revision: 0 }),
+    getPersistentServiceId,
+    SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS: ['steam', 'epic', 'xbox'],
+    SCHEDULED_PREFILL_SERVICE_RUN_ORDER: order,
+    PERSISTENT_PREFILL_SERVICES: order.map((key) => ({
+      key,
+      service: getPersistentServiceId(key)
+    })),
+    hasActivePersistentLogin: () => false,
+    isPersistentLoginDismissed: () => true,
+    resetPersistentLoginState: () => undefined,
+    usePersistentLoginStoreVersion: () => undefined,
+    usePersistentPrefillContainerSignalR: component(
+      containerSignalRSource,
+      'usePersistentPrefillContainerSignalR',
+      {
+        ...common,
+        useRefreshRate: () => ({ getRefreshInterval: () => 500 }),
+        PERSISTENT_PREFILL_CONTAINER_SIGNALR_EVENTS: []
+      }
+    ),
+    usePersistentLoginChallengeSignalR: () => undefined,
+    isAbortError: () => false,
+    getErrorMessage: (error) => error.message
+  });
+  const draw = () => {
+    reconnectRefetches = [];
+    return runtime.render(() => hook(null));
+  };
+  return {
+    api,
+    draw,
+    settle: async () => {
+      draw();
+      await flush();
+      draw();
+      return draw();
+    },
+    reload: async (state, next) => {
+      listed = next;
+      await state.loadPersistentContainers();
+      draw();
+      return draw();
+    },
+    reconnect: async (next) => {
+      listed = next;
+      for (const refetch of reconnectRefetches) refetch();
+      await flush();
+      draw();
+      return draw();
+    },
+    emit: (event, body) => listeners.get(event)?.forEach((handler) => handler(body)),
+    unmount: runtime.unmount
+  };
+};
+const steamContainer = (sessionId) => ({
+  service: 'Steam',
+  sessionId,
+  isRunning: true,
+  isAuthenticated: false
+});
+
+test('a kept Stop error leaves once another session is listed for its service', async () => {
+  const replaced = mountContainers([steamContainer('old')]);
+  let state = await replaced.settle();
+  await state.handleStopPersistent('steam');
+  state = await replaced.settle();
+  assert.equal(state.errors.steam, 'removal failed');
+  state = await replaced.reload(state, []);
+  assert.equal(state.errors.steam, 'removal failed');
+  assert.equal(state.errorActions.steam, 'stop');
+  state = await replaced.reload(state, [steamContainer('new')]);
+  assert.equal(state.errors.steam, undefined);
+  assert.equal(state.errorActions.steam, undefined);
+  replaced.unmount();
+});
+
+test('a Stop error is kept when a list reload without its session answers before the Stop does', async () => {
+  const held = mountContainers([steamContainer('old')]);
+  let state = await held.settle();
+  const answer = deferred();
+  held.api.stopPersistentPrefillContainer = () => answer.promise;
+  const stopping = state.handleStopPersistent('steam');
+  state = await held.reload(state, []);
+  answer.reject(new Error('removal failed'));
+  await stopping;
+  state = await held.settle();
+  assert.equal(state.errors.steam, 'removal failed');
+  assert.equal(state.errorActions.steam, 'stop');
+  held.unmount();
+});
+
+test('a kept Stop error stays through a reload without its session and leaves on a reconnect refetch without it', async () => {
+  const listing = mountContainers([steamContainer('old')]);
+  let state = await listing.settle();
+  await state.handleStopPersistent('steam');
+  state = await listing.reload(state, []);
+  assert.equal(state.errors.steam, 'removal failed');
+  assert.equal(state.errorActions.steam, 'stop');
+  const getContainers = listing.api.getPersistentPrefillContainers;
+  listing.api.getPersistentPrefillContainers = async () => {
+    throw new Error('offline');
+  };
+  state = await listing.reconnect([]);
+  assert.equal(state.errors.steam, 'removal failed');
+  listing.api.getPersistentPrefillContainers = getContainers;
+  state = await listing.reconnect([]);
+  assert.equal(state.errors.steam, undefined);
+  assert.equal(state.errorActions.steam, undefined);
+  listing.unmount();
+});
+
+test('a failed Stop leaves no active run on the card once the list drops its session', async () => {
+  const running = mountContainers([
+    { ...steamContainer('old'), runs: [activityRun('run-1', 'running', { sessionId: 'old' })] }
+  ]);
+  let state = await running.settle();
+  await state.handleStopPersistent('steam');
+  state = await running.reload(state, []);
+  assert.equal(state.containersByServiceKey.get('steam'), undefined);
+  assert.deepEqual(state.persistentContainers, []);
+  running.unmount();
+});
+
+test('a kept Stop error leaves once the teardown of its own session ends', async () => {
+  const finished = mountContainers([steamContainer('old')]);
+  let state = await finished.settle();
+  await state.handleStopPersistent('steam');
+  state = await finished.reload(state, []);
+  finished.emit('DaemonSessionTerminated', { sessionId: 'other', reason: 'stopped' });
+  state = finished.draw();
+  assert.equal(state.errors.steam, 'removal failed');
+  finished.emit('DaemonSessionTerminated', { sessionId: 'old', reason: 'stopped' });
+  state = finished.draw();
+  assert.equal(state.errors.steam, undefined);
+  assert.equal(state.errorActions.steam, undefined);
+  finished.unmount();
+});
+
+test('a retried card action keeps its last error on the card until the retry ends', async () => {
+  const card = mountContainers([]);
+  let state = await card.settle();
+  card.api.startPersistentPrefillContainer = async () => {
+    throw new Error('start failed');
+  };
+  await state.handleStartPersistent('steam');
+  state = card.draw();
+  assert.equal(state.errors.steam, 'start failed');
+
+  const retry = deferred();
+  card.api.startPersistentPrefillContainer = () => retry.promise;
+  const pending = state.handleStartPersistent('steam');
+  state = card.draw();
+  assert.equal(state.actions.steam, 'start');
+  assert.equal(state.errors.steam, 'start failed');
+  assert.equal(state.errorActions.steam, 'start');
+  retry.reject(new Error('start failed again'));
+  await pending;
+  state = card.draw();
+  assert.equal(state.errors.steam, 'start failed again');
+
+  card.api.startPersistentPrefillContainer = async () => undefined;
+  await state.handleStartPersistent('steam');
+  state = await card.settle();
+  assert.equal(state.errors.steam, undefined);
+  assert.equal(state.errorActions.steam, undefined);
+  card.unmount();
+});
+
 test('settled empty container status does not re-enter initial loading during refresh', async () => {
   const second = deferred();
   const responses = [Promise.resolve([]), second.promise];
@@ -3397,7 +3955,6 @@ test('settled empty container status does not re-enter initial loading during re
   const loading = [];
   const load = arrow(containerSource, 'loadPersistentContainers', {
     persistentContainersRequestRef: { current: null },
-    persistentContainersRevisionRef: { current: 0 },
     persistentContainersRef: { current: null },
     ApiService: {
       getPersistentPrefillContainers: () => responses.shift()
@@ -3428,7 +3985,6 @@ test('container refresh failure retains its snapshot and still drains one traili
   let calls = 0;
   const load = arrow(containerSource, 'loadPersistentContainers', {
     persistentContainersRequestRef: { current: null },
-    persistentContainersRevisionRef: { current: 0 },
     persistentContainersRef: { current: snapshot },
     ApiService: {
       getPersistentPrefillContainers: () => {
@@ -3459,6 +4015,7 @@ test('container refresh failure retains its snapshot and still drains one traili
 
   trailing.resolve([{ service: 'Epic', sessionId: 'confirmed', runs: [] }]);
   await pending;
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls, 2);
   assert.equal(snapshot[0].sessionId, 'confirmed');
   assert.equal(readError, null);
@@ -4091,6 +4648,82 @@ test('feature owner keeps actual container and challenge subscriptions balanced 
   );
 });
 
+test('a persistent session update from a validity save reloads the shown re-login date', async () => {
+  const runtime = hooks(),
+    listeners = new Map();
+  const on = (event, handler) => {
+    if (!listeners.has(event)) listeners.set(event, new Set());
+    listeners.get(event).add(handler);
+  };
+  const off = (event, handler) => listeners.get(event)?.delete(handler);
+  const serviceIds = ['Steam', 'Epic', 'Xbox', 'BattleNet', 'Riot'];
+  const getPersistentServiceId = (key) => serviceIds[order.indexOf(key)];
+  const common = {
+    ...runtime,
+    useTranslation: () => ({ t: (key) => key }),
+    useSignalR: () => ({ on, off, isConnected: true }),
+    useReconnectRefetch: () => undefined
+  };
+  let reloginDate = '2026-11-25T00:00:00Z';
+  const containers = component(containerSource, 'useScheduledPrefillContainers', {
+    ...common,
+    ApiService: {
+      getPersistentPrefillContainers: async () => [
+        {
+          service: 'Steam',
+          sessionId: 'session',
+          isRunning: true,
+          isAuthenticated: true,
+          authExpiresAtUtc: reloginDate
+        }
+      ],
+      getPersistentIntegrationLoginAvailability: async () => ({
+        available: false,
+        reason: 'not-signed-in'
+      })
+    },
+    useAuth: () => ({ authenticationEnabled: false, isLoading: false }),
+    useSteamAuth: () => ({ revision: 0 }),
+    getPersistentServiceId,
+    SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS: ['steam', 'epic', 'xbox'],
+    SCHEDULED_PREFILL_SERVICE_RUN_ORDER: order,
+    PERSISTENT_PREFILL_SERVICES: order.map((key) => ({
+      key,
+      service: getPersistentServiceId(key)
+    })),
+    hasActivePersistentLogin: () => false,
+    isPersistentLoginDismissed: () => true,
+    resetPersistentLoginState: () => undefined,
+    usePersistentLoginStoreVersion: () => undefined,
+    usePersistentPrefillContainerSignalR: component(
+      containerSignalRSource,
+      'usePersistentPrefillContainerSignalR',
+      {
+        ...common,
+        useRefreshRate: () => ({ getRefreshInterval: () => 500 }),
+        PERSISTENT_PREFILL_CONTAINER_SIGNALR_EVENTS: ['DaemonSessionUpdated']
+      }
+    ),
+    usePersistentLoginChallengeSignalR: () => undefined,
+    getPersistentLoginState: () => ({ sessionId: null }),
+    getPersistentLoginStartRequest: () => undefined,
+    isAbortError: () => false,
+    getErrorMessage: (error) => error.message
+  });
+  const draw = () => runtime.render(() => containers(null), {});
+  draw();
+  await flush();
+  assert.equal(draw().containersByServiceKey.get('steam').authExpiresAtUtc, '2026-11-25T00:00:00Z');
+
+  reloginDate = '2026-11-08T00:00:00Z';
+  for (const handler of listeners.get('DaemonSessionUpdated'))
+    handler({ sessionId: 'session', isPersistent: true, expiresAt: reloginDate });
+  await flush();
+
+  assert.equal(draw().containersByServiceKey.get('steam').authExpiresAtUtc, '2026-11-08T00:00:00Z');
+  runtime.unmount();
+});
+
 test('Actions Escape closes only the menu and restores focus to its trigger', () => {
   const escapeHandler = findSoleNode(
     actionMenuSource,
@@ -4233,4 +4866,26 @@ test('Actions Tab traverses nested native-button groups and exits without strand
     stopPropagation: () => middle.push('stop')
   });
   assert.deepEqual(middle, [], 'intermediate menu items retain native Tab order');
+});
+
+test('a signed-in container past its date tells the person to log out, then log in', () => {
+  // The signed-in branch offers only Log out, and a Log in on a still signed-in container keeps the
+  // date, so the hint has to send the person through Log out first.
+  const hint = findSoleNode(
+    persistentCardSource,
+    'past-date hint',
+    (node) =>
+      ts.isCallExpression(node) &&
+      node.arguments[0]?.getText(persistentCardSource) === "'prefill.persistent.needsRelogin'"
+  );
+  let branch = hint.parent;
+  while (branch && !ts.isJsxFragment(branch)) branch = branch.parent;
+  assert.ok(branch, 'the hint sits in the signed-in branch');
+  assert.match(branch.getText(persistentCardSource), /t\('prefill\.persistent\.logOut'\)/);
+  assert.doesNotMatch(branch.getText(persistentCardSource), /onLogin\(/);
+
+  assert.equal(en.prefill.persistent.logOut, 'Log out');
+  assert.equal(zh.prefill.persistent.logOut, '退出登录');
+  assert.equal(en.prefill.persistent.needsRelogin, 'Login expired. Log out, then log in again.');
+  assert.equal(zh.prefill.persistent.needsRelogin, '登录已过期。请先退出登录，再重新登录。');
 });

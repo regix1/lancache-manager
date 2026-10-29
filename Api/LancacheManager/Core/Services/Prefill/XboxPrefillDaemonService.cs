@@ -156,6 +156,8 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
         return Task.CompletedTask;
     }
 
+    protected override Task OnRunDownloadedAsync() => _mappingService.ResolveDownloadsAsync();
+
     /// <summary>
     /// Collects the Xbox catalog from every authenticated session via the daemon's <c>get-cdn-info</c>
     /// command and persists it (product-&gt;title mappings + per-file CDN URL fragments) via

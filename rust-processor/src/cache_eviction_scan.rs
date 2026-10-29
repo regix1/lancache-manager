@@ -1,10 +1,11 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use futures_util::TryStreamExt;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 mod cache_eviction_paths;
@@ -268,7 +269,7 @@ enum VerifiableAction {
 ///
 /// `has_cache_file` is the ANY-probe-key on-disk result; `is_evicted` is the current DB flag;
 /// `was_cached` is true when nginx provably wrote the download's content to cache (see
-/// `download_was_cached` for the per-scheme evidence rule).
+/// `DownloadProbe::was_cached` for the per-scheme evidence rule).
 fn classify_verifiable(
     has_cache_file: bool,
     is_evicted: bool,
@@ -299,27 +300,6 @@ fn classify_verifiable(
     }
 }
 
-/// Whether nginx provably wrote this download's content to the cache. HIT bytes are always
-/// proof: a HIT can only be served from a file that existed on disk. MISS bytes are proof only
-/// under the monolithic scheme, where a lancache MISS proxies the content AND writes it to
-/// cache - gating on CacheHitBytes alone made every game downloaded exactly once (pure-MISS,
-/// the common case) permanently undetectable as evicted. Bare-metal nginx breaks that premise:
-/// a concurrent ranged request logs MISS with a response that is never written to cache, and
-/// uncacheable or duplicate fetches do the same, so bare-metal MISS bytes are not evidence
-/// that content landed on disk. Any bare-metal probe key therefore disqualifies MISS bytes for
-/// the whole download (fail-closed for mixed-scheme key sets). Zero-byte rows (aborted
-/// transfers / metadata-only sessions where nothing was ever written) remain excluded.
-fn download_was_cached(
-    hit_bytes: i64,
-    miss_bytes: i64,
-    keys: &[cache_eviction_paths::ProbeKey],
-) -> bool {
-    let miss_bytes_are_evidence = !keys
-        .iter()
-        .any(cache_eviction_paths::ProbeKey::is_bare_metal);
-    hit_bytes > 0 || (miss_bytes > 0 && miss_bytes_are_evidence)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DownloadAction {
     Evict,
@@ -335,6 +315,55 @@ struct DownloadIdentity {
     game_app_id: Option<i64>,
     depot_id: Option<i64>,
     epic_app_id: Option<String>,
+}
+
+struct PendingProbe {
+    key: cache_eviction_paths::ProbeKey,
+    downloads: HashSet<i64>,
+}
+
+/// glibc keeps a freed map's pages in the process. The container limit still counts
+/// them, so a long scan stays at its high point after every batch has been saved.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn release_freed_heap() {
+    unsafe {
+        libc::malloc_trim(0);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn release_freed_heap() {}
+
+fn flush_pending(
+    pending: &mut HashMap<u128, PendingProbe>,
+    probe_memo: &mut HashMap<u128, bool>,
+    summaries: &mut HashMap<i64, cache_eviction_paths::DownloadProbe>,
+    tuples_probed: &mut usize,
+    files_on_disk: &cache_eviction_paths::FilesOnDisk,
+) {
+    if pending.is_empty() {
+        return;
+    }
+    let chunk: Vec<PendingProbe> = pending.drain().map(|(_, entry)| entry).collect();
+    let probed: Vec<(u128, bool, Vec<i64>)> = chunk
+        .into_par_iter()
+        .map(|entry| {
+            (
+                entry.key.memo_key,
+                entry.key.has_cache_file(files_on_disk),
+                entry.downloads.into_iter().collect(),
+            )
+        })
+        .collect();
+    *tuples_probed += probed.len();
+    probe_memo.clear();
+    for (memo_key, cached, downloads) in probed {
+        probe_memo.insert(memo_key, cached);
+        for download_id in downloads {
+            summaries.entry(download_id).or_default().note_hit(cached);
+        }
+    }
+    release_freed_heap();
 }
 
 /// Classifies the complete probe result. Presence is intentionally evaluated before absence
@@ -662,14 +691,11 @@ async fn run_scan(
     let mut total_processed: usize = 0;
     let mut last_processed_id: i64 = 0;
 
-    // Scan-wide probe memo: many downloads share the same (service, url, datasource)
-    // tuple, and the on-disk file-name index is immutable for the whole scan, so each
-    // unique tuple is hashed and probed exactly once. Keyed by ProbeKey::memo_key (the md5
-    // digest of the resolved root + key scheme + service + URL) so the memo holds 16 bytes +
-    // bool per unique tuple instead
-    // of owning the tuple's strings - the old shape grew unbounded into hundreds of MB on
-    // large libraries.
+    // Probe memo: many downloads share a probe tuple, and the file-name index does not change during the scan.
+    // Each flush replaces the memo after folding its results, so a tuple seen again later is probed again with
+    // the same answer. Keyed by ProbeKey::memo_key.
     let mut probe_memo: HashMap<u128, bool> = HashMap::new();
+    let mut tuples_probed: usize = 0;
 
     loop {
         // Step A: Fetch a batch of distinct inactive download IDs
@@ -703,7 +729,7 @@ async fn run_scan(
             .collect();
         // Cache-evidence inputs per download, kept as separate (hit, miss) byte counts
         // because MISS bytes only count as evidence under the monolithic key scheme - the
-        // rule lives in download_was_cached, which also needs the download's probe keys.
+        // rule lives in DownloadProbe::was_cached, which reads the folded probe facts.
         let download_cache_bytes: HashMap<i64, (i64, i64)> = download_rows
             .iter()
             .map(|r| {
@@ -735,66 +761,86 @@ async fn run_scan(
         last_processed_id = last_download_id;
         let batch_count = download_ids.len();
 
-        // Step B: Fetch log entries for these downloads (single int8[] array bind).
+        // Step B: stream log entries for these downloads (single int8[] array bind).
         // GROUP BY (download_id, service, url, datasource) + MAX("BytesServed") collapses
         // duplicate rows to one per probe tuple and carries the URL's largest observed byte
         // size, which sizes the probe chunk count (clamped) in ProbeKey::has_cache_file.
-        let log_rows = sqlx::query(
-            r#"
-            SELECT "DownloadId" as download_id, "Service" as service, "Url" as url, "Datasource" as datasource, MAX("BytesServed") as bytes_served
-            FROM "LogEntries"
-            WHERE "DownloadId" = ANY($1)
-            GROUP BY "DownloadId", "Service", "Url", "Datasource"
-            "#
-        )
-        .bind(&download_ids)
-        .fetch_all(&pool)
-        .await
-        .with_context(|| "Failed to fetch log entries")?;
-
-        // Group probe keys by download_id
-        let mut download_keys: HashMap<i64, Vec<cache_eviction_paths::ProbeKey>> = HashMap::new();
-        let mut download_origins: HashMap<i64, Vec<Option<String>>> = HashMap::new();
-        for row in &log_rows {
-            let download_id: i64 = row.get("download_id");
-            let service: Option<String> = row.get("service");
-            let url: Option<String> = row.get("url");
-            let datasource: Option<String> = row.get("datasource");
-            download_origins
-                .entry(download_id)
-                .or_default()
-                .push(datasource.clone());
-            // MAX() is typed nullable; NULL means no usable size → 0 → probe-chunk floor.
-            let bytes_served: Option<i64> = row.get("bytes_served");
-
-            if let (Some(service), Some(url)) = (service, url) {
-                download_keys.entry(download_id).or_default().push(
-                    cache_eviction_paths::ProbeKey::new(
+        // Rows arrive ordered by download, so each row folds into its download summary at once and no row set
+        // is held beside the probe structures.
+        let mut summaries: HashMap<i64, cache_eviction_paths::DownloadProbe> = HashMap::new();
+        let mut pending: HashMap<u128, PendingProbe> = HashMap::new();
+        {
+            let mut log_rows = sqlx::query(
+                r#"
+                SELECT "DownloadId" as download_id, "Service" as service, "Url" as url, "Datasource" as datasource, MAX("BytesServed") as bytes_served
+                FROM "LogEntries"
+                WHERE "DownloadId" = ANY($1)
+                GROUP BY "DownloadId", "Service", "Url", "Datasource"
+                ORDER BY "DownloadId"
+                "#
+            )
+            .bind(&download_ids)
+            .fetch(&pool);
+            while let Some(row) = log_rows
+                .try_next()
+                .await
+                .context("Failed to fetch log entries")?
+            {
+                let download_id: i64 = row.get("download_id");
+                let service: Option<String> = row.get("service");
+                let url: Option<String> = row.get("url");
+                let datasource: Option<String> = row.get("datasource");
+                summaries
+                    .entry(download_id)
+                    .or_default()
+                    .note_origin(datasource.clone());
+                // MAX() is typed nullable; NULL means no usable size, which becomes 0.
+                let bytes_served: Option<i64> = row.get("bytes_served");
+                if let (Some(service), Some(url)) = (service, url) {
+                    let key = cache_eviction_paths::ProbeKey::new(
                         &service,
                         url,
                         datasource.as_deref(),
                         bytes_served.unwrap_or(0),
                         datasource_roots,
-                    ),
-                );
+                    );
+                    summaries.entry(download_id).or_default().note_key(
+                        &key,
+                        files_on_disk,
+                        repair_index.as_ref(),
+                    );
+                    if let Some(cached) = probe_memo.get(&key.memo_key) {
+                        summaries.entry(download_id).or_default().note_hit(*cached);
+                    } else if let Some(entry) = pending.get_mut(&key.memo_key) {
+                        entry.downloads.insert(download_id);
+                    } else {
+                        pending.insert(
+                            key.memo_key,
+                            PendingProbe {
+                                key,
+                                downloads: HashSet::from([download_id]),
+                            },
+                        );
+                        if pending.len() >= 50_000 {
+                            flush_pending(
+                                &mut pending,
+                                &mut probe_memo,
+                                &mut summaries,
+                                &mut tuples_probed,
+                                files_on_disk,
+                            );
+                        }
+                    }
+                }
             }
         }
-
-        // Probe each not-yet-memoized unique key once, in parallel (pure CPU over the
-        // immutable on-disk index), then fold the results into the scan-wide memo. One
-        // representative ProbeKey per memo_key suffices: keys with equal memo_key probe
-        // the same candidate set (bytes_served is deliberately outside the identity).
-        let mut unprobed: HashMap<u128, &cache_eviction_paths::ProbeKey> = HashMap::new();
-        for key in download_keys.values().flatten() {
-            if !probe_memo.contains_key(&key.memo_key) {
-                unprobed.entry(key.memo_key).or_insert(key);
-            }
-        }
-        let probe_results: Vec<(u128, bool)> = unprobed
-            .into_par_iter()
-            .map(|(memo_key, key)| (memo_key, key.has_cache_file(files_on_disk)))
-            .collect();
-        probe_memo.extend(probe_results);
+        flush_pending(
+            &mut pending,
+            &mut probe_memo,
+            &mut summaries,
+            &mut tuples_probed,
+            files_on_disk,
+        );
 
         // Decide each download's eviction state from POSITIVE disk evidence only.
         //
@@ -832,10 +878,8 @@ async fn run_scan(
             let identity = download_identity
                 .get(download_id)
                 .context("download identity is missing from its scan page")?;
-            let origins = download_origins
-                .get(download_id)
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
+            let summary = summaries.get(download_id);
+            let origins: &[Option<String>] = summary.map(|s| s.origins.as_slice()).unwrap_or(&[]);
             if let Some(repair) = repair_index.as_ref() {
                 if !target.matches(
                     identity.game_app_id,
@@ -850,55 +894,41 @@ async fn run_scan(
             }
             page_processed += 1;
             let is_evicted = download_evicted.get(download_id).copied().unwrap_or(false);
-            let keys = download_keys.get(download_id);
-            let keys_for_probe: &[cache_eviction_paths::ProbeKey] =
-                keys.map(Vec::as_slice).unwrap_or(&[]);
-            let mut has_cache_file = false;
-            for key in keys_for_probe {
-                let cached = probe_memo.get(&key.memo_key).copied().ok_or_else(|| {
-                    anyhow::anyhow!("probe memo must contain every key collected this batch")
-                })?;
-                if cached {
-                    has_cache_file = true;
-                    break;
-                }
-            }
+            let has_cache_file = summary.is_some_and(|summary| summary.has_hit);
 
-            // A positive memo hit is conclusive presence and is classified first. Absence is
+            // A positive hit is conclusive presence and is classified first. Absence is
             // verifiable only when the complete key set satisfies its scheme policy; unsupported
             // bare-metal recipes clear stale flags, while offline/unresolved keys abstain.
-            let has_probe_keys = !keys_for_probe.is_empty();
+            let has_probe_keys = summary.is_some_and(|summary| summary.has_keys);
             let mut can_verify_absence = if let Some(repair) = repair_index.as_ref() {
                 let origins_checked =
                     repair.origins_can_verify_absence(identity.datasource.as_deref(), origins);
-                let keyless_empty = keys_for_probe.is_empty()
+                let keyless_empty = !has_probe_keys
                     && repair.origins_are_trusted_empty(identity.datasource.as_deref(), origins);
-                origins_checked
-                    && (cache_eviction_paths::keys_can_verify_repair_absence(
-                        keys_for_probe,
-                        repair,
-                    ) || keyless_empty)
+                let repair_can_verify =
+                    summary.is_some_and(|summary| summary.can_verify_repair_absence());
+                origins_checked && (repair_can_verify || keyless_empty)
             } else {
-                cache_eviction_paths::keys_can_verify_absence(keys_for_probe, files_on_disk)
+                summary.is_some_and(|summary| summary.can_verify_absence())
             };
-            let has_unknown_recipe = keys_for_probe
-                .iter()
-                .any(cache_eviction_paths::ProbeKey::has_unknown_recipe);
+            let has_unknown_recipe = summary.is_some_and(|summary| summary.any_unknown_recipe);
             let (hit_bytes, miss_bytes) = download_cache_bytes
                 .get(download_id)
                 .copied()
                 .unwrap_or((0, 0));
-            let was_cached = if keys_for_probe.is_empty() {
-                hit_bytes > 0
-                    || (miss_bytes > 0
-                        && repair_index.as_ref().is_none_or(|repair| {
-                            !repair
-                                .origins_include_bare_metal(identity.datasource.as_deref(), origins)
-                        }))
+            let was_cached = if !has_probe_keys {
+                // A keyless download has no key to read the bare-metal fact from, so a
+                // repair scan supplies it from the download's origins instead.
+                let mut keyless = cache_eviction_paths::DownloadProbe::default();
+                if let Some(repair) = repair_index.as_ref() {
+                    keyless.any_bare_metal =
+                        repair.origins_include_bare_metal(identity.datasource.as_deref(), origins);
+                }
+                keyless.was_cached(hit_bytes, miss_bytes)
             } else {
-                download_was_cached(hit_bytes, miss_bytes, keys_for_probe)
+                summary.is_some_and(|summary| summary.was_cached(hit_bytes, miss_bytes))
             };
-            if repair_index.is_some() && keys_for_probe.is_empty() && !was_cached {
+            if repair_index.is_some() && !has_probe_keys && !was_cached {
                 can_verify_absence = false;
             }
             let action = if repair_index.is_some() && !has_cache_file && !can_verify_absence {
@@ -1029,6 +1059,12 @@ async fn run_scan(
             total_un_evicted,
         )?;
 
+        // These maps are the page. Drop them before asking glibc to return their pages,
+        // or the trim runs while the page is still live and the next page stacks on top.
+        drop(summaries);
+        drop(pending);
+        release_freed_heap();
+
         // Cooperative cancellation: between-batch check (after a full batch has committed).
         // Never leaves a half-written batch: the transaction above either committed or rolled back.
         if cancel::is_cancelled() {
@@ -1046,8 +1082,13 @@ async fn run_scan(
     }
 
     eprintln!(
-        "[EvictionScan] Scan complete: processed {} downloads, {} newly evicted, {} un-evicted (re-cached)",
-        total_processed, total_evicted, total_un_evicted
+        "[EvictionScan] Scan complete: processed {} downloads, {} newly evicted, {} un-evicted (re-cached), {} files on disk, {} tuples probed, {} entries in probe memo",
+        total_processed,
+        total_evicted,
+        total_un_evicted,
+        total_files,
+        tuples_probed,
+        probe_memo.len()
     );
 
     // Final Rust progress tick — still "running" at 99% so the frontend waits for
@@ -1109,7 +1150,7 @@ async fn evict_unchanged_downloads_tx(
     Ok(result.rows_affected())
 }
 
-/// Transaction-scoped variant used by the per-batch transaction in run_scan (rust-3).
+/// Transaction-scoped variant used by the per-batch transaction in run_scan.
 /// Executes within a caller-owned transaction so that evict + unevict UPDATEs for the
 /// same batch are atomic.
 async fn update_download_eviction_state_tx(
@@ -1284,8 +1325,8 @@ fn write_progress_file(
 mod tests {
     use super::{
         cache_eviction_paths, classify_download, classify_unverifiable, classify_verifiable,
-        download_was_cached, evict_unchanged_downloads_tx, read_repair, run_scan,
-        update_checkpoint_tx, Args, DatasourceConfig, DownloadAction, RepairTarget, TargetSelector,
+        evict_unchanged_downloads_tx, read_repair, run_scan, update_checkpoint_tx, Args,
+        DatasourceConfig, DownloadAction, RepairTarget, ScanResult, TargetSelector,
         UnverifiableAction, VerifiableAction,
     };
     use clap::Parser;
@@ -1295,6 +1336,12 @@ mod tests {
     use sqlx::postgres::PgPoolOptions;
     use sqlx::{PgPool, Row};
     use uuid::Uuid;
+
+    // The scan-level tests point DATABASE_URL at their own schema, and that variable is
+    // process-wide. run_scan_in_schema owns this lock around the run, or one test would
+    // connect to another test's schema.
+    // An async lock, because the guard is held across the awaited run.
+    static DATABASE_URL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     async fn isolated_pool(test_name: &str) -> Option<(PgPool, String)> {
         let Ok(connection) = std::env::var("LANCACHE_TEST_DATABASE_URL") else {
@@ -1312,6 +1359,58 @@ mod tests {
             .await
             .expect("create isolated test schema");
         Some((pool, schema))
+    }
+
+    async fn run_scan_in_schema(
+        schema: &str,
+        datasource_path: &std::path::Path,
+        operation_id: Option<&str>,
+        repair_path: Option<&std::path::Path>,
+    ) -> anyhow::Result<ScanResult> {
+        let connection = std::env::var("LANCACHE_TEST_DATABASE_URL")
+            .expect("isolated pool requires the test database connection");
+        let separator = if connection.contains('?') { '&' } else { '?' };
+        let _database_url_guard = DATABASE_URL_LOCK.lock().await;
+        let previous_database_url = std::env::var("DATABASE_URL").ok();
+        std::env::set_var(
+            "DATABASE_URL",
+            format!("{connection}{separator}options=-csearch_path%3D{schema}"),
+        );
+        let datasource_text = datasource_path.to_string_lossy().into_owned();
+        let repair_text = repair_path.map(|path| path.to_string_lossy().into_owned());
+        let result = run_scan(
+            &datasource_text,
+            None,
+            operation_id,
+            repair_text.as_deref(),
+            &ProgressReporter::new(false),
+        )
+        .await;
+        match previous_database_url {
+            Some(value) => std::env::set_var("DATABASE_URL", value),
+            None => std::env::remove_var("DATABASE_URL"),
+        }
+        result
+    }
+
+    fn write_datasource_config(
+        directory: &std::path::Path,
+        cache_root: &std::path::Path,
+        scheme: &str,
+    ) -> std::path::PathBuf {
+        let path = directory.join("datasources.json");
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!([{
+                "name": "default",
+                "cachePath": cache_root,
+                "isDefault": true,
+                "keyScheme": scheme
+            }]))
+            .unwrap(),
+        )
+        .unwrap();
+        path
     }
 
     /// Builds a resolved ProbeKey under the given key scheme for the was_cached tests.
@@ -1336,6 +1435,7 @@ mod tests {
         directory: &std::path::Path,
         original_id: Uuid,
         cache_path: &std::path::Path,
+        key_scheme: &str,
     ) -> std::path::PathBuf {
         let path = directory.join("repair.json");
         std::fs::write(
@@ -1346,7 +1446,7 @@ mod tests {
                 "sources": [{
                     "name": "default",
                     "cachePath": cache_path,
-                    "keyScheme": "monolithic"
+                    "keyScheme": key_scheme
                 }],
                 "target": null
             }))
@@ -1360,12 +1460,7 @@ mod tests {
     fn repair_document_keeps_original_receipt_owner_separate_from_scan_attempt() {
         let fixture = tempfile::tempdir().unwrap();
         let cache_path = fixture.path().join("cache");
-        std::fs::create_dir_all(cache_path.join("ef").join("cd")).unwrap();
-        let cache_file = cache_path
-            .join("ef")
-            .join("cd")
-            .join("0123456789abcdef0123456789abcdef");
-        std::fs::write(&cache_file, b"cache").unwrap();
+        let cache_file = cache_eviction_paths::create_cache_file(&cache_path);
         let original_id = Uuid::new_v4();
         let attempt_id = Uuid::new_v4();
         let original_text = original_id.to_string();
@@ -1374,7 +1469,7 @@ mod tests {
             .unwrap();
         let receipt_bytes = std::fs::read(&receipt).unwrap();
         std::fs::remove_file(cache_file).unwrap();
-        let repair_path = write_repair(fixture.path(), original_id, &cache_path);
+        let repair_path = write_repair(fixture.path(), original_id, &cache_path, "monolithic");
 
         let (receipt_owner, sources, target) = read_repair(&repair_path).unwrap();
         let datasources = [DatasourceConfig {
@@ -1407,19 +1502,8 @@ mod tests {
         let cache_path = fixture.path().join("cache");
         std::fs::create_dir_all(&cache_path).unwrap();
         let operation_id = Uuid::new_v4();
-        let repair_path = write_repair(fixture.path(), operation_id, &cache_path);
-        let datasource_path = fixture.path().join("datasources.json");
-        std::fs::write(
-            &datasource_path,
-            serde_json::to_vec(&serde_json::json!([{
-                "name": "default",
-                "cachePath": cache_path,
-                "isDefault": true,
-                "keyScheme": "monolithic"
-            }]))
-            .unwrap(),
-        )
-        .unwrap();
+        let repair_path = write_repair(fixture.path(), operation_id, &cache_path, "monolithic");
+        let datasource_path = write_datasource_config(fixture.path(), &cache_path, "monolithic");
 
         let operation_text = operation_id.to_string();
         let repair_text = repair_path.to_string_lossy().into_owned();
@@ -1707,6 +1791,287 @@ mod tests {
 
         assert_eq!(changed, 1);
         assert_eq!(rows, vec![(1, true), (2, false), (3, false)]);
+    }
+
+    #[tokio::test]
+    async fn one_download_with_many_tuples_is_split_by_the_flush_cap() {
+        const TEST_NAME: &str = "one_download_with_many_tuples_is_split_by_the_flush_cap";
+        let Some((pool, schema)) = isolated_pool(TEST_NAME).await else {
+            return;
+        };
+        let peak_kib = || -> Option<u64> {
+            let status = std::fs::read_to_string("/proc/self/status").ok()?;
+            status.lines().find_map(|line| {
+                line.strip_prefix("VmHWM:")?
+                    .trim()
+                    .trim_end_matches(" kB")
+                    .parse()
+                    .ok()
+            })
+        };
+        let peak_before = peak_kib();
+        sqlx::query(&format!(
+            r#"
+            CREATE TABLE "{schema}"."Downloads" (
+                "Id" bigint PRIMARY KEY,
+                "IsEvicted" boolean NOT NULL,
+                "CacheHitBytes" bigint NOT NULL,
+                "CacheMissBytes" bigint NOT NULL,
+                "Datasource" text,
+                "Service" text,
+                "GameName" text,
+                "GameAppId" bigint,
+                "DepotId" bigint,
+                "EpicAppId" text,
+                "IsActive" boolean NOT NULL
+            )
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create Downloads fixture");
+        sqlx::query(&format!(
+            r#"
+            CREATE TABLE "{schema}"."LogEntries" (
+                "DownloadId" bigint NOT NULL,
+                "Service" text,
+                "Url" text,
+                "Datasource" text,
+                "BytesServed" bigint
+            )
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create LogEntries fixture");
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO "{schema}"."Downloads"
+                ("Id", "IsEvicted", "CacheHitBytes", "CacheMissBytes", "Datasource", "Service", "IsActive")
+            VALUES (1, false, 100, 0, 'default', 'steam', false)
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("seed download fixture");
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO "{schema}"."LogEntries"
+                ("DownloadId", "Service", "Url", "Datasource", "BytesServed")
+            SELECT 1, 'steam', '/chunk/' || g, 'default', 10
+            FROM generate_series(1, 200000) AS g
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("seed log entry fixtures");
+
+        let fixture = tempfile::tempdir().expect("create cache fixture");
+        let cache_root = fixture.path().join("cache");
+        cache_eviction_paths::create_cache_file(&cache_root);
+        let datasource_path = write_datasource_config(fixture.path(), &cache_root, "monolithic");
+
+        let result = run_scan_in_schema(&schema, &datasource_path, None, None).await;
+        let result = result.expect("run eviction scan over the seeded download");
+        let peak_after = peak_kib();
+        let evicted: bool = sqlx::query_scalar(&format!(
+            r#"SELECT "IsEvicted" FROM "{schema}"."Downloads" WHERE "Id" = 1"#
+        ))
+        .fetch_one(&pool)
+        .await
+        .expect("read eviction result");
+        sqlx::query(&format!(r#"DROP SCHEMA "{schema}" CASCADE"#))
+            .execute(&pool)
+            .await
+            .expect("drop isolated test schema");
+
+        assert_eq!(result.processed, 1);
+        assert!(evicted);
+        if let (Some(before), Some(after)) = (peak_before, peak_after) {
+            assert!(
+                after.saturating_sub(before) < 48 * 1024,
+                "peak growth {} kB",
+                after.saturating_sub(before)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn keyless_repair_download_uses_origin_scheme_for_cached_evidence() {
+        const TEST_NAME: &str = "keyless_repair_download_uses_origin_scheme_for_cached_evidence";
+        let Some((pool, schema)) = isolated_pool(TEST_NAME).await else {
+            return;
+        };
+        sqlx::query(&format!(
+            r#"
+            CREATE TABLE "{schema}"."Downloads" (
+                "Id" bigint PRIMARY KEY,
+                "IsEvicted" boolean NOT NULL,
+                "CacheHitBytes" bigint NOT NULL,
+                "CacheMissBytes" bigint NOT NULL,
+                "Datasource" text,
+                "Service" text,
+                "GameName" text,
+                "GameAppId" bigint,
+                "DepotId" bigint,
+                "EpicAppId" text,
+                "IsActive" boolean NOT NULL
+            )
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create Downloads fixture");
+        sqlx::query(&format!(
+            r#"
+            CREATE TABLE "{schema}"."LogEntries" (
+                "DownloadId" bigint NOT NULL,
+                "Service" text,
+                "Url" text,
+                "Datasource" text,
+                "BytesServed" bigint
+            )
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create LogEntries fixture");
+        sqlx::query(&format!(
+            r#"
+            CREATE TABLE "{schema}"."EvictionScanCheckpoints" (
+                "OperationId" uuid PRIMARY KEY,
+                "Processed" integer NOT NULL,
+                "Evicted" integer NOT NULL,
+                "UnEvicted" integer NOT NULL,
+                "StartedAtUtc" timestamptz NOT NULL,
+                "FinalizedAtUtc" timestamptz NULL
+            )
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create checkpoint fixture");
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO "{schema}"."Downloads"
+                ("Id", "IsEvicted", "CacheHitBytes", "CacheMissBytes", "Datasource", "Service", "IsActive")
+            VALUES (1, false, 0, 500, 'default', 'steam', false)
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("seed download fixture");
+
+        for (scheme, expected_evicted) in [("bare_metal", false), ("monolithic", true)] {
+            sqlx::query(&format!(
+                r#"UPDATE "{schema}"."Downloads" SET "IsEvicted" = false WHERE "Id" = 1"#
+            ))
+            .execute(&pool)
+            .await
+            .expect("reset download fixture");
+            let fixture = tempfile::tempdir().expect("create cache fixture");
+            let cache_root = fixture.path().join("cache");
+            let cache_file = cache_eviction_paths::create_cache_file(&cache_root);
+            let original_id = Uuid::new_v4();
+            let original_text = original_id.to_string();
+            cache_repair::prepare_receipt(&cache_root, Some(&original_text))
+                .expect("prepare empty-root receipt")
+                .expect("receipt for a formerly populated root");
+            std::fs::remove_file(&cache_file).expect("empty the cache root");
+            let repair_path = write_repair(fixture.path(), original_id, &cache_root, scheme);
+            let datasource_path = write_datasource_config(fixture.path(), &cache_root, scheme);
+            let attempt_id = Uuid::new_v4();
+            sqlx::query(&format!(
+                r#"
+                INSERT INTO "{schema}"."EvictionScanCheckpoints"
+                    ("OperationId", "Processed", "Evicted", "UnEvicted", "StartedAtUtc")
+                VALUES ($1::uuid, 0, 0, 0, NOW())
+                "#
+            ))
+            .bind(attempt_id.hyphenated().to_string())
+            .execute(&pool)
+            .await
+            .expect("seed checkpoint fixture");
+
+            let attempt_text = attempt_id.to_string();
+            let result = run_scan_in_schema(
+                &schema,
+                &datasource_path,
+                Some(&attempt_text),
+                Some(&repair_path),
+            )
+            .await;
+            result.expect("run repair scan over the keyless download");
+            let evicted: bool = sqlx::query_scalar(&format!(
+                r#"SELECT "IsEvicted" FROM "{schema}"."Downloads" WHERE "Id" = 1"#
+            ))
+            .fetch_one(&pool)
+            .await
+            .expect("read eviction result");
+            assert_eq!(evicted, expected_evicted, "scheme {scheme}");
+        }
+        sqlx::query(&format!(r#"DROP SCHEMA "{schema}" CASCADE"#))
+            .execute(&pool)
+            .await
+            .expect("drop isolated test schema");
+    }
+
+    #[tokio::test]
+    async fn a_missing_log_entries_table_reports_the_fetch_context() {
+        const TEST_NAME: &str = "a_missing_log_entries_table_reports_the_fetch_context";
+        let Some((pool, schema)) = isolated_pool(TEST_NAME).await else {
+            return;
+        };
+        sqlx::query(&format!(
+            r#"
+            CREATE TABLE "{schema}"."Downloads" (
+                "Id" bigint PRIMARY KEY,
+                "IsEvicted" boolean NOT NULL,
+                "CacheHitBytes" bigint NOT NULL,
+                "CacheMissBytes" bigint NOT NULL,
+                "Datasource" text,
+                "Service" text,
+                "GameName" text,
+                "GameAppId" bigint,
+                "DepotId" bigint,
+                "EpicAppId" text,
+                "IsActive" boolean NOT NULL
+            )
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("create Downloads fixture");
+        sqlx::query(&format!(
+            r#"
+            INSERT INTO "{schema}"."Downloads"
+                ("Id", "IsEvicted", "CacheHitBytes", "CacheMissBytes", "Datasource", "Service", "IsActive")
+            VALUES (1, false, 100, 0, 'default', 'steam', false)
+            "#
+        ))
+        .execute(&pool)
+        .await
+        .expect("seed download fixture");
+
+        let fixture = tempfile::tempdir().expect("create cache fixture");
+        let cache_root = fixture.path().join("cache");
+        cache_eviction_paths::create_cache_file(&cache_root);
+        let datasource_path = write_datasource_config(fixture.path(), &cache_root, "monolithic");
+
+        let result = run_scan_in_schema(&schema, &datasource_path, None, None).await;
+        sqlx::query(&format!(r#"DROP SCHEMA "{schema}" CASCADE"#))
+            .execute(&pool)
+            .await
+            .expect("drop isolated test schema");
+
+        let error = match result {
+            Ok(_) => panic!("a missing LogEntries table must fail the scan"),
+            Err(error) => error,
+        };
+        assert!(
+            format!("{error:#}").contains("Failed to fetch log entries"),
+            "{error:#}"
+        );
     }
 
     #[tokio::test]
@@ -2075,14 +2440,21 @@ mod tests {
         );
     }
 
-    // --- download_was_cached: per-scheme MISS-byte evidence ---
+    // --- DownloadProbe::was_cached: per-scheme MISS-byte evidence ---
 
     #[test]
     fn bare_metal_miss_only_bytes_are_not_cached_evidence() {
         // Bare-metal nginx logs MISS for responses it never writes to cache, so miss-only
         // bytes must not make the download evictable.
         let keys = [scheme_key("bare_metal")];
-        let was_cached = download_was_cached(0, 500, &keys);
+        let datasources = [DatasourceConfig {
+            name: "ds".to_string(),
+            cache_path: "cache".to_string(),
+            is_default: true,
+            key_scheme: "monolithic".to_string(),
+        }];
+        let (files, _) = cache_eviction_paths::collect_files_on_disk(&datasources, |_| {});
+        let was_cached = cache_eviction_paths::probe_for(&keys, &files).was_cached(0, 500);
         assert!(!was_cached);
         assert_eq!(
             classify_download(false, true, true, false, false, was_cached),
@@ -2094,8 +2466,15 @@ mod tests {
     fn bare_metal_hit_bytes_keep_download_evictable() {
         // A HIT can only be served from a file that existed on disk, on every scheme.
         let keys = [scheme_key("bare_metal")];
-        assert!(download_was_cached(1, 0, &keys));
-        assert!(download_was_cached(1, 500, &keys));
+        let datasources = [DatasourceConfig {
+            name: "ds".to_string(),
+            cache_path: "cache".to_string(),
+            is_default: true,
+            key_scheme: "monolithic".to_string(),
+        }];
+        let (files, _) = cache_eviction_paths::collect_files_on_disk(&datasources, |_| {});
+        assert!(cache_eviction_paths::probe_for(&keys, &files).was_cached(1, 0));
+        assert!(cache_eviction_paths::probe_for(&keys, &files).was_cached(1, 500));
         assert_eq!(
             classify_download(false, true, true, false, false, true),
             DownloadAction::Evict
@@ -2107,9 +2486,16 @@ mod tests {
         // Monolithic lancache writes the content to cache on MISS, so pure-MISS downloads
         // (the common downloaded-exactly-once case) stay detectable as evicted.
         let keys = [scheme_key("monolithic")];
-        let was_cached = download_was_cached(0, 500, &keys);
+        let datasources = [DatasourceConfig {
+            name: "ds".to_string(),
+            cache_path: "cache".to_string(),
+            is_default: true,
+            key_scheme: "monolithic".to_string(),
+        }];
+        let (files, _) = cache_eviction_paths::collect_files_on_disk(&datasources, |_| {});
+        let was_cached = cache_eviction_paths::probe_for(&keys, &files).was_cached(0, 500);
         assert!(was_cached);
-        assert!(!download_was_cached(0, 0, &keys));
+        assert!(!cache_eviction_paths::probe_for(&keys, &files).was_cached(0, 0));
         assert_eq!(
             classify_download(false, true, true, false, false, was_cached),
             DownloadAction::Evict
@@ -2121,7 +2507,14 @@ mod tests {
         // Any bare-metal key disqualifies MISS bytes for the whole download (fail-closed);
         // HIT bytes still count.
         let keys = [scheme_key("monolithic"), scheme_key("bare_metal")];
-        assert!(!download_was_cached(0, 500, &keys));
-        assert!(download_was_cached(3, 500, &keys));
+        let datasources = [DatasourceConfig {
+            name: "ds".to_string(),
+            cache_path: "cache".to_string(),
+            is_default: true,
+            key_scheme: "monolithic".to_string(),
+        }];
+        let (files, _) = cache_eviction_paths::collect_files_on_disk(&datasources, |_| {});
+        assert!(!cache_eviction_paths::probe_for(&keys, &files).was_cached(0, 500));
+        assert!(cache_eviction_paths::probe_for(&keys, &files).was_cached(3, 500));
     }
 }

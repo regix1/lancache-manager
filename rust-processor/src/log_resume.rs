@@ -134,7 +134,7 @@ pub fn resume_point(
     for (path, mark) in files[..file_index].iter().zip(&older_files) {
         let identity = file_identity(path).ok()?;
         let len = std::fs::metadata(path).ok()?.len();
-        if identity != mark.identity || len != mark.len {
+        if identity != mark.identity || len != mark.len || !proof_holds(mark, path, false) {
             return None;
         }
     }
@@ -161,12 +161,28 @@ fn plain(path: &Path) -> bool {
     )
 }
 
+/// A mark saved with a hash names a file only while that file still hashes the same: the file
+/// system hands a deleted log's number to a new log, which can reach the same length. A hash that
+/// cannot be read is no evidence for the mark, and `unreadable_counts` says whether it also counts
+/// against it: a caller that decides what to skip passes false, because a log that will not open
+/// may be a new one; the caller that runs after a member failed to open passes true.
+fn proof_holds(mark: &FileMark, path: &Path, unreadable_counts: bool) -> bool {
+    let (Some(offset), Some(expected_crc)) = (mark.offset, mark.tail_crc) else {
+        return true;
+    };
+    plain(path)
+        && match tail_crc(path, offset) {
+            Ok(crc) => crc == expected_crc,
+            Err(_) => unreadable_counts,
+        }
+}
+
 fn mark_matches(mark: &FileMark, path: &Path, identity: &FileIdentity, len: u64) -> bool {
     if identity != &mark.identity {
         return false;
     }
     if len == mark.len {
-        return true;
+        return proof_holds(mark, path, false);
     }
     if len <= mark.len || !plain(path) {
         return false;
@@ -226,6 +242,7 @@ pub fn proven_deleted_records(entry: &StemResume, files: &[PathBuf]) -> Option<u
 /// Returns a saved record count only when the observed member proves the saved boundary.
 pub fn mark_records(
     entry: &StemResume,
+    path: &Path,
     identity: &FileIdentity,
     len: u64,
     prefix_matched: bool,
@@ -235,7 +252,9 @@ pub fn mark_records(
         .iter()
         .find(|mark| &mark.identity == identity)
     {
-        return (len == mark.len || (len > mark.len && prefix_matched)).then_some(mark.records);
+        return ((len == mark.len && proof_holds(mark, path, true))
+            || (len > mark.len && prefix_matched))
+            .then_some(mark.records);
     }
     (identity == &entry.file_identity && prefix_matched).then_some(entry.file_records)
 }
@@ -382,13 +401,17 @@ mod tests {
         saved.older_files = vec![older_mark.clone()];
 
         assert_eq!(
-            mark_records(&saved, &older_mark.identity, older_mark.len, false),
+            mark_records(&saved, &older, &older_mark.identity, older_mark.len, false),
             Some(1)
         );
-        assert_eq!(mark_records(&saved, &saved.file_identity, 8, true), Some(2));
+        assert_eq!(
+            mark_records(&saved, &current, &saved.file_identity, 8, true),
+            Some(2)
+        );
         assert_eq!(
             mark_records(
                 &saved,
+                &unknown,
                 &file_identity(&unknown).expect("read unknown identity"),
                 8,
                 false,
@@ -479,8 +502,9 @@ mod tests {
         assert_eq!(
             mark_records(
                 &saved,
+                &replacement,
                 &collision.identity,
-                std::fs::metadata(replacement)
+                std::fs::metadata(&replacement)
                     .expect("read collision length")
                     .len(),
                 false,
@@ -505,6 +529,125 @@ mod tests {
         assert_eq!(deleted_prefix_records(&saved, &[older.clone(), current]), 0);
         std::fs::write(&older, b"changed-prefix\nlate\n").expect("rewrite older fixture");
         assert_eq!(deleted_prefix_records(&saved, &[older]), saved.position);
+    }
+
+    #[test]
+    fn a_new_log_with_a_deleted_logs_number_and_length_is_not_that_log() {
+        let directory = tempfile::tempdir().expect("create resume fixture");
+        let older = directory.path().join("access.log.1");
+        let recycled = directory.path().join("access.log.2");
+        let unchanged = directory.path().join("access.log.3");
+        let current = directory.path().join("access.log");
+        let moved_current = directory.path().join("saved-current");
+        let mut older_mark = write(&older, b"a1\na2\na3\n");
+        older_mark.offset = Some(older_mark.len);
+        older_mark.tail_crc = Some(tail_crc(&older, older_mark.len).expect("hash older log"));
+        std::fs::write(&current, b"t1\nt2\n").expect("write current fixture");
+        let mut saved = entry(&current, 5, 6);
+        std::fs::write(&recycled, b"b1\nb2\nb3\n").expect("write recycled fixture");
+        std::fs::write(&unchanged, b"a1\na2\na3\n").expect("write unchanged fixture");
+
+        // The file system gave the deleted older log's number to a different log of the same length.
+        let mut recycled_mark = older_mark.clone();
+        recycled_mark.identity = file_identity(&recycled).expect("read recycled identity");
+        saved.older_files = vec![recycled_mark];
+
+        // The saved current log survives beside it, so it is the older record count that proves the
+        // position, not zero.
+        let with_current = [recycled.clone(), current.clone()];
+        assert_eq!(
+            proven_deleted_records(&saved, &with_current),
+            Some(older_mark.records)
+        );
+        assert!(resume_point(&saved, 5, &with_current).is_none());
+
+        // No other log proves where the importer stopped, so the whole position counts.
+        std::fs::rename(&current, &moved_current).expect("move saved current fixture");
+        assert_eq!(proven_deleted_records(&saved, &[recycled.clone()]), None);
+        assert_eq!(deleted_prefix_records(&saved, &[recycled]), saved.position);
+
+        // The same number and the same bytes is the log the record names.
+        let mut unchanged_mark = older_mark.clone();
+        unchanged_mark.identity = file_identity(&unchanged).expect("read unchanged identity");
+        saved.older_files = vec![unchanged_mark];
+        assert_eq!(proven_deleted_records(&saved, &[unchanged]), Some(0));
+    }
+
+    #[test]
+    fn a_mark_with_a_hash_credits_only_the_bytes_it_hashed() {
+        let directory = tempfile::tempdir().expect("create resume fixture");
+        let older = directory.path().join("access.log.1");
+        let other = directory.path().join("access.log.2");
+        let compressed = directory.path().join("access.log.3.gz");
+        let unreadable = directory.path().join("access.log.4");
+        let current = directory.path().join("access.log");
+        let mut older_mark = write(&older, b"a1\na2\na3\n");
+        older_mark.offset = Some(older_mark.len);
+        older_mark.tail_crc = Some(tail_crc(&older, older_mark.len).expect("hash older log"));
+        std::fs::write(&current, b"t1\nt2\n").expect("write current fixture");
+        let mut saved = entry(&current, 5, 6);
+        saved.older_files = vec![older_mark.clone()];
+        std::fs::write(&other, b"b1\nb2\nb3\n").expect("write other fixture");
+        std::fs::write(&compressed, b"b1\nb2\nb3\n").expect("write compressed fixture");
+        // A directory cannot be read as a log on any platform, with no permission change.
+        std::fs::create_dir(&unreadable).expect("create unreadable fixture");
+        let identity = &older_mark.identity;
+        let len = older_mark.len;
+
+        assert_eq!(
+            mark_records(&saved, &older, identity, len, false),
+            Some(older_mark.records)
+        );
+        // A different log that took the deleted log's number, plain or compressed, is not that log.
+        assert_eq!(mark_records(&saved, &other, identity, len, false), None);
+        assert_eq!(
+            mark_records(&saved, &compressed, identity, len, false),
+            None
+        );
+        // A member that cannot be read gives no evidence against the mark, so it keeps its credit.
+        assert_eq!(
+            mark_records(&saved, &unreadable, identity, len, false),
+            Some(older_mark.records)
+        );
+    }
+
+    #[test]
+    fn an_unreadable_hash_is_not_proof_of_a_saved_log() {
+        let directory = tempfile::tempdir().expect("create resume fixture");
+        let newer = directory.path().join("access.log.1");
+        let current = directory.path().join("access.log");
+        let mut mark = write(&newer, b"a1\na2\na3\n");
+        // An offset past the end of the file makes the hash read fail on every platform, with no
+        // permission change.
+        mark.offset = Some(mark.len + 1);
+        mark.tail_crc = Some(0);
+        assert!(tail_crc(&newer, mark.offset.expect("mark offset")).is_err());
+        std::fs::write(&current, b"t1\nt2\n").expect("write current fixture");
+        let mut saved = entry(&current, 5, 6);
+        saved.older_files = vec![mark.clone()];
+
+        // The log has the saved log's number and length but its hash cannot be read, so it is not
+        // shown to be that log.
+        assert!(!mark_matches(&mark, &newer, &mark.identity, mark.len));
+        let with_current = [newer.clone(), current.clone()];
+        assert!(resume_point(&saved, 5, &with_current).is_none());
+        assert_eq!(
+            proven_deleted_records(&saved, &with_current),
+            Some(mark.records)
+        );
+
+        // With no other log to prove where the importer stopped, the whole position counts.
+        assert_eq!(proven_deleted_records(&saved, &[newer.clone()]), None);
+        assert_eq!(
+            deleted_prefix_records(&saved, &[newer.clone()]),
+            saved.position
+        );
+
+        // A log that failed to open keeps the credit the earlier pass gave it.
+        assert_eq!(
+            mark_records(&saved, &newer, &mark.identity, mark.len, false),
+            Some(mark.records)
+        );
     }
 
     #[test]

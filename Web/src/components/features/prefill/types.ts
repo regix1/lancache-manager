@@ -40,18 +40,6 @@ export interface PrefillSessionDto {
   /** The session's current sign-in attempt number. */
   loginAttempt: number;
   networkDiagnostics?: NetworkDiagnostics;
-  /**
-   * Server truth: is a prefill currently running on the daemon? Stays true from start-ack
-   * through the real download (driven by terminal socket state, not the start-ack).
-   * Used to re-hydrate the progress bar on (re)connect/(re)mount/tab-return.
-   */
-  isPrefilling?: boolean;
-  /** App id currently being prefilled (when isPrefilling). */
-  currentAppId?: string;
-  /** Display name of the app currently being prefilled (when isPrefilling). */
-  currentAppName?: string;
-  /** Total bytes transferred so far in the running prefill (when isPrefilling). */
-  totalBytesTransferred?: number;
 }
 
 export interface PrefillPanelProps {

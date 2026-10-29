@@ -15,8 +15,10 @@ public class DaemonClientChallengeWaiterTests
     private const string ChallengeFrame =
         """{"type":"credential-challenge","data":{"challengeId":"chal-waiter-1","credentialType":"username"}}""";
 
-    private static SocketDaemonClient NewSocketClient() => new("/nonexistent.sock", "secret", null);
-    private static TcpDaemonClient NewTcpClient() => new("127.0.0.1", 45556, "secret", null);
+    private static SocketDaemonClient NewSocketClient() =>
+        new("/nonexistent.sock", "secret", null) { SignInLostStageKey = "errors.steam.signInLost" };
+    private static TcpDaemonClient NewTcpClient() =>
+        new("127.0.0.1", 45556, "secret", null) { SignInLostStageKey = "errors.steam.signInLost" };
 
     [Fact]
     public Task SocketDaemonClient_PollCannotTakeOverLoginWaiter()

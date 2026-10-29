@@ -33,8 +33,8 @@ export function isRefusal(error: unknown): error is ApiError {
  * with empty text classified here as an unknown error.
  *
  * When the body names the refusal with a `stageKey`, that key is what the reader sees, in their own
- * language. The English sentence is the `defaultValue`, so a key this build's locale has no words
- * for still reads as a sentence rather than as a key path.
+ * language. A key this build's locale has no words for shows as its key path;
+ * test-server-stage-keys.mjs keeps every key the API sends in both locales.
  *
  * A failure that names no reason (an empty proxy 502, an HTML gateway page, a bare 401, a fetch
  * that never reached the server, a timeout) maps to one translated sentence per class, so boxes,
@@ -45,7 +45,7 @@ export function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     const body = error.body;
     if (body?.stageKey) {
-      return i18n.t(body.stageKey, { ...body.context, defaultValue: error.message });
+      return i18n.t(body.stageKey, body.context);
     }
     // A body that names a reason is the server's own sentence, already composed by pickErrorMessage.
     if (

@@ -53,9 +53,7 @@ public class PrefillLoginRunTests
             new PersistentLoginRequest
             {
                 Service = PrefillPlatform.Steam,
-                SessionId = session.Id,
-                EditSessionId = "edit-session-login",
-                EditActionId = "login"
+                SessionId = session.Id
             },
             CancellationToken.None);
 
@@ -176,8 +174,8 @@ public class PrefillLoginRunTests
         var operationId = Assert.IsType<Guid>(session.LoginOperationId);
         session.AuthState = stateAtPush;
 
-        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = message });
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session,
+            new DaemonStatus { Status = "awaiting-login", Message = message }, null);
 
         Assert.Equal(expected, tracker.GetOperation(operationId)!.Status);
         Assert.Equal(expected == OperationStatus.Failed,
@@ -202,8 +200,8 @@ public class PrefillLoginRunTests
         await daemon.StartLoginAsync(session.Id);
         session.AuthState = DaemonAuthState.PasswordRequired;
 
-        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session,
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." }, null);
 
         var snapshot = DaemonSessionDto.FromSession(session);
         Assert.NotNull(snapshot.LoginEnding);
@@ -225,14 +223,12 @@ public class PrefillLoginRunTests
             new PersistentLoginRequest
             {
                 Service = PrefillPlatform.Steam,
-                SessionId = session.Id,
-                EditSessionId = "edit-session-login",
-                EditActionId = "login"
+                SessionId = session.Id
             },
             CancellationToken.None);
         session.AuthState = DaemonAuthState.PasswordRequired;
-        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session,
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." }, null);
 
         var ended = await controller.GetChallengeAsync(
             PrefillPlatform.Steam, sessionId: session.Id, loginAttempt: session.LoginAttempt);
@@ -252,11 +248,16 @@ public class PrefillLoginRunTests
     /// at a prompt leaves nothing to answer that prompt, and the expiry sweeps skip the Error session it
     /// becomes. The sign-in must end as a failure that stays until closed, not run forever.
     /// </summary>
-    [Fact]
-    public async Task ADisconnectAtAPromptEndsTheSignInAsAFailure()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ADisconnectAtAPromptEndsTheSignInAsAFailure(bool statusRead)
     {
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        // A read status with no protocol version is an outdated daemon; no read leaves the capabilities unknown.
+        if (statusRead)
+            session.Capabilities = new DaemonStatus { Status = "logged-in" };
         await daemon.StartLoginAsync(session.Id);
         var operationId = Assert.IsType<Guid>(session.LoginOperationId);
         session.AuthState = DaemonAuthState.PasswordRequired;
@@ -268,6 +269,9 @@ public class PrefillLoginRunTests
         Assert.Equal(OperationStatus.Failed, tracker.GetOperation(operationId)!.Status);
         Assert.Contains(tracker.GetRuns().Runs, row => row.OperationId == operationId && row.Retained);
         Assert.Equal("errors.prefill.requestFailed", Assert.IsType<PrefillLoginEnding>(session.LastLoginEnding).StageKey);
+        Assert.Equal("errors.prefill.requestFailed", session.LastLoginFailureKey);
+        Assert.Null(session.LoginOperationId);
+        Assert.False(session.Recovering);
     }
 
     /// <summary>
@@ -308,7 +312,7 @@ public class PrefillLoginRunTests
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent);
         await (isPersistent
-            ? daemon.StartLoginForEditAsync(session.Id, null, () => { }, Guid.NewGuid())
+            ? daemon.StartPersistentLoginAsync(session.Id, null, () => { }, Guid.NewGuid())
             : daemon.StartLoginAsync(session.Id));
         var operationId = Assert.IsType<Guid>(session.LoginOperationId);
 
@@ -351,7 +355,7 @@ public class PrefillLoginRunTests
     {
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: true);
-        await daemon.StartLoginForEditAsync(session.Id, null, () => { }, Guid.NewGuid());
+        await daemon.StartPersistentLoginAsync(session.Id, null, () => { }, Guid.NewGuid());
         var operationId = Assert.IsType<Guid>(session.LoginOperationId);
         session.AuthState = DaemonAuthState.UsernameRequired;
         var client = (ScriptedLoginDaemonClient)session.Client;
@@ -414,7 +418,7 @@ public class PrefillLoginRunTests
         var client = (ScriptedLoginDaemonClient)session.Client;
         // A live session is wired this way at SessionLifecycle.cs:1109-1112.
         client.OnStatusUpdate += status =>
-            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, status, null);
 
         await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
 
@@ -571,10 +575,39 @@ public class PrefillLoginRunTests
     /// termination reason is a person's choice and stays a gray cancel.
     /// </summary>
     [Theory]
-    [InlineData("Session expired", OperationStatus.Failed, "common.notifications.warnings.signInSessionEnded")]
-    [InlineData("Service shutdown", OperationStatus.Failed, "common.notifications.warnings.signInSessionEnded")]
-    [InlineData("User requested", OperationStatus.Cancelled, null)]
-    public async Task ATerminatedSessionEndsItsSignInByWhoEndedIt(string reason, OperationStatus expected, string? warningKey)
+    [InlineData("expiry", OperationStatus.Failed, "common.notifications.warnings.signInSessionEnded")]
+    [InlineData("shutdown", OperationStatus.Failed, "common.notifications.warnings.signInSessionEnded")]
+    [InlineData("person", OperationStatus.Cancelled, null)]
+    public async Task ATerminatedSessionEndsItsSignInByWhoEndedIt(string endedBy, OperationStatus expected, string? warningKey)
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
+        await daemon.StartLoginAsync(session.Id);
+        var operationId = Assert.IsType<Guid>(session.LoginOperationId);
+
+        if (endedBy == "expiry")
+        {
+            session.ExpiresAt = DateTime.UtcNow.AddMinutes(-1);
+            await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow);
+        }
+        else if (endedBy == "shutdown")
+            await daemon.StopAsync(CancellationToken.None);
+        else
+            await daemon.TerminateSessionAsync(session.Id, "User requested");
+
+        var operation = tracker.GetOperation(operationId)!;
+        Assert.Equal(expected, operation.Status);
+        Assert.Equal(warningKey, operation.Warnings.SingleOrDefault()?.StageKey);
+    }
+
+    /// <summary>
+    /// The reason text is for logs: a stop whose text reads like an app-ended one but carries no key stays a
+    /// person's cancel.
+    /// </summary>
+    [Theory]
+    [InlineData("Session expired")]
+    [InlineData("Service shutdown")]
+    public async Task AStopIsNotAnAppEndBecauseItsTextSaysSo(string reason)
     {
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
@@ -584,8 +617,8 @@ public class PrefillLoginRunTests
         await daemon.TerminateSessionAsync(session.Id, reason);
 
         var operation = tracker.GetOperation(operationId)!;
-        Assert.Equal(expected, operation.Status);
-        Assert.Equal(warningKey, operation.Warnings.SingleOrDefault()?.StageKey);
+        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+        Assert.Empty(operation.Warnings);
     }
 
     private static void AssertSignIn(UnifiedOperationTracker tracker, Guid operationId, Guid ownerSessionId)
@@ -625,8 +658,8 @@ public class PrefillLoginRunTests
         var firstAttempt = session.LoginAttempt;
         Assert.NotNull(session.PendingLoginChallenge);
 
-        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session,
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." }, null);
         Assert.Null(session.PendingLoginChallenge);
 
         var second = await daemon.StartLoginAsync(session.Id);
@@ -666,8 +699,8 @@ public class PrefillLoginRunTests
         {
             await start.WaitAsync(TimeSpan.FromSeconds(10));
         }
-        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session,
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." }, null);
         if (cancelEntered)
         {
             client.ReleaseCancelLogin.TrySetResult();
@@ -733,8 +766,8 @@ public class PrefillLoginRunTests
 
         proxy.ClearSends();
         session.AuthState = DaemonAuthState.PasswordRequired;
-        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." });
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session,
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." }, null);
         Assert.DoesNotContain(proxy.Sends(), send => send.ConnectionId == "conn-1");
 
         daemon.AddSubscriber(session.Id, "conn-1");
@@ -766,7 +799,7 @@ public class PrefillLoginRunTests
         client.CancelAcknowledged = acknowledged;
         // A live session is wired this way at SessionLifecycle.cs:1109-1112.
         client.OnStatusUpdate += status =>
-            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, status, null);
         client.OnCredentialChallenge += _ =>
         {
             session.AuthState = DaemonAuthState.UsernameRequired;
@@ -822,14 +855,14 @@ public class PrefillLoginRunTests
         var holderA = Guid.NewGuid();
         var holderB = Guid.NewGuid();
 
-        await daemon.StartLoginForEditAsync(session.Id, null, () => { }, holderA);
+        await daemon.StartPersistentLoginAsync(session.Id, null, () => { }, holderA);
         var firstAttempt = session.LoginAttempt;
         var firstRunId = Assert.IsType<Guid>(session.LoginOperationId);
         session.PendingLoginChallenge = null;
         session.AuthState = DaemonAuthState.LoggingIn;
 
         var refused = await Assert.ThrowsAsync<ConflictException>(
-            () => daemon.StartLoginForEditAsync(session.Id, null, () => { }, holderB));
+            () => daemon.StartPersistentLoginAsync(session.Id, null, () => { }, holderB));
 
         Assert.Equal("errors.prefill.loginInProgress", refused.StageKey);
         Assert.Equal(0, client.CancelLoginCallCount);
@@ -853,12 +886,12 @@ public class PrefillLoginRunTests
         };
         var holder = Guid.NewGuid();
 
-        await daemon.StartLoginForEditAsync(session.Id, null, () => { }, holder);
+        await daemon.StartPersistentLoginAsync(session.Id, null, () => { }, holder);
         var firstRunId = Assert.IsType<Guid>(session.LoginOperationId);
         session.PendingLoginChallenge = null;
         session.AuthState = DaemonAuthState.LoggingIn;
 
-        await daemon.StartLoginForEditAsync(session.Id, null, () => { }, holder);
+        await daemon.StartPersistentLoginAsync(session.Id, null, () => { }, holder);
 
         Assert.Equal(1, client.CancelLoginCallCount);
         Assert.NotEqual(firstRunId, session.LoginOperationId);
@@ -880,7 +913,7 @@ public class PrefillLoginRunTests
         var client = (ScriptedLoginDaemonClient)session.Client;
         // A live session is wired this way at SessionLifecycle.cs:1109-1112.
         client.OnStatusUpdate += status =>
-            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, status, null);
         client.OnCredentialChallenge += _ =>
         {
             session.AuthState = DaemonAuthState.UsernameRequired;
@@ -889,7 +922,7 @@ public class PrefillLoginRunTests
 
         async Task StartAsync() =>
             _ = isPersistent
-                ? await daemon.StartLoginForEditAsync(session.Id, null, () => { }, holder)
+                ? await daemon.StartPersistentLoginAsync(session.Id, null, () => { }, holder)
                 : await daemon.StartLoginAsync(session.Id);
 
         await StartAsync();
@@ -922,7 +955,7 @@ public class PrefillLoginRunTests
         var client = (ScriptedLoginDaemonClient)session.Client;
         // A live session is wired this way at SessionLifecycle.cs:1109-1112.
         client.OnStatusUpdate += status =>
-            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, status, null);
         daemon.AddSubscriber(session.Id, "conn-1");
 
         var start = daemon.StartLoginAsync(session.Id);
@@ -954,7 +987,7 @@ public class PrefillLoginRunTests
         var client = (ScriptedLoginDaemonClient)session.Client;
         // A live session is wired this way at SessionLifecycle.cs:1109-1112.
         client.OnStatusUpdate += status =>
-            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, status, null);
         daemon.AddSubscriber(session.Id, "conn-1");
 
         var start = daemon.StartLoginAsync(session.Id);
@@ -995,32 +1028,6 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
-    /// A new connection at the limit removes the connection whose last subscribe is oldest. After a reload frees a slot,
-    /// the set's enumeration order puts the newest connection first, so the order of the set says nothing about age.
-    /// </summary>
-    [Fact]
-    public void ANewTabAtTheConnectionLimitRemovesTheTabThatSubscribedLongestAgo()
-    {
-        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
-        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
-
-        daemon.AddSubscriber(session.Id, "conn-1");
-        daemon.AddSubscriber(session.Id, "conn-2");
-        daemon.AddSubscriber(session.Id, "conn-3");
-        daemon.RemoveSubscriber("conn-1");
-        daemon.AddSubscriber(session.Id, "conn-4");
-        daemon.AddSubscriber(session.Id, "conn-5");
-
-        lock (session.PrefillLock)
-        {
-            Assert.Contains("conn-3", session.SubscribedConnections);
-            Assert.Contains("conn-4", session.SubscribedConnections);
-            Assert.Contains("conn-5", session.SubscribedConnections);
-            Assert.DoesNotContain("conn-2", session.SubscribedConnections);
-        }
-    }
-
-    /// <summary>
     /// The abandoned sign-in sweep cancels the attempt it found overdue, so a restart that lands after the sweep's
     /// check and before its cancel takes the lock is left running. The logger callback stands in for the operating
     /// system pausing the sweep between its check and the cancel: it does what a start does (Login.cs moves the
@@ -1036,7 +1043,7 @@ public class PrefillLoginRunTests
         var client = (ScriptedLoginDaemonClient)session.Client;
         // A live session is wired this way at SessionLifecycle.cs:1109-1112.
         client.OnStatusUpdate += status =>
-            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, status, null);
         await daemon.StartLoginAsync(session.Id);
         session.PendingLoginChallenge = null;
         session.AuthState = DaemonAuthState.UsernameRequired;
@@ -1124,7 +1131,7 @@ public class PrefillLoginRunTests
         var client = (ScriptedLoginDaemonClient)session.Client;
         // A live session is wired this way at SessionLifecycle.cs:1109-1112.
         client.OnStatusUpdate += status =>
-            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, status);
+            DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, status, null);
         client.OnCredentialChallenge += _ =>
         {
             session.AuthState = DaemonAuthState.UsernameRequired;

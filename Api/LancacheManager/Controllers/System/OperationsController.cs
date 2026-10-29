@@ -63,7 +63,9 @@ public class OperationsController : ControllerBase
                 response.Status = op.Status;
                 response.StartedAt = op.StartedAt;
                 response.ParentOperationId = op.ParentOperationId;
-                response.Error = op.Status == OperationStatus.Failed ? op.Message : null;
+                response.Error = op.Status == OperationStatus.Failed ? op.ErrorDetail ?? op.Message : null;
+                response.FailedDatasource = op.FailedDatasource;
+                response.DatabaseError = op.DatabaseError;
             }
         }
         else
@@ -192,7 +194,7 @@ public class OperationsController : ControllerBase
         }
         catch (Exception ex) when (ex is ObjectDisposedException or NullReferenceException)
         {
-            // P2-C: the operation completed concurrently (its CTS was disposed / state nulled) between
+            // The operation completed concurrently (its CTS was disposed / state nulled) between
             // the lookup above and the cancel. The op is already terminal, so the user's intent is
             // satisfied — report success instead of leaking an unhandled 500. The disposed-Process
             // race is answered where the wait happens, in ProcessManager, because reporting every
@@ -257,7 +259,7 @@ public class OperationsController : ControllerBase
         }
         catch (Exception ex) when (ex is ObjectDisposedException or NullReferenceException)
         {
-            // P2-C parity with the cancel endpoint: the operation completed concurrently (its CTS /
+            // Same as the cancel endpoint: the operation completed concurrently (its CTS /
             // Process was disposed or state nulled) during the force kill. The op is already terminal,
             // so the user's intent is satisfied — report success instead of leaking an unhandled 500.
             // The disposed-Process race is answered in ProcessManager, where the wait happens.

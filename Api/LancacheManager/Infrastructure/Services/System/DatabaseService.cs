@@ -24,7 +24,7 @@ public class DatabaseService
     private readonly SteamKit2Service _steamKit2Service;
     private readonly XboxCatalogMappingService _xboxCatalogMappingService;
     private readonly EpicMappingService _epicMappingService;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IServiceScopeFactory _scopes;
     private readonly CacheManagementService _cacheManagementService;
     private readonly StateService _stateRepository;
     private readonly DatasourceService _datasourceService;
@@ -123,7 +123,9 @@ public class DatabaseService
         _steamKit2Service = steamKit2Service;
         _xboxCatalogMappingService = xboxCatalogMappingService;
         _epicMappingService = epicMappingService;
-        _serviceProvider = serviceProvider;
+        // The reset outlives the request that started it, and the provider passed in is that request's
+        // scope. The scope factory belongs to the root, so the reset can still resolve services after it.
+        _scopes = serviceProvider.GetRequiredService<IServiceScopeFactory>();
         _cacheManagementService = cacheManagementService;
         _stateRepository = stateRepository;
         _datasourceService = datasourceService;
@@ -155,7 +157,9 @@ public class DatabaseService
     /// </summary>
     public Guid StartFullResetAsync()
     {
-        return StartResetAsync(ResolveFullResetTables(_context), fullReset: true);
+        // A queued reset starts after its request scope, and the request's context, are disposed.
+        using var context = _dbContextFactory.CreateDbContext();
+        return StartResetAsync(ResolveFullResetTables(context), fullReset: true);
     }
 
     private Guid StartResetAsync(List<string> tableNames, bool fullReset)
@@ -315,6 +319,7 @@ public class DatabaseService
             // Context acquisition is part of the reset lifecycle: a database outage here must flow
             // through the same failed terminal report/cleanup as an exception during deletion.
             await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            using var scope = _scopes.CreateScope();
             _logger.LogInformation($"Starting selective database reset for tables: {string.Join(", ", tableNames)}");
 
             // Send initial progress update
@@ -398,6 +403,9 @@ public class DatabaseService
             var signInsNotReset = new List<string>();
             var notReset = new List<string>();
 
+            // The prefill runs whose rows the reset deleted; only these leave the live sessions' cards.
+            var deletedRunIds = new List<Guid>();
+
             if (tablesToClear.Contains("UserSessions"))
             {
                 // SECURITY: Clear Steam, Xbox and Epic auth FIRST, before clearing user sessions
@@ -441,7 +449,7 @@ public class DatabaseService
                 try
                 {
                     var persistentLoginResults = await PrefillDaemonServiceBase.ClearAllPersistentLoginsAsync(
-                        _serviceProvider, cancellationToken);
+                        scope.ServiceProvider, cancellationToken);
                     failedPersistentLogins.AddRange(persistentLoginResults
                         .Where(result => !result.Success)
                         .Select(result => result.Service.ToString()));
@@ -466,17 +474,12 @@ public class DatabaseService
             // its table locks are held to commit, so waiting for an import that writes rows inside the
             // transaction would deadlock.
             await using var logLock = tablesToClear.Contains("Downloads") || tablesToClear.Contains("LogEntries")
-                ? await _serviceProvider.GetRequiredService<OperationStateService>().LockLogFilesAsync(
+                ? await scope.ServiceProvider.GetRequiredService<OperationStateService>().LockLogFilesAsync(
                     operationId,
                     OperationType.DatabaseReset,
                     LogFileLockKind.Rows,
                     cancellationToken)
                 : null;
-
-            // Temporarily disable foreign key triggers for bulk deletion (PostgreSQL)
-            // This prevents FK constraint errors during table deletions
-            _logger.LogInformation("Disabling foreign key triggers for bulk deletion");
-            await context.Database.ExecuteSqlRawAsync("SET session_replication_role = replica;");
 
             // Wrap all deletion operations in a transaction for atomicity
             var deleteStrategy = context.Database.CreateExecutionStrategy();
@@ -487,10 +490,11 @@ public class DatabaseService
                 // carry the abandoned attempt's values into the next one: a doubled row total, and a
                 // progress bar that resumes from where the failed attempt stopped instead of restarting.
                 // The same holds for the files it could not delete: one the abandoned attempt could not
-                // delete may be gone after the retry.
+                // delete may be gone after the retry, and for the runs the rolled-back attempt deleted.
                 deletedRows = 0;
                 currentProgress = 0;
                 notReset.Clear();
+                deletedRunIds.Clear();
 
                 using var deleteTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
                 try
@@ -817,9 +821,30 @@ public class DatabaseService
                         case "PrefillSessions":
                             // Use ExecuteDeleteAsync for direct deletion
                             // Note: PrefillHistoryEntries will be cascade deleted due to FK constraint
-                            var prefillSessionsCount = await context.PrefillSessions.ExecuteDeleteAsync(cancellationToken);
-                            _logger.LogInformation($"Cleared {prefillSessionsCount:N0} prefill sessions (and associated history via cascade)");
-                            deletedRows += prefillSessionsCount;
+                            // A live session's row holds its person's cancel mark, which a reconnect reads back.
+                            // Each platform's newest persistent row stays too: a person's Stop that left its
+                            // container running is read back from that row at the next start, which removes the container.
+                            var prefillSessionsCount = await context.PrefillSessions
+                                .Where(row => row.Status != PrefillSessionStatus.Active
+                                    && !(row.IsPersistent && !context.PrefillSessions.Any(newer =>
+                                        newer.IsPersistent && newer.Platform == row.Platform && newer.CreatedAtUtc > row.CreatedAtUtc)))
+                                .ExecuteDeleteAsync(cancellationToken);
+                            // A live session keeps its row, so its finished history goes on its own: finished runs
+                            // take their entries by cascade, and run-less entries go unless a prefill still writes them.
+                            // The delete takes exactly the runs read here, so a run that finishes after the read
+                            // keeps its row and stays on its card.
+                            deletedRunIds.AddRange(await context.PrefillRuns
+                                .Where(run => run.CompletedAtUtc != null)
+                                .Select(run => run.Id)
+                                .ToListAsync(cancellationToken));
+                            var finishedRunsCount = await context.PrefillRuns
+                                .Where(run => deletedRunIds.Contains(run.Id))
+                                .ExecuteDeleteAsync(cancellationToken);
+                            var runlessEntriesCount = await context.PrefillHistoryEntries
+                                .Where(entry => entry.RunId == null && entry.Status != PrefillHistoryEntryStatus.InProgress)
+                                .ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation($"Cleared {prefillSessionsCount:N0} prefill sessions, {finishedRunsCount:N0} finished runs and {runlessEntriesCount:N0} run-less history entries (and associated history via cascade)");
+                            deletedRows += prefillSessionsCount + finishedRunsCount + runlessEntriesCount;
 
                             await ReportClearedTableAsync(operationId,
                                 Math.Min(currentProgress + progressPerTable, 85.0),
@@ -1026,8 +1051,8 @@ public class DatabaseService
                             break;
 
                         case "ClientGroupMembers":
-                            // Foreign key triggers are disabled for the bulk delete above, so the cascade
-                            // from ClientGroups does not fire and the member rows need their own delete.
+                            // Clearing ClientGroups first already removed its members by cascade; this
+                            // delete covers members cleared without their groups.
                             var clientGroupMembersCount = await context.ClientGroupMembers.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {clientGroupMembersCount:N0} client group members");
                             deletedRows += clientGroupMembersCount;
@@ -1047,9 +1072,8 @@ public class DatabaseService
                 // stays empty until someone forces a Full scan. The scanner creates these tables with
                 // raw SQL on its first run, so on an install that has never scanned they do not exist
                 // and the wipe still has to succeed.
-                // The three deletes are explicit and child-first because foreign key triggers are
-                // disabled for this whole block, which also disables the ON DELETE CASCADE from
-                // structural_namespaces down through structural_runs into structural_file_state.
+                // The three deletes run child-first, so none of them waits on the ON DELETE CASCADE
+                // from structural_namespaces down through structural_runs into structural_file_state.
                 // structural_state_version records the scanner's schema version rather than data, so
                 // it stays, like the migration history.
                 if (fullReset)
@@ -1142,17 +1166,21 @@ public class DatabaseService
                 await deleteTransaction.RollbackAsync();
                 throw;
             }
-            finally
-            {
-                // Re-enable foreign key triggers
-                _logger.LogInformation("Re-enabling foreign key triggers");
-                await context.Database.ExecuteSqlRawAsync("SET session_replication_role = DEFAULT;");
-            }
             }); // end deleteStrategy.ExecuteAsync
 
             if (tablesToClear.Contains("LogEntries"))
             {
                 _stateRepository.ClearLogProcessingPositions();
+            }
+
+            // Live sessions also hold their finished runs in memory. This waits for each session's run
+            // sweep, so it runs after the commit: inside the delete transaction a sweep could be waiting on it.
+            if (tablesToClear.Contains("PrefillSessions"))
+            {
+                foreach (var daemon in PrefillDaemonServiceBase.ResolveAllDaemons(scope.ServiceProvider))
+                {
+                    await daemon.ForgetFinishedRunsAsync(deletedRunIds);
+                }
             }
 
             // The rows and positions are settled, so the import may resume before the completion
@@ -1174,9 +1202,8 @@ public class DatabaseService
                 });
             }
 
-            // Re-enabling foreign-key enforcement is part of the reset. Publish/commit the success
-            // terminal only after the execution-strategy callback (including its finally) returned;
-            // otherwise a cleanup failure could leave a failed reset reported as completed.
+            // Publish the success terminal only after the execution-strategy callback returned, so a
+            // failure inside it is never reported as a completed reset.
             terminalOutcome = OperationStatus.Completed;
             await ReportProgressAsync(
                 operationId,

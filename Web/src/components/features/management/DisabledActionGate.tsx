@@ -38,6 +38,15 @@ export const DisabledActionGate: React.FC<DisabledActionGateProps> = ({
         tabIndex={blocked ? 0 : undefined}
         aria-label={blocked ? label : undefined}
         aria-describedby={blocked ? reasonId : undefined}
+        // Space on a focused span scrolls the page, which carries the stop out of view and closes
+        // its reason box.
+        onKeyDown={
+          blocked
+            ? (event: React.KeyboardEvent) => {
+                if (event.key === ' ') event.preventDefault();
+              }
+            : undefined
+        }
       >
         {children}
         {blocked && (

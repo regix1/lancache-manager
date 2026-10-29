@@ -6,6 +6,8 @@ internal sealed class GuestPrefillGate
 {
     private readonly object _sync = new();
     private readonly Dictionary<Guid, GuestPrefillState> _owners = new();
+    // Per owner, the sessions whose failed teardown keeps that owner's cleanup pending.
+    private readonly Dictionary<Guid, HashSet<string>> _failedTeardowns = new();
 
     public GuestPrefillStart EnterCreate(Guid userId, PrefillDaemonServiceBase daemon)
     {
@@ -14,7 +16,10 @@ internal sealed class GuestPrefillGate
             if (!_owners.TryGetValue(userId, out var owner))
                 _owners[userId] = owner = new GuestPrefillState();
             if (owner.Stops != 0 || owner.CleanupPending)
-                throw new ForbiddenException("Prefill cleanup is in progress. Retry after it completes.");
+                throw new ForbiddenException("Prefill cleanup is in progress. Retry after it completes.")
+                {
+                    StageKey = "errors.prefill.cleanupInProgress"
+                };
             var start = new GuestPrefillStart { UserId = userId, Daemon = daemon };
             owner.Starts.Add(start);
             return start;
@@ -26,7 +31,7 @@ internal sealed class GuestPrefillGate
         lock (_sync)
         {
             if (start.Stopped)
-                throw new ForbiddenException("This prefill session was stopped.");
+                throw new ForbiddenException("This prefill session was stopped.") { StageKey = "errors.prefill.sessionStopped" };
         }
     }
 
@@ -91,13 +96,32 @@ internal sealed class GuestPrefillGate
             return _owners.Where(p => p.Value.CleanupPending).Select(p => p.Key).ToArray();
     }
 
-    public void Retain(Guid userId)
+    public void Retain(Guid userId, string sessionId)
     {
         lock (_sync)
         {
             if (!_owners.TryGetValue(userId, out var owner))
                 _owners[userId] = owner = new GuestPrefillState();
+            if (!_failedTeardowns.TryGetValue(userId, out var sessionIds))
+                _failedTeardowns[userId] = sessionIds = new HashSet<string>();
+            sessionIds.Add(sessionId);
             owner.CleanupPending = true;
+        }
+    }
+
+    // A teardown that succeeded no longer holds the owner; cleanup stays pending while another failed
+    // teardown or a kept start of the owner remains.
+    public void Release(Guid userId, string sessionId)
+    {
+        lock (_sync)
+        {
+            if (!_owners.TryGetValue(userId, out var owner))
+                return;
+            if (_failedTeardowns.TryGetValue(userId, out var sessionIds) && sessionIds.Remove(sessionId) && sessionIds.Count == 0)
+                _failedTeardowns.Remove(userId);
+            owner.Starts.RemoveAll(s => !s.Active && s.Removed);
+            owner.CleanupPending = _failedTeardowns.ContainsKey(userId) || owner.Starts.Any(s => !s.Active);
+            Prune(userId, owner);
         }
     }
 
@@ -105,9 +129,10 @@ internal sealed class GuestPrefillGate
     {
         lock (_sync)
         {
-            var owner = _owners[userId];
+            if (!_owners.TryGetValue(userId, out var owner))
+                return;
             owner.Starts.RemoveAll(s => !s.Active && s.Removed);
-            owner.CleanupPending = cleanupPending || owner.Starts.Count != 0;
+            owner.CleanupPending = cleanupPending || owner.Starts.Any(s => !s.Active) || _failedTeardowns.ContainsKey(userId);
         }
     }
 

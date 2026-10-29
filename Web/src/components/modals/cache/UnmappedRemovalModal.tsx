@@ -22,6 +22,8 @@ interface UnmappedRemovalModalProps {
   services: UnmappedService[];
   /** The count failed before it produced a number. */
   failed: boolean;
+  /** Why the count failed, when the server said; shown under the failure line. */
+  failureReason: string | null;
   /** What the running count is doing. Shown beside the spinner until the count returns. */
   statusMessage: string;
   /** True from the confirm click until the server answers; only Confirm shows it. */
@@ -39,6 +41,7 @@ const UnmappedRemovalModal: React.FC<UnmappedRemovalModalProps> = ({
   bytes: liveBytes,
   services: liveServices,
   failed: liveFailed,
+  failureReason: liveFailureReason,
   statusMessage: liveStatusMessage,
   confirming: liveConfirming,
   error: liveError
@@ -54,13 +57,23 @@ const UnmappedRemovalModal: React.FC<UnmappedRemovalModalProps> = ({
       bytes: liveBytes,
       services: liveServices,
       failed: liveFailed,
+      failureReason: liveFailureReason,
       statusMessage: liveStatusMessage,
       confirming: liveConfirming,
       error: liveError
     }),
-    [liveFiles, liveBytes, liveServices, liveFailed, liveStatusMessage, liveConfirming, liveError]
+    [
+      liveFiles,
+      liveBytes,
+      liveServices,
+      liveFailed,
+      liveFailureReason,
+      liveStatusMessage,
+      liveConfirming,
+      liveError
+    ]
   );
-  const { files, bytes, services, failed, statusMessage, confirming, error } =
+  const { files, bytes, services, failed, failureReason, statusMessage, confirming, error } =
     useHeldValue(opened ? liveFigures : null) ?? liveFigures;
 
   let countBody: React.ReactNode;
@@ -75,6 +88,7 @@ const UnmappedRemovalModal: React.FC<UnmappedRemovalModalProps> = ({
         }
       >
         <p className="text-sm">{t('modals.unmappedRemoval.countFailed')}</p>
+        {failureReason && <p className="text-sm">{failureReason}</p>}
       </Alert>
     );
   } else if (files === null || bytes === null) {

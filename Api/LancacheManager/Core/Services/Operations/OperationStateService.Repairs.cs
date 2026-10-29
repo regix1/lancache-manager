@@ -13,7 +13,8 @@ namespace LancacheManager.Core.Services;
 
 public partial class OperationStateService
 {
-    private const string InterruptedByRestartError = "Operation interrupted by application restart";
+    // A key, so every card and reloaded row shows it in the reader's language.
+    internal const string InterruptedByRestartError = "signalr.generic.interruptedByRestart";
     private static readonly TimeSpan _repairRetryDelay = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan _completedRepairRetention = TimeSpan.FromHours(48);
     // A repair program that prints no progress and uses no CPU time is blocked on one call. Every
@@ -1870,8 +1871,12 @@ public partial class OperationStateService
         }
         catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
         {
-            throw new TimeoutException(
-                $"Native processes {string.Join(", ", processNames)} did not exit for operation repair {repair.Id}.");
+            // The key reaches the repair card when the repair fails out; the text stays for the log.
+            throw new ServiceUnavailableException(
+                $"Native processes {string.Join(", ", processNames)} did not exit for operation repair {repair.Id}.")
+            {
+                StageKey = "signalr.generic.nativeProcessesStillRunning"
+            };
         }
     }
 
@@ -1970,7 +1975,9 @@ public partial class OperationStateService
     {
         // Only this attempt's own steps see the limit; children of other jobs keep running
         // unbounded. It is set inside this async method because the caller ends the repair, and
-        // ending it starts queued jobs on tasks that would copy the value.
+        // ending it starts queued jobs on tasks that would copy the value. A job that this
+        // attempt's steps let the queue start runs unbounded too: the queue clears the value
+        // before it promotes.
         RustProcessHelper.ChildSilenceLimit.Value = _repairSilenceLimit;
         await using var scope = _scopes.CreateAsyncScope();
         var services = scope.ServiceProvider;
@@ -2290,6 +2297,16 @@ public partial class OperationStateService
             // A canceled run keeps the record's own error, as before; only a failed run shows the run's error.
             error = cancelled || runError is null ? repair.Error : runError;
         }
-        _operationTracker.CompleteOperation(repair.Id, success, error, cancelled);
+        _operationTracker.CompleteOperation(
+            repair.Id,
+            success,
+            error,
+            cancelled,
+            // A log processing run that failed for one datasource keeps the values its error key's text names.
+            onCompleting: operation =>
+            {
+                operation.FailedDatasource = repair.LogProcessing?.Datasource;
+                operation.DatabaseError = repair.LogProcessing?.DatabaseError;
+            });
     }
 }

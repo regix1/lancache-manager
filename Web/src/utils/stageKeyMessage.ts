@@ -9,6 +9,34 @@ export function hasUnresolvedInterpolation(value: string): boolean {
 }
 
 /**
+ * A value may itself hold `{{` or `}}`, so a finished sentence cannot say whether a token went
+ * unfilled. Translating with every string value blanked leaves a token only where the context
+ * supplied no value for it. Numbers keep their value because they pick the plural form.
+ */
+export function blankStringValues(context: StageInterpolation | undefined): StageInterpolation {
+  return Object.fromEntries(
+    Object.entries(context ?? {}).map(
+      ([name, value]): [string, string | number | boolean | null] => [
+        name,
+        typeof value === 'string' ? '' : value
+      ]
+    )
+  );
+}
+
+/**
+ * The values the text of a log processing datasource failure names. Without a datasource there is
+ * nothing to name, so the caller's translation falls back instead of printing a bare `{{token}}`.
+ */
+export function datasourceFailureValues(
+  datasource: string | null | undefined,
+  databaseError: string | null | undefined
+): StageInterpolation | undefined {
+  if (!datasource) return undefined;
+  return databaseError ? { datasource, databaseError } : { datasource };
+}
+
+/**
  * Translate a recovery stage without ever exposing an unresolved `{{token}}`.
  * Recovery payloads can come from an older backend with incomplete context, so
  * the caller supplies a placeholder-free fallback for that compatibility edge.
@@ -22,7 +50,7 @@ export function translateRecoveryStage(
   if (!stageKey || !i18n.exists(stageKey)) return fallback;
 
   const translated = i18n.t(stageKey, context ?? {});
-  if (!hasUnresolvedInterpolation(translated)) return translated;
+  if (!hasUnresolvedInterpolation(i18n.t(stageKey, blankStringValues(context)))) return translated;
 
   if (import.meta.env.DEV) {
     console.warn(`[notifications] Incomplete recovery context for stage "${stageKey}"`);

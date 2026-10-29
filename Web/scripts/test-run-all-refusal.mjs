@@ -23,21 +23,14 @@ import {
 const SCHEDULES = 'src/components/features/management/schedules/SchedulesSection.tsx';
 const runAllSource = liftHookCallback(SCHEDULES, 'useCallback', 'ApiService.runAllSchedules()');
 
-const runAll = async ({ response, failure, recoveryFailure } = {}) => {
+const runAll = async ({ response, failure } = {}) => {
   const calls = [];
   const notices = [];
   const errors = [];
   const running = [];
   const confirmations = [];
   const handler = bindLifted(runAllSource, {
-    sessionStore: {},
-    recoverScheduledPrefillEditSession: async (_store, cleanup) => {
-      calls.push('recover');
-      if (recoveryFailure) throw recoveryFailure;
-      await cleanup({ editSessionId: 'old-edit' });
-    },
     ApiService: {
-      cleanupPersistentPrefillEditSession: async () => calls.push('cleanup'),
       runAllSchedules: async () => {
         calls.push('request');
         if (failure) throw failure;
@@ -68,7 +61,7 @@ test('result fixtures without unqueued active work rely only on per-service ackn
     }
   ]) {
     const result = await runAll({ response });
-    assert.deepEqual(result.calls, ['recover', 'cleanup', 'request', 'refresh', 'flash']);
+    assert.deepEqual(result.calls, ['request', 'refresh', 'flash']);
     assert.deepEqual(result.notices, [], 'the HTTP fan-out adds no aggregate acknowledgment');
     assert.deepEqual(result.running, [true, false]);
     assert.deepEqual(result.confirmations, [false]);
@@ -79,23 +72,10 @@ test('a Run All request failure raises one titled popup with the reason and fina
   const failure = new Error('Run All transport failed');
   const result = await runAll({ failure });
 
-  assert.deepEqual(result.calls, ['recover', 'cleanup', 'request']);
+  assert.deepEqual(result.calls, ['request']);
   assert.deepEqual(result.notices, []);
   assert.deepEqual(result.errors, [
     { message: 'management.schedules.runAllFailed', error: failure }
-  ]);
-  assert.deepEqual(result.running, [true, false]);
-  assert.deepEqual(result.confirmations, [false]);
-});
-
-test('cleanup rejection prevents dispatch and still uses failure and finally handling', async () => {
-  const recoveryFailure = new Error('Old edit cleanup failed');
-  const result = await runAll({ recoveryFailure });
-
-  assert.deepEqual(result.calls, ['recover']);
-  assert.deepEqual(result.notices, []);
-  assert.deepEqual(result.errors, [
-    { message: 'management.schedules.runAllFailed', error: recoveryFailure }
   ]);
   assert.deepEqual(result.running, [true, false]);
   assert.deepEqual(result.confirmations, [false]);

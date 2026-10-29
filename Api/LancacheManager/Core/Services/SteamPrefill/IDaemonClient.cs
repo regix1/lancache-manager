@@ -207,12 +207,6 @@ public interface IDaemonClient : IDisposable
         return new LogoutOutcome(success, RequiresLogin: false);
     }
 
-    /// <summary>
-    /// Requests cancellation of the running prefill operation. Completion means the daemon
-    /// acknowledged cancellation; a rejected or unacknowledged request throws.
-    /// </summary>
-    Task CancelPrefillAsync(CancellationToken cancellationToken = default);
-
     Task<PrefillResult> PrefillAsync(Guid runId, string daemonInstanceId, DaemonRunOptions options,
         List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("This daemon client does not implement protocol version 2.");
@@ -239,22 +233,6 @@ public interface IDaemonClient : IDisposable
     /// Set selected apps for prefill.
     /// </summary>
     Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Start prefill operation.
-    /// </summary>
-    Task<PrefillResult> PrefillAsync(
-        bool all = false,
-        bool recent = false,
-        bool recentlyPurchased = false,
-        int? top = null,
-        bool force = false,
-        List<string>? operatingSystems = null,
-        int? maxConcurrency = null,
-        List<CachedDepotInput>? cachedDepots = null,
-        CancellationToken cancellationToken = default,
-        Guid? runId = null,
-        Action? onCommandDispatched = null);
 
     /// <summary>
     /// Clear the temporary cache.

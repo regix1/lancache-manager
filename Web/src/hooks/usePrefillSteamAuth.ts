@@ -379,7 +379,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           // This is the sentence a person reads when the daemon or Steam ends the attempt before
           // our own clock does, which is the usual way a phone approval ends, so it is the one
           // that most needs to arrive in their own language. It stays in the dialog: the server's
-          // run card is the one notice for the failure. [110]
+          // run card is the one notice for the failure.
           const refused = t('prefill.auth.signInRefused');
           setError(refused);
           onError?.('Authentication failed');

@@ -179,12 +179,15 @@ public sealed class PrefillCacheStatusTests
             SessionType = SessionType.Guest
         };
 
+        var runId = Guid.NewGuid();
         Assert.IsType<ForbidResult>(
-            await stranger.CancelPrefillRunAsync(session.Id, session.PrefillRunId!.Value, CancellationToken.None));
+            await stranger.CancelPrefillRunAsync(session.Id, runId, CancellationToken.None));
 
+        // The owner passes the ownership check, so the cancel reaches the service, which has no such run.
         var owner = CreateController(daemon, session, CancellationToken.None);
-        Assert.IsType<OkResult>(
-            await owner.CancelPrefillRunAsync(session.Id, session.PrefillRunId!.Value, CancellationToken.None));
+        var missing = await Assert.ThrowsAsync<DaemonCommandException>(
+            () => owner.CancelPrefillRunAsync(session.Id, runId, CancellationToken.None));
+        Assert.Equal("operation-not-found", missing.ErrorCode);
     }
 
     private static GuestCacheStatusController CreateController(

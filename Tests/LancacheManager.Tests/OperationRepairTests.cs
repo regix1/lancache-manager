@@ -845,7 +845,7 @@ public sealed class OperationRepairTests : IDisposable
             Assert.Null(harness.Tracker.GetOperation(completed.Id));
             var restored = Assert.IsType<OperationInfo>(harness.Tracker.GetOperation(unfinished.Id));
             Assert.Equal(OperationStatus.Failed, restored.Status);
-            Assert.Equal("Operation interrupted by application restart", restored.Message);
+            Assert.Equal("signalr.generic.interruptedByRestart", restored.Message);
             // The restored card ends before its repair runs, and the record leaves the file only when
             // that repair finishes, so the restart below waits for it.
             await WaitForAsync(() => harness.StateService.LoadOperationRepairs()
@@ -1817,7 +1817,7 @@ public sealed class OperationRepairTests : IDisposable
             Assert.Equal(repair.Id, pending.Id);
             Assert.Equal(OperationRepairPhase.Repairing, pending.Phase);
             Assert.Equal(OperationStatus.Failed, pending.Outcome);
-            Assert.Equal("Operation interrupted by application restart", pending.Error);
+            Assert.Equal("signalr.generic.interruptedByRestart", pending.Error);
 
             finish = harness.Owner.FinishRepairAsync(repair.Id, false, false, "ignored duplicate");
             await finish.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1853,7 +1853,7 @@ public sealed class OperationRepairTests : IDisposable
         await WaitForAsync(() => !harness.Owner.OwnsRepair(repair.Id));
         var tracked = Assert.IsType<OperationInfo>(harness.Tracker.GetOperation(repair.Id));
         Assert.Equal(OperationStatus.Failed, tracked.Status);
-        Assert.Equal("Operation interrupted by application restart", tracked.Message);
+        Assert.Equal("signalr.generic.interruptedByRestart", tracked.Message);
         Assert.Empty(harness.StateService.LoadOperationRepairs());
         Assert.False(harness.Owner.OwnsRepair(repair.Id));
     }
@@ -2563,7 +2563,7 @@ public sealed class OperationRepairTests : IDisposable
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
         Assert.Equal("failed", row.Status);
-        Assert.Equal("Operation interrupted by application restart", row.Error);
+        Assert.Equal("signalr.generic.interruptedByRestart", row.Error);
 
         release.TrySetResult(true);
         await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);
@@ -2651,6 +2651,42 @@ public sealed class OperationRepairTests : IDisposable
         Assert.Null(row.Error);
         var warning = Assert.Single(row.Warnings);
         Assert.Equal("common.notifications.warnings.nginxReopenFailed", warning.StageKey);
+
+        release.TrySetResult(true);
+        await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);
+    }
+
+    [Fact]
+    public async Task ARestoredLogProcessingRunThatFailedForADatasourceKeepsTheDatasourceAndItsErrorAsync()
+    {
+        var state = CreateStateService(_root);
+        state.SetSetupCompleted(true);
+        var repair = NewLogProcessingRepair();
+        // The saved record is JSON, so the datasource failure's values are read the way the file holds them.
+        repair.LogProcessing = JsonSerializer.Deserialize<LogProcessingRepair>(
+            """{"Datasource":"alpha","DatabaseError":"pool timed out"}""")!;
+        repair.Phase = OperationRepairPhase.Repairing;
+        repair.Outcome = OperationStatus.Failed;
+        repair.Error = "signalr.logProcessing.failedForDatasourceWithError";
+        state.SaveOperationRepairs([repair]);
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await RepairHarness.CreateAsync(
+            _root,
+            stateService: CreateStateService(_root),
+            apply: async (_, cancellationToken) =>
+            {
+                entered.TrySetResult(true);
+                await release.Task.WaitAsync(cancellationToken);
+            });
+
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
+        Assert.Equal("failed", row.Status);
+        Assert.Equal("signalr.logProcessing.failedForDatasourceWithError", row.Error);
+        var wire = JsonSerializer.SerializeToElement(row);
+        Assert.Equal("alpha", wire.GetProperty("FailedDatasource").GetString());
+        Assert.Equal("pool timed out", wire.GetProperty("DatabaseError").GetString());
 
         release.TrySetResult(true);
         await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);
@@ -3205,7 +3241,8 @@ public sealed class OperationRepairTests : IDisposable
         harness.Tracker.CompleteOperation(repair.Id, success: false, cancelled: true);
 
         await WaitForAsync(() => harness.Tracker.GetOperation(repair.Id)?.RepairError is not null);
-        Assert.Contains("did not exit", harness.Tracker.GetOperation(repair.Id)!.RepairError, StringComparison.Ordinal);
+        // The repair card shows the reason in the reader's language, not the English log text.
+        Assert.Equal("signalr.generic.nativeProcessesStillRunning", harness.Tracker.GetOperation(repair.Id)!.RepairError);
         Assert.Equal(3, processes.Calls);
         Assert.Equal(0, applied);
         Assert.Null(harness.Owner.GetBlockingRepair());

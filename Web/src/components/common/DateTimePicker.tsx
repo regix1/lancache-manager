@@ -89,9 +89,9 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
 
   const handleApply = () => {
     if (selectedDate) {
-      const finalDate = new Date(selectedDate);
-      finalDate.setHours(hours, minutes, 0, 0);
-      onChange(clampToMinDate(finalDate));
+      const selectedDateTime = new Date(selectedDate);
+      selectedDateTime.setHours(hours, minutes, 0, 0);
+      onChange(clampToMinDate(selectedDateTime));
     }
     onClose();
   };

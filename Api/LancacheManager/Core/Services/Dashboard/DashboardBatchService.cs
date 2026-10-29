@@ -368,7 +368,7 @@ public partial class DashboardBatchService : IDashboardBatchService
 
         // Cache must complete first because cached detection depends on its result.
         var cacheResult = await SafeExecuteAsync("cache", () => GetCacheInfoAsync(), ct);
-        long actualCacheSize = cacheResult?.UsedCacheSize ?? 0;
+        long usedCacheSize = cacheResult?.UsedCacheSize ?? 0;
 
         // Launch remaining queries fully in parallel. Each section creates its own context.
         var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, includeClientHostnames, ct), ct);
@@ -379,7 +379,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         var serviceOptionsTask = SafeExecuteAsync("serviceOptions", () => GetServiceOptionsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, ct), ct);
         var clientOptionsTask = SafeExecuteAsync("clientOptions", () => GetClientOptionsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, ct), ct);
         var recentDownloadsTask = SafeExecuteAsync("recentDownloads", () => GetRecentDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, service, client, ct), ct);
-        var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync(actualCacheSize, ct), ct);
+        var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync(usedCacheSize, ct), ct);
         var sparklinesTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, readerTimeZoneId, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
         var cacheSnapshotTask = SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime, ct), ct);

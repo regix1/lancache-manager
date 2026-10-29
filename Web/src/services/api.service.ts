@@ -91,7 +91,6 @@ import type {
   ScheduledPrefillPersistenceMode,
   ScheduledPrefillServiceScheduleDto
 } from '../components/features/management/schedules/scheduled-prefill/types';
-import type { PersistentPrefillEditSessionCleanupRequest } from '../components/features/management/schedules/scheduled-prefill/scheduledPrefillEditSessionLedger';
 import type {
   PrefillRun,
   PrefillRunFailedGame
@@ -3819,8 +3818,6 @@ class ApiService {
   static async startPersistentLogin(
     service: PersistentPrefillServiceId,
     sessionId?: string,
-    editSessionId?: string,
-    editActionId?: string,
     reuseIntegration = false,
     loginId?: string
   ): Promise<PersistentChallengeResponse> {
@@ -3828,7 +3825,7 @@ class ApiService {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/login`,
         this.getJsonFetchOptions(
-          { service, sessionId, editSessionId, editActionId, reuseIntegration, loginId },
+          { service, sessionId, reuseIntegration, loginId },
           { method: 'POST' }
         )
       );
@@ -3875,17 +3872,12 @@ class ApiService {
     service: PersistentPrefillServiceId,
     challenge: CredentialChallenge,
     credential: string,
-    sessionId: string,
-    editSessionId?: string,
-    editActionId?: string
+    sessionId: string
   ): Promise<void> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/credential`,
-        this.getJsonFetchOptions(
-          { service, challenge, credential, sessionId, editSessionId, editActionId },
-          { method: 'POST' }
-        )
+        this.getJsonFetchOptions({ service, challenge, credential, sessionId }, { method: 'POST' })
       );
       if (res.status === 409) {
         throw await this.buildPersistentSessionConflictError(res);
@@ -4006,91 +3998,16 @@ class ApiService {
   }
 
   static async startPersistentPrefillContainer(
-    service: PersistentPrefillServiceId,
-    editSessionId?: string,
-    editActionId?: string
+    service: PersistentPrefillServiceId
   ): Promise<DaemonSessionDto> {
     try {
       const res = await fetch(
         `${API_BASE}/system/prefill/persistent/start`,
-        this.getJsonFetchOptions({ service, editSessionId, editActionId }, { method: 'POST' })
+        this.getJsonFetchOptions({ service }, { method: 'POST' })
       );
       return await this.handleResponse<DaemonSessionDto>(res);
     } catch (error: unknown) {
       console.error('startPersistentPrefillContainer error:', error);
-      throw error;
-    }
-  }
-
-  static async setPersistentPrefillSelectedApps(
-    service: PersistentPrefillServiceId,
-    sessionId: string,
-    appIds: string[],
-    editSessionId?: string,
-    editActionId?: string
-  ): Promise<void> {
-    try {
-      const res = await fetch(
-        `${API_BASE}/system/prefill/persistent/selected-apps`,
-        this.getJsonFetchOptions(
-          { service, sessionId, appIds, editSessionId, editActionId },
-          { method: 'POST' }
-        )
-      );
-      await this.handleResponse<void>(res);
-    } catch (error: unknown) {
-      console.error('setPersistentPrefillSelectedApps error:', error);
-      throw error;
-    }
-  }
-
-  static async startPersistentPrefill(
-    service: PersistentPrefillServiceId,
-    options: {
-      sessionId: string;
-      appIds: string[];
-      all?: boolean;
-      recent?: boolean;
-      recentlyPurchased?: boolean;
-      top?: number | null;
-      force?: boolean;
-      operatingSystems?: string[];
-      maxConcurrency?: number | null;
-      editSessionId?: string;
-      editActionId?: string;
-    }
-  ): Promise<{ success: boolean; errorMessage?: string; runId?: string | null }> {
-    try {
-      const res = await fetch(
-        `${API_BASE}/system/prefill/persistent/prefill`,
-        this.getJsonFetchOptions(
-          {
-            service,
-            sessionId: options.sessionId,
-            appIds:
-              options.all || options.recent || options.recentlyPurchased || options.top
-                ? undefined
-                : options.appIds,
-            all: options.all ?? false,
-            recent: options.recent ?? false,
-            recentlyPurchased: options.recentlyPurchased ?? false,
-            top: options.top ?? null,
-            force: options.force ?? false,
-            operatingSystems: options.operatingSystems,
-            maxConcurrency: options.maxConcurrency ?? undefined,
-            editSessionId: options.editSessionId,
-            editActionId: options.editActionId
-          },
-          { method: 'POST' }
-        )
-      );
-      return await this.handleResponse<{
-        success: boolean;
-        errorMessage?: string;
-        runId?: string | null;
-      }>(res);
-    } catch (error: unknown) {
-      console.error('startPersistentPrefill error:', error);
       throw error;
     }
   }
@@ -4121,22 +4038,6 @@ class ApiService {
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
       console.error('stopPersistentPrefillContainer error:', error);
-      throw error;
-    }
-  }
-
-  static async cleanupPersistentPrefillEditSession(
-    request: PersistentPrefillEditSessionCleanupRequest,
-    keepalive = false
-  ): Promise<void> {
-    try {
-      const res = await fetch(
-        `${API_BASE}/system/prefill/persistent/edit-session-cleanup`,
-        this.getJsonFetchOptions(request, { method: 'POST', keepalive })
-      );
-      await this.handleResponse<void>(res);
-    } catch (error: unknown) {
-      console.error('cleanupPersistentPrefillEditSession error:', error);
       throw error;
     }
   }
@@ -4316,7 +4217,6 @@ export interface PrefillSessionDto {
   accountUsername?: string;
   status: PrefillSessionStatus;
   isAuthenticated: boolean;
-  isPrefilling: boolean;
   createdAtUtc: string;
   endedAtUtc?: string;
   expiresAtUtc: string;
@@ -4610,13 +4510,15 @@ interface StatusCheckDomainsResponse {
 }
 
 export interface NetworkDiagnostics {
-  internetConnectivity: boolean;
+  internetConnectivity?: boolean | null;
   internetConnectivityError?: string;
   internetConnectivityIpv4?: boolean | null;
   internetConnectivityIpv4Error?: string;
   internetConnectivityIpv6?: boolean | null;
   internetConnectivityIpv6Error?: string;
   dnsResults: DnsTestResult[];
+  /** True when every configured DNS domain was tested. False when Docker stopped the sweep. */
+  dnsFinished?: boolean;
   testedAt: string;
   /** True if container uses host networking - steam-prefill will detect lancache via localhost/gateway fallback */
   useHostNetworking?: boolean;
@@ -4638,7 +4540,6 @@ export interface DaemonSessionDto {
   containerName: string;
   status: DaemonSessionStatus;
   authState: DaemonAuthState;
-  isPrefilling: boolean;
   createdAt: string;
   expiresAt: string;
   // Client info for admin visibility
@@ -4647,11 +4548,6 @@ export interface DaemonSessionDto {
   browser?: string;
   lastSeenAt: string;
   accountUsername?: string;
-  // Current prefill progress info for admin visibility
-  currentAppId?: string;
-  currentAppName?: string;
-  // Total bytes transferred during this session
-  totalBytesTransferred?: number;
   // Network diagnostics results
   networkDiagnostics?: NetworkDiagnostics;
   platform?: string;

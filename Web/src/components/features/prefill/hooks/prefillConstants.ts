@@ -2,34 +2,6 @@
  * Constants for the prefill feature
  */
 
-/**
- * Maximum age of prefill progress data in sessionStorage before it's considered stale (2 hours)
- */
-export const PREFILL_SESSION_TIMEOUT_MS = 2 * 60 * 60 * 1000;
-
-/**
- * Duration of the animation for cached games (in milliseconds)
- */
-export const ANIMATION_DURATION_MS = 2000;
-
-/**
- * Delay after animation completes before processing next item (in milliseconds)
- */
-export const ANIMATION_COMPLETION_DELAY_MS = 100;
-
-/**
- * Time window for showing completion notifications after reconnecting (5 minutes)
- */
-export const COMPLETION_NOTIFICATION_WINDOW_MS = 5 * 60 * 1000;
-
-/**
- * Watchdog window after clicking Cancel. If no terminal PrefillStateChanged/PrefillProgress
- * event arrives within this window, the bar is force-cleared so the UI can't get stuck
- * "Cancelling..." forever (diagnostic I8). Lowered to 5s (O6) so a stale "Cancelling..." row
- * doesn't linger when the daemon is slow to emit the cancelled terminal.
- */
-export const CANCEL_WATCHDOG_MS = 5 * 1000;
-
 /** Maps generic event names to service-specific event names for Epic */
 const EPIC_EVENT_MAP: Record<string, string> = {
   AuthStateChanged: 'EpicAuthStateChanged',
@@ -41,7 +13,6 @@ const EPIC_EVENT_MAP: Record<string, string> = {
   PrefillStateChanged: 'EpicPrefillStateChanged',
   DaemonSessionCreated: 'EpicDaemonSessionCreated',
   DaemonSessionUpdated: 'EpicDaemonSessionUpdated',
-  PrefillHistoryUpdated: 'EpicPrefillHistoryUpdated',
   CredentialChallenge: 'EpicCredentialChallenge'
 };
 
@@ -56,7 +27,6 @@ const BATTLENET_EVENT_MAP: Record<string, string> = {
   PrefillStateChanged: 'BattleNetPrefillStateChanged',
   DaemonSessionCreated: 'BattleNetDaemonSessionCreated',
   DaemonSessionUpdated: 'BattleNetDaemonSessionUpdated',
-  PrefillHistoryUpdated: 'BattleNetPrefillHistoryUpdated',
   CredentialChallenge: 'BattleNetCredentialChallenge'
 };
 
@@ -71,7 +41,6 @@ const RIOT_EVENT_MAP: Record<string, string> = {
   PrefillStateChanged: 'RiotPrefillStateChanged',
   DaemonSessionCreated: 'RiotDaemonSessionCreated',
   DaemonSessionUpdated: 'RiotDaemonSessionUpdated',
-  PrefillHistoryUpdated: 'RiotPrefillHistoryUpdated',
   CredentialChallenge: 'RiotCredentialChallenge'
 };
 
@@ -86,7 +55,6 @@ const XBOX_EVENT_MAP: Record<string, string> = {
   PrefillStateChanged: 'XboxPrefillStateChanged',
   DaemonSessionCreated: 'XboxDaemonSessionCreated',
   DaemonSessionUpdated: 'XboxDaemonSessionUpdated',
-  PrefillHistoryUpdated: 'XboxPrefillHistoryUpdated',
   CredentialChallenge: 'XboxCredentialChallenge'
 };
 

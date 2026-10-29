@@ -60,7 +60,7 @@ public partial class CacheManagementService
             if (missing.Count > 0)
             {
                 // The run itself names this case with a key that needs no values, since a card
-                // message carries none. [122]
+                // message carries none.
                 var series = string.Join(", ", missing.Keys.Order(StringComparer.Ordinal));
                 throw new ConflictException(
                     $"Log series {series} of datasource '{datasource.Name}' was read before and is missing.")
@@ -150,13 +150,22 @@ public partial class CacheManagementService
                             var read = _logProcessor.ReadToEndAsync(datasource, token);
                             if (await Task.WhenAny(read, download) == download)
                             {
+                                // The read keeps going after the run stops waiting on it, so a
+                                // later fault is logged here rather than lost.
+                                _ = read.ContinueWith(
+                                    (Task<bool> abandoned) => _logger.LogWarning(
+                                        abandoned.Exception,
+                                        "[UnmappedRemoval] Log import failed after a download stopped the run"),
+                                    CancellationToken.None,
+                                    TaskContinuationOptions.OnlyOnFaulted,
+                                    TaskScheduler.Default);
                                 throw await download;
                             }
 
                             if (!await read)
                             {
                                 // A missing log is named apart from an unread one: resetting the
-                                // position forgets the missing series and does not bring it back. [122]
+                                // position forgets the missing series and does not bring it back.
                                 datasource.RefreshLogSources();
                                 throw RustLogProcessorService.LogsOutOfSight(
                                     _stateService.GetLogSourcePositions(datasource.Name),

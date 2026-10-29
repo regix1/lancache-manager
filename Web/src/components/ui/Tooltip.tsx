@@ -31,7 +31,7 @@ const SHOW_DELAY_MS = 150;
 
 // One box at a time, shared by every tooltip on the page. Without this, moving along a row of
 // controls leaves the box you just left waiting out its grace period while the next one waits out
-// its delay, so two are on screen at once and the swap reads as a stutter. The neighbour is closed
+// its delay, so two are on screen at once and the swap reads as a stutter. The neighbor is closed
 // the instant the pointer arrives, and because a tooltip is already being read the replacement skips
 // the delay and appears at once, which is what makes a run along a toolbar feel like one box
 // following the pointer.
@@ -55,6 +55,23 @@ const hasClippedText = (root: HTMLElement | null): boolean => {
     );
   });
 };
+
+// The open panels of EnhancedDropdown (TimeFilter's menu shares its class), MultiSelectDropdown,
+// ActionMenu, the GitHub projects list and the calendar settings popover. Each is portalled
+// straight into document.body.
+const MENU_PANEL_SELECTOR =
+  '.ed-dropdown, .msd-dropdown, .am-dropdown, .github-dropdown-container, .calendar-settings-popover';
+
+// The tooltip layer paints above every menu panel, so while a menu is open a box from a control
+// outside it, the menu's own trigger included, would land on its options. A panel marked
+// data-closing is fading out and covers nothing, and Tab out of its last item lands focus on the
+// next control while it is still on the page.
+const menuCoversTrigger = (trigger: HTMLElement | null): boolean =>
+  trigger !== null &&
+  trigger.closest(MENU_PANEL_SELECTOR) === null &&
+  Array.from(document.querySelectorAll(MENU_PANEL_SELECTOR)).some(
+    (panel: Element) => !panel.hasAttribute('data-closing')
+  );
 
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
@@ -92,6 +109,10 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const triggerRef = useRef<HTMLDivElement>(null);
   const showTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // The pointer arrived while a menu was open, so this box waits for the menu to close.
+  const [hoverHeldByMenu, setHoverHeldByMenu] = useState(false);
+  // Tab reached the trigger while a menu was open, so this box waits for the menu to close.
+  const [focusHeldByMenu, setFocusHeldByMenu] = useState(false);
 
   // Listen for tooltips setting changes
   useEffect(() => {
@@ -151,13 +172,17 @@ export const Tooltip: React.FC<TooltipProps> = ({
       !!triggerRef.current &&
       !triggerRef.current.closest('[role="dialog"]');
 
-    if (overlayCoversTrigger()) {
+    // A menu opening is the same case: a phone tap on a dropdown's label shows the label's box and
+    // opens the menu in one event, and the box would sit on the first option.
+    const coveredNow = () => overlayCoversTrigger() || menuCoversTrigger(triggerRef.current);
+
+    if (coveredNow()) {
       setShow(false);
       return;
     }
 
     const overlayObserver = new MutationObserver(() => {
-      if (overlayCoversTrigger()) {
+      if (coveredNow()) {
         setShow(false);
       }
     });
@@ -165,6 +190,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       attributes: true,
       attributeFilter: ['class']
     });
+    overlayObserver.observe(document.body, { childList: true });
 
     // Listen for scroll events on window and any scrollable parents
     window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
@@ -213,7 +239,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   }, []);
 
   // Claim the page's single open slot while this box is up, and release it on the way down so a
-  // later neighbour does not try to close a tooltip that has already gone.
+  // later neighbor does not try to close a tooltip that has already gone.
   useEffect(() => {
     if (!show) {
       return;
@@ -225,6 +251,30 @@ export const Tooltip: React.FC<TooltipProps> = ({
       }
     };
   }, [show, closeNow]);
+
+  // Nothing else replays a pointer or focus arrival, so a disabled control under a resting pointer,
+  // or one Tab reached while the menu was open, would give no reason after the menu closes until it
+  // was hovered or focused again.
+  useEffect(() => {
+    if (!hoverHeldByMenu && !focusHeldByMenu) return;
+    const menuObserver = new MutationObserver(() => {
+      if (menuCoversTrigger(triggerRef.current)) return;
+      setHoverHeldByMenu(false);
+      setFocusHeldByMenu(false);
+      if (
+        (hoverHeldByMenu && triggerRef.current?.matches(':hover')) ||
+        (focusHeldByMenu && triggerRef.current?.contains(document.activeElement))
+      ) {
+        // The box focus put up when Tab left the menu still holds the slot.
+        if (closeOpenTooltip !== null && closeOpenTooltip !== closeNow) {
+          closeOpenTooltip();
+        }
+        setShow(true);
+      }
+    });
+    menuObserver.observe(document.body, { childList: true });
+    return () => menuObserver.disconnect();
+  }, [hoverHeldByMenu, focusHeldByMenu, closeNow]);
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -238,6 +288,14 @@ export const Tooltip: React.FC<TooltipProps> = ({
   const addsNothing = (): boolean =>
     repeatsVisibleText(triggerRef.current, content) && !hasClippedText(triggerRef.current);
 
+  // Tooltips nest: a disabled control can sit inside several, each with its own reason, and one
+  // pointer arrival, focus or tap reaches all of them. Only the innermost one that has something to
+  // say answers it; otherwise every box opens on the same spot and the outermost covers the reason
+  // for this control. A box portalled out of a nested tooltip still bubbles through this trigger,
+  // and is outside every trigger in the page, so it is not this tooltip's event either.
+  const ownsEvent = (event: React.SyntheticEvent): boolean =>
+    (event.target as Element).closest('[data-tooltip]') === triggerRef.current;
+
   const handleMouseEnter = (e: React.MouseEvent) => {
     if (tooltipsDisabled) return;
 
@@ -249,7 +307,14 @@ export const Tooltip: React.FC<TooltipProps> = ({
 
     if (addsNothing()) return;
 
-    // A neighbour's box goes at once rather than lingering through its grace period, and its
+    if (menuCoversTrigger(triggerRef.current)) {
+      setX(e.clientX);
+      setY(e.clientY);
+      setHoverHeldByMenu(true);
+      return;
+    }
+
+    // A neighbor's box goes at once rather than lingering through its grace period, and its
     // departure is what earns this one an immediate appearance.
     const replacingAnother = closeOpenTooltip !== null && closeOpenTooltip !== closeNow;
     if (replacingAnother) {
@@ -292,6 +357,10 @@ export const Tooltip: React.FC<TooltipProps> = ({
     const focused = event.target;
     requestAnimationFrame(() => {
       if (document.activeElement === focused && triggerRef.current?.contains(focused as Node)) {
+        if (menuCoversTrigger(triggerRef.current)) {
+          setFocusHeldByMenu(true);
+          return;
+        }
         setShow(true);
       }
     });
@@ -339,10 +408,15 @@ export const Tooltip: React.FC<TooltipProps> = ({
         ref={triggerRef}
         className={className || 'inline-flex'}
         style={style}
-        onMouseEnter={handleMouseEnter}
+        data-tooltip={hasContent ? '' : undefined}
+        onMouseEnter={(e) => {
+          if (ownsEvent(e)) handleMouseEnter(e);
+        }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        onFocus={handleFocus}
+        onFocus={(e) => {
+          if (ownsEvent(e)) handleFocus(e);
+        }}
         onBlur={handleBlur}
         onClick={(e) => {
           // On mobile, toggle tooltip on tap. Do NOT stopPropagation: the tap must
@@ -350,7 +424,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
           // opens the details Drawer). Keep preventDefault to cancel the wrapped
           // element's default action without blocking the parent's click handler.
           if (isMobile && !tooltipsDisabled) {
-            if (addsNothing()) {
+            if (addsNothing() || !ownsEvent(e)) {
               return;
             }
             e.preventDefault();
@@ -362,9 +436,17 @@ export const Tooltip: React.FC<TooltipProps> = ({
               }
             }
             setShow(!show);
-          } else {
-            // On desktop, hide tooltip on click (user is taking action)
-            setShow(false);
+          }
+        }}
+        onClickCapture={() => {
+          // On desktop, hide tooltip on click (user is taking action). A show still waiting out
+          // its delay is dropped too, or it would appear over the menu the click just opened.
+          // An arrival held back by the menu this click closes is dropped as well. This runs on
+          // the way down because a dropdown trigger inside stops its click from bubbling.
+          if (!isMobile || tooltipsDisabled) {
+            closeNow();
+            setHoverHeldByMenu(false);
+            setFocusHeldByMenu(false);
           }
         }}
       >
@@ -391,6 +473,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
             contentClassName={contentClassName}
             onMouseEnter={handleTooltipEnter}
             onMouseLeave={handleMouseLeave}
+            onNoRoom={closeNow}
           />,
           document.body
         )}
@@ -462,7 +545,17 @@ const EdgeTooltip: React.FC<{
   contentClassName: string;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
-}> = ({ trigger, content, position, offset, contentClassName, onMouseEnter, onMouseLeave }) => {
+  onNoRoom: () => void;
+}> = ({
+  trigger,
+  content,
+  position,
+  offset,
+  contentClassName,
+  onMouseEnter,
+  onMouseLeave,
+  onNoRoom
+}) => {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -471,46 +564,81 @@ const EdgeTooltip: React.FC<{
   useLayoutEffect(() => {
     if (!ref.current) return;
 
-    const rect = trigger.getBoundingClientRect();
+    const triggerRect = trigger.getBoundingClientRect();
     const tooltipRect = ref.current.getBoundingClientRect();
     const viewportPadding = 12;
-    let x = 0;
-    let y = 0;
 
-    // Calculate initial position
-    switch (position) {
-      case 'top':
-        x = rect.left + rect.width / 2 - tooltipRect.width / 2;
-        y = rect.top - tooltipRect.height - offset;
-        // Flip to bottom if would go off top
-        if (y < viewportPadding) {
-          y = rect.bottom + offset;
+    // A row inside an open menu has its neighbors directly above and below, so a box there covers
+    // the next option. It goes beside the menu instead, level with the row, which takes the menu's
+    // own left and right edges in place of the row's.
+    const panelRect = trigger.closest(MENU_PANEL_SELECTOR)?.getBoundingClientRect();
+    const rect = panelRect
+      ? {
+          left: panelRect.left,
+          right: panelRect.right,
+          width: panelRect.width,
+          top: triggerRect.top,
+          bottom: triggerRect.bottom,
+          height: triggerRect.height
         }
-        break;
-      case 'bottom':
-        x = rect.left + rect.width / 2 - tooltipRect.width / 2;
-        y = rect.bottom + offset;
-        // Flip to top if would go off bottom
-        if (y + tooltipRect.height > window.innerHeight - viewportPadding) {
-          y = rect.top - tooltipRect.height - offset;
+      : triggerRect;
+
+    const placeAt = (side: TooltipPosition, box: typeof rect): { x: number; y: number } => {
+      switch (side) {
+        case 'top': {
+          const above = box.top - tooltipRect.height - offset;
+          return {
+            x: box.left + box.width / 2 - tooltipRect.width / 2,
+            // Flip to bottom if would go off top
+            y: above < viewportPadding ? box.bottom + offset : above
+          };
         }
-        break;
-      case 'left':
-        x = rect.left - tooltipRect.width - offset;
-        y = rect.top + rect.height / 2 - tooltipRect.height / 2;
-        // Flip to right if would go off left
-        if (x < viewportPadding) {
-          x = rect.right + offset;
+        case 'bottom': {
+          const below = box.bottom + offset;
+          return {
+            x: box.left + box.width / 2 - tooltipRect.width / 2,
+            // Flip to top if would go off bottom
+            y:
+              below + tooltipRect.height > window.innerHeight - viewportPadding
+                ? box.top - tooltipRect.height - offset
+                : below
+          };
         }
-        break;
-      case 'right':
-        x = rect.right + offset;
-        y = rect.top + rect.height / 2 - tooltipRect.height / 2;
-        // Flip to left if would go off right
-        if (x + tooltipRect.width > window.innerWidth - viewportPadding) {
-          x = rect.left - tooltipRect.width - offset;
+        case 'left': {
+          const left = box.left - tooltipRect.width - offset;
+          return {
+            // Flip to right if would go off left
+            x: left < viewportPadding ? box.right + offset : left,
+            y: box.top + box.height / 2 - tooltipRect.height / 2
+          };
         }
-        break;
+        case 'right': {
+          const right = box.right + offset;
+          return {
+            // Flip to left if would go off right
+            x:
+              right + tooltipRect.width > window.innerWidth - viewportPadding
+                ? box.left - tooltipRect.width - offset
+                : right,
+            y: box.top + box.height / 2 - tooltipRect.height / 2
+          };
+        }
+      }
+    };
+
+    let { x, y } = placeAt(panelRect ? 'left' : position, rect);
+
+    // A menu on a narrow screen can leave no room on either side, and the clamp below would pull the
+    // box back over the row it describes. An enabled row prints what its box would say, so that box
+    // closes: one kept open but undrawn would still take the Escape meant for the menu. A disabled
+    // row's box is the only place its reason shows, so it goes above or below the row instead, over
+    // a neighboring option while it is open but never over this one.
+    if (panelRect && x + tooltipRect.width > window.innerWidth - viewportPadding) {
+      if (!trigger.querySelector(':disabled, [aria-disabled="true"]')) {
+        onNoRoom();
+        return;
+      }
+      ({ x, y } = placeAt('top', triggerRect));
     }
 
     // Clamp to viewport bounds
@@ -520,7 +648,7 @@ const EdgeTooltip: React.FC<{
     // Update position and mark as ready - this happens synchronously before paint
     setPos({ x, y });
     setIsReady(true);
-  }, [trigger, position, offset]);
+  }, [trigger, position, offset, onNoRoom]);
 
   // A long value like a filesystem path is a single unbreakable word, so the max-width caps the
   // box while the text paints straight through it and off the screen. break-words splits a word

@@ -128,6 +128,8 @@ public sealed class LogProcessingRepair
     public double? Elapsed { get; set; }
     public string? Message { get; set; }
     public string? StageKey { get; set; }
+    public string? Datasource { get; set; }
+    public string? DatabaseError { get; set; }
 }
 
 public sealed class LogRemovalRepair

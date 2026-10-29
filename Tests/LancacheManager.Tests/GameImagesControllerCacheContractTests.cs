@@ -119,7 +119,7 @@ public sealed class GameImagesControllerCacheContractTests
         Assert.Equal(OperationType.GameImageFetch, queue.Type);
         Assert.Equal(ConflictScope.Bulk(), queue.Scope);
         Assert.Equal("Game Image Fetch", queue.DisplayName);
-        // The click waits the way the image fetch schedule's mode says a click is drawn. [104]
+        // The click waits the way the image fetch schedule's mode says a click is drawn.
         var notice = Assert.IsType<RunNotice>(queue.Notice);
         Assert.Equal(NotificationMode.Hidden, notice.Mode);
         Assert.Equal(RunTrigger.Manual, notice.Trigger);
@@ -304,7 +304,7 @@ public sealed class GameImagesControllerCacheContractTests
         // stored-row pass nor the curated pass reaches it, yet the serve route answers it from Steam's
         // header. The row that decides whether to draw a banner asks by SLUG, so leaving the slug out
         // read as "no artwork" for a game the server was serving perfectly well. Its Steam id was
-        // advertised the whole time, which is why only some Xbox games lost their art. [50]
+        // advertised the whole time, which is why only some Xbox games lost their art.
         const string slug = "minecraft-dungeons";
         const string steamAppId = "1672970";
         var steamStoredAtUtc = new DateTime(2026, 8, 3, 7, 15, 0, DateTimeKind.Utc);

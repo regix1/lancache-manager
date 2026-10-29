@@ -18,7 +18,6 @@ public sealed class PrefillRunHistoryTests
     public async Task IndependentHistoryAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
-        await fixture.History.StartEntryAsync(fixture.Session.Id, "10", "Old game");
         var first = await fixture.StartAsync("10");
         var second = await fixture.StartAsync("10");
         fixture.Client.Set(first, "completed", 100, "success");
@@ -26,8 +25,7 @@ public sealed class PrefillRunHistoryTests
         await fixture.RefreshAsync();
         await using var context = new AppDbContext(fixture.Options);
         var history = await context.PrefillHistoryEntries.ToListAsync();
-        Assert.Equal(3, history.Count);
-        Assert.Equal(PrefillHistoryEntryStatus.InProgress, history.Single(entry => entry.RunId is null).Status);
+        Assert.Equal(2, history.Count);
         Assert.Equal(PrefillHistoryEntryStatus.Completed, history.Single(entry => entry.RunId == first.PrefillRunId).Status);
         Assert.Equal(12, history.Single(entry => entry.RunId == second.PrefillRunId).BytesDownloaded);
     }
@@ -49,9 +47,14 @@ public sealed class PrefillRunHistoryTests
     public async Task MigrationHistoryAsync()
     {
         await using var fixture = await RunFixture.CreateAsync(relational: true);
-        await fixture.History.StartEntryAsync(fixture.Session.Id, "10", "Legacy game");
         await using (var context = new AppDbContext(fixture.Options))
         {
+            context.PrefillHistoryEntries.Add(new PrefillHistoryEntry
+            {
+                SessionId = fixture.Session.Id, AppId = "10", AppName = "Legacy game",
+                StartedAtUtc = DateTime.UtcNow, Status = PrefillHistoryEntryStatus.InProgress
+            });
+            await context.SaveChangesAsync();
             var migration = new AddPrefillRuns();
             var sql = context.GetService<IMigrationsSqlGenerator>();
             foreach (var command in sql.Generate(migration.DownOperations))
@@ -278,6 +281,28 @@ public sealed class PrefillRunHistoryTests
     }
 
     [Fact]
+    public async Task FailedGamesTellsAnEpicAccountToLogInAgainWhenSignedOut()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        await using (var context = new AppDbContext(fixture.Options))
+        {
+            var session = await context.PrefillSessions.SingleAsync(row => row.SessionId == fixture.Session.Id);
+            session.IsPersistent = true;
+            session.Platform = PrefillPlatform.Epic;
+            await context.SaveChangesAsync();
+        }
+        var run = await fixture.StartAsync("10");
+        await fixture.History.SaveRunAsync(run, run.Snapshot with
+        { Sequence = run.Snapshot.Sequence + 10, State = "completed", UpdatedAt = DateTimeOffset.UtcNow },
+        [new DaemonRunItem { AppId = "10", Sequence = run.Snapshot.Sequence + 1, Result = "failed", Reason = "auth-lost" }],
+        true, CancellationToken.None);
+
+        var games = await fixture.History.GetFailedGamesAsync(run.PrefillRunId, PrefillPlatform.Epic, CancellationToken.None);
+
+        Assert.Equal("errors.prefill.loginRequired", Assert.Single(games!).ReasonKey);
+    }
+
+    [Fact]
     public async Task FailedGamesIncludesGamesLeftUnfinishedByStalledRun()
     {
         await using var fixture = await RunFixture.CreateAsync();
@@ -435,6 +460,10 @@ public sealed class PrefillRunHistoryTests
         Assert.Equal("errors.prefill.runLimit", new DaemonCommandException("run-limit").StageKey);
         Assert.Equal("errors.steam.signInLost", new DaemonCommandException("auth-lost").StageKey);
         Assert.Equal("errors.prefill.requestFailed", new DaemonCommandException("unknown-code").StageKey);
+        var outdated = new DaemonCommandException("daemon-outdated");
+        Assert.Equal("daemon-outdated", outdated.ErrorCode);
+        Assert.Equal("errors.prefill.daemonOutdated", outdated.StageKey);
+        Assert.False(outdated.RequiresLogin);
     }
 
     private static async Task MarkPersistentAsync(RunFixture fixture)

@@ -127,7 +127,7 @@ const card = (props = {}) =>
   flatten(
     render({
       serviceKey: 'steam',
-      container: { isRunning: true, isAuthenticated: false, isPrefilling: false },
+      container: { isRunning: true, isAuthenticated: false, activeRunCount: 0 },
       listLoaded: true,
       listFailed: false,
       onStart: () => undefined,
@@ -213,7 +213,7 @@ for (const [authExpiresAtUtc, expired] of [
 ])
   test(`the rendered countdown consumes absolute expiry ${authExpiresAtUtc}`, () => {
     const nodes = card({
-      container: { isRunning: true, isAuthenticated: true, isPrefilling: false, authExpiresAtUtc }
+      container: { isRunning: true, isAuthenticated: true, activeRunCount: 0, authExpiresAtUtc }
     });
     assert.ok(text(nodes).includes(en.prefill.persistent.reloginRequiredBy));
     assert.equal(text(nodes).includes(en.prefill.persistent.signInExpired), expired);
@@ -223,7 +223,7 @@ for (const [authExpiresAtUtc, expired] of [
 
 test('REST false flags override stale activity and remove download state', () => {
   const stopped = card({
-    container: { isRunning: false, isAuthenticated: false, isPrefilling: false }
+    container: { isRunning: false, isAuthenticated: false, activeRunCount: 0 }
   });
   assert.ok(text(stopped).includes(translate('prefill.persistent.states.stopped')));
   assert.ok(

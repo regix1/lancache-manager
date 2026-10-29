@@ -1,6 +1,6 @@
 # API 参考
 
-Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡是能点击完成的操作都可以脚本化。API 共有 285 个端点，分为六组。
+Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡是能点击完成的操作都可以脚本化。API 共有 283 个端点，分为六组。
 
 ## 下载端点列表
 
@@ -57,17 +57,17 @@ curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 
 !!! note "无需会话即可应答的端点"
 
-    285 个端点中有 23 个必须在调用方尚无凭据时就能工作：登录、访客模式配置、首次运行初始化、密码恢复、游戏封面图、版本横幅，以及容器健康检查。它们在下载的参考文件中标记为 **public**，其余端点标记为 **requires a signed-in session**。
+    283 个端点中有 23 个必须在调用方尚无凭据时就能工作：登录、访客模式配置、首次运行初始化、密码恢复、游戏封面图、版本横幅，以及容器健康检查。它们在下载的参考文件中标记为 **public**，其余端点标记为 **requires a signed-in session**。
 
 ## 各分组的内容
 
 | 分组 | 端点数 | 涵盖内容 |
 |---|---:|---|
-| Access | 64 | 登录、会话、账户、API 密钥、访客模式、用户级设置 |
+| Access | 65 | 登录、会话、账户、API 密钥、访客模式、用户级设置 |
 | Cache and Games | 58 | 缓存内容、游戏与 depot 识别、损坏扫描、封面图 |
 | Clients | 10 | 缓存客户端、客户端分组、主机名映射 |
 | Downloads and Reporting | 40 | 下载历史、仪表板数据、统计、速度、事件、日志 |
-| Prefill | 64 | Steam、Epic、Battle.net、Riot、Xbox 预填充守护进程及其计划任务 |
+| Prefill | 62 | Steam、Epic、Battle.net、Riot、Xbox 预填充守护进程及其计划任务 |
 | System | 48 | 服务健康状况、指标、数据库维护、数据迁移、后台操作 |
 
 ## 几个可以先试试的调用

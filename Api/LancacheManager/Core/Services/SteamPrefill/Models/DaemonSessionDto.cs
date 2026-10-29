@@ -11,7 +11,8 @@ public class DaemonSessionDto
     /// <summary>The negotiated daemon instance. Null before status negotiation or for legacy daemons.</summary>
     public string? DaemonInstanceId { get; set; }
     public IReadOnlyList<string> Features { get; set; } = [];
-    public int MaxConcurrentRuns { get; set; } = 1;
+    /// <summary>The most runs the daemon allows at once. Null before status negotiation or for an outdated daemon.</summary>
+    public int? MaxConcurrentRuns { get; set; }
     public int ActiveRunCount { get; set; }
     public bool Recovering { get; set; }
     public string Id { get; set; } = string.Empty;
@@ -36,7 +37,6 @@ public class DaemonSessionDto
     /// <summary>The session's current sign-in attempt number, so a dialog that starts a new sign-in knows which ending it replaces.</summary>
     public long LoginAttempt { get; set; }
 
-    public bool IsPrefilling { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
 
@@ -94,49 +94,12 @@ public class DaemonSessionDto
     /// </summary>
     public string? Username { get; set; }
 
-    // Current prefill progress info for admin visibility
-
-    /// <summary>
-    /// The app currently downloading. Null whenever the session is not downloading, and cleared again
-    /// as soon as a prefill run ends.
-    /// </summary>
-    public string? CurrentAppId { get; set; }
-
-    /// <summary>
-    /// Display name of the app currently downloading. Null under the same conditions as
-    /// <see cref="CurrentAppId"/>.
-    /// </summary>
-    public string? CurrentAppName { get; set; }
-
-    /// <summary>
-    /// Total bytes transferred during this session (cumulative across all games)
-    /// </summary>
-    public long TotalBytesTransferred { get; set; }
-
     /// <summary>
     /// Network diagnostics results (internet connectivity and DNS resolution tests). Null when the
     /// container's connectivity test did not run or did not finish, so the session was created
     /// without a result to report.
     /// </summary>
     public NetworkDiagnostics? NetworkDiagnostics { get; set; }
-
-    /// <summary>
-    /// When the last prefill on this session finished, used for background completion detection.
-    /// Null before any prefill has completed, and cleared again while a new prefill is running.
-    /// </summary>
-    public DateTime? LastPrefillCompletedAt { get; set; }
-
-    /// <summary>
-    /// How long the last completed prefill took. Null under the same conditions as
-    /// <see cref="LastPrefillCompletedAt"/>.
-    /// </summary>
-    public int? LastPrefillDurationSeconds { get; set; }
-
-    /// <summary>
-    /// How the last prefill ended (for example completed or cancelled). Null under the same
-    /// conditions as <see cref="LastPrefillCompletedAt"/>.
-    /// </summary>
-    public string? LastPrefillStatus { get; set; }
 
     public static DaemonSessionDto FromSession(DaemonSession session)
     {
@@ -148,18 +111,18 @@ public class DaemonSessionDto
                 .Select(FromRun).ToArray(),
             DaemonInstanceId = session.Capabilities?.DaemonInstanceId,
             Features = capabilities?.Features?.ToArray() ?? [],
-            MaxConcurrentRuns = capabilities?.MaxConcurrentRuns ?? 1,
-            ActiveRunCount = session.Runs.IsEmpty ? (session.IsPrefilling ? 1 : 0)
-                : session.Runs.Values.Count(run => run.TerminalCompletedFlag != 2),
+            MaxConcurrentRuns = capabilities?.MaxConcurrentRuns,
+            ActiveRunCount = session.Runs.Values.Count(run => run.TerminalCompletedFlag != 2),
             Recovering = session.Recovering,
             UserId = session.UserId,
             ContainerName = session.ContainerName,
-            Status = session.Status.ToString(),
+            // A stop in progress keeps Error inside the server so every guard refuses work; it is not a failure.
+            Status = (session.IsStopping && session.Status == DaemonSessionStatus.Error
+                ? DaemonSessionStatus.Terminated : session.Status).ToString(),
             ErrorMessage = session.ErrorMessage,
             AuthState = session.AuthState.ToString(),
             LoginEnding = session.LastLoginEnding,
             LoginAttempt = session.LoginAttempt,
-            IsPrefilling = session.IsPrefilling,
             CreatedAt = session.CreatedAt,
             ExpiresAt = session.ExpiresAt,
             IsTemporary = session.IsTemporary,
@@ -172,13 +135,7 @@ public class DaemonSessionDto
             AccountUsername = session.AccountUsername,
             Platform = session.Platform,
             Username = session.Username ?? session.AccountUsername,
-            CurrentAppId = session.CurrentAppId,
-            CurrentAppName = session.CurrentAppName,
-            TotalBytesTransferred = session.TotalBytesTransferred,
-            NetworkDiagnostics = session.NetworkDiagnostics,
-            LastPrefillCompletedAt = session.LastPrefillCompletedAt,
-            LastPrefillDurationSeconds = session.LastPrefillDurationSeconds,
-            LastPrefillStatus = session.LastPrefillStatus
+            NetworkDiagnostics = session.NetworkDiagnostics
         };
     }
 

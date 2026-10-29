@@ -942,6 +942,249 @@ public sealed class CacheScanDetectionPhaseTests
         }
     }
 
+    [Theory]
+    [InlineData(137, "", "", "signalr.evictionScan.stoppedBySystem", null)]
+    [InlineData(137, "", "[EvictionScan] Found 120000 cache files on disk across 1 datasource(s)\n", "signalr.evictionScan.stoppedBySystem", null)]
+    [InlineData(1, """{"success":false,"processed":0,"evicted":0,"unEvicted":0,"filesOnDisk":0,"error":"database connection lost"}""", "database connection lost\n", "signalr.evictionScan.error.fatal", "database connection lost")]
+    public async Task AScanWhoseChildEndsWithoutAResultSaysWhyOnTheCardAndTheRow(
+        int exitCode, string stdout, string stderr, string stageKey, string? detail)
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        PhaseContext.SetField(ctx.Scan, "_stateService", ctx.State);
+        PhaseContext.SetField(ctx.Scan, "_datasourceService", ctx.Datasources);
+        PhaseContext.SetField(ctx.Scan, "_cacheScanGate", Idle());
+        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", new EndingEvictionRust(ctx.Root, exitCode, stdout, stderr));
+
+        var scanId = ctx.Scan.RunManualAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual))!.Value;
+        var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        await ctx.CompleteDetectionAsync(detection.Id);
+        var terminal = Assert.IsType<EvictionScanComplete>(await ctx.Notifications.WaitForAsync(
+            SignalREvents.EvictionScanComplete,
+            value => value is EvictionScanComplete { OperationId: var operationId } && operationId == scanId));
+
+        Assert.False(terminal.Success);
+        Assert.Equal(stageKey, terminal.StageKey);
+        // The card prints an error as it is, so the reason rides as a key with the child's text as its detail.
+        Assert.Null(terminal.Error);
+        Assert.Equal(detail, terminal.Context!.GetValueOrDefault("errorDetail"));
+        // The failure log line reads the reason through the shared contract; the wire keeps no error text.
+        Assert.Equal(detail ?? stageKey, ((IOperationComplete)terminal).Error);
+        using (var wire = JsonDocument.Parse(JsonSerializer.Serialize(terminal)))
+        {
+            Assert.Equal(JsonValueKind.Null, wire.RootElement.GetProperty(nameof(EvictionScanComplete.Error)).ValueKind);
+        }
+        // A reload draws the row, which carries the same key or the scan's own reason.
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == scanId);
+        Assert.Equal(detail ?? stageKey, row.Message);
+        Assert.Equal(detail ?? stageKey, row.Error);
+    }
+
+    [Fact]
+    public async Task AScanTheCapabilityCheckRefusesEndsWithAKey()
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        PhaseContext.SetField(ctx.Scan, "_stateService", ctx.State);
+        PhaseContext.SetField(ctx.Scan, "_datasourceService", ctx.Datasources);
+        PhaseContext.SetField(ctx.Scan, "_cacheScanGate", Idle());
+        // With no log file the datasource has no key evidence, so the scan cannot map cache files.
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        File.Delete(Path.Combine(source.LogPath, "access.log"));
+
+        var scanId = ctx.Scan.RunManualAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual))!.Value;
+        var terminal = Assert.IsType<EvictionScanComplete>(await ctx.Notifications.WaitForAsync(
+            SignalREvents.EvictionScanComplete,
+            value => value is EvictionScanComplete { OperationId: var operationId } && operationId == scanId));
+
+        Assert.False(terminal.Success);
+        Assert.Equal("signalr.evictionScan.capabilityRefused", terminal.StageKey);
+        Assert.Null(terminal.Error);
+        Assert.False(terminal.Context!.ContainsKey("errorDetail"));
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == scanId);
+        Assert.Equal("signalr.evictionScan.capabilityRefused", row.Error);
+    }
+
+    [Fact]
+    public async Task AScanThatCheckedNoCacheFolderEndsWithAKey()
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        PhaseContext.SetField(ctx.Scan, "_stateService", ctx.State);
+        PhaseContext.SetField(ctx.Scan, "_datasourceService", ctx.Datasources);
+        PhaseContext.SetField(ctx.Scan, "_cacheScanGate", Idle());
+        var everyFolder = ctx.Datasources.GetDatasources().Select(source => source.CachePath).Distinct().ToList();
+        var resultLine = JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["success"] = true,
+            ["processed"] = 0,
+            ["evicted"] = 0,
+            ["unEvicted"] = 0,
+            ["filesOnDisk"] = 0,
+            ["uncheckedFolders"] = everyFolder
+        });
+        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", new EndingEvictionRust(ctx.Root, 0, resultLine, string.Empty));
+
+        var scanId = ctx.Scan.RunManualAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual))!.Value;
+        var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        await ctx.CompleteDetectionAsync(detection.Id);
+        var terminal = Assert.IsType<EvictionScanComplete>(await ctx.Notifications.WaitForAsync(
+            SignalREvents.EvictionScanComplete,
+            value => value is EvictionScanComplete { OperationId: var operationId } && operationId == scanId));
+
+        Assert.False(terminal.Success);
+        Assert.Equal("signalr.evictionScan.noFolderChecked", terminal.StageKey);
+        Assert.Null(terminal.Error);
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == scanId);
+        Assert.Equal("signalr.evictionScan.noFolderChecked", row.Error);
+    }
+
+    [Theory]
+    [InlineData("signalr.evictionScan.stoppedBySystem", "signalr.evictionScan.stoppedBySystem", null)]
+    [InlineData("signalr.generic.interruptedByRestart", "signalr.generic.interruptedByRestart", null)]
+    [InlineData("signalr.evictionScan.noFolderChecked", "signalr.evictionScan.noFolderChecked", null)]
+    [InlineData("database connection lost", "signalr.evictionScan.error.fatal", "database connection lost")]
+    public async Task AScanRestoredAfterARestartSendsItsStoredEnding(
+        string storedError, string stageKey, string? detail)
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        var repair = new OperationRepair
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.EvictionScan,
+            Name = "Eviction Scan",
+            StartedAt = DateTime.UtcNow.AddMinutes(-1),
+            EvictionScan = new EvictionScanRepair()
+        };
+        await ctx.Scan.RestoreRepairAsync(repair, CancellationToken.None);
+
+        // The restored run ends with the error its record kept, as the repair's completion does.
+        tracker.CompleteOperation(repair.Id, false, storedError);
+
+        var terminal = Assert.IsType<EvictionScanComplete>(await ctx.Notifications.WaitForAsync(
+            SignalREvents.EvictionScanComplete,
+            value => value is EvictionScanComplete { OperationId: var operationId } && operationId == repair.Id));
+        Assert.False(terminal.Success);
+        Assert.Equal(stageKey, terminal.StageKey);
+        Assert.Null(terminal.Error);
+        Assert.Equal(detail, terminal.Context!.GetValueOrDefault("errorDetail"));
+    }
+
+    [Theory]
+    [InlineData(137, "", "signalr.evictionScan.repairStopped")]
+    [InlineData(1, """{"success":false,"processed":0,"evicted":0,"unEvicted":0,"filesOnDisk":0,"error":"database connection lost"}""", "signalr.evictionScan.repairFailed")]
+    public async Task AFailedRepairScanThrowsTheKeyForHowItEnded(int exitCode, string stdout, string stageKey)
+    {
+        using var ctx = new PhaseContext();
+        var repair = KilledRepairScan(ctx, new EndingEvictionRust(ctx.Root, exitCode, stdout, string.Empty));
+        await ctx._operationStateService.PrepareRepairAsync(repair, CancellationToken.None);
+        repair.Sources[0].NativeLaunchAuthorized = true;
+        // Totals from before the job; with no detection rows left, a disk summary refresh zeroes them.
+        await using (var seed = ctx.CreateContext())
+        {
+            seed.CachedDetectionSummaries.Add(new CachedDetectionSummary
+            {
+                GamesOnDiskCount = 5,
+                UnmappedServicesJson = "[]"
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var failure = await Assert.ThrowsAnyAsync<ApiException>(
+            () => ctx.Scan.ReconcileRepairAsync(repair, CancellationToken.None));
+
+        Assert.Equal(stageKey, failure.StageKey);
+        // The attempt's finalize ran before the throw: it refreshed the disk summary, and it left the
+        // checkpoint open for the next attempt.
+        await using var context = ctx.CreateContext();
+        Assert.Equal(0, (await context.CachedDetectionSummaries.SingleAsync()).GamesOnDiskCount);
+        var checkpoint = Assert.Single(await context.EvictionScanCheckpoints.ToListAsync());
+        Assert.Null(checkpoint.FinalizedAtUtc);
+    }
+
+    [Fact]
+    public async Task ARepairScanStoppedForSilenceFailsWithItsKey()
+    {
+        using var ctx = new PhaseContext();
+        var repair = KilledRepairScan(ctx, new EndingEvictionRust(ctx.Root, 0, string.Empty, string.Empty)
+        {
+            WhileRunning = () => throw new ServiceUnavailableException("cache_eviction_scan wrote no progress")
+            {
+                StageKey = "signalr.generic.stoppedWithoutProgress"
+            }
+        });
+        await ctx._operationStateService.PrepareRepairAsync(repair, CancellationToken.None);
+        repair.Sources[0].NativeLaunchAuthorized = true;
+
+        var failure = await Assert.ThrowsAnyAsync<ApiException>(
+            () => ctx.Scan.ReconcileRepairAsync(repair, CancellationToken.None));
+
+        Assert.Equal("signalr.generic.stoppedWithoutProgress", failure.StageKey);
+        await using var context = ctx.CreateContext();
+        Assert.Null(Assert.Single(await context.EvictionScanCheckpoints.ToListAsync()).FinalizedAtUtc);
+    }
+
+    private static OperationRepair KilledRepairScan(PhaseContext ctx, EndingEvictionRust rust)
+    {
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", rust);
+        return new OperationRepair
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.CacheClearing,
+            Name = "Cache Clearing",
+            StartedAt = DateTime.UtcNow.AddMinutes(-1),
+            CacheClearing = new CacheClearingRepair { EntityKey = "all" },
+            Sources =
+            [
+                new OperationRepairSource
+                {
+                    Datasource = source.Name,
+                    CacheRoot = source.CachePath,
+                    KeyScheme = LogSourceLayout.LayoutMonolithic,
+                    ReconcileCache = true
+                }
+            ]
+        };
+    }
+
+    [Fact]
+    public async Task AResultLinePrintedBeforeTheChildWasKilledStillCounts()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lcm-killed-after-result-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var rust = new EndingEvictionRust(
+                root,
+                137,
+                """{"success":true,"processed":5,"evicted":1,"unEvicted":0,"filesOnDisk":9}""",
+                string.Empty);
+
+            var result = await rust.RunEvictionScanAsync(Path.Combine(root, "datasources.json"), scanId: Guid.NewGuid());
+
+            var parsed = (EvictionScanResult)typeof(CacheReconciliationService)
+                .GetMethod("ParseScanResult", BindingFlags.Static | BindingFlags.NonPublic)!
+                .Invoke(null, [result])!;
+            Assert.True(parsed.Success);
+            Assert.Equal(5, parsed.Processed);
+            Assert.Equal(1, parsed.Evicted);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task FinalizedInternalCheckpointDoesNotStartAnotherScan()
     {
@@ -4235,6 +4478,21 @@ public sealed class CacheScanDetectionPhaseTests
             registrations.AddSingleton(capabilityService);
             registrations.AddSingleton((ISignalRNotificationService)(object)Notifications);
             registrations.AddScoped(_ => contexts.CreateDbContext());
+            // A repair scan's finalize invalidates the corruption results its job touched.
+            registrations.AddSingleton(_ => new CorruptionDetectionService(
+                NullLogger<CorruptionDetectionService>.Instance,
+                configuration,
+                pathResolver,
+                detectionRust,
+                (ISignalRNotificationService)(object)Notifications,
+                datasourceService,
+                contexts,
+                operationStateService,
+                (IUnifiedOperationTracker)(object)Tracker,
+                capabilityService,
+                Idle(),
+                nginxLogRotationService: null!,
+                stateService));
             // An eviction removal's repair refreshes the per-service log counts.
             registrations.AddSingleton(_ => new CacheManagementService(
                 configuration,
@@ -4482,6 +4740,56 @@ public sealed class CacheScanDetectionPhaseTests
                 ExitCode = 0,
                 Output = "{\"success\":true,\"processed\":0,\"evicted\":0,\"unEvicted\":0}"
             });
+        }
+    }
+
+    /// <summary>
+    /// The real eviction scan launcher with only the child's ending supplied: its exit code, the
+    /// stdout line the reader kept and its stderr.
+    /// </summary>
+    private sealed class EndingEvictionRust : RustProcessHelper
+    {
+        private readonly ProcessExecutionResult _ending;
+
+        public EndingEvictionRust(string root, int exitCode, string output, string error)
+            : this(new TempDirPathResolver(root), new ProcessExecutionResult
+            {
+                ExitCode = exitCode,
+                Output = output,
+                Error = error
+            })
+        {
+        }
+
+        private EndingEvictionRust(TempDirPathResolver paths, ProcessExecutionResult ending)
+            : base(
+                NullLogger<RustProcessHelper>.Instance,
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                paths,
+                operationTracker: null!)
+        {
+            _ending = ending;
+            var binary = paths.GetRustEvictionScanPath();
+            Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+            File.WriteAllText(binary, string.Empty);
+        }
+
+        /// <summary>Runs while the child would run, before its ending is returned.</summary>
+        public Func<Task>? WhileRunning { get; init; }
+
+        public override async Task<ProcessExecutionResult> ExecuteTrackedProcessWithProgressEventsAsync(
+            ProcessStartInfo process,
+            Guid? operationId,
+            CancellationToken cancellationToken,
+            Func<RustProgressEvent, Task>? onProgressEvent,
+            string processLabel = "rust")
+        {
+            if (WhileRunning != null)
+            {
+                await WhileRunning();
+            }
+
+            return _ending;
         }
     }
 

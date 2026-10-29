@@ -65,7 +65,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
         if (!File.Exists(rustBinaryPath))
         {
             // A Run Now fails loudly so the person who clicked sees why nothing ran; the base loop
-            // reports the throw as this run's failure. Automatic runs only log. [93]
+            // reports the throw as this run's failure. Automatic runs only log.
             if (CurrentRunNotice.Trigger == RunTrigger.Manual)
                 _rustProcessHelper.EnsureBinaryExists(rustBinaryPath, "Rust cache-size");
             _logger.LogWarning(

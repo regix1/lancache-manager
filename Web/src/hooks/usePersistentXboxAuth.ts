@@ -1,8 +1,6 @@
 import { useCallback } from 'react';
 import { usePersistentPrefillAuth } from './usePersistentPrefillAuth';
 import {
-  getPersistentLoginEditAction,
-  getPersistentLoginSessionId,
   getPersistentLoginStartRequest,
   setPersistentLoginStartRequest
 } from '@components/features/management/schedules/scheduled-prefill/persistentLoginStore';
@@ -30,13 +28,7 @@ export function usePersistentXboxAuth(options: UsePersistentXboxAuthOptions = {}
   // The device-code approval arrives as AuthStateChanged and any other ending as DaemonSessionUpdated
   // (usePersistentLoginChallengeSignalR), so nothing here asks the server for the result.
   const startLogin = useCallback(async (): Promise<CredentialChallenge | null> => {
-    const activeEditAction = getPersistentLoginEditAction('Xbox');
-    const activeSessionId = getPersistentLoginSessionId('Xbox');
-    const requestedStart =
-      getPersistentLoginStartRequest('Xbox') ??
-      (activeEditAction && activeSessionId
-        ? { sessionId: activeSessionId, ...activeEditAction }
-        : undefined);
+    const requestedStart = getPersistentLoginStartRequest('Xbox');
     coreActions.resetAuthForm();
     if (requestedStart) {
       setPersistentLoginStartRequest('Xbox', requestedStart);

@@ -665,6 +665,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
+            data-closing={closing ? '' : undefined}
             className={`ed-dropdown ed-dropdown--menu absolute themed-border-radius-sm border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] z-[250] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
             style={{
               top: dropdownPosition.top,

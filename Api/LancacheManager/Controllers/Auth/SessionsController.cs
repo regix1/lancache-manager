@@ -199,7 +199,7 @@ public class SessionsController : ControllerBase
             PrefillDaemonServiceBase.GuestGate.EnterStop(id);
         var cleanup = guest
             ? PrefillDaemonServiceBase.TerminateGuestSessionsAsync(PrefillDaemonServiceBase.ResolveAllDaemons(scope.ServiceProvider),
-                id, "Guest access revoked", currentSession?.Id.ToString())
+                id, "Guest access revoked", PrefillDaemonServiceBase.AccessEndedReasonKey, currentSession?.Id.ToString())
             : Task.FromResult(new GuestPrefillStopResult(0, 0));
         GuestPrefillStopResult stopped;
         try
@@ -252,7 +252,7 @@ public class SessionsController : ControllerBase
             PrefillDaemonServiceBase.GuestGate.EnterStop(id);
         var cleanup = guest
             ? PrefillDaemonServiceBase.TerminateGuestSessionsAsync(PrefillDaemonServiceBase.ResolveAllDaemons(scope.ServiceProvider),
-                id, "Guest session deleted", currentSession?.Id.ToString())
+                id, "Guest session deleted", PrefillDaemonServiceBase.AccessEndedReasonKey, currentSession?.Id.ToString())
             : Task.FromResult(new GuestPrefillStopResult(0, 0));
         try
         {
@@ -399,7 +399,7 @@ public class SessionsController : ControllerBase
         foreach (var id in targets.Keys)
             PrefillDaemonServiceBase.GuestGate.EnterStop(id);
         var cleanups = targets.Keys.Select(id => PrefillDaemonServiceBase.TerminateGuestSessionsAsync(
-            daemons, id, "Guest sessions cleared", HttpContext.GetUserSession()?.Id.ToString())).ToArray();
+            daemons, id, "Guest sessions cleared", PrefillDaemonServiceBase.AccessEndedReasonKey, HttpContext.GetUserSession()?.Id.ToString())).ToArray();
         var count = 0;
         var failures = new List<Exception>();
         GuestPrefillStopResult[] stopped;

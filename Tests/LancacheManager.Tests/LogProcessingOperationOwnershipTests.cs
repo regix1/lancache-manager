@@ -235,6 +235,23 @@ public sealed class LogProcessingOperationOwnershipTests
     }
 
     [Fact]
+    public async Task ARiotMappingRunWhoseLogPassFailsEndsWithAKeyNotASentenceAsync()
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath));
+        await fixture.Pipe!.ConnectAsync();
+        var failed = TerminalProgress(0, 0, "failed");
+        failed.RiotHostsProcessed = 1;
+        await fixture.Pipe.SendAsync(failed, exitCode: 1);
+
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        var riotFailure = fixture.Messages.Failures[SignalREvents.RiotMappingComplete];
+        Assert.False(riotFailure.Success);
+        Assert.Equal("signalr.logProcessing.failed", riotFailure.Error);
+    }
+
+    [Fact]
     public async Task ALivePassThatStallsIsStoppedAndTheNextPassRunsAsync()
     {
         var clock = new CacheStatusClock(DateTimeOffset.UtcNow);
@@ -449,6 +466,110 @@ public sealed class LogProcessingOperationOwnershipTests
             fixture.State.GetLogSourcePositions("alpha")[LogSourceLayout.MonolithicStem]);
         Assert.Empty(fixture.RepairOwner.GetPendingRepairs());
         Assert.False(fixture.RepairOwner.OwnsRepair(operationId));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public async Task AFailedPassWithNoStageKeyEndsWithTheFailureKeyAsync(int exitCode)
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath));
+        await fixture.Pipe!.ConnectAsync();
+        var operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
+        // The Rust log processor writes no stage key into its checkpoint.
+        var failed = TerminalProgress(0, 0, "failed");
+        failed.StageKey = string.Empty;
+        await fixture.Pipe.SendAsync(failed, exitCode);
+
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(
+            Assert.Single(fixture.Messages.Completions));
+        Assert.Equal("signalr.logProcessing.failed", complete.Message);
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
+        Assert.Equal("signalr.logProcessing.failed", row.Error);
+    }
+
+    [Fact]
+    public async Task APassThatLeftNoValidCheckpointEndsWithTheFailureKeyAsync()
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath));
+        await fixture.Pipe!.ConnectAsync();
+        var operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
+        var unversioned = TerminalProgress(0, 0);
+        unversioned.SchemaVersion = 0;
+        await fixture.Pipe.SendAsync(unversioned, exitCode: 0);
+
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(
+            Assert.Single(fixture.Messages.Completions));
+        Assert.Equal("signalr.logProcessing.failed", complete.Message);
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
+        Assert.Equal("signalr.logProcessing.failed", row.Error);
+    }
+
+    [Fact]
+    public async Task ACanceledPassEndsWithTheCanceledKeyAsync()
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath));
+        await fixture.Pipe!.ConnectAsync();
+        var operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
+        Assert.Equal(OperationCancelResult.Requested, fixture.Tracker.CancelOperation(operationId));
+
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        await fixture.Pipe.WaitForExitAsync();
+        var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(
+            Assert.Single(fixture.Messages.Completions));
+        Assert.True(complete.Cancelled);
+        Assert.Equal("signalr.generic.cancelled", complete.Message);
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
+        Assert.Equal("signalr.generic.cancelled", row.Message);
+    }
+
+    [Fact]
+    public async Task AnInteractivePassThatCannotStartEndsWithTheFailureKeyAsync()
+    {
+        using var fixture = new ProcessorFixture();
+
+        await fixture.Processor.StartProcessingAsync(fixture.LogFilePath);
+
+        var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(
+            Assert.Single(fixture.Messages.Completions));
+        Assert.Equal("signalr.logProcessing.failed", complete.Message);
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs);
+        Assert.Equal("signalr.logProcessing.failed", row.Error);
+    }
+
+    [Fact]
+    public async Task AFailedDatasourceEndsWithItsKeyAndCarriesTheValuesAsFieldsAsync()
+    {
+        await using var fixture = new ProcessorFixture(transport: true);
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync());
+        await fixture.Pipe!.ConnectAsync();
+        var operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
+        const string databaseError = "pool timed out while waiting for an open connection";
+        var partial = TerminalProgress(0, 11, "partial", sourcePosition: 25);
+        partial.FilesWithErrors = [fixture.LogFilePath + ": " + databaseError];
+        partial.DatabaseError = databaseError;
+        await fixture.Pipe.SendAsync(partial, exitCode: 0);
+
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+        var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(
+            Assert.Single(fixture.Messages.Completions));
+        Assert.Equal("signalr.logProcessing.failedForDatasourceWithError", complete.Message);
+        var sent = JsonSerializer.SerializeToElement(complete);
+        Assert.Equal("alpha", sent.GetProperty("Datasource").GetString());
+        Assert.Equal(databaseError, sent.GetProperty("DatabaseError").GetString());
+        var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
+        Assert.Equal("signalr.logProcessing.failedForDatasourceWithError", row.Error);
+        var wire = JsonSerializer.SerializeToElement(row);
+        Assert.Equal("alpha", wire.GetProperty("FailedDatasource").GetString());
+        Assert.Equal(databaseError, wire.GetProperty("DatabaseError").GetString());
     }
 
     [Theory]
@@ -679,7 +800,11 @@ public sealed class LogProcessingOperationOwnershipTests
         var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
         Assert.Equal("failed", row.Status);
         Assert.Empty(row.Warnings);
-        Assert.Contains(databaseError, row.Error);
+        // The run's error is a key; the error text and the datasource ride in typed fields.
+        Assert.Equal("signalr.logProcessing.failedForDatasourceWithError", row.Error);
+        var wire = JsonSerializer.SerializeToElement(row);
+        Assert.Equal(databaseError, wire.GetProperty("DatabaseError").GetString());
+        Assert.Equal("alpha", wire.GetProperty("FailedDatasource").GetString());
         Assert.Equal(25, fixture.State.GetLogSourcePositions("alpha")[LogSourceLayout.MonolithicStem]);
     }
 
@@ -1419,7 +1544,8 @@ public sealed class LogProcessingOperationOwnershipTests
         Assert.Equal(OperationStatus.Failed, complete.Status);
         Assert.Equal(10, complete.EntriesProcessed);
         Assert.Equal(20, complete.LinesProcessed);
-        Assert.Contains("alpha", complete.Message, StringComparison.Ordinal);
+        Assert.Equal("signalr.logProcessing.failedForDatasource", complete.Message);
+        Assert.Equal("alpha", JsonSerializer.SerializeToElement(complete).GetProperty("Datasource").GetString());
         Assert.Null(fixture.Processor.CurrentOperationId);
         Assert.False(fixture.Processor.IsProcessing);
     }
@@ -1473,6 +1599,7 @@ public sealed class LogProcessingOperationOwnershipTests
         public List<object> Completions { get; } = [];
         public List<string> EventNames { get; } = [];
         public List<string?> RefreshSources { get; } = [];
+        public Dictionary<string, IOperationComplete> Failures { get; } = [];
         public TaskCompletionSource? Started { get; set; }
         public TaskCompletionSource? Resume { get; set; }
         public TaskCompletionSource RepairRefreshStarted { get; } =
@@ -1513,6 +1640,10 @@ public sealed class LogProcessingOperationOwnershipTests
                     return Resume!.Task;
                 }
                 return Task.CompletedTask;
+            }
+            if (targetMethod.Name == nameof(ISignalRNotificationService.NotifyOperationFailedAsync))
+            {
+                Failures[(string)args![0]!] = (IOperationComplete)args[1]!;
             }
             return targetMethod.ReturnType == typeof(Task) ? Task.CompletedTask : null;
         }

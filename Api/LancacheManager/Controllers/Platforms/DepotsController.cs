@@ -133,7 +133,7 @@ public class DepotsController : ControllerBase
         }
 
         // Proceed with scan
-        // The notice carries the Hidden flag, so a Hidden schedule draws nothing for this run either. [60]
+        // The notice carries the Hidden flag, so a Hidden schedule draws nothing for this run either.
         var started = _steamKit2Service.TryStartRebuild(cancellationToken, incremental,
             notice: new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual));
 

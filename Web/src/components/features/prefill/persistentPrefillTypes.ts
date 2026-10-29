@@ -16,14 +16,10 @@ export interface PersistentPrefillContainerDto {
   service: PersistentPrefillServiceId;
   isRunning: boolean;
   isAuthenticated: boolean;
+  authUnknown?: boolean;
   daemonAuthExpiresAtUtc: string | null;
   authExpiresAtUtc: string;
-  createdAtUtc: string;
   needsRelogin: boolean;
-  isPrefilling?: boolean;
-  runId?: string | null;
-  totalBytesTransferred?: number;
-  currentAppName?: string | null;
 }
 
 export type PersistentIntegrationLoginAvailability = {

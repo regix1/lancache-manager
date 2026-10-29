@@ -46,6 +46,12 @@ public record EvictionScanComplete(
 {
     Guid? IOperationComplete.OperationId => OperationId;
 
+    // A failed scan sends no Error, because the card prints it as it is; the failure log line reads
+    // this instead, so it names the child's text or the ending key. Explicit, so it is not serialized.
+    string? IOperationComplete.Error => Error is not null || Success
+        ? Error
+        : Context?.GetValueOrDefault("errorDetail") is string detail ? detail : StageKey;
+
     /// <summary>
     /// Declared public rather than as an explicit interface implementation so it is serialized:
     /// an explicit implementation is invisible to System.Text.Json, which left the frontend

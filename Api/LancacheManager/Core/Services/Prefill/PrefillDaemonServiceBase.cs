@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Interfaces;
@@ -31,10 +32,13 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// <summary>
     /// Seam over the Docker Engine operations this service performs. Each daemon owns its own instance
     /// (created from the injected factory) and disposes it, matching the previous one-client-per-service
-    /// model. Not connected until <see cref="StartAsync"/> probes Docker; <see cref="IPrefillContainerGateway.IsAvailable"/>
-    /// replaces the previous <c>_dockerClient != null</c> availability check.
+    /// model. Not connected until a version check answers in <c>ConnectDockerAsync</c>.
     /// </summary>
     protected readonly IPrefillContainerGateway _containerGateway;
+
+    // The connect in flight, shared by every caller that finds Docker unconnected while it runs.
+    private readonly object _dockerConnectSync = new();
+    private Task? _dockerConnect;
     private bool _disposed;
 
     // Set true at the top of StopAsync so a create completing after shutdown began is rejected at its
@@ -92,7 +96,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// expected). Idiom matches <c>CacheClearingService._startLock</c>.
     /// </summary>
     private readonly SemaphoreSlim _persistentStartLock = new(1, 1);
-    internal PersistentPrefillEditSessionGate PersistentEditSessionGate { get; } = new();
+    internal PersistentPrefillChangeGate PersistentChangeGate { get; } = new();
 
     // Configuration defaults
     private const int DefaultSessionTimeoutMinutes = 120;
@@ -105,10 +109,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     // broadcasts. Best-effort: a callback slower than this can still run afterwards (the handlers re-check
     // liveness before durable writes), but shutdown is never blocked longer than this.
     private static readonly TimeSpan _eventDrainTimeout = TimeSpan.FromSeconds(5);
-
-    // Bounded wait for a container removal on a shutdown/rejected-create path, so an unresponsive Docker
-    // call can never block shutdown (never CancellationToken.None on those paths).
-    private static readonly TimeSpan _containerTeardownTimeout = TimeSpan.FromSeconds(10);
 
     // How long an interactive login waits for a session's login lock before giving up. The automatic
     // startup login holds that lock for its whole attempt, so failing the instant it is held rejects a
@@ -216,15 +216,14 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     public event Func<Task>? OnAllDaemonsLoggedOut;
 
     /// <summary>
-    /// Raised IN-PROCESS on every LIVE prefill progress tick, after the session snapshot has been
-    /// updated and the existing SignalR fan-out has run. It carries the same normalized progress the
-    /// clients receive, plus the session's monotonic <see cref="DaemonSession.ProgressSequence"/>.
+    /// Raised IN-PROCESS on every run progress tick, after the run's snapshot has been updated and
+    /// the existing SignalR fan-out has run. It carries the same normalized progress the clients
+    /// receive, plus the run's monotonic snapshot sequence.
     ///
     /// This exists so a server-side consumer - the scheduled prefill run - can react to the daemon's
-    /// PUSH instead of sampling <see cref="DaemonSession.LastProgress"/> on a timer. The push path
-    /// already existed for clients; the scheduler was the one consumer polling in the middle of it.
+    /// PUSH instead of sampling its progress on a timer. The push path already existed for clients;
+    /// the scheduler was the one consumer polling in the middle of it.
     ///
-    /// TERMINAL states are deliberately NOT raised here: they flow through TransitionToTerminalAsync.
     /// Handlers must be cheap; they are awaited before the next progress tick is processed and their
     /// exceptions are caught so a bad subscriber can never break the daemon's own progress handling.
     /// </summary>
@@ -305,6 +304,9 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// </summary>
     protected virtual Task OnAuthenticatedAsync() => Task.CompletedTask;
 
+    /// <summary>Runs after a run ends having downloaded at least one game, so the platform can name that game's downloads.</summary>
+    protected virtual Task OnRunDownloadedAsync() => Task.CompletedTask;
+
     /// <summary>
     /// Identifies which prefill daemon hub this service routes per-connection notifications to.
     /// Steam inherits "steam"; concrete services override for their hub ("epic", "battlenet").
@@ -356,11 +358,40 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// <summary>
     /// Sends a session event to that session's own subscribed connections and to the account holders'
     /// management pages. No other browser receives it: a session's events carry its sign-in challenges.
+    /// A session update sends the session as it is when its turn to send comes, not the caller's copy, so the
+    /// pages receive the updates in the order of the changes they carry.
     /// </summary>
     protected async Task NotifyHubAsync(DaemonSession session, string eventName, object body)
     {
-        await BroadcastToSubscribersAsync(session, eventName, body);
-        await _notifications.NotifyAdminAsync(eventName, body);
+        if (eventName != EventSessionUpdated)
+        {
+            await BroadcastToSubscribersAsync(session, eventName, body);
+            await _notifications.NotifyAdminAsync(eventName, body);
+            return;
+        }
+        await session.SessionUpdateSend.WaitAsync();
+        try
+        {
+            long recoveringChanges;
+            lock (session.PrefillLock)
+            {
+                body = DaemonSessionDto.FromSession(session);
+                recoveringChanges = session.RecoveringChanges;
+            }
+            await BroadcastToSubscribersAsync(session, eventName, body);
+            await _notifications.NotifyAdminAsync(eventName, body);
+            // The recovery pass sends only what differs from the last session update the pages received, from
+            // whichever path sent it. A change written while this update was on its way, even one changed back,
+            // may be what a page that opened meanwhile read, so the update is not recorded and the next pass sends.
+            DaemonSessionDto current;
+            lock (session.PrefillLock)
+                current = DaemonSessionDto.FromSession(session);
+            var sent = JsonSerializer.Serialize(body);
+            var unchanged = sent == JsonSerializer.Serialize(current);
+            lock (session.PrefillLock)
+                session.LastRecoveryUpdate = unchanged && session.RecoveringChanges == recoveringChanges ? sent : null;
+        }
+        finally { session.SessionUpdateSend.Release(); }
     }
 
     /// <summary>
@@ -413,12 +444,6 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _activityRegistry = activityRegistry;
         _operationTracker = operationTracker;
     }
-
-    /// <summary>
-    /// Maximum number of SignalR connections allowed per session.
-    /// Limits duplicate connections from page navigations/reconnects.
-    /// </summary>
-    private const int MaxConnectionsPerSession = 3;
 
     private string? _cachedHostDataPath;
 

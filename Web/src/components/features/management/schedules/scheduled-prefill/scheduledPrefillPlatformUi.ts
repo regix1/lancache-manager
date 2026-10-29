@@ -82,7 +82,7 @@ export const getScheduledPrefillServiceStatus = (
     if (action === 'start') return 'starting';
     if (action === 'stop') return 'stopping';
     if (!container?.isRunning) return 'stopped';
-    if (container.isPrefilling || (container.activeRunCount ?? 0) > 0) return 'downloading';
+    if ((container.activeRunCount ?? 0) > 0) return 'downloading';
     return 'running';
   })();
   const account: ScheduledPrefillAccountStatus = (() => {
@@ -92,6 +92,8 @@ export const getScheduledPrefillServiceStatus = (
     if (action === 'logout') return 'loggingOut';
     if (input.authenticating || action === 'login') return 'loggingIn';
     if (input.loginError !== null) return 'loginFailed';
+    // A status read that failed says nothing about the login, so it never offers Log in.
+    if (container.authUnknown) return 'unknown';
     // A daemon still logged in past its Login duration keeps running schedules, so it reads
     // logged in; the dialog shows the re-login fact.
     if (!container.isAuthenticated)
@@ -135,7 +137,7 @@ export const getScheduledPrefillStatusFact = (
     case 'running':
       return { tone: 'running', busy: false, label: t('prefill.persistent.states.running') };
     case 'downloading': {
-      const count = Math.max(container?.activeRunCount ?? 0, container?.isPrefilling ? 1 : 0);
+      const count = container?.activeRunCount ?? 0;
       return {
         tone: 'info',
         busy: false,

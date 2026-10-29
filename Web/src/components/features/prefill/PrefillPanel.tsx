@@ -29,8 +29,7 @@ import { assertOk } from '@services/apiError';
 import { usePrefillContext } from '@contexts/usePrefillContext';
 import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { API_BASE, STORAGE_KEYS } from '@utils/constants';
-import { sessionStore } from '@utils/storage';
+import { API_BASE } from '@utils/constants';
 import { getErrorMessage } from '@utils/error';
 import { parseUtcDate } from '@utils/timezone';
 
@@ -49,7 +48,6 @@ import {
   supportsConcurrentPrefill
 } from './hooks/prefillTypes';
 import { PrefillCommandButtons } from './PrefillCommandButtons';
-import { CompletionBanner } from './CompletionBanner';
 import { usePrefillSignalR } from './hooks/usePrefillSignalR';
 import { prefillServiceConfig } from './hooks/prefillServiceConfig';
 import {
@@ -95,9 +93,15 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   );
 }
 
+// The hub's End session answer: empty when the session ended, else the key and values of the failure.
+interface EndSessionResult {
+  stageKey?: string | null;
+  context?: Record<string, unknown> | null;
+}
+
 interface ServicePrefillPanelProps extends PrefillPanelProps {
   hubPath: string;
-  serviceId: string;
+  serviceId: GameServiceId;
   pendingService: GameServiceId | null;
   onPendingServiceHandled: () => void;
   onServiceStart: (serviceId: GameServiceId) => void;
@@ -140,12 +144,8 @@ function ServicePrefillPanel({
     logEntries,
     addLog,
     clearLogs,
-    backgroundCompletion,
     runCompletions,
     isRunCompletionDismissed,
-    setBackgroundCompletion,
-    clearBackgroundCompletion,
-    isCompletionDismissed,
     clearAllPrefillStorage
   } = usePrefillContext();
 
@@ -379,9 +379,6 @@ function ServicePrefillPanel({
   const signalR = usePrefillSignalR({
     onSessionEnd,
     addLog,
-    setBackgroundCompletion,
-    clearBackgroundCompletion,
-    isCompletionDismissed,
     onAuthStateChanged: handleAuthStateChanged,
     clearAllPrefillStorage,
     hubPath,
@@ -471,16 +468,8 @@ function ServicePrefillPanel({
         force?: boolean;
       } = {}
     ) => {
-      signalR.isCancelling.current = false;
-
       const requestBody: Record<string, unknown> = { ...options };
-      if (
-        supportsConcurrentPrefill(signalR.session) &&
-        !options.all &&
-        !options.recent &&
-        !options.recentlyPurchased &&
-        !options.top
-      ) {
+      if (!options.all && !options.recent && !options.recentlyPurchased && !options.top) {
         requestBody.appIds = [...selectedAppIds];
       }
 
@@ -859,11 +848,18 @@ function ServicePrefillPanel({
       )
         return;
       if (signalR.session.status !== 'Active' || signalR.timeRemaining <= 0) {
-        addLog('warning', t('prefill.errors.sessionExpired'));
+        addLog(
+          'warning',
+          t(
+            signalR.session.status === 'Error'
+              ? 'prefill.errors.sessionErrored'
+              : 'prefill.errors.sessionExpired'
+          )
+        );
         return;
       }
 
-      // Admission uses the advertised run limit, with single-run fallback for older daemons.
+      // Admission uses the advertised run limit; one Start is offered while features are not known yet.
       const isPrefillCommand = commandType.startsWith('prefill');
       if (isPrefillCommand && !signalR.canStart) {
         addLog('warning', t('errors.prefill.runLimit'));
@@ -884,55 +880,37 @@ function ServicePrefillPanel({
               'download',
               t('prefill.log.startingPrefillSelected', { count: selectedAppIds.length })
             );
-            const result = await callPrefillApi(signalR.session.id, {});
-            if (!result?.success) {
-              addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
-            }
+            await callPrefillApi(signalR.session.id, {});
             break;
           }
           case 'prefill-all': {
             signalR.expectedAppCountRef.current = 0;
             addLog('download', t('prefill.log.startingPrefillAll'));
-            const result = await callPrefillApi(signalR.session.id, { all: true });
-            if (!result?.success) {
-              addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
-            }
+            await callPrefillApi(signalR.session.id, { all: true });
             break;
           }
           case 'prefill-recent': {
             signalR.expectedAppCountRef.current = 0;
             addLog('download', t('prefill.log.startingPrefillRecent'));
-            const result = await callPrefillApi(signalR.session.id, { recent: true });
-            if (!result?.success) {
-              addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
-            }
+            await callPrefillApi(signalR.session.id, { recent: true });
             break;
           }
           case 'prefill-recent-purchased': {
             signalR.expectedAppCountRef.current = 0;
             addLog('download', t('prefill.log.startingPrefillRecentPurchased'));
-            const result = await callPrefillApi(signalR.session.id, { recentlyPurchased: true });
-            if (!result?.success) {
-              addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
-            }
+            await callPrefillApi(signalR.session.id, { recentlyPurchased: true });
             break;
           }
           case 'prefill-top': {
             signalR.expectedAppCountRef.current = 50;
             addLog('download', t('prefill.log.startingPrefillTop'));
-            const result = await callPrefillApi(signalR.session.id, { top: 50 });
-            if (!result?.success) {
-              addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
-            }
+            await callPrefillApi(signalR.session.id, { top: 50 });
             break;
           }
           case 'prefill-force': {
             signalR.expectedAppCountRef.current = selectedAppIds.length || 0;
             addLog('download', t('prefill.log.startingPrefillForce'));
-            const result = await callPrefillApi(signalR.session.id, { force: true });
-            if (!result?.success) {
-              addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
-            }
+            await callPrefillApi(signalR.session.id, { force: true });
             break;
           }
           case 'select-apps': {
@@ -964,17 +942,6 @@ function ServicePrefillPanel({
         if (isPrefillCommand && supportsConcurrentPrefill(signalR.session)) {
           await signalR.refreshRuns();
         }
-        // V1: roll back the OPTIMISTIC 'starting' bar painted in handleConfirmCommand. If the
-        // prefill POST threw (409 already-running / network / non-ok) no daemon run started, so no
-        // terminal event will ever arrive to clear it — without this the fake "Contacting daemon..."
-        // bar (and its live-but-dead Cancel) sticks and the start-guard blocks all retries. Gated to
-        // the prefill start path so a genuinely-running prefill's bar (which the start-guard already
-        // protects from re-entry) is never clobbered.
-        if (isPrefillCommand && !supportsConcurrentPrefill(signalR.session)) {
-          signalR.setIsPrefillActive(false);
-          signalR.setPrefillProgress(null);
-          sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-        }
       } finally {
         setIsExecuting(false);
       }
@@ -1001,11 +968,21 @@ function ServicePrefillPanel({
 
     addLog('info', t('prefill.log.endingSession'));
     try {
-      await signalR.hubConnection.current.invoke('EndSessionAsync', signalR.session.id);
+      // A container Docker did not remove comes back as the key of that failure; the session stays listed for a retry.
+      const result = await signalR.hubConnection.current.invoke<EndSessionResult>(
+        'EndSessionAsync',
+        signalR.session.id
+      );
+      if (result.stageKey) {
+        const message = t(result.stageKey, result.context ?? {});
+        if (isAdmin) notifyError(message);
+        else addLog('error', message);
+      }
     } catch (err) {
-      // One notice: the popup for an admin, the log line for a guest, who has no notification bar.
+      // One notice: the popup for an admin, the log line for a guest, who has no notification bar. The hub's
+      // error is an English sentence, so both get the key.
       if (isAdmin) notifyError(t('prefill.errors.endSessionFailed'), err);
-      else addLog('error', getErrorMessage(err));
+      else addLog('error', t('prefill.errors.endSessionFailed'));
     }
   }, [signalR.session, signalR.hubConnection, addLog, t, notifyError, isAdmin]);
 
@@ -1029,13 +1006,13 @@ function ServicePrefillPanel({
             );
       setShowAuthModal(false);
       authActions.resetAuthForm();
-      // A sign-in that finished as the cancel reached the daemon stays signed in, and its auth event shows that.
+      // A sign-in that finished as the cancel reached the daemon is held signed out, because the person asked to stop it.
       if (cancelled) addLog('info', t('prefill.log.loginCancelled'));
     } catch (err) {
       // The dialog has already closed. One notice: the popup for an admin, the log line for a
-      // guest, who has no notification bar.
+      // guest, who has no notification bar. The hub's error is an English sentence, so both get the key.
       if (isAdmin) notifyError(t('prefill.errors.cancelLoginFailed'), err);
-      else addLog('error', getErrorMessage(err));
+      else addLog('error', t('prefill.errors.cancelLoginFailed'));
     }
   }, [
     signalR.session,
@@ -1047,12 +1024,6 @@ function ServicePrefillPanel({
     notifyError,
     isAdmin
   ]);
-
-  const handleCancelPrefill = useCallback(() => {
-    // Full cancel orchestration (hard-stop animations + reactive "Cancelling..." state + watchdog
-    // + hub invoke) lives in the SignalR hook so it can reach the internal animation refs.
-    void signalR.cancelPrefill();
-  }, [signalR]);
 
   const handleOpenAuthModal = useCallback(() => {
     authActions.resetAuthForm();
@@ -1252,35 +1223,14 @@ function ServicePrefillPanel({
   const handleConfirmCommand = useCallback(() => {
     if (!pendingConfirmCommand) return;
 
-    // Continue start-guard: short-circuit if a prefill is already running (reliable now that
-    // isPrefillActive is re-hydrated from server truth) so Continue can't spawn a duplicate run.
+    // Continue start-guard: short-circuit if the run limit is reached (the run list is the server's
+    // truth) so Continue can't spawn a duplicate run.
     if (pendingConfirmCommand.startsWith('prefill') && !signalR.canStart) {
       addLog('warning', t('errors.prefill.runLimit'));
       setPendingConfirmCommand(null);
       // Keep the resolved estimate for the still-selected games; clearing it to 0 B would stick
       // (the modal no longer refetches on open, and no warm-effect dependency changes here).
       return;
-    }
-
-    // Optimistic start: paint a 'starting' bar immediately so there is no dead gap between
-    // Continue and the first server PrefillProgress/PrefillStateChanged event.
-    if (
-      pendingConfirmCommand.startsWith('prefill') &&
-      !supportsConcurrentPrefill(signalR.session)
-    ) {
-      signalR.isCancelling.current = false;
-      signalR.setIsPrefillActive(true);
-      signalR.setPrefillProgress({
-        state: 'starting',
-        message: t('prefill.progress.startingMessage'),
-        currentAppId: '',
-        currentAppName: undefined,
-        percentComplete: 0,
-        bytesDownloaded: 0,
-        totalBytes: 0,
-        bytesPerSecond: 0,
-        elapsedSeconds: 0
-      });
     }
 
     executeCommand(pendingConfirmCommand);
@@ -1298,6 +1248,7 @@ function ServicePrefillPanel({
   const isSessionActive =
     !!signalR.session && signalR.session.status === 'Active' && signalR.timeRemaining > 0;
   const isSessionExpired = !!signalR.session && !isSessionActive;
+  const isSessionErrored = signalR.session?.status === 'Error';
 
   // Battle.net and Riot prefill are fully anonymous - no account login ever. Treat the client
   // as always "logged in"/ready so the auth login card stays hidden, the "Login Required"
@@ -1654,8 +1605,17 @@ function ServicePrefillPanel({
             </Button>
           }
         >
-          <p className="font-medium text-sm">{t('prefill.sessionExpired.title')}</p>
-          <p className="text-sm">{t('prefill.sessionExpired.message', { service: serviceName })}</p>
+          <p className="font-medium text-sm">
+            {t(isSessionErrored ? 'prefill.sessionErrored.title' : 'prefill.sessionExpired.title')}
+          </p>
+          <p className="text-sm">
+            {t(
+              isSessionErrored
+                ? 'prefill.sessionErrored.message'
+                : 'prefill.sessionExpired.message',
+              { service: serviceName }
+            )}
+          </p>
         </Alert>
       )}
 
@@ -1749,9 +1709,7 @@ function ServicePrefillPanel({
           prefill.css); the xl grid is untouched. */}
       <div
         className={`grid grid-cols-1 xl:grid-cols-3 gap-4 prefill-layout ${
-          (signalR.prefillProgress || signalR.runs.some(isPrefillRunActive)) && isSessionActive
-            ? 'prefill-layout--running'
-            : ''
+          signalR.runs.some(isPrefillRunActive) && isSessionActive ? 'prefill-layout--running' : ''
         }`}
       >
         {/* Left Column - Controls */}
@@ -1799,36 +1757,13 @@ function ServicePrefillPanel({
             </div>
           )}
 
-          {/* Background Completion Notification Banner */}
-          {backgroundCompletion && !signalR.prefillProgress && signalR.runs.length === 0 && (
-            <div className="prefill-sec-completion">
-              <CompletionBanner
-                completion={backgroundCompletion}
-                onDismiss={clearBackgroundCompletion}
-              />
-            </div>
-          )}
-
-          {/* Download Progress Card */}
-          {signalR.prefillProgress &&
-            signalR.runs.length === 0 &&
-            !supportsConcurrentPrefill(signalR.session) &&
-            isSessionActive && (
-              <div className="prefill-sec-progress">
-                <PrefillProgressCard
-                  progress={signalR.prefillProgress}
-                  onCancel={handleCancelPrefill}
-                  isCancelling={signalR.isCancellingState}
-                />
-              </div>
-            )}
-
           {shownRuns.length > 0 && (
             <div className="prefill-sec-progress space-y-3">
               {shownRuns.map((run) => (
                 <PrefillProgressCard
                   key={`${run.sessionId}:${run.daemonInstanceId}:${run.runId}`}
                   run={run}
+                  serviceId={serviceId}
                   progress={getPrefillRunProgress(run)}
                   onCancel={() => void signalR.cancelPrefill(run.runId)}
                   isCancelling={run.cancelRequested}

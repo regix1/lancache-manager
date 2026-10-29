@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Alert } from '@components/ui/Alert';
+import { Button } from '@components/ui/Button';
 import { formatBytes, formatCount } from '@utils/formatters';
 import { useHeldValue } from '@hooks/useHeldValue';
 import { useTranslation } from 'react-i18next';
@@ -31,6 +32,12 @@ interface CacheRemovalModalProps {
   confirmDisabled?: boolean;
   /** True while the count is still walking, so the confirm button spins rather than only graying out. */
   confirmBusy?: boolean;
+  /** True from the confirm click until the server answers; only Confirm shows it. */
+  confirming: boolean;
+  /** Why the server refused the removal; the dialog stays open to show it. */
+  error: string | null;
+  /** Counts again; set only while the count failed, and shown as Retry beside its line. */
+  onRetry?: () => void;
 }
 
 const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
@@ -45,7 +52,10 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
   fileBytes: liveFileBytes,
   statusMessage: liveStatusMessage,
   confirmDisabled: liveConfirmDisabled,
-  confirmBusy: liveConfirmBusy
+  confirmBusy: liveConfirmBusy,
+  confirming: liveConfirming,
+  error: liveError,
+  onRetry: liveOnRetry
 }) => {
   const { t } = useTranslation();
   // The dialog closes when `target` clears, and the parent resets the shared count figures when
@@ -57,12 +67,34 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
       fileBytes: liveFileBytes,
       statusMessage: liveStatusMessage,
       confirmDisabled: liveConfirmDisabled,
-      confirmBusy: liveConfirmBusy
+      confirmBusy: liveConfirmBusy,
+      confirming: liveConfirming,
+      error: liveError,
+      onRetry: liveOnRetry
     }),
-    [target, liveFileCount, liveFileBytes, liveStatusMessage, liveConfirmDisabled, liveConfirmBusy]
+    [
+      target,
+      liveFileCount,
+      liveFileBytes,
+      liveStatusMessage,
+      liveConfirmDisabled,
+      liveConfirmBusy,
+      liveConfirming,
+      liveError,
+      liveOnRetry
+    ]
   );
-  const { shownTarget, fileCount, fileBytes, statusMessage, confirmDisabled, confirmBusy } =
-    useHeldValue(target ? live : null) ?? live;
+  const {
+    shownTarget,
+    fileCount,
+    fileBytes,
+    statusMessage,
+    confirmDisabled,
+    confirmBusy,
+    confirming,
+    error,
+    onRetry
+  } = useHeldValue(target ? live : null) ?? live;
 
   const isGame = shownTarget?.type === 'game';
   const isEvictedRemoval = titleOverride !== undefined && evictedCount !== undefined;
@@ -117,7 +149,17 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
 
         {/* One sentence rather than the six bullets this used to be. The old list spelled out the
             record tables and where progress appears, which is not what the reader is deciding. */}
-        <Alert color="yellow" icon={null}>
+        <Alert
+          color="yellow"
+          icon={null}
+          action={
+            onRetry && (
+              <Button type="button" size="sm" variant="default" onClick={onRetry}>
+                {t('common.retry')}
+              </Button>
+            )
+          }
+        >
           <p className="text-sm">
             {summary}
             {!isEvictedRemoval && isGame && depotCount > 0
@@ -137,6 +179,7 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
       title={modalTitle}
       confirmDisabled={confirmDisabled}
       confirmBusy={confirmBusy}
+      loading={confirming}
       confirmLabel={
         titleOverride !== undefined && evictedCount !== undefined
           ? t('modals.cacheRemoval.removeEvictedButton')
@@ -144,6 +187,11 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
       }
     >
       {body}
+      {error !== null && (
+        <Alert color="red">
+          <p className="text-sm">{error}</p>
+        </Alert>
+      )}
     </ConfirmationModal>
   );
 };

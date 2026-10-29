@@ -23,7 +23,13 @@ import {
  * left at "waiting"), never only at the end.
  */
 
+const logProcessingTexts = JSON.parse(
+  readFileSync(new URL('../src/i18n/locales/en.json', import.meta.url))
+).signalr.logProcessing;
+
 const TEMPLATES = {
+  'signalr.logProcessing.failedForDatasourceWithError':
+    logProcessingTexts.failedForDatasourceWithError,
   'common.errors.signInFailed': 'Failed to sign in to {{platform}}',
   'common.notifications.failedTimesInRow': 'Failed {{formattedCount}} times in a row.',
   'common.notifications.latestRunSucceeded': 'The latest run completed.',
@@ -630,7 +636,7 @@ test('a missed game detection end never blocks the next run, and the stale card 
   }
 });
 
-// ── Endings and notification modes [6] [7] [8] ──────────────────────────────
+// ── Endings and notification modes ──────────────────────────────
 
 test('with Keep Notifications Visible off, only red and amber cards stay, and no timer ends a card', () => {
   mock.timers.enable({ apis: ['setTimeout'] });
@@ -779,7 +785,7 @@ test('a run that succeeded with a warning is an amber card in every mode, first 
   assert.deepEqual(plain.drawn(), [], 'a success without a warning follows the plain rule');
 });
 
-// ── Kept endings and one card per schedule [47] [50] ────────────────────────
+// ── Kept endings and one card per schedule ────────────────────────
 
 test('a failure missed while disconnected is drawn from the snapshot and closes everywhere', () => {
   for (const arrival of ['reconnect', 'reload']) {
@@ -889,6 +895,29 @@ test('one kept card per schedule: the older ending is gone in the same apply', (
   } finally {
     mock.timers.reset();
   }
+});
+
+test('a reloaded failed log processing run names its datasource and database error from typed fields', () => {
+  const browser = new Browser();
+  const key = 'signalr.logProcessing.failedForDatasourceWithError';
+  const failed = (id, fields) =>
+    kept(id, {
+      operationType: 'logProcessing',
+      name: 'Log Processing',
+      status: 'failed',
+      message: key,
+      error: key,
+      ...fields
+    });
+  browser.push(failed('D1', { failedDatasource: 'alpha', databaseError: 'pool timed out' }));
+  const line = browser.card('D1').error;
+  assert.equal(line, 'Log processing failed for datasource alpha: pool timed out');
+  assert.ok(!line.includes('{{'));
+  assert.equal(
+    browser.card('D1').message,
+    'Log processing failed for datasource alpha: pool timed out',
+    'the headline reads the same as the live card'
+  );
 });
 
 test('prefill schedules are told apart by schedule id', () => {
@@ -1113,7 +1142,7 @@ test('a mapping sign-in failure and its schedule failure are two kept cards, in 
   }
 });
 
-// ── Prefill sign-in, drawn only by the browser that started it [64] ─────────
+// ── Prefill sign-in, drawn only by the browser that started it ─────────
 
 const signIn = {
   operationType: 'prefillLogin',
@@ -1247,7 +1276,7 @@ test('a session change ends the earlier session sign-in card with no run list re
   }
 });
 
-// ── A card closed on this screen while the server is unreachable [172] [173] ──
+// ── A card closed on this screen while the server is unreachable ──
 
 test('a card closed while disconnected stays busy and comes back only while the server still runs it', () => {
   const browser = new Browser();
@@ -1321,7 +1350,7 @@ test('a completion detail leaves a closed card hidden until the run row says how
   assert.deepEqual(browser.drawn(), ['P:eviction_scan:completed']);
 });
 
-// ── Bulk removal [16] ───────────────────────────────────────────────────────
+// ── Bulk removal ───────────────────────────────────────────────────────
 
 test('a bulk removal owns its items: one purple card while an item waits, no item card', () => {
   const browser = new Browser({
@@ -1445,7 +1474,7 @@ test('an item promoted onto a removal that was already running stays folded', ()
   assert.deepEqual(browser.state.entries.get('R').aliases, ['I3', 'R']);
 });
 
-// ── Scheduled prefill [17] ──────────────────────────────────────────────────
+// ── Scheduled prefill ──────────────────────────────────────────────────
 
 test('scheduled prefill draws one card per platform and nothing for the run as a whole', () => {
   const browser = new Browser();
@@ -1921,7 +1950,7 @@ test('an evicted-data removal recovered after a reload marks only its game busy'
     assert.equal(await entityBusyFor(identifier, service.runs), busy, JSON.stringify(identifier));
 });
 
-// ── Store merge rules, one case per letter a-o [45] ─────────────────────────
+// ── Store merge rules, one case per letter a-o ─────────────────────────
 
 test('(a) a row not newer than the last accepted one is ignored, also after the card left', () => {
   const browser = new Browser();

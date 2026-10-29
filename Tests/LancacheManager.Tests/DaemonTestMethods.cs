@@ -8,7 +8,7 @@ internal static class DaemonTestMethods
     internal static async Task InvokePrivateHandlerAsync(
         PrefillDaemonServiceBase daemon,
         string methodName,
-        params object[] args)
+        params object?[] args)
     {
         var method = typeof(PrefillDaemonServiceBase).GetMethod(
             methodName,

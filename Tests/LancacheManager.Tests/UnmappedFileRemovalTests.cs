@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
@@ -10,6 +11,7 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
@@ -321,7 +323,7 @@ public sealed partial class UnmappedFileRemovalTests
     }
 
     // A pass that resumed past a rotated log it could not open ends completed with that log
-    // unread; no file is deleted on its word. [123]
+    // unread; no file is deleted on its word.
     [Fact]
     public async Task ACompletedPassThatLeftALogUnread_DeletesNothingAsync()
     {
@@ -343,7 +345,7 @@ public sealed partial class UnmappedFileRemovalTests
     }
 
     // An empty or unmounted log folder is named as missing logs, with or without positions saved
-    // before, so a reset never turns it into a run that deletes. [122]
+    // before, so a reset never turns it into a run that deletes.
     [Theory]
     [InlineData(0L)]
     [InlineData(5L)]
@@ -366,7 +368,7 @@ public sealed partial class UnmappedFileRemovalTests
     }
 
     // A series read before and gone now, as when an access.log in the root stops the descent
-    // into http/, is named as missing logs, not as logs behind. [124]
+    // into http/, is named as missing logs, not as logs behind.
     [Fact]
     public async Task ASeriesReadBeforeAndMissingNow_IsRefusedAsLogsMissingAsync()
     {
@@ -382,7 +384,7 @@ public sealed partial class UnmappedFileRemovalTests
         Assert.Empty(run.Rust.Launches);
     }
 
-    // The request is refused naming the series until it is back in the log folder. [122]
+    // The request is refused naming the series until it is back in the log folder.
     [Fact]
     public async Task ARequestWhileASeriesReadBeforeIsMissing_NamesItUntilItIsBackAsync()
     {
@@ -591,6 +593,140 @@ public sealed partial class UnmappedFileRemovalTests
         {
             run.CacheLock.Release();
         }
+    }
+
+    [Fact]
+    public async Task AReadThatFailsAfterADownloadStoppedTheRun_IsLoggedAsync()
+    {
+        await using var run = await Run.CreateAsync();
+        var release = new TaskCompletionSource();
+        run.Importer.OnRead = async _ =>
+        {
+            CacheScanGateHarness.MakeBusy(run.Snapshot);
+            await release.Task;
+            throw new InvalidOperationException("Injected read failure.");
+        };
+        var logged = new TaskCompletionSource<LogEntry>(TaskCreationOptions.RunContinuationsAsynchronously);
+        run.Log.OnLogged = entry =>
+        {
+            if (entry.Exception?.InnerException?.Message == "Injected read failure.")
+            {
+                logged.TrySetResult(entry);
+            }
+        };
+
+        var refused = await run.RemoveAsync();
+        release.SetResult();
+
+        Assert.Equal(DownloadKey, refused.Message);
+        var entry = await logged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(LogLevel.Warning, entry.Level);
+    }
+
+    [Fact]
+    public async Task ACountRefusedForAnEmptyCache_AnswersItsKeyAndLogsNoErrorAsync()
+    {
+        await using var run = await Run.CreateAsync();
+        run.Rust.Report = Run.EmptyIndexReport();
+        var log = new CapturingLogger<CacheController>();
+        var controller = run.CountController(log);
+
+        var id = StartedCount(await controller.StartUnmappedCacheFileCountAsync(CancellationToken.None));
+        var ended = await EndedAsync(run, id);
+
+        Assert.Equal(OperationStatus.Failed, ended.Status);
+        // The dialog reads the reason after the tracker has dropped the count.
+        OperationWaitingBlockerTests.Reap(run.Repairs.Tracker, id);
+        Assert.Null(run.Repairs.Tracker.GetOperation(id));
+        var status = Assert.IsType<CacheFileCountStatusResponse>(
+            Assert.IsType<OkObjectResult>(controller.GetCacheFileCountStatus(id)).Value);
+        Assert.False(status.IsProcessing);
+        Assert.Equal("errors.unmappedRemoval.cacheEmpty", status.StageKey);
+        Assert.DoesNotContain(log.Entries, entry => entry.Level >= LogLevel.Error);
+    }
+
+    [Fact]
+    public async Task ACountNobodyAsksAbout_IsEndedAndAPolledOneKeepsRunningAsync()
+    {
+        await using var run = await Run.CreateAsync();
+        typeof(CacheManagementService)
+            .GetField("_countPollLimit", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(run.Service, TimeSpan.FromMilliseconds(400));
+        run.Rust.OnRun = async (_, _, token, _) =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30), token);
+            return new ProcessExecutionResult { ExitCode = 0 };
+        };
+        var controller = run.CountController(new CapturingLogger<CacheController>());
+
+        // The dialog went away before its first poll, as after a reload or a lost start answer.
+        var unwatched = StartedCount(await controller.StartUnmappedCacheFileCountAsync(CancellationToken.None));
+        Assert.Equal(OperationStatus.Cancelled, (await EndedAsync(run, unwatched)).Status);
+
+        // A device that sleeps wakes long after the tracker dropped the count, and another count
+        // may have started meanwhile.
+        OperationWaitingBlockerTests.Reap(run.Repairs.Tracker, unwatched);
+        Assert.Null(run.Repairs.Tracker.GetOperation(unwatched));
+        var watched = StartedCount(await controller.StartUnmappedCacheFileCountAsync(CancellationToken.None));
+        var timer = Stopwatch.StartNew();
+        while (run.Service.GetCacheFileCount(watched) == null)
+        {
+            Assert.True(timer.Elapsed < TimeSpan.FromSeconds(10), "the second count did not start");
+            await Task.Delay(20);
+        }
+
+        // A dialog that wakes after the stop is told the count was stopped, not that it failed
+        // for no reason.
+        var stopped = Assert.IsType<CacheFileCountStatusResponse>(
+            Assert.IsType<OkObjectResult>(controller.GetCacheFileCountStatus(unwatched)).Value);
+        Assert.False(stopped.IsProcessing);
+        Assert.Equal(unwatched, stopped.OperationId);
+        Assert.Equal("errors.cache.countStopped", stopped.StageKey);
+
+        // A dialog that keeps asking keeps its count, well past the limit.
+        for (var poll = 0; poll < 12; poll++)
+        {
+            controller.GetCacheFileCountStatus(watched);
+            await Task.Delay(100);
+        }
+
+        Assert.Null(run.Repairs.Tracker.GetOperation(watched)!.CompletedAt);
+        run.Repairs.Tracker.CancelOperation(watched);
+        Assert.Equal(OperationStatus.Cancelled, (await EndedAsync(run, watched)).Status);
+    }
+
+    [Fact]
+    public async Task ACountStillStopping_AnswersNoStageKeyAsync()
+    {
+        await using var run = await Run.CreateAsync();
+        var controller = run.CountController(new CapturingLogger<CacheController>());
+        // Nothing listens on this token, so the count stays between the cancel and its ending.
+        using var cts = new CancellationTokenSource();
+        var id = run.Repairs.Tracker.RegisterOperation(
+            OperationType.CacheFileCount, "Cache file count: unmapped files", cts);
+        run.Repairs.Tracker.UpdateProgress(id, 10, "signalr.unmappedRemove.counting.starting");
+        run.Repairs.Tracker.CancelOperation(id);
+
+        var status = Assert.IsType<CacheFileCountStatusResponse>(
+            Assert.IsType<OkObjectResult>(controller.GetCacheFileCountStatus(id)).Value);
+
+        Assert.True(status.IsProcessing);
+        Assert.Null(status.StageKey);
+    }
+
+    private static Guid StartedCount(IActionResult started) =>
+        Assert.IsType<CacheOperationResponse>(Assert.IsType<AcceptedResult>(started).Value).OperationId!.Value;
+
+    private static async Task<OperationInfo> EndedAsync(Run run, Guid operationId)
+    {
+        var timer = Stopwatch.StartNew();
+        while (run.Repairs.Tracker.GetOperation(operationId) is { CompletedAt: null })
+        {
+            Assert.True(timer.Elapsed < TimeSpan.FromSeconds(10), "the count did not end");
+            await Task.Delay(20);
+        }
+
+        return run.Repairs.Tracker.GetOperation(operationId)!;
     }
 
     [Fact]
@@ -902,6 +1038,7 @@ public sealed partial class UnmappedFileRemovalTests
                 new ConfigurationBuilder().AddInMemoryCollection(settings).Build(),
                 Paths,
                 NullLogger<DatasourceService>.Instance);
+            Datasources = datasources;
             Assert.Equal(datasourceCount, datasources.GetDatasources().Count);
             Datasource = datasources.GetDatasources()[0];
             foreach (var datasource in datasources.GetDatasources())
@@ -960,6 +1097,28 @@ public sealed partial class UnmappedFileRemovalTests
         public GameCacheDetectionService Detection { get; }
         public CacheManagementService Service { get; }
         public ResolvedDatasource Datasource { get; }
+        public DatasourceService Datasources { get; }
+
+        /// <summary>The count routes over this run's service, with no conflicting operation.</summary>
+        public CacheController CountController(ILogger<CacheController> logger) => new(
+            cacheService: Service,
+            cacheClearingService: null!,
+            corruptionDetectionService: null!,
+            logger: logger,
+            pathResolver: null!,
+            notifications: null!,
+            rustProcessHelper: null!,
+            nginxLogRotationService: null!,
+            operationTracker: Repairs.Tracker,
+            datasourceService: null!,
+            dbContextFactory: null!,
+            reconciliationService: null!,
+            conflictChecker: DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
+            operationQueue: null!,
+            capabilityService: new DatasourceCapabilityService(Datasources),
+            cacheScanGate: CacheScanGateHarness.Idle(),
+            cacheSizeScan: null!,
+            operationStateService: null!);
 
         public SemaphoreSlim CacheLock => (SemaphoreSlim)typeof(CacheManagementService)
             .GetField("_cacheLock", BindingFlags.Instance | BindingFlags.NonPublic)!

@@ -213,6 +213,46 @@ test('missing and invalid run starts use the shared timestamp placeholders', () 
   assert.equal(render('utc', 'cancelled', 'invalid'), 'common.time.invalidDate');
 });
 
+test('a signed-out run tells only a Steam account that it may sign in again by itself', () => {
+  const signedOut = (serviceId) => {
+    const run = {
+      runId: 'run',
+      sessionId: 'session',
+      daemonInstanceId: 'daemon',
+      options: { selection: 'selected', appIds: ['440'], operatingSystems: ['windows'] },
+      snapshot: {
+        startedAt,
+        state: 'failed',
+        reason: 'auth-lost',
+        totalApps: 1,
+        completedApps: 0,
+        cachedApps: 0,
+        failedApps: 0,
+        skippedApps: 0,
+        cancelledApps: 1,
+        bytesTransferred: 0
+      },
+      recovering: false,
+      cancelRequested: false
+    };
+    return renderToStaticMarkup(
+      React.createElement(PrefillProgressCard, {
+        run,
+        progress: getPrefillRunProgress(run),
+        serviceId,
+        history: true
+      })
+    );
+  };
+  assert.match(signedOut('steam'), /errors\.prefill\.signInLost/);
+  for (const serviceId of ['epic', 'xbox']) {
+    assert.match(signedOut(serviceId), /errors\.prefill\.loginRequired/, serviceId);
+    assert.doesNotMatch(signedOut(serviceId), /errors\.prefill\.signInLost/, serviceId);
+  }
+  assert.equal(getPrefillRunReasonKey('auth-lost', 'epic'), 'errors.prefill.loginRequired');
+  assert.equal(getPrefillRunReasonKey('auth-lost', 'steam'), 'errors.prefill.signInLost');
+});
+
 test('schedule summary dates follow the selected clock while relative last-run labels do not shift', async () => {
   const summary = parseSource(
     'src/components/features/management/schedules/scheduled-prefill/ScheduledPrefillScheduleDetail.tsx',

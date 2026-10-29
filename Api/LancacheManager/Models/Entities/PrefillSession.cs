@@ -96,9 +96,24 @@ public class PrefillSession
     public bool LoggedInWhilePersonCanceled { get; set; }
 
     /// <summary>
+    /// The daemon reported this signed-in container signed out without the drop code, as Steam, Epic and Xbox do
+    /// when the account is logged off, or a person's Log out of it landed, so a manager restart or a recreate does not
+    /// sign it in again with the saved login. Cleared by the next sign-in a person starts. Written with the cancel
+    /// mark, its witness, the last sign-in time and the re-login date in one write.
+    /// </summary>
+    public bool SignedOut { get; set; }
+
+    /// <summary>
     /// When the session was created
     /// </summary>
     public DateTime CreatedAtUtc { get; set; }
+
+    /// <summary>
+    /// When the container's login was last signed in: a fresh create's time, or the time a person's Log in
+    /// finished. An image update and a recreate carry it from the life they replace. <see cref="ExpiresAtUtc"/>
+    /// is this time plus the admin-configured validity days.
+    /// </summary>
+    public DateTime LastLoginAtUtc { get; set; }
 
     /// <summary>
     /// When the session ended (terminated, expired, or orphaned)

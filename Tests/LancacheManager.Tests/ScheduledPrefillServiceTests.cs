@@ -1,9 +1,12 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -704,12 +707,10 @@ public class ScheduledPrefillServiceTests
         // one. Anything between the claim and the fan-out can throw, including the run-level Started
         // broadcast, and a claim left behind is permanent: the loop skips that platform on every
         // later tick and the service silently stops running until the process restarts. The tick
-        // below is driven twice, and the second one has to still see its services. [54]
+        // below is driven twice, and the second one has to still see its services.
         harness.Notifications.FailNextStarted = true;
 
-        var thrown = await Record.ExceptionAsync(() => InvokeExecuteWorkAsync(harness.Service));
-        Assert.NotNull(thrown);
-
+        await InvokeExecuteWorkAsync(harness.Service);
         await InvokeExecuteWorkAsync(harness.Service);
         harness.Service.Dispose();
 
@@ -721,6 +722,61 @@ public class ScheduledPrefillServiceTests
     }
 
     [Fact]
+    public async Task AServiceRunEndedByAThrowBeforeItStarted_StoresAndShowsAKey()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var services = harness.Provider;
+        harness.Notifications.FailNextStarted = true;
+
+        await Record.ExceptionAsync(() => InvokeExecuteWorkAsync(harness.Service));
+        harness.Service.Dispose();
+
+        var serviceTerminals = harness.Notifications.Terminals.Values.ToArray();
+        Assert.NotEmpty(serviceTerminals);
+        Assert.All(serviceTerminals, terminal => Assert.Equal("signalr.scheduledPrefill.failed", terminal.StageKey));
+        // The run-level operation stores its own error; each service run stores the key.
+        Assert.Equal(
+            serviceTerminals.Length,
+            harness.Tracker.CompletedErrors.Count(error => error == "signalr.scheduledPrefill.failed"));
+    }
+
+    // A listener on the process-wide run-state event that throws is the only way an on-demand run ends before it
+    // starts, and every scheduled service raises that event, so this test runs with nothing beside it.
+    [Collection(nameof(ScheduledPrefillRunStateEventCollection))]
+    public sealed class OnDemandRunStart
+    {
+        [Fact]
+        public async Task AnOnDemandRunThatCouldNotStart_StoresAndShowsAKey()
+        {
+            var harness = CreateRecordingHarness<EnabledServicesJustRanStateServiceProxy>();
+            using var services = harness.Provider;
+            var thrown = 0;
+            Action<string> refuseOnce = _ =>
+            {
+                if (Interlocked.Exchange(ref thrown, 1) == 0) throw new InvalidOperationException("listener failed");
+            };
+            ConfigurableScheduledService.ServiceExecutionStateChanged += refuseOnce;
+            try
+            {
+                Assert.NotNull(harness.Service.TriggerServiceRun(
+                    PrefillPlatform.Riot,
+                    ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot)));
+                await harness.Notifications.NextCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+            finally
+            {
+                ConfigurableScheduledService.ServiceExecutionStateChanged -= refuseOnce;
+            }
+            await harness.Service.StopAsync(CancellationToken.None);
+            harness.Service.Dispose();
+
+            var terminal = Assert.Single(harness.Notifications.Terminals.Values);
+            Assert.Equal("signalr.scheduledPrefill.failedToStart", terminal.StageKey);
+            Assert.Equal(["signalr.scheduledPrefill.failedToStart"], harness.Tracker.CompletedErrors);
+        }
+    }
+
+    [Fact]
     public async Task TriggerServiceRun_RunsTheNamedPlatformOnItsOwn_WithoutWaitingForATick()
     {
         var harness = CreateRecordingHarness<EnabledServicesJustRanStateServiceProxy>();
@@ -729,7 +785,7 @@ public class ScheduledPrefillServiceTests
         // Both enabled services ran a moment ago, so neither is due and no tick is invoked here at all.
         // Naming Riot must still run Riot, on the strength of the request and on its own task: the loop
         // awaits one tick at a time, so a request that had to wait for a tick would wait behind whatever
-        // download that tick was holding. It must also not sweep in Battle.net, which is not due. [49]
+        // download that tick was holding. It must also not sweep in Battle.net, which is not due.
         Assert.NotNull(harness.Service.TriggerServiceRun(
             PrefillPlatform.Riot,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot)));
@@ -800,7 +856,7 @@ public class ScheduledPrefillServiceTests
         harness.Tracker.FailRegistration = failRegistration;
         harness.Notifications.FailNextStarted = failStarted;
         harness.Notifications.FailCompleted = failCompleted;
-        Assert.NotNull(await Record.ExceptionAsync(() => InvokeExecuteWorkAsync(service)));
+        await InvokeExecuteWorkAsync(service);
         Assert.Equal(0, harness.Tracker.ActiveCount);
         Assert.Equal(harness.Tracker.RegisteredNames.Length, harness.Tracker.CompletedCount);
         harness.Tracker.FailRegistration = null;
@@ -834,7 +890,7 @@ public class ScheduledPrefillServiceTests
 
         // The whole point of the change. Two platforms asked for one after the other must BOTH run;
         // before this, the second waited for the first run to finish, which for a real download meant
-        // hours. Neither is due, so each run here is the request's doing and nothing else. [49]
+        // hours. Neither is due, so each run here is the request's doing and nothing else.
         Assert.NotNull(harness.Service.TriggerServiceRun(
             PrefillPlatform.Riot,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot)));
@@ -849,78 +905,46 @@ public class ScheduledPrefillServiceTests
     }
 
     [Fact]
-    public async Task ExecuteWork_SkipsOverlapBeforeCompletionAsync()
+    public async Task AScheduledRunOnAnOutdatedImageReportsTheOutdatedKey()
     {
-        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
-        using var provider = harness.Provider;
-        var config = BuildConfig(steamEnabled: false, steamIntervalHours: 24d);
-        config.BattleNet.Schedules.Clear();
-        var firstId = Guid.Parse("88888888-8888-8888-8888-888888888881");
-        var secondId = Guid.Parse("88888888-8888-8888-8888-888888888882");
-        config.Riot.Schedules.Clear();
-        config.Riot.Schedules.AddRange(
-        [
-            new ScheduledPrefillSchedule
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        // A status with no protocol version is a daemon image older than the one this version needs.
+        fixture.Session.Capabilities = null;
+        fixture.Client.Status = new DaemonStatus { Status = "logged-in" };
+        using var services = new ServiceCollection().AddSingleton(fixture.Daemon).BuildServiceProvider();
+        using var scheduler = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
+            services.GetRequiredService<IServiceScopeFactory>(), DispatchProxy.Create<IStateService, ScheduleState>());
+        var scheduleId = Guid.NewGuid();
+        var operationId = Guid.NewGuid();
+        var run = new ScheduledPrefillServiceRun(
+            new ScheduledPrefillServiceConfigDto
             {
-                Id = firstId,
-                Name = "Daily recent",
+                ServiceId = PrefillPlatform.Steam,
+                ScheduleId = scheduleId,
+                ScheduleName = "Nightly",
                 Enabled = true,
-                IntervalHours = -1d,
+                NotificationMode = NotificationMode.All,
+                IntervalHours = 24,
                 Preset = ScheduledPrefillPreset.All,
-                MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
-                {
-                    Mode = ScheduledPrefillMaxConcurrencyMode.Auto
-                }
+                SelectedAppIds = ["20"],
+                OperatingSystems = [],
+                MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
             },
-            new ScheduledPrefillSchedule
-            {
-                Id = secondId,
-                Name = "Weekly selected",
-                Enabled = true,
-                IntervalHours = -1d,
-                Preset = ScheduledPrefillPreset.All,
-                SelectedAppIds = ["league"],
-                MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto
-                {
-                    Mode = ScheduledPrefillMaxConcurrencyMode.Auto
-                }
-            }
-        ]);
-        ((PrefillConfigStateServiceProxy)harness.StateService).Config = config;
-        harness.Notifications.HoldStarted = firstId;
-        var run = InvokeExecuteWorkAsync(harness.Service);
-        await harness.Notifications.StartedHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        try
-        {
-            Assert.Equal(secondId, await harness.Notifications.NextCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5)));
-            Assert.Equal("skipped", harness.Notifications.Terminals[secondId].Status);
-            Assert.Equal("signalr.scheduledPrefill.skippedOverlap", harness.Notifications.Terminals[secondId].StageKey);
-            Assert.Contains("was not queued", harness.Notifications.Terminals[secondId].Error, StringComparison.Ordinal);
-            Assert.Equal("Weekly selected", harness.Notifications.Terminals[secondId].Name);
-            Assert.Null(harness.Service.TriggerServiceRun(PrefillPlatform.Riot, secondId));
-        }
-        finally
-        {
-            harness.Notifications.ReleaseStarted.TrySetResult();
-            await run.WaitAsync(TimeSpan.FromSeconds(5));
-        }
-        harness.Service.Dispose();
+            operationId, operationId.ToString(), operationId.ToString(),
+            new ScheduledPrefillServiceRunState(PrefillPlatform.Steam, scheduleId, "Nightly",
+                new RunNotice(NotificationMode.All, RunTrigger.Manual)),
+            CancellationToken.None);
 
-        Assert.Equal(
-        [
-            (SignalREvents.ScheduledPrefillStarted, firstId),
-            (SignalREvents.ScheduledPrefillStarted, secondId),
-            (SignalREvents.ScheduledPrefillCompleted, secondId),
-            (SignalREvents.ScheduledPrefillCompleted, firstId)
-        ],
-            harness.Notifications.Lifecycle);
+        var result = await (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
+            .GetMethod("RunServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(scheduler, [run, services, DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                ScheduledPrefillConfigFactory.CreateDefault(), null])!;
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Unavailable, result);
+        Assert.Equal("skipped", run.State.Snapshot.Stage);
+        Assert.Equal("errors.prefill.daemonOutdated", run.State.Snapshot.StageKey);
+        Assert.Equal(0, fixture.Client.StartCount);
     }
-
-    // The claim that stops one platform being run twice at once is deliberately NOT asserted here. A
-    // run in this harness resolves no daemon and finishes in microseconds, so the claim is released
-    // before a second call can observe it, and any test of it would pass on timing rather than on the
-    // guard. The user-visible half of that guarantee is covered by
-    // RunService_ForAPlatformAlreadyRunning_Refuses, which drives the route against the tracker. [49]
 
     // ---- A disabled saved setup does not enter the automatic due scan ----
 
@@ -1026,7 +1050,7 @@ public class ScheduledPrefillServiceTests
 
     // ---- Running state on the schedule rows is PER SERVICE ----
     // The services run concurrently, so a row that read a schedule-wide flag refused to start while any
-    // other service was downloading, which is one download blocking every other row's button. [48]
+    // other service was downloading, which is one download blocking every other row's button.
 
     [Fact]
     public void GetSchedule_ReportsRunningPerService_NotForTheWholeSchedule()
@@ -1060,7 +1084,7 @@ public class ScheduledPrefillServiceTests
 
     // These three name Battle.net because it is ENABLED in the default config. A disabled platform is
     // refused before either branch below is reached, so testing them with one would pass for the wrong
-    // reason. [47]
+    // reason.
 
     [Fact]
     public async Task RunService_WhileADifferentPlatformRuns_StillStarts()
@@ -1069,7 +1093,7 @@ public class ScheduledPrefillServiceTests
         active.Add(RunLevelOperation());
 
         // A run in flight no longer holds this back, because the new run does not go through the
-        // scheduling loop that run is occupying. This used to answer "queued". [49]
+        // scheduling loop that run is occupying. This used to answer "queued".
         Assert.IsType<AcceptedResult>(await controller.RunService(
             PrefillPlatform.BattleNet,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet)));
@@ -1346,12 +1370,17 @@ public class ScheduledPrefillServiceTests
         Assert.Fail($"'{name}' was never registered. Registered: {string.Join(", ", tracker.RegisteredNames)}");
     }
 
-    private static Task InvokeExecuteWorkAsync(ScheduledPrefillService service)
+    // A tick hands its services to a detached run, so this returns once the tick it started has finished.
+    private static async Task InvokeExecuteWorkAsync(ScheduledPrefillService service)
     {
         var executeWork = typeof(ScheduledPrefillService)
             .GetMethod("ExecuteWorkAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var detachedRuns = (ConcurrentDictionary<Guid, Task>)typeof(ScheduledPrefillService)
+            .GetField("_detachedRuns", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(service)!;
+        var before = detachedRuns.Keys.ToHashSet();
 
-        return (Task)executeWork.Invoke(service, new object[] { CancellationToken.None })!;
+        await (Task)executeWork.Invoke(service, new object[] { CancellationToken.None })!;
+        await Task.WhenAll(detachedRuns.Where(entry => !before.Contains(entry.Key)).Select(entry => entry.Value));
     }
 
     private static RecordingHarness CreateRecordingHarness<TStateService>()
@@ -1472,6 +1501,7 @@ public class ScheduledPrefillServiceTests
         public int? FailRegistration { get; set; }
         public int CompletedCount { get { lock (_sync) return _completed.Count; } }
         public int ActiveCount { get { lock (_sync) return _tokens.Count; } }
+        public List<string?> CompletedErrors { get; } = [];
 
         public string[] RegisteredNames
         {
@@ -1499,6 +1529,7 @@ public class ScheduledPrefillServiceTests
                 lock (_sync)
                 {
                     Assert.True(_completed.Add(completed));
+                    CompletedErrors.Add(args[2] as string);
                     if (_tokens.Remove(completed, out var token)) token.Dispose();
                 }
             }
@@ -1680,4 +1711,9 @@ public class ScheduledPrefillServiceTests
 
     private static IStateService CreateNullStateService()
         => (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>();
+}
+
+[CollectionDefinition(nameof(ScheduledPrefillRunStateEventCollection), DisableParallelization = true)]
+public sealed class ScheduledPrefillRunStateEventCollection
+{
 }

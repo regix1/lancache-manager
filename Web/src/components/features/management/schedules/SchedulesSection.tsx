@@ -17,8 +17,6 @@ import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
 import ApiService, { type IncrementalViabilityCheck } from '@services/api.service';
-import { recoverScheduledPrefillEditSession } from './scheduled-prefill/scheduledPrefillEditSessionLedger';
-import { sessionStore } from '@utils/storage';
 import { useNotifications, type UnifiedNotification } from '@contexts/notifications';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useSetupStatus } from '@contexts/useSetupStatus';
@@ -1368,8 +1366,7 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
              own server-sent running flag: the services run concurrently, so gating every row on the
              schedule-wide flag meant one download blocked starting any of the others by hand. Server
              truth on both counts, because a service whose notifications are silent emits events the
-             browser drops, and an event-derived running state would leave its row enabled mid-run.
-             [34][48] */
+             browser drops, and an event-derived running state would leave its row enabled mid-run. */
           runServiceDisabled={!isAdmin}
         />
       </Card>
@@ -1789,9 +1786,6 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   const handleRunAll = useCallback(async () => {
     setRunningAll(true);
     try {
-      await recoverScheduledPrefillEditSession(sessionStore, (request) =>
-        ApiService.cleanupPersistentPrefillEditSession(request)
-      );
       const result = await ApiService.runAllSchedules();
       await fetchSchedules();
 
@@ -1833,15 +1827,10 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       );
 
       try {
-        if (key === 'scheduledPrefill') {
-          await recoverScheduledPrefillEditSession(sessionStore, (request) =>
-            ApiService.cleanupPersistentPrefillEditSession(request)
-          );
-        }
         const result = await ApiService.triggerSchedule(key);
         // A Run Now draws no popup of its own: a started run, a queued follow-up and a held run
         // each answer with their own card or row. A skip (a retained hold owns its waiting event)
-        // and a run already going with nothing queued retire the optimistic running state. [75]
+        // and a run already going with nothing queued retire the optimistic running state.
         if (
           result.status === 'skipped' ||
           (result.alreadyRunning && result.followUpQueued === false)
@@ -1877,13 +1866,10 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       markStarting(pendingKey);
 
       try {
-        await recoverScheduledPrefillEditSession(sessionStore, (request) =>
-          ApiService.cleanupPersistentPrefillEditSession(request)
-        );
         // Two outcomes: it started, or this platform was already running. Neither draws a popup:
-        // the platform's own card answers both. [75] An already-running answer is left pending on
+        // the platform's own card answers both. An already-running answer is left pending on
         // purpose: the platform is running, and clearing it here would re-enable the row before
-        // server truth lands. [49]
+        // server truth lands.
         await ApiService.runScheduledPrefillService(platform, scheduleId);
       } catch (err: unknown) {
         clearPending(pendingKey);

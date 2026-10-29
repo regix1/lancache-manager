@@ -318,6 +318,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // The dialog closes when `evictedTarget` clears; the held copy keeps its text on screen while
   // it fades.
   const shownEvicted = useHeldValue(evictedTarget);
+  const [evictedConfirming, setEvictedConfirming] = useState(false);
+  const [evictedError, setEvictedError] = useState<string | null>(null);
   const shownEvictedCount = shownEvicted?.evicted_downloads_count ?? 0;
   const shownEvictedBytes = shownEvicted?.evicted_bytes ?? 0;
 
@@ -335,6 +337,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       });
       return;
     }
+    setEvictedError(null);
     setEvictedTarget(game);
   };
 
@@ -348,6 +351,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       });
       return;
     }
+    setEvictedError(null);
     setEvictedTarget(service);
   };
 
@@ -359,17 +363,28 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // EvictionRemovalComplete fires GameCacheDetector's listener (stats +
   // gameCacheRefreshKey bump), and the busy-flip of isAnyEvictedRemovalRunning
   // re-runs the fetchEvictedItems effect above.
+  const [showRemoveAllConfirm, setShowRemoveAllConfirm] = useState(false);
+  const [removeAllRunning, setRemoveAllRunning] = useState(false);
+  const [removeAllEvictedError, setRemoveAllEvictedError] = useState<string | null>(null);
   const handleRemoveAllEvicted = useCallback(async () => {
-    setShowRemoveAllConfirm(false);
-    if (!isAdmin || !allEvictedNginxReopenGate.available) return;
-    if (evictedServices.length + evictedGames.length === 0) return;
+    if (removeAllRunning) return;
+    if (
+      !isAdmin ||
+      !allEvictedNginxReopenGate.available ||
+      evictedServices.length + evictedGames.length === 0
+    ) {
+      setShowRemoveAllConfirm(false);
+      return;
+    }
 
     setRemoveAllRunning(true);
     try {
-      // The server's run row opens the eviction_removal card.
+      // The server's run row opens the eviction_removal card. The dialog closes only once the
+      // server accepts; a refusal stays inside it with its reason.
       await ApiService.removeAllEvicted();
+      setShowRemoveAllConfirm(false);
     } catch (err: unknown) {
-      onError(t('management.sections.data.removeAllEvictedFailed'), err);
+      setRemoveAllEvictedError(getErrorMessage(err));
     } finally {
       // The eviction_removal run owns busy-tracking from here
       // (isAnyEvictedRemovalRunning); the local flag only covers the kick-off.
@@ -380,57 +395,51 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     evictedGames.length,
     evictedServices.length,
     isAdmin,
-    onError,
-    t
+    removeAllRunning
   ]);
 
+  // The dialog closes only once the server accepts the removal; a refusal stays inside it with its
+  // reason, and the removal's card shows the progress from there.
   const confirmEvictedRemoval = async () => {
-    if (!evictedTarget) return;
+    if (!evictedTarget || evictedConfirming) return;
 
-    const isService = 'service_name' in evictedTarget;
-
-    if (isService) {
-      const service = evictedTarget;
-      removalTargetRef.current = { serviceName: service.service_name };
-      setEvictedTarget(null);
-      try {
-        await ApiService.removeEvictedForService(service.service_name);
-        scheduleRemovalRefresh(onDataRefresh);
-      } catch (err: unknown) {
-        onError(t('management.sections.data.removeEvictedFailed'), err);
-      }
-    } else {
-      const game = evictedTarget;
-      const entity = classifyGameFromCacheInfo(game);
-      const isEpic = entity.kind === 'epicGame';
-      const isNamed = entity.kind === 'namedGame';
-      removalTargetRef.current =
-        entity.kind === 'epicGame'
-          ? {
-              epicAppId: game.epic_app_id ?? undefined,
-              gameName: game.game_name
-            }
-          : entity.kind === 'namedGame'
-            ? { gameName: entity.gameName, serviceName: entity.service }
-            : { gameAppId: game.game_app_id };
-      setEvictedTarget(null);
-      try {
-        if (isEpic) {
-          if (!game.epic_app_id) {
-            removalTargetRef.current = null;
-            onError(t(FAILED_TO_REMOVE_GAME_I18N_KEY));
-            return;
-          }
-          await ApiService.removeEvictedForEpicGame(game.epic_app_id);
-        } else if (isNamed) {
-          await ApiService.removeEvictedForNamedGame(game.service!, game.game_name);
-        } else {
-          await ApiService.removeEvictedForGame(game.game_app_id);
+    const target = evictedTarget;
+    setEvictedConfirming(true);
+    try {
+      if ('service_name' in target) {
+        removalTargetRef.current = { serviceName: target.service_name };
+        await ApiService.removeEvictedForService(target.service_name);
+      } else {
+        const classified = classifyGameFromCacheInfo(target);
+        if (classified.kind === 'epicGame' && !target.epic_app_id) {
+          setEvictedError(t(FAILED_TO_REMOVE_GAME_I18N_KEY));
+          return;
         }
-        scheduleRemovalRefresh(onDataRefresh);
-      } catch (err: unknown) {
-        onError(t('management.sections.data.removeEvictedFailed'), err);
+        removalTargetRef.current =
+          classified.kind === 'epicGame'
+            ? {
+                epicAppId: target.epic_app_id ?? undefined,
+                gameName: target.game_name
+              }
+            : classified.kind === 'namedGame'
+              ? { gameName: classified.gameName, serviceName: classified.service }
+              : { gameAppId: target.game_app_id };
+        if (classified.kind === 'epicGame') {
+          await ApiService.removeEvictedForEpicGame(target.epic_app_id!);
+        } else if (classified.kind === 'namedGame') {
+          await ApiService.removeEvictedForNamedGame(target.service!, target.game_name);
+        } else {
+          await ApiService.removeEvictedForGame(target.game_app_id);
+        }
       }
+      setEvictedTarget((current) => (current === target ? null : current));
+      scheduleRemovalRefresh(onDataRefresh);
+    } catch (err: unknown) {
+      // No removal started, so no completion will prune this target.
+      removalTargetRef.current = null;
+      setEvictedError(getErrorMessage(err));
+    } finally {
+      setEvictedConfirming(false);
     }
   };
 
@@ -500,12 +509,6 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const [removeOrphanedError, setRemoveOrphanedError] = useState<string | null>(null);
   const orphanedSelection: SelectionSet<string> = useSelectionSet<string>();
 
-  // "Remove All" state - sequential per-item eviction removal. One at a time
-  // mirrors the per-item Remove flow (each item gets its own SignalR operation,
-  // its own log-purge, its own progress bar) so the user sees exactly what's
-  // happening and a single failure doesn't abort the rest.
-  const [showRemoveAllConfirm, setShowRemoveAllConfirm] = useState(false);
-  const [removeAllRunning, setRemoveAllRunning] = useState(false);
   // Kick-off flag for the "Remove Selected" evicted batch, kept separate from the
   // "Remove All" kick-off flag so a selected run does not spin the Remove All button.
   const [removeSelectedEvictedRunning, setRemoveSelectedEvictedRunning] = useState(false);
@@ -1088,6 +1091,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                                     !allEvictedNginxReopenGate.available
                                   }
                                   onClick={() => {
+                                    setRemoveAllEvictedError(null);
                                     setShowRemoveAllConfirm(true);
                                     close();
                                   }}
@@ -1345,6 +1349,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         onConfirm={handleRemoveAllEvicted}
         title={t('management.sections.data.evictionRemoveAllConfirmTitle')}
         confirmLabel={t('management.sections.data.evictionRemoveAll')}
+        loading={removeAllRunning}
       >
         <p className="text-themed-secondary">
           {t('management.sections.data.evictionRemoveAllConfirmMessage', {
@@ -1354,6 +1359,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         <Alert color="yellow" icon={null}>
           <p className="text-sm">{t('management.sections.data.evictionRemoveAllConfirmWarning')}</p>
         </Alert>
+        {removeAllEvictedError !== null && (
+          <Alert color="error" title={t('management.sections.data.removeAllEvictedFailed')}>
+            {removeAllEvictedError}
+          </Alert>
+        )}
       </ConfirmationModal>
 
       {/* Remove Selected Evicted Confirmation Modal */}
@@ -1396,6 +1406,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         evictedCount={shownEvictedCount}
         evictedBytes={shownEvictedBytes}
         fileBytes={null}
+        confirming={evictedConfirming}
+        error={evictedError}
       />
     </TabPanel>
   );

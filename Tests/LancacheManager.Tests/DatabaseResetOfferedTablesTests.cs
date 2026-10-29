@@ -7,6 +7,7 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -50,7 +51,8 @@ public sealed partial class DatabaseResetOfferedTablesTests
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
         var service = new DatabaseService(context, notifications, NullLogger<DatabaseService>.Instance,
-            null!, new TestDbContextFactory(database.Options), null!, null!, null!, null!, null!, null!, null!, tracker);
+            null!, new TestDbContextFactory(database.Options), null!, null!, null!,
+            new ServiceCollection().BuildServiceProvider(), null!, null!, null!, tracker);
         var id = tracker.RegisterOperation(OperationType.DatabaseReset, "reset", new CancellationTokenSource());
         var method = typeof(DatabaseService).GetMethod("DoResetAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         await ((Task)method.Invoke(service, [id, new List<string> { table }, false, CancellationToken.None])!);
@@ -83,7 +85,7 @@ public sealed partial class DatabaseResetOfferedTablesTests
     /// Whitespace-tolerant wherever the formatter can rewrap, because a pre-commit hook runs
     /// prettier over DataSection.tsx and reformatting it must not fail a backend test.
     /// </summary>
-    private static List<string> OfferedTableNames()
+    internal static List<string> OfferedTableNames()
     {
         var source = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),

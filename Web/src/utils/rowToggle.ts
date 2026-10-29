@@ -20,8 +20,10 @@ export const rowToggleHandlers = (onToggle: () => void): RowToggleHandlers => {
     // landed on an icon look like a click on bare row background, so the row toggled underneath
     // the control the user actually pressed.
     if (!(target instanceof Element) || !(currentTarget instanceof HTMLElement)) return false;
+    // A focusable group is the Tab stop that stands in for a disabled control and carries its
+    // reason, so a key pressed there belongs to that control and not to the row.
     const control = target.closest(
-      'button, input, a, label, [role="button"], [role="checkbox"], [role="listbox"], [role="combobox"]'
+      'button, input, a, label, [role="button"], [role="checkbox"], [role="listbox"], [role="combobox"], [role="group"][tabindex]'
     );
     return control !== null && control !== currentTarget;
   };

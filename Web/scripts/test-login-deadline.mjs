@@ -37,6 +37,10 @@ const { createComponent } = await import(reactUrl);
 const timeoutUrl = await compileToUrl('../src/hooks/loginAttemptTimeout.ts');
 const authStageUrl = await compileToUrl('../src/hooks/authStage.ts');
 const { getAuthStage } = await import(authStageUrl);
+const apiErrorUrl = moduleUrl(
+  'export class ApiError extends Error { constructor(status, body) { super(body?.error); this.status = status; this.body = body; } }'
+);
+const { ApiError } = await import(apiErrorUrl);
 const aliases = {
   react: reactUrl,
   'react-i18next': moduleUrl(
@@ -162,7 +166,7 @@ async function persistent(storage, service = 'Steam', rearm = false) {
     react: reactUrl,
     'react-i18next': aliases['react-i18next'],
     '@services/api.service': apiUrl,
-    '@services/apiError': moduleUrl('export class ApiError extends Error {}'),
+    '@services/apiError': apiErrorUrl,
     '@utils/error': aliases['@utils/error'],
     '@utils/uuid': await compileToUrl('../src/utils/uuid.ts'),
     './loginAttemptTimeout': timeoutUrl,
@@ -1923,7 +1927,7 @@ test('a saved-login attempt that fails before any challenge keeps its prompt clo
   let flow;
   try {
     flow = await persistent(new MemoryStorage());
-    flow.store.setPersistentLoginStartSessionId('Steam', 'session', undefined, undefined, true);
+    flow.store.setPersistentLoginStartSessionId('Steam', 'session', true);
     flow.store.requestPersistentLoginAttempt('Steam');
     assert.equal(flow.reveal(), false);
     flow.startReply = async () => {
@@ -2371,13 +2375,7 @@ for (const outcome of ['challenge', 'authenticated', 'failure']) {
       flow = await persistent(new MemoryStorage());
       const old = deferred();
       flow.startReply = () => old.promise;
-      flow.store.setPersistentLoginStartSessionId(
-        'Steam',
-        'session-A',
-        undefined,
-        undefined,
-        outcome !== 'challenge'
-      );
+      flow.store.setPersistentLoginStartSessionId('Steam', 'session-A', outcome !== 'challenge');
       const starting = flow.render().actions.start();
       const oldId = flow.calls.find(([name]) => name === 'start').at(-1);
 
@@ -2411,6 +2409,69 @@ for (const outcome of ['challenge', 'authenticated', 'failure']) {
           ]
         ]
       );
+    } finally {
+      flow?.close();
+      time.restore();
+    }
+  });
+}
+
+for (const ending of ['clock', 'person']) {
+  test(`a start that answers after the ${ending} ended it names the expiry reason only for the clock`, async () => {
+    const time = clock();
+    let flow;
+    try {
+      flow = await persistent(new MemoryStorage());
+      const held = deferred();
+      flow.startReply = () => held.promise;
+      const starting = flow.render().actions.start();
+      const loginId = flow.calls.find(([name]) => name === 'start').at(-1);
+
+      if (ending === 'clock') await time.advance(24 * 60 * 60 * 1000);
+      else await flow.render().actions.cancel();
+      assert.equal(flow.calls.filter(([name]) => name === 'cancel').length, 0);
+
+      held.resolve({ ...challenge('late', 'password'), sessionId: 'session-A' });
+      await starting;
+
+      const identity = { loginId, loginAttempt: 7 };
+      assert.deepEqual(
+        flow.calls.filter(([name]) => name === 'cancel'),
+        ending === 'clock'
+          ? [
+              [
+                'cancel',
+                'Steam',
+                'session-A',
+                identity,
+                'common.notifications.warnings.signInExpired'
+              ]
+            ]
+          : [['cancel', 'Steam', 'session-A', identity]]
+      );
+    } finally {
+      flow?.close();
+      time.restore();
+    }
+  });
+}
+
+for (const [stageKey, shown] of [
+  ['errors.prefill.loginInProgress', 'prefill.persistent.loginBusy'],
+  ['errors.prefill.sessionReplaced', 'needs to be started again'],
+  ['errors.prefill.containerBusy', 'needs to be started again']
+]) {
+  test(`a refused start keyed ${stageKey} shows ${shown}`, async () => {
+    const time = clock();
+    let flow;
+    try {
+      flow = await persistent(new MemoryStorage());
+      flow.startReply = async () => {
+        throw new ApiError(409, { error: 'needs to be started again', stageKey });
+      };
+      flow.store.setPersistentLoginStartSessionId('Steam', 'session');
+      await flow.render().actions.start();
+      assert.equal(flow.store.getPersistentLoginState('Steam').error, shown);
     } finally {
       flow?.close();
       time.restore();

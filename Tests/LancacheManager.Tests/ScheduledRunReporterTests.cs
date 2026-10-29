@@ -221,7 +221,7 @@ public class ScheduledRunReporterTests
     }
 
     [Fact]
-    // Visibility lives on the run row, so a silent run still sends every lifecycle event. [80]
+    // Visibility lives on the run row, so a silent run still sends every lifecycle event.
     public async Task SilentRun_SendsEveryLifecycleEventAndListsABackgroundRowAsync()
     {
         var notifications = new CapturingNotificationService();
@@ -350,7 +350,7 @@ public class ScheduledRunReporterTests
     }
 
     // The run list reads the notice registered with the operation, so a silent run is still a
-    // background row after a page refresh. [77] [80]
+    // background row after a page refresh.
     [Theory]
     [InlineData(NotificationMode.All, RunTrigger.Scheduled, RunVisibility.Card)]
     [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, RunVisibility.Background)]

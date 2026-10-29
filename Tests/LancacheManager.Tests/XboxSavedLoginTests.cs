@@ -94,6 +94,36 @@ public sealed class XboxSavedLoginTests
     }
 
     [Fact]
+    public async Task ALogInAfterAnUnacknowledgedSavedLoginCancelEndsThatLoginFirst()
+    {
+        using var harness = await Harness.CreateAsync("SavedPlayer");
+        harness.Client.CompleteImmediately = false;
+        // The saved login's own cancel before it starts is acknowledged; its cleanup cancel is not.
+        harness.Client.CancelAnswers.Enqueue(true);
+        harness.Client.CancelAnswers.Enqueue(false);
+        var login = harness.StartAsync();
+        await harness.Client.DispatchEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await harness.Client.EmitDisconnectedAsync();
+        await login.WaitAsync(TimeSpan.FromSeconds(5));
+        harness.Client.Calls.Clear();
+
+        harness.Client.CancelAnswers.Enqueue(false);
+        var refused = await Assert.ThrowsAsync<ConflictException>(
+            () => harness.Daemon.StartLoginAsync(harness.Session.Id).WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.Equal("errors.prefill.loginInProgress", refused.StageKey);
+        Assert.Equal([nameof(IDaemonClient.CancelLoginWithOutcomeAsync)], harness.Client.Calls);
+
+        harness.Client.Calls.Clear();
+        harness.Client.CancelAnswers.Enqueue(true);
+        await harness.Daemon.StartLoginAsync(harness.Session.Id).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(
+            [nameof(IDaemonClient.CancelLoginWithOutcomeAsync), nameof(IDaemonClient.StartLoginAsync)],
+            harness.Client.Calls);
+    }
+
+    [Fact]
     public async Task CallerCancellationDoesNotApplyCapturedName()
     {
         using var harness = await Harness.CreateAsync("SavedPlayer");
@@ -240,6 +270,7 @@ public sealed class XboxSavedLoginTests
                 $"container-{session.Id}",
                 $"xbox-{session.Id}",
                 session.ExpiresAt,
+                DateTime.UtcNow,
                 "Xbox");
 
             return new Harness(
@@ -258,7 +289,7 @@ public sealed class XboxSavedLoginTests
             CancellationToken cancellationToken = default)
         {
             using var lease = await Storage.AcquireIntegrationLoginAsync(Owner, cancellationToken);
-            await Daemon.ReuseIntegrationLoginForEditAsync(
+            await Daemon.ReusePersistentIntegrationLoginAsync(
                 Session.Id,
                 Owner.AccountId,
                 () => { },
@@ -322,6 +353,9 @@ public sealed class XboxSavedLoginTests
         public DaemonStatus CompletedStatus { get; set; } = new() { Status = "logged-in" };
         public TaskCompletionSource DispatchEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseDispatch { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>Answers for the next cancel-login commands in order; an empty queue acknowledges.</summary>
+        public Queue<bool> CancelAnswers { get; } = new();
+        public List<string> Calls { get; } = [];
 
         public async Task EmitStatusAsync(DaemonStatus status)
         {
@@ -353,11 +387,17 @@ public sealed class XboxSavedLoginTests
                 case nameof(IDaemonClient.GetStatusAsync):
                     return Task.FromResult<DaemonStatus?>(LiveStatus);
                 case nameof(IDaemonClient.CancelLoginWithOutcomeAsync):
-                    return Task.FromResult(true);
+                    Calls.Add(targetMethod.Name);
+                    return Task.FromResult(!CancelAnswers.TryDequeue(out var acknowledged) || acknowledged);
                 case nameof(IDaemonClient.ProvideXboxAutoLoginWithDispatchAsync):
                     return ProvideAsync((Action)args![2]!, (CancellationToken)args[3]!);
                 case nameof(IDaemonClient.CancelLoginAsync):
+                    Calls.Add(targetMethod.Name);
                     return Task.CompletedTask;
+                case nameof(IDaemonClient.StartLoginAsync):
+                    Calls.Add(targetMethod.Name);
+                    return Task.FromResult<CredentialChallenge?>(
+                        new CredentialChallenge { ChallengeId = "c1", CredentialType = "password" });
                 case nameof(IDaemonClient.ClearPendingChallenges):
                 case nameof(IDisposable.Dispose):
                     return null;

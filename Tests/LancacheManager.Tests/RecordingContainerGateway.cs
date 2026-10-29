@@ -19,6 +19,7 @@ internal sealed class FakeContainer
     public Dictionary<string, string> Labels { get; init; } = new();
     public List<string> Env { get; init; } = new();
     public HostConfig HostConfig { get; init; } = new();
+    public IList<MountPoint>? Mounts { get; init; }
 
     public ContainerListResponse ToListResponse() => new()
     {
@@ -39,6 +40,7 @@ internal sealed class FakeContainer
         State = new ContainerState { Running = Running, Status = Running ? "running" : "exited", ExitCode = 0 },
         Config = new Config { Env = new List<string>(Env), Labels = new Dictionary<string, string>(Labels) },
         HostConfig = HostConfig,
+        Mounts = Mounts,
         NetworkSettings = new NetworkSettings { Ports = HostConfig.PortBindings }
     };
 }
@@ -57,6 +59,7 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
     private Exception? _pendingStartFailure;
     private Exception? _pendingRemoveFailure;
     private Exception? _pendingKillFailure;
+    private Exception? _pendingRemoveVolumeFailure;
     private Exception? _createdFailure;
 
     public RecordingContainerGateway(bool available = true)
@@ -67,7 +70,18 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
     /// <summary>Ordered op log: e.g. "Create:steam-daemon-persistent", "Stop:{id}", "Remove:{id}".</summary>
     public List<string> Calls { get; } = new();
 
-    public bool IsAvailable { get; private set; }
+    private bool _available;
+    private int _unavailableReads;
+
+    public bool IsAvailable
+    {
+        get => Interlocked.Exchange(ref _unavailableReads, 0) != 1 && _available;
+        private set => _available = value;
+    }
+
+    /// <summary>The next read of <see cref="IsAvailable"/> answers false, as a read taken just before a connect finished.</summary>
+    public void ReportUnavailableOnce() => Interlocked.Exchange(ref _unavailableReads, 1);
+
     public bool Disposed { get; private set; }
     public Queue<Exception> ImagePullFailures { get; } = new();
     public bool ImageExists { get; set; } = true;
@@ -78,8 +92,28 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
     public TaskCompletionSource ImageInspectEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource ReleaseImageInspect { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public bool HoldStartContainer { get; set; }
+    // A started container that exits at once, as one whose image crashes on start.
+    public bool ExitOnStart { get; set; }
     public bool CompleteStartAfterCancellation { get; set; }
     public bool HoldCreateContainer { get; set; }
+    public bool HoldRemoveContainer { get; set; }
+    public bool HoldStopContainer { get; set; }
+    public bool HoldGetVersion { get; set; }
+    /// <summary>Holds the version answer until <see cref="ReleaseVersion"/>; <see cref="HoldGetVersion"/> then decides whether it answers.</summary>
+    public bool HoldVersionAnswer { get; set; }
+    public TaskCompletionSource VersionEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource ReleaseVersion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public bool HoldListContainers { get; set; }
+    public bool HoldRemoveVolume { get; set; }
+    public bool HoldInspectContainer { get; set; }
+    /// <summary>The inspect of this container id waits until its caller cancels.</summary>
+    public string? HoldInspectUntilCanceled { get; set; }
+    public TaskCompletionSource InspectContainerEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public bool HoldKillContainer { get; set; }
+    public TaskCompletionSource KillContainerEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource ReleaseKillContainer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    /// <summary>How many next creates fail because another container still holds the requested name.</summary>
+    public int CreateConflicts { get; set; }
     public TaskCompletionSource CreateContainerEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public TaskCompletionSource ReleaseCreateContainer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     public List<(string Id, ContainerRemoveParameters Parameters)> Removals { get; } = new();
@@ -124,19 +158,44 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
     /// <summary>Injects a failure on the next <see cref="RemoveContainerAsync"/> call (cleared after it fires). The
     /// op is still logged to <see cref="Calls"/> before it throws, matching a real Docker call that reached the daemon.</summary>
     public void FailNextRemoveContainer(Exception failure) { lock (_sync) _pendingRemoveFailure = failure; }
+    public void FailNextRemoveVolume(Exception failure) { lock (_sync) _pendingRemoveVolumeFailure = failure; }
 
-    public void Connect(Uri dockerUri) => IsAvailable = true;
+    /// <summary>Drops the client, as a Docker the manager never reached leaves it.</summary>
     public void Reset() => IsAvailable = false;
     public void Dispose() => Disposed = true;
 
-    public Task<Docker.DotNet.Models.VersionResponse> GetVersionAsync(CancellationToken cancellationToken)
-        => Task.FromResult(new Docker.DotNet.Models.VersionResponse { Version = "test-engine" });
+    // A Docker engine that never answers: the production gateway gives up on the call at its limit.
+    internal static DockerTimeoutException NoAnswer() => new("Docker did not answer within 10 seconds.", new OperationCanceledException());
+
+    // The production gateway refuses every call on a client that was never connected or was dropped.
+    private void EnsureConnected()
+    {
+        if (!IsAvailable)
+            throw new InvalidOperationException("Docker client is not connected. Check IsAvailable before invoking container operations.");
+    }
+
+    public async Task<Docker.DotNet.Models.VersionResponse> ConnectAsync(Uri dockerUri, CancellationToken cancellationToken)
+    {
+        lock (_sync) Calls.Add("Version");
+        if (HoldVersionAnswer)
+        {
+            VersionEntered.TrySetResult();
+            await ReleaseVersion.Task;
+        }
+        if (HoldGetVersion)
+            throw NoAnswer();
+        IsAvailable = true;
+        return new Docker.DotNet.Models.VersionResponse { Version = "test-engine" };
+    }
 
     public Task<IList<ContainerListResponse>> ListContainersAsync(ContainersListParameters parameters, CancellationToken cancellationToken)
     {
+        EnsureConnected();
+        lock (_sync) Calls.Add("List");
+        if (HoldListContainers)
+            return Task.FromException<IList<ContainerListResponse>>(NoAnswer());
         lock (_sync)
         {
-            Calls.Add("List");
             IEnumerable<FakeContainer> query = _containers;
 
             if (parameters.All == false)
@@ -158,8 +217,7 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
                 }
             }
 
-            IList<ContainerListResponse> result = query.Select(c => c.ToListResponse()).ToList();
-            return Task.FromResult(result);
+            return Task.FromResult<IList<ContainerListResponse>>(query.Select(c => c.ToListResponse()).ToList());
         }
     }
 
@@ -178,10 +236,17 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
 
     public async Task<CreateContainerResponse> CreateContainerAsync(CreateContainerParameters parameters, CancellationToken cancellationToken)
     {
+        EnsureConnected();
         string id;
         Exception? failure;
         lock (_sync)
         {
+            if (CreateConflicts > 0)
+            {
+                CreateConflicts--;
+                throw new DockerApiException(System.Net.HttpStatusCode.Conflict,
+                    $"Conflict. The container name \"/{parameters.Name}\" is already in use by another container.");
+            }
             Calls.Add($"Create:{parameters.Name}");
             CreatedParameters.Add(parameters);
             if (_pendingCreateFailure != null)
@@ -215,6 +280,7 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
     public async Task<bool> StartContainerAsync(
         string id, ContainerStartParameters? parameters, CancellationToken cancellationToken)
     {
+        EnsureConnected();
         lock (_sync)
         {
             Calls.Add($"Start:{id}");
@@ -224,7 +290,7 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
                 _pendingStartFailure = null;
                 throw failure;
             }
-            if (!CompleteStartAfterCancellation)
+            if (!CompleteStartAfterCancellation && !ExitOnStart)
             {
                 var container = _containers.FirstOrDefault(c => c.Id == id);
                 if (container != null)
@@ -250,9 +316,12 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
 
     public Task<bool> StopContainerAsync(string id, ContainerStopParameters parameters, CancellationToken cancellationToken)
     {
+        EnsureConnected();
         lock (_sync)
         {
             Calls.Add($"Stop:{id}");
+            if (HoldStopContainer)
+                return Task.FromException<bool>(NoAnswer());
             var container = _containers.FirstOrDefault(c => c.Id == id);
             if (container != null)
             {
@@ -263,8 +332,14 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
         }
     }
 
-    public Task KillContainerAsync(string id, ContainerKillParameters parameters, CancellationToken cancellationToken)
+    public async Task KillContainerAsync(string id, ContainerKillParameters parameters, CancellationToken cancellationToken)
     {
+        EnsureConnected();
+        if (HoldKillContainer)
+        {
+            KillContainerEntered.TrySetResult();
+            await ReleaseKillContainer.Task;
+        }
         lock (_sync)
         {
             Calls.Add($"Kill:{id}");
@@ -272,17 +347,17 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
             {
                 var failure = _pendingKillFailure;
                 _pendingKillFailure = null;
-                return Task.FromException(failure);
+                throw failure;
             }
             var container = _containers.FirstOrDefault(c => c.Id == id);
             if (container != null)
                 container.Running = false;
-            return Task.CompletedTask;
         }
     }
 
     public Task RemoveContainerAsync(string id, ContainerRemoveParameters parameters, CancellationToken cancellationToken)
     {
+        EnsureConnected();
         lock (_sync)
         {
             Calls.Add($"Remove:{id}");
@@ -291,6 +366,8 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
                 Force = parameters.Force,
                 RemoveVolumes = parameters.RemoveVolumes
             }));
+            if (HoldRemoveContainer)
+                return Task.FromException(NoAnswer());
             if (_pendingRemoveFailure != null)
             {
                 var failure = _pendingRemoveFailure;
@@ -302,32 +379,54 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
         }
     }
 
-    public Task<ContainerInspectResponse> InspectContainerAsync(string id, CancellationToken cancellationToken)
+    public async Task<ContainerInspectResponse> InspectContainerAsync(string id, CancellationToken cancellationToken)
     {
+        EnsureConnected();
+        lock (_sync) Calls.Add($"Inspect:{id}");
+        if (id == HoldInspectUntilCanceled)
+        {
+            InspectContainerEntered.TrySetResult();
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+        }
         lock (_sync)
         {
-            Calls.Add($"Inspect:{id}");
+            if (HoldInspectContainer)
+                throw NoAnswer();
             var container = _containers.FirstOrDefault(c => c.Id == id)
                 ?? throw new DockerContainerNotFoundException(System.Net.HttpStatusCode.NotFound, $"No such container: {id}");
-            return Task.FromResult(container.ToInspectResponse());
+            return container.ToInspectResponse();
         }
     }
 
     public Task<MultiplexedStream> GetContainerLogsAsync(string id, bool tty, ContainerLogsParameters parameters, CancellationToken cancellationToken)
     {
         // Only reached on a socket-connect failure diagnostic path, which the orchestration fakes never hit.
+        EnsureConnected();
         lock (_sync) Calls.Add($"Logs:{id}");
         throw new NotSupportedException("Container log streaming is not simulated by the recording gateway.");
     }
 
     public Task RemoveVolumeAsync(string name, bool force, CancellationToken cancellationToken)
     {
-        lock (_sync) Calls.Add($"RemoveVolume:{name}");
+        EnsureConnected();
+        lock (_sync)
+        {
+            Calls.Add($"RemoveVolume:{name}");
+            if (HoldRemoveVolume)
+                return Task.FromException(NoAnswer());
+            if (_pendingRemoveVolumeFailure != null)
+            {
+                var failure = _pendingRemoveVolumeFailure;
+                _pendingRemoveVolumeFailure = null;
+                return Task.FromException(failure);
+            }
+        }
         return Task.CompletedTask;
     }
 
     public Task CreateImageAsync(ImagesCreateParameters parameters, AuthConfig? authConfig, IProgress<JSONMessage> progress, CancellationToken cancellationToken)
     {
+        EnsureConnected();
         Exception? failure;
         lock (_sync)
         {
@@ -343,6 +442,7 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
 
     public async Task<ImageInspectResponse> InspectImageAsync(string name, CancellationToken cancellationToken)
     {
+        EnsureConnected();
         string imageId;
         lock (_sync)
         {
@@ -359,14 +459,71 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
         return new ImageInspectResponse { ID = imageId };
     }
 
+    /// <summary>
+    /// When set, exec create, start, and inspect throw it after <see cref="ExecSuccessesBeforeFailure"/>
+    /// of them have succeeded. Unset, those calls stay unsupported.
+    /// </summary>
+    public Exception? ExecFailure { get; set; }
+
+    public int ExecSuccessesBeforeFailure { get; set; }
+
+    /// <summary>Exit code returned by an exec inspect that did not throw.</summary>
+    public long ExecExitCode { get; set; }
+
+    private int _execSuccesses;
+
+    private Exception? NextExecFailure(string call)
+    {
+        if (ExecFailure is null)
+        {
+            return new NotSupportedException("Container exec is not simulated by the recording gateway.");
+        }
+
+        lock (_sync)
+        {
+            Calls.Add(call);
+            if (_execSuccesses < ExecSuccessesBeforeFailure)
+            {
+                _execSuccesses++;
+                return null;
+            }
+
+            return ExecFailure;
+        }
+    }
+
     public Task<ContainerExecCreateResponse> ExecCreateContainerAsync(string id, ContainerExecCreateParameters parameters, CancellationToken cancellationToken)
-        => throw new NotSupportedException("Container exec is not simulated by the recording gateway.");
+    {
+        var failure = NextExecFailure("ExecCreate");
+        if (failure is not null)
+        {
+            throw failure;
+        }
+
+        return Task.FromResult(new ContainerExecCreateResponse { ID = "exec-1" });
+    }
 
     public Task<MultiplexedStream> StartAndAttachContainerExecAsync(string execId, bool tty, CancellationToken cancellationToken)
-        => throw new NotSupportedException("Container exec is not simulated by the recording gateway.");
+    {
+        var failure = NextExecFailure("ExecStart");
+        if (failure is not null)
+        {
+            throw failure;
+        }
+
+        return Task.FromResult(new MultiplexedStream(Stream.Null, false));
+    }
 
     public Task<ContainerExecInspectResponse> InspectContainerExecAsync(string execId, CancellationToken cancellationToken)
-        => throw new NotSupportedException("Container exec is not simulated by the recording gateway.");
+    {
+        var failure = NextExecFailure("ExecInspect");
+        if (failure is not null)
+        {
+            throw failure;
+        }
+
+        return Task.FromResult(new ContainerExecInspectResponse { ExitCode = ExecExitCode });
+    }
 }
 
 /// <summary>
@@ -393,7 +550,8 @@ internal sealed class SingleContainerGatewayFactory : IPrefillContainerGatewayFa
 /// </summary>
 internal sealed class UnavailableContainerGatewayFactory : IPrefillContainerGatewayFactory
 {
-    public IPrefillContainerGateway Create() => new RecordingContainerGateway(available: false);
+    // The version check fails too, so a Start that connects again still finds Docker unavailable.
+    public IPrefillContainerGateway Create() => new RecordingContainerGateway(available: false) { HoldGetVersion = true };
 }
 
 /// <summary>
@@ -429,16 +587,12 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
     public bool Connected { get; private set; }
     public bool Disposed { get; private set; }
     public int LogoutCount { get; private set; }
-    public int CancelPrefillCount { get; private set; }
-    public Func<CancellationToken, Task>? CancelPrefillHandler { get; set; }
     public Func<CancellationToken, Task<List<OwnedGame>>>? OwnedGamesHandler { get; set; }
     public Func<CancellationToken, Task<DaemonStatus?>>? StatusHandler { get; set; }
-    public Func<CancellationToken, Task<PrefillResult>>? PrefillHandler { get; set; }
-    public Func<Action?, CancellationToken, Task<PrefillResult>>? DispatchHandler { get; set; }
     public Func<List<string>, CancellationToken, Task>? SelectionHandler { get; set; }
     public Func<CancellationToken, Task>? ShutdownHandler { get; set; }
+    public Func<CancellationToken, Task<bool>>? LogoutHandler { get; set; }
     public Func<CancellationToken, Task>? ConnectHandler { get; set; }
-    public int PrefillCount { get; private set; }
     public int SelectionCount { get; private set; }
 
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
@@ -457,7 +611,7 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
     public Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
     {
         LogoutCount++;
-        return Task.FromResult(true);
+        return LogoutHandler is null ? Task.FromResult(true) : LogoutHandler(cancellationToken);
     }
 
     public void Dispose() => Disposed = true;
@@ -480,16 +634,6 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
         => throw new NotSupportedException();
     public Task CancelLoginAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
-    public async Task CancelPrefillAsync(CancellationToken cancellationToken = default)
-    {
-        CancelPrefillCount++;
-        if (CancelPrefillHandler is null)
-        {
-            throw new NotSupportedException();
-        }
-
-        await CancelPrefillHandler(cancellationToken);
-    }
     public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
         => OwnedGamesHandler is null ? throw new NotSupportedException() : OwnedGamesHandler(cancellationToken);
     public Task<List<CdnInfo>> GetCdnInfoAsync(CancellationToken cancellationToken = default)
@@ -498,13 +642,6 @@ internal sealed class FakeReconnectDaemonClient : IDaemonClient
     {
         SelectionCount++;
         return SelectionHandler is null ? throw new NotSupportedException() : SelectionHandler(appIds, cancellationToken);
-    }
-    public Task<PrefillResult> PrefillAsync(bool all = false, bool recent = false, bool recentlyPurchased = false, int? top = null, bool force = false, List<string>? operatingSystems = null, int? maxConcurrency = null, List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default, Guid? runId = null, Action? onCommandDispatched = null)
-    {
-        PrefillCount++;
-        if (DispatchHandler is not null) return DispatchHandler(onCommandDispatched, cancellationToken);
-        onCommandDispatched?.Invoke();
-        return PrefillHandler is null ? throw new NotSupportedException() : PrefillHandler(cancellationToken);
     }
     public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
@@ -826,16 +963,18 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
         => throw new NotSupportedException();
     public Task<bool> ProvideXboxAutoLoginAsync(string sessionId, string refreshToken, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
-    public Task CancelPrefillAsync(CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
     public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
     public Task<List<CdnInfo>> GetCdnInfoAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
+    /// <summary>Answers the prefill command, and lets the selection a scheduled run sends first through.</summary>
+    public Func<CancellationToken, Task<PrefillResult>>? PrefillHandler { get; set; }
+
     public Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
-    public Task<PrefillResult> PrefillAsync(bool all = false, bool recent = false, bool recentlyPurchased = false, int? top = null, bool force = false, List<string>? operatingSystems = null, int? maxConcurrency = null, List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default, Guid? runId = null, Action? onCommandDispatched = null)
-        => throw new NotSupportedException();
+        => PrefillHandler is null ? throw new NotSupportedException() : Task.CompletedTask;
+    public Task<PrefillResult> PrefillAsync(Guid runId, string daemonInstanceId, DaemonRunOptions options,
+        List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default)
+        => PrefillHandler is null ? throw new NotSupportedException() : PrefillHandler(cancellationToken);
     public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
     public Task<ClearCacheResult> GetCacheInfoAsync(CancellationToken cancellationToken = default)
@@ -917,8 +1056,6 @@ internal abstract class TestDaemonClientBase : IDaemonClient
         return new LogoutOutcome(success, RequiresLogin: false);
     }
 
-    public Task CancelPrefillAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-
     public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
 
@@ -926,20 +1063,6 @@ internal abstract class TestDaemonClientBase : IDaemonClient
         => throw new NotSupportedException();
 
     public Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException();
-
-    public Task<PrefillResult> PrefillAsync(
-        bool all = false,
-        bool recent = false,
-        bool recentlyPurchased = false,
-        int? top = null,
-        bool force = false,
-        List<string>? operatingSystems = null,
-        int? maxConcurrency = null,
-        List<CachedDepotInput>? cachedDepots = null,
-        CancellationToken cancellationToken = default,
-        Guid? runId = null,
-        Action? onCommandDispatched = null)
         => throw new NotSupportedException();
 
     public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)

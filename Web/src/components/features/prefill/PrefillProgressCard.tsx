@@ -19,9 +19,11 @@ import { Alert } from '../../ui/Alert';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
 import Badge from '@components/ui/Badge';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
+import type { GameServiceId } from '@/types/gameService';
 
 interface PrefillProgressCardProps {
   run?: PrefillRun;
+  serviceId: GameServiceId;
   error?: string;
   disabled?: boolean;
   history?: boolean;
@@ -36,6 +38,7 @@ export function PrefillProgressCard({
   onCancel,
   isCancelling = false,
   run,
+  serviceId,
   error,
   disabled = false,
   history = false
@@ -101,7 +104,7 @@ export function PrefillProgressCard({
         : active
           ? getStateLabel()
           : t(`prefill.runs.${snapshot.state}`);
-    const reasonKey = getPrefillRunReasonKey(snapshot.reason);
+    const reasonKey = getPrefillRunReasonKey(snapshot.reason, serviceId);
     const itemsText = t('prefill.runs.items', {
       count: finished,
       total: snapshot.totalApps

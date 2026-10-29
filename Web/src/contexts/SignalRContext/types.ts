@@ -383,6 +383,10 @@ export interface LogProcessingCompleteEvent extends OperationEvent {
   entriesProcessed?: number;
   linesProcessed?: number;
   elapsed?: number;
+  /** The datasource a failed run stopped on, for the message key that names it. */
+  datasource?: string | null;
+  /** The database error that stopped that datasource, when there was one. */
+  databaseError?: string | null;
 }
 
 // Log Processing Started Event
@@ -830,7 +834,6 @@ export interface DaemonSessionCreatedEvent {
   containerName: string;
   status: string;
   authState: string;
-  isPrefilling: boolean;
   createdAt: string;
   expiresAt: string;
   ipAddress?: string;
@@ -838,8 +841,6 @@ export interface DaemonSessionCreatedEvent {
   browser?: string;
   lastSeenAt: string;
   accountUsername?: string;
-  currentAppId?: string;
-  currentAppName?: string;
   platform?: string;
   username?: string;
 }
@@ -850,7 +851,6 @@ export interface DaemonSessionUpdatedEvent {
   containerName: string;
   status: string;
   authState: string;
-  isPrefilling: boolean;
   createdAt: string;
   expiresAt: string;
   ipAddress?: string;
@@ -858,8 +858,6 @@ export interface DaemonSessionUpdatedEvent {
   browser?: string;
   lastSeenAt: string;
   accountUsername?: string;
-  currentAppId?: string;
-  currentAppName?: string;
   platform?: string;
   username?: string;
 }
@@ -876,8 +874,6 @@ export interface UserSessionRevokedEvent {
 
 export interface PrefillHistoryUpdatedEvent {
   sessionId: string;
-  appId: string;
-  status: string;
 }
 
 // User Preferences Events
@@ -1288,6 +1284,10 @@ export interface OperationRun {
   message: string;
   /** Set only when status is 'failed'. */
   error?: string | null;
+  /** The datasource a failed log processing run stopped on; the values its error key's text names. */
+  failedDatasource?: string | null;
+  /** The database error that stopped it, when there was one. */
+  databaseError?: string | null;
   /** Display name of the operation this one is parked behind; null when unknown. */
   blockedByName?: string | null;
   /** Wire type of the operation this run waits behind (the same strings as operationType); the browser names the blocker by that type's card title. */

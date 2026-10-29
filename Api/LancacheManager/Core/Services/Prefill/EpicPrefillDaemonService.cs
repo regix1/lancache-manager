@@ -108,6 +108,8 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
     // Epic daemon uses a different HKDF info string for credential encryption
     protected override string CredentialEncryptionHkdfInfo => "EpicPrefill-Credential-Encryption";
 
+    protected override Task OnRunDownloadedAsync() => _mappingService.ResolveDownloadsAsync();
+
     /// <summary>
     /// After authentication, check for banned Epic users and collect owned games from all authenticated sessions in the background.
     /// </summary>

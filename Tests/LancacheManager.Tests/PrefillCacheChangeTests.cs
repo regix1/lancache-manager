@@ -21,8 +21,7 @@ namespace LancacheManager.Tests;
 /// <see cref="PrefillCacheService.ClearAppCacheAsync"/>, takes only its own app's rows, and says how
 /// many it took so an app that owns none is not reported as removed. The
 /// download choke point announces a change only after a successful download adds a record.
-/// An already-cached result does not establish a new completion record. Two containers writing
-/// the same depot lose one insert to the unique index, and the batch has to carry on past it.
+/// An already-cached result does not establish a new completion record.
 /// </summary>
 public sealed class PrefillCacheChangeTests
 {
@@ -78,149 +77,6 @@ public sealed class PrefillCacheChangeTests
         Assert.Equal(0, body.RemovedDepots);
     }
 
-    [Fact]
-    public async Task RecordCachedDepots_DepotTakenByAnotherWriter_StillRecordsTheRest()
-    {
-        var options = NewOptions();
-        var service = new PrefillCacheService(
-            new ConflictingSaveContextFactory(options, CachedDepotId),
-            NullLogger<PrefillCacheService>.Instance);
-
-        var recorded = await service.RecordCachedDepotsAsync(
-            CachedAppId,
-            "VTOL VR",
-            [(CachedDepotId, CachedManifestId, 1L), (CachedDepotId + 1, CachedManifestId, 1L)],
-            cachedBy: null);
-
-        Assert.True(recorded);
-
-        await using var verification = new AppDbContext(options);
-        var depotIds = await verification.PrefillCachedDepots
-            .Select(depot => depot.DepotId)
-            .ToListAsync();
-
-        Assert.Equal(CachedDepotId + 1, Assert.Single(depotIds));
-    }
-
-    [Fact]
-    public async Task CompletedApp_NewDepot_AnnouncesTheCacheChange()
-    {
-        var (daemon, session, recorder) = NewDaemon(NewOptions());
-
-        await InvokeCompletedAppAsync(daemon, session, "Success");
-
-        Assert.Single(CacheChangeBroadcasts(recorder));
-    }
-
-    [Theory]
-    [InlineData("Failed", PrefillHistoryEntryStatus.Failed)]
-    [InlineData("Cancelled", PrefillHistoryEntryStatus.Cancelled)]
-    [InlineData("AlreadyUpToDate", PrefillHistoryEntryStatus.Cached)]
-    [InlineData("Skipped", PrefillHistoryEntryStatus.Skipped)]
-    [InlineData("NoDepotsToDownload", PrefillHistoryEntryStatus.Skipped)]
-    [InlineData("CompletedWithWarnings", PrefillHistoryEntryStatus.Completed)]
-    public async Task FailedCompletion_WritesNeitherStore(string result, PrefillHistoryEntryStatus status)
-    {
-        var options = NewOptions();
-        var (daemon, session, recorder) = NewDaemon(options);
-        await InvokeCompletedAppAsync(daemon, session, result);
-        await using var context = new AppDbContext(options);
-        Assert.Empty(await context.PrefillCachedApps.ToListAsync());
-        Assert.Empty(await context.PrefillCachedDepots.ToListAsync());
-        Assert.Empty(CacheChangeBroadcasts(recorder));
-        Assert.Equal(status, (await context.PrefillHistoryEntries.SingleAsync()).Status);
-        Assert.Equal(result == "AlreadyUpToDate" ? "already_cached" : "app_completed", session.LastProgress!.State);
-    }
-
-    [Fact]
-    public async Task CancelledSessionCompletion_WritesNeitherStore()
-    {
-        var options = NewOptions();
-        var (daemon, session, recorder) = NewDaemon(options);
-        await session.CancellationTokenSource.CancelAsync();
-        await InvokeCompletedAppAsync(daemon, session, "Success");
-        await using var context = new AppDbContext(options);
-        Assert.Empty(await context.PrefillCachedApps.ToListAsync());
-        Assert.Empty(await context.PrefillCachedDepots.ToListAsync());
-        Assert.Empty(CacheChangeBroadcasts(recorder));
-    }
-
-    [Fact]
-    public async Task CompletionWithoutAppId_WritesNeitherStore()
-    {
-        var options = NewOptions();
-        var (daemon, session, recorder) = NewDaemon(options);
-        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "NotifyPrefillProgressAsync", session,
-            new PrefillProgress { State = "app_completed", Result = "Success" });
-        await using var context = new AppDbContext(options);
-        Assert.Empty(await context.PrefillCachedApps.ToListAsync());
-        Assert.Empty(await context.PrefillCachedDepots.ToListAsync());
-        Assert.Empty(CacheChangeBroadcasts(recorder));
-    }
-
-    [Fact]
-    public async Task DuplicateCompletion_DoesNotRecreateDeletedRecords()
-    {
-        var options = NewOptions();
-        var (daemon, session, recorder) = NewDaemon(options);
-        await InvokeCompletedAppAsync(daemon, session, "Success");
-        var service = new PrefillCacheService(new TestDbContextFactory(options), NullLogger<PrefillCacheService>.Instance);
-        await service.ClearAppCacheAsync(PrefillPlatform.Steam, CachedAppId.ToString(CultureInfo.InvariantCulture));
-        await InvokeCompletedAppAsync(daemon, session, "Success");
-        await using var context = new AppDbContext(options);
-        Assert.Empty(await context.PrefillCachedApps.ToListAsync());
-        Assert.Empty(await context.PrefillCachedDepots.ToListAsync());
-        Assert.Single(CacheChangeBroadcasts(recorder));
-    }
-
-    [Fact]
-    public async Task CompletedApp_DepotAlreadyRecorded_AnnouncesNothing()
-    {
-        var options = NewOptions();
-        await using (var seed = new AppDbContext(options))
-        {
-            seed.PrefillCachedDepots.Add(NewCachedDepot(CachedAppId, CachedDepotId));
-            seed.PrefillCachedApps.Add(new PrefillCachedApp
-            {
-                Platform = PrefillPlatform.Steam,
-                AppId = CachedAppId.ToString(CultureInfo.InvariantCulture),
-                CachedAtUtc = DateTime.UtcNow
-            });
-            await seed.SaveChangesAsync();
-        }
-
-        var (daemon, session, recorder) = NewDaemon(options);
-
-        await InvokeCompletedAppAsync(daemon, session, "AlreadyUpToDate");
-
-        Assert.Empty(CacheChangeBroadcasts(recorder));
-    }
-
-    private static Task InvokeCompletedAppAsync(
-        TestableSteamDaemonService daemon,
-        DaemonSession session,
-        string result)
-        => DaemonTestMethods.InvokePrivateHandlerAsync(
-            daemon,
-            "NotifyPrefillProgressAsync",
-            session,
-            new PrefillProgress
-            {
-                State = "app_completed",
-                Result = result,
-                CurrentAppId = CachedAppId.ToString(CultureInfo.InvariantCulture),
-                CurrentAppName = "VTOL VR",
-                Depots =
-                [
-                    new DepotManifestProgressInfo
-                    {
-                        DepotId = CachedDepotId,
-                        ManifestId = CachedManifestId,
-                        TotalBytes = 1
-                    }
-                ]
-            });
-
     private static List<(string Method, object?[] Args)> CacheChangeBroadcasts(
         RecordingNotificationProxy recorder)
         => recorder.Invocations
@@ -275,8 +131,6 @@ public sealed class PrefillCacheChangeTests
             Id = Guid.NewGuid().ToString("N")[..16],
             UserId = Guid.NewGuid(),
             Status = DaemonSessionStatus.Active,
-            IsPrefilling = true,
-            PrefillRunId = Guid.NewGuid(),
             CreatedAt = DateTime.UtcNow,
             ExpiresAt = DateTime.UtcNow.AddHours(1)
         };
@@ -294,36 +148,6 @@ public sealed class PrefillCacheChangeTests
         TotalBytes = 1,
         CachedAtUtc = DateTime.UtcNow
     };
-
-    /// <summary>
-    /// The in-memory provider does not enforce the unique index on <c>(DepotId, ManifestId)</c>, so
-    /// the losing insert is raised here instead, on the one depot another writer already holds.
-    /// </summary>
-    private sealed class ConflictingSaveContextFactory(
-        DbContextOptions<AppDbContext> options,
-        long conflictDepotId) : IDbContextFactory<AppDbContext>
-    {
-        public AppDbContext CreateDbContext() => new ConflictingSaveContext(options, conflictDepotId);
-
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default) =>
-            Task.FromResult(CreateDbContext());
-    }
-
-    private sealed class ConflictingSaveContext(
-        DbContextOptions<AppDbContext> options,
-        long conflictDepotId) : AppDbContext(options)
-    {
-        public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
-        {
-            if (ChangeTracker.Entries<PrefillCachedDepot>()
-                .Any(entry => entry.State == EntityState.Added && entry.Entity.DepotId == conflictDepotId))
-            {
-                throw new DbUpdateException("depot manifest already recorded");
-            }
-
-            return base.SaveChangesAsync(cancellationToken);
-        }
-    }
 
     private static DbContextOptions<AppDbContext> NewOptions() =>
         new DbContextOptionsBuilder<AppDbContext>()

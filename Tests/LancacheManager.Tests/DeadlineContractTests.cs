@@ -51,7 +51,6 @@ public class DeadlineContractTests
             IsRunning = true,
             IsAuthenticated = true,
             AuthExpiresAtUtc = expiry,
-            CreatedAtUtc = expiry.AddDays(-1),
             NeedsRelogin = false
         };
         var json = JsonSerializer.SerializeToElement(session, new JsonSerializerOptions(JsonSerializerDefaults.Web));

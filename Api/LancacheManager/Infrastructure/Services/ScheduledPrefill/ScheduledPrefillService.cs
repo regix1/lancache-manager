@@ -21,9 +21,6 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     // OUTER schedule poll cadence: the base loop wakes once a minute and runs only the services that
     // are DUE per their own IntervalHours + persisted last-run. This is NOT the user-facing schedule.
     private static readonly TimeSpan _pollCadence = TimeSpan.FromMinutes(1);
-    // INNER guard cadence: how often a running prefill's deadline and stall state are checked.
-    // Live progress is pushed independently and never waits for this interval.
-    private static readonly TimeSpan _guardCheckInterval = TimeSpan.FromSeconds(10);
 
     // The poll interval is waited out in slices THIS small. A user who stops a prefill (from the
     // modal, which cancels the daemon session) expects the card to react at once; sleeping the whole
@@ -50,18 +47,16 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     private readonly HashSet<Guid> _ranThisProcess = new();
 
     /// <summary>
-    /// Exclusive claims for legacy daemons whose selection is shared across commands. Capable
-    /// daemons reserve their own operation slots; the schedule claims below prevent duplicate records.
+    /// Each daemon reserves its own operation slots; these schedule claims prevent duplicate records.
     /// </summary>
-    private readonly ConcurrentDictionary<PrefillPlatform, byte> _runningServices = new();
-    private readonly ConcurrentDictionary<Guid, (Guid Id, PrefillPlatform? Platform)> _runningSchedules = new();
+    private readonly ConcurrentDictionary<Guid, Guid> _runningSchedules = new();
 
     /// <summary>
     /// Per-row runs execute OUTSIDE the scheduling loop. The loop awaits one tick at a time, so a tick
     /// holding a multi-hour download made an on-demand run for a different platform wait for it to
     /// finish. Each entry is one detached run, kept so <see cref="StopAsync"/> can await it: this
     /// service is registered after the daemons and therefore stops FIRST, so a run left unawaited would
-    /// have its container torn down underneath it. [49]
+    /// have its container torn down underneath it.
     /// </summary>
     private readonly ConcurrentDictionary<Guid, Task> _detachedRuns = new();
 
@@ -70,6 +65,15 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// token, because a detached run outlives the tick that started it.
     /// </summary>
     private readonly CancellationTokenSource _detachedRunLifetime = new();
+
+    /// <summary>
+    /// The app's one stop deadline. A cancel sent to a daemon while the app stops ends at it, because the
+    /// daemon services stop only after this service has, and Docker's stop time is shared by all of them.
+    /// Never canceled until the app begins to stop.
+    /// </summary>
+    private CancellationToken _stopBudget;
+
+    internal void SetStopBudget(CancellationToken budget) => _stopBudget = budget;
 
     /// <summary>
     /// Stable service key used by <see cref="ServiceScheduleRegistry"/> (read via reflection)
@@ -157,8 +161,6 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     if (!run.CompletedAtUtc.HasValue && run.PrefillScheduleId is { } id)
                         activeIds.Add(id);
                 }
-                if (session.IsPrefilling && session.PrefillScheduleId is { } scheduleId)
-                    activeIds.Add(scheduleId);
             }
 
             return _stateService.UpdateScheduledPrefillConfig(update, removedIds =>
@@ -177,7 +179,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// null when the named record does not exist or its platform is already running.
     /// Throws when <paramref name="serviceId"/> is not a configured platform, matching
     /// <see cref="ScheduledPrefillConfigDto.GetEffectivePersistenceMode"/>'s treatment of the same
-    /// bad input. [29][49]
+    /// bad input.
     /// </summary>
     public Guid? TriggerServiceRun(
         PrefillPlatform serviceId,
@@ -206,7 +208,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 config = _stateService.GetScheduledPrefillConfig();
                 serviceConfig = config.GetSchedulesInRunOrder().FirstOrDefault(schedule =>
                     schedule.ServiceId == serviceId && schedule.ScheduleId == scheduleId);
-                if (serviceConfig is null || !TryClaimRun(serviceConfig, scope.ServiceProvider, out claimId))
+                if (serviceConfig is null || !TryClaimRun(serviceConfig, out claimId))
                 {
                     scope.Dispose();
                     return null;
@@ -244,30 +246,17 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     }
 
     /// <summary>
-    /// Reserves one schedule and, for a legacy daemon, its exclusive platform claim.
+    /// Reserves one schedule.
     /// </summary>
-    private bool TryClaimRun(ScheduledPrefillServiceConfigDto schedule, IServiceProvider services, out Guid claimId)
+    private bool TryClaimRun(ScheduledPrefillServiceConfigDto schedule, out Guid claimId)
     {
-        var session = PrefillDaemonServiceBase.ResolveDaemon(services, schedule.ServiceId)?.GetActivePersistentSession();
-        var capable = session?.Capabilities?.SupportsConcurrentPrefill == true;
         claimId = Guid.NewGuid();
-        if (!_runningSchedules.TryAdd(schedule.ScheduleId, (claimId, capable ? null : schedule.ServiceId)))
-            return false;
-        if (!capable && !_runningServices.TryAdd(schedule.ServiceId, 0))
-        {
-            _runningSchedules.TryRemove(schedule.ScheduleId, out _);
-            return false;
-        }
-        return true;
+        return _runningSchedules.TryAdd(schedule.ScheduleId, claimId);
     }
 
-    private void ReleaseRun(Guid scheduleId, Guid claimId, bool capableOnly = false)
+    private void ReleaseRun(Guid scheduleId, Guid claimId)
     {
-        if (!_runningSchedules.TryGetValue(scheduleId, out var claim) || claim.Id != claimId
-            || (capableOnly && claim.Platform.HasValue)) return;
-        if (_runningSchedules.TryRemove(new KeyValuePair<Guid, (Guid Id, PrefillPlatform? Platform)>(scheduleId, claim))
-            && claim.Platform.HasValue)
-            _runningServices.TryRemove(claim.Platform.Value, out _);
+        _runningSchedules.TryRemove(new KeyValuePair<Guid, Guid>(scheduleId, claimId));
     }
 
     private async Task RunOneServiceAsync(
@@ -291,7 +280,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 notifications,
                 config,
                 _detachedRunLifetime.Token,
-                admitted: true);
+                admitted: true,
+                tickAdopt: null);
         }
         catch (OperationCanceledException) when (_detachedRunLifetime.IsCancellationRequested)
         {
@@ -311,8 +301,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             try
             {
                 if (!dispatched)
+                {
+                    await ReportProgressAsync(notifications, serviceRun, "failed", "Scheduled prefill could not start.",
+                        percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                        stageKey: "signalr.scheduledPrefill.failedToStart");
                     await CompleteServiceRunAsync(serviceRun, tracker, notifications,
-                        ScheduledPrefillServiceRunResult.Failed, "Scheduled prefill could not start.");
+                        ScheduledPrefillServiceRunResult.Failed, null);
+                }
             }
             catch (Exception ex)
             {
@@ -333,7 +328,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// Detached per-row runs outlive the tick that started them, so the base stop is not enough. This
     /// service is registered after the prefill daemons and therefore stops FIRST: returning while a run
     /// is still going would let the daemons tear its session down underneath it. Cancel, then wait,
-    /// bounded by the caller's own shutdown token so a stuck run cannot hold the host open. [49]
+    /// bounded by the caller's own shutdown token so a stuck run cannot hold the host open.
     /// </remarks>
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -404,18 +399,33 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         }
 
         using var scope = _scopeFactory.CreateScope();
-        var capable = dueSchedules.Any(schedule => PrefillDaemonServiceBase
-            .ResolveDaemon(scope.ServiceProvider, schedule.ServiceId)?.GetActivePersistentSession()
-            ?.Capabilities?.SupportsConcurrentPrefill == true);
-        if (!capable)
+
+        // Each run of this tick reuses its platform's adopt, so a Docker that never answers costs one wait per platform.
+        var tickAdopts = new Dictionary<PrefillPlatform, Task<DaemonSession?>>();
+        foreach (var serviceId in dueSchedules.Select((ScheduledPrefillServiceConfigDto schedule) => schedule.ServiceId).Distinct())
         {
-            await RunDueServicesAsync(dueSchedules, config, stoppingToken, parentNotice);
-            return;
+            var daemon = PrefillDaemonServiceBase.ResolveDaemon(scope.ServiceProvider, serviceId);
+            if (daemon is null || daemon.GetActivePersistentSession() is not null)
+            {
+                continue;
+            }
+
+            var adopt = daemon.AdoptRunningPersistentSessionAsync(stoppingToken);
+            tickAdopts[serviceId] = adopt;
+            try
+            {
+                await adopt;
+            }
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+            {
+                // The run's own adopt meets the same failure and reports it on the card.
+                _logger.LogDebug(ex, "[ScheduledPrefill] Could not adopt the {Service} container before the tick", serviceId);
+            }
         }
 
         var tickId = Guid.NewGuid();
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var work = RunDueServicesAsync(dueSchedules, config, _detachedRunLifetime.Token, parentNotice);
+        var work = RunDueServicesAsync(dueSchedules, config, _detachedRunLifetime.Token, parentNotice, tickAdopts);
         _detachedRuns[tickId] = WatchTickAsync(work, tickId, ready.Task);
         ready.SetResult();
     }
@@ -447,13 +457,14 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// gets its OWN tracked operation, so its notification card carries its own id, its own progress
     /// and its own terminal, and cancelling that card stops only that platform. The run-level
     /// operation stays alongside them: it is what tells one run from the next and what the Schedules
-    /// card's running state reads. [7][19][24]
+    /// card's running state reads.
     /// </summary>
     private async Task RunDueServicesAsync(
         List<ScheduledPrefillServiceConfigDto> dueServices,
         ScheduledPrefillConfigDto config,
         CancellationToken stoppingToken,
-        RunNotice parentNotice)
+        RunNotice parentNotice,
+        Dictionary<PrefillPlatform, Task<DaemonSession?>> tickAdopts)
     {
         var trigger = parentNotice.Trigger;
         _logger.LogInformation("[ScheduledPrefill] Starting run for {Count} due service(s)", dueServices.Count);
@@ -488,7 +499,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                                 DateTime.UtcNow, _ranThisProcess.Contains(schedule.ScheduleId), schedule.CustomSchedule);
                     }).ToList();
                 foreach (var schedule in dueServices)
-                    if (TryClaimRun(schedule, scope.ServiceProvider, out var claimId))
+                    if (TryClaimRun(schedule, out var claimId))
                         claimedPlatforms.Add(schedule.ScheduleId, claimId);
                 if (dueServices.Count == 0) return;
 
@@ -549,7 +560,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 dispatched.Add(serviceRun.OperationId);
                 tasks.Add(RunAndStampServiceAsync(
                     serviceRun, tracker, scope.ServiceProvider, notifications, config, runToken,
-                    claimedPlatforms.ContainsKey(serviceRun.ServiceConfig.ScheduleId)));
+                    claimedPlatforms.ContainsKey(serviceRun.ServiceConfig.ScheduleId),
+                    tickAdopts.GetValueOrDefault(serviceRun.ServiceConfig.ServiceId)));
             }
             var results = await Task.WhenAll(tasks);
             var tally = ScheduledPrefillRunGates.TallyRunResults(results);
@@ -593,10 +605,16 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 {
                     try
                     {
+                        // An undispatched run that was not cancelled left through the catch above, so error is the
+                        // exception's message: the server log keeps it and the card and the run row read the key.
+                        if (!cancelled)
+                            await ReportProgressAsync(notifications, serviceRun, "failed", error!,
+                                percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+                                stageKey: "signalr.scheduledPrefill.failed");
                         await CompleteServiceRunAsync(
                             serviceRun, tracker, notifications,
                             cancelled ? ScheduledPrefillServiceRunResult.Cancelled : ScheduledPrefillServiceRunResult.Failed,
-                            error);
+                            cancelled ? error : null);
                     }
                     catch (Exception ex)
                     {
@@ -640,7 +658,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// Advances the SCHEDULE BASIS (and the process-ran marker behind the startup-only due-check) for
     /// every service given, so the one-minute poll does not immediately re-run a service this tick
     /// already attempted nor relaunch a batch the user just stopped. Deliberately NOT the genuine
-    /// last-run: only a service that prefilled to completion stamps that. [11][12]
+    /// last-run: only a service that prefilled to completion stamps that.
     /// </summary>
     private void StampScheduleBasis(IReadOnlyList<ScheduledPrefillServiceConfigDto> services)
     {
@@ -670,7 +688,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// <c>Task.WhenAll</c> throw, which discards every sibling's result along with the genuine
     /// last-run each of them had already earned. A cancel of this service's own token - its card's
     /// cancel, or the whole run's - reports <see cref="ScheduledPrefillServiceRunResult.Cancelled"/>;
-    /// anything else reports <see cref="ScheduledPrefillServiceRunResult.Failed"/>. [4][9]
+    /// anything else reports <see cref="ScheduledPrefillServiceRunResult.Failed"/>.
     /// </summary>
     private async Task<ScheduledPrefillServiceRunResult> RunAndStampServiceAsync(
         ScheduledPrefillServiceRun serviceRun,
@@ -679,7 +697,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         ISignalRNotificationService notifications,
         ScheduledPrefillConfigDto config,
         CancellationToken runToken,
-        bool admitted)
+        bool admitted,
+        Task<DaemonSession?>? tickAdopt)
     {
         var serviceConfig = serviceRun.ServiceConfig;
         var result = ScheduledPrefillServiceRunResult.Skipped;
@@ -687,17 +706,16 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         try
         {
             // This service's own card is created here rather than by the run, so a platform that
-            // skips in milliseconds still gets a card saying why instead of being invisible. [2][24]
+            // skips in milliseconds still gets a card saying why instead of being invisible.
             var restored = serviceRun.RestoredRun;
             var initialStage = restored?.CancelRequested == true ? "cancelling"
                 : restored?.Recovering == true ? "recovering"
                 : restored is not null ? "running" : "starting";
             var current = serviceRun.State.Snapshot;
+            var line = DescribeStage(initialStage);
             var started = serviceRun.State.Record(current.EventSequence > 0 ? current.Stage : initialStage,
-                current.EventSequence > 0 ? current.Message : initialStage == "cancelling" ? "Stopping prefill"
-                    : initialStage == "recovering" ? "Waiting for the prefill daemon to reconnect"
-                    : initialStage == "running" ? "Prefill in progress" : "Starting scheduled prefill",
-                current.StageKey, null, stageContext: current.StageContext?.ToDictionary(pair => pair.Key, pair => pair.Value),
+                current.EventSequence > 0 ? current.Message : line.Message,
+                current.EventSequence > 0 ? current.StageKey : line.StageKey, null, stageContext: current.StageContext?.ToDictionary(pair => pair.Key, pair => pair.Value),
                 bytesDownloaded: restored?.Snapshot.BytesTransferred, run: restored, started: true);
             if (started is null) return result;
             await notifications.NotifyAllAsync(SignalREvents.ScheduledPrefillStarted, new
@@ -727,7 +745,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 if (serviceRun.RestoredRun is null)
                     serviceRun.Token.ThrowIfCancellationRequested();
                 result = await RunServiceAsync(
-                    serviceRun, serviceProvider, notifications, config);
+                    serviceRun, serviceProvider, notifications, config, tickAdopt);
             }
             else
             {
@@ -752,7 +770,17 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         {
             result = ScheduledPrefillServiceRunResult.Failed;
             _logger.LogError(ex, "[ScheduledPrefill] Service {Service} failed; continuing", serviceConfig.ServiceId);
-            var failure = ex as ApiException ?? new DaemonCommandException();
+            // A Docker call that did not answer is reported as Docker unavailable, as the HTTP and hub
+            // boundaries report it; the type derives from TimeoutException, so it is not an ApiException.
+            var failure = ex switch
+            {
+                ApiException api => api,
+                DockerTimeoutException => new ServiceUnavailableException(ex.Message)
+                {
+                    StageKey = "errors.prefill.dockerUnavailable"
+                },
+                _ => new DaemonCommandException()
+            };
             await ReportProgressAsync(notifications, serviceRun, "failed", failure.Message,
                 percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
                 stageKey: failure.StageKey);
@@ -777,7 +805,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 // the schedule basis above but must NOT count as a real run, so the UI keeps reading
                 // "Never" until the service has truly prefilled at least once. Deliberately OUTSIDE the
                 // cancellation guard: a platform that finished its prefill finished it whether or not a
-                // sibling was stopped a moment later. [9][12]
+                // sibling was stopped a moment later.
                 if (result == ScheduledPrefillServiceRunResult.Ran)
                 {
                     var stillExists = _stateService.GetScheduledPrefillConfig()
@@ -801,7 +829,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 }
                 finally
                 {
-                    ReleaseRun(serviceConfig.ScheduleId, serviceRun.ClaimId, capableOnly: true);
+                    ReleaseRun(serviceConfig.ScheduleId, serviceRun.ClaimId);
                 }
             }
         }
@@ -838,7 +866,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     savedSchedule = config.GetSchedulesInRunOrder().FirstOrDefault(schedule =>
                         schedule.ScheduleId == scheduleId && schedule.ServiceId == platform);
                     if (run is null || savedSchedule is null
-                        || !_runningSchedules.TryAdd(scheduleId, (claimId, null))) continue;
+                        || !_runningSchedules.TryAdd(scheduleId, claimId)) continue;
                 }
                 var scope = _scopeFactory.CreateScope();
                 var tracker = scope.ServiceProvider.GetRequiredService<IUnifiedOperationTracker>();
@@ -920,7 +948,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// service was DOING when it threw rather than what went wrong: without this the card reads
     /// "failed: Prefill in progress" and the real error never reaches the operator. A throw landing
     /// before the first progress event leaves the recorded line empty, which is the same defect
-    /// wearing a blanker face. [42]
+    /// wearing a blanker face.
     /// </param>
     private static async Task CompleteServiceRunAsync(
         ScheduledPrefillServiceRun serviceRun,
@@ -970,7 +998,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 stageKey,
                 cancelled,
                 // The same wire word the tracker puts on a run that did nothing, so the card closes as
-                // skipped rather than reading "failed" for a missing container or a logged-out one. [2]
+                // skipped rather than reading "failed" for a missing container or a logged-out one.
                 status = skipped ? "skipped" : null
             });
         }
@@ -984,7 +1012,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             // The run row keeps this as its error, and a card drawn from the row after a reload translates it with no
             // values, so a key that reads whole stands in for the English line.
             tracker.CompleteOperation(serviceRun.OperationId, success || skipped,
-                error is not null && !skipped && snapshot.StageContext is null ? snapshot.StageKey ?? error : error,
+                error is not null && !skipped && snapshot.StageContext is null ? snapshot.StageKey : error,
                 cancelled, skipped);
         }
     }
@@ -1002,7 +1030,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         ScheduledPrefillServiceRun serviceRun,
         IServiceProvider serviceProvider,
         ISignalRNotificationService notifications,
-        ScheduledPrefillConfigDto config)
+        ScheduledPrefillConfigDto config,
+        Task<DaemonSession?>? tickAdopt)
     {
         var serviceConfig = serviceRun.ServiceConfig;
         var serviceId = serviceConfig.ServiceId;
@@ -1024,31 +1053,33 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         // would make the run summary read "All due services need login" for a platform that has none.
         var requiresLogin = serviceId.RequiresLogin();
 
-        var persistentSession = daemon.GetActivePersistentSession();
-        if (!ScheduledPrefillRunGates.TryGetRunnablePersistentSession(persistentSession, out var sessionId, out var needsLoginReason))
-        {
-            await ReportProgressAsync(
-                notifications,
-                serviceRun,
-                requiresLogin ? "needs-login" : "skipped",
-                ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: false),
-                requiresLogin ? needsLoginReason : ScheduledPrefillRunGates.NoContainerReason,
-                percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                // The card shows the needs-login reason on one branch and the message on the other,
-                // so one key covers whichever sentence this event actually puts on screen.
-                stageKey: requiresLogin
-                    ? "signalr.scheduledPrefill.needsPersistentContainer"
-                    : "signalr.scheduledPrefill.skippedNoContainer");
-            return requiresLogin
-                ? ScheduledPrefillServiceRunResult.NeedsLogin
-                : ScheduledPrefillServiceRunResult.Unavailable;
-        }
+        // A container that outlived a startup Docker timeout has no registered session until something
+        // adopts it, so the run adopts it here, as a Start would. A run of the tick whose adopt failed takes
+        // that failure, so a Docker that never answers costs one wait per tick and the card reports it. A
+        // session the tick adopted may have been ended since by a Stop or an image update, so any other
+        // run adopts again.
+        var persistentSession = daemon.GetActivePersistentSession()
+            ?? await (tickAdopt is { IsFaulted: true } ? tickAdopt : daemon.AdoptRunningPersistentSessionAsync(ct));
+        if (!ScheduledPrefillRunGates.TryGetRunnablePersistentSession(persistentSession, out _, out _))
+            return await ReportNoContainerAsync(notifications, serviceRun);
 
         // TryGetRunnablePersistentSession only returns true for a non-null session.
         var session = persistentSession!;
 
         if (serviceRun.RestoredRun is { } restoredRun)
             return await WatchRunAsync(daemon, session, restoredRun, serviceRun, notifications, config);
+
+        // An automatic sign-in (the startup try, a drop retry, an image update's try) holds the login lock
+        // until it ends, so the run reads the session as that sign-in leaves it instead of signed out.
+        bool signingInAutomatically;
+        lock (session.PrefillLock)
+        {
+            signingInAutomatically = session.SigningInAutomatically;
+        }
+        if (signingInAutomatically && await session.LoginLock.WaitAsync(_signInLockWait, ct))
+        {
+            session.LoginLock.Release();
+        }
 
         // Only the daemon knows why it is signed out. It reports the drop code after a dropped connection and
         // after a person's cancel of a sign-in, never after a log-off or a Log out; the sign-in below and the
@@ -1078,31 +1109,17 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         // A person's cancel leaves the container signed out even when the daemon still says logged-in.
         // Read after the status above so a later drop can clear the mark and start its one sign-in first.
         var personLeftSignedOut = requiresLogin && ScheduledPrefillRunGates.PersonCanceledSignIn(session);
-        if (session.Capabilities?.SupportsConcurrentPrefill == true && !personLeftSignedOut)
+        if (!personLeftSignedOut)
             return await StartRunAsync(daemon, session, serviceRun, notifications, config);
 
-        if (!daemon.PersistentEditSessionGate.TryEnterMutation(out var mutationLease))
-        {
-            await ReportProgressAsync(
-                notifications,
-                serviceRun,
-                "skipped",
-                "The persistent container is busy",
-                percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
-            return ScheduledPrefillServiceRunResult.Skipped;
-        }
+        if (!daemon.PersistentChangeGate.TryEnterChange(out var changeLease))
+            return await ReportContainerBusyAsync(notifications, serviceRun);
 
-        await using var mutation = mutationLease!;
-        if (!ReferenceEquals(daemon.GetActivePersistentSession(), session)
-            || daemon.PersistentEditSessionGate.HasPendingStart())
+        await using var change = changeLease!;
+        if (!ReferenceEquals(daemon.GetActivePersistentSession(), session))
         {
-            await ReportProgressAsync(
-                notifications,
-                serviceRun,
-                "skipped",
-                "The persistent container changed while the run was starting",
-                percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
-            return ScheduledPrefillServiceRunResult.Skipped;
+            await change.DisposeAsync();
+            return await ReportSessionEndedAsync(daemon, notifications, serviceRun);
         }
 
         // 2b. Confirm the persistent container is actually logged in using the daemon's LIVE status,
@@ -1129,351 +1146,80 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
         if (!isLoggedIn)
         {
+            // A Stop, an image update or a person's Start replacing an errored session during the read ends
+            // the session and fails or empties the read. The report adopts, so the change lease goes first.
+            if (!daemon.IsSessionLive(session))
+            {
+                await change.DisposeAsync();
+                return await ReportSessionEndedAsync(daemon, notifications, serviceRun);
+            }
+
             await ReportProgressAsync(
                 notifications,
                 serviceRun,
-                requiresLogin ? "needs-login" : "skipped",
-                requiresLogin
-                    ? ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: true)
-                    : ScheduledPrefillRunGates.BuildNotReadyMessage(serviceId),
-                requiresLogin
-                    ? ScheduledPrefillRunGates.LoggedOutNeedsLoginReason
-                    : ScheduledPrefillRunGates.ContainerNotReadyReason,
+                "needs-login",
+                ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: true),
+                ScheduledPrefillRunGates.LoggedOutNeedsLoginReason,
                 percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                stageKey: requiresLogin
-                    ? "signalr.scheduledPrefill.needsPersistentLogin"
-                    : "signalr.scheduledPrefill.skippedContainerNotReady");
-            return requiresLogin
-                ? ScheduledPrefillServiceRunResult.NeedsLogin
-                : ScheduledPrefillServiceRunResult.Unavailable;
+                stageKey: "signalr.scheduledPrefill.needsPersistentLogin");
+            return ScheduledPrefillServiceRunResult.NeedsLogin;
         }
 
-        if (session.Capabilities?.SupportsConcurrentPrefill == true)
-        {
-            await mutation.DisposeAsync();
-            return await StartRunAsync(daemon, session, serviceRun, notifications, config);
-        }
+        await change.DisposeAsync();
+        return await StartRunAsync(daemon, session, serviceRun, notifications, config);
+    }
 
-        // 3. Busy check: defer only when the persistent container this run already resolved is itself
-        // prefilling, i.e. a prior run is still going. A temporary or guest container is a separate
-        // entity with its own container and its own download, so it never blocks a scheduled run,
-        // whether or not it is downloading. [5][13]
-        if (ScheduledPrefillRunGates.ShouldSkipForBusySessions(
-                session,
-                out var skipMessage,
-                out var skipStageKey))
-        {
-            await ReportProgressAsync(notifications, serviceRun, "skipped", skipMessage, percent: ScheduledPrefillRunGates.ComputeRunPercent(1), stageKey: skipStageKey);
-            return ScheduledPrefillServiceRunResult.Skipped;
-        }
-
+    /// <summary>
+    /// Ends a run whose platform has no running persistent container: no container was adopted, or a Stop
+    /// or an image update ended the session the run had read.
+    /// </summary>
+    private async Task<ScheduledPrefillServiceRunResult> ReportNoContainerAsync(
+        ISignalRNotificationService notifications, ScheduledPrefillServiceRun serviceRun)
+    {
+        var serviceId = serviceRun.ServiceConfig.ServiceId;
+        var requiresLogin = serviceId.RequiresLogin();
+        ScheduledPrefillRunGates.TryGetRunnablePersistentSession(null, out _, out var needsLoginReason);
         await ReportProgressAsync(
             notifications,
             serviceRun,
-            "starting",
-            "Reusing persistent container",
-            downloadSessionId: sessionId,
-            percent: ScheduledPrefillRunGates.ComputeRunPercent(0),
-            stageKey: "signalr.scheduledPrefill.reusingContainer");
+            requiresLogin ? "needs-login" : "skipped",
+            ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: false),
+            requiresLogin ? needsLoginReason : ScheduledPrefillRunGates.NoContainerReason,
+            percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+            // The card shows the needs-login reason on one branch and the message on the other,
+            // so one key covers whichever sentence this event actually puts on screen.
+            stageKey: requiresLogin
+                ? "signalr.scheduledPrefill.needsPersistentContainer"
+                : "signalr.scheduledPrefill.skippedNoContainer");
+        return requiresLogin
+            ? ScheduledPrefillServiceRunResult.NeedsLogin
+            : ScheduledPrefillServiceRunResult.Unavailable;
+    }
 
-        // 4. Kick off the prefill. Map preset + OS list to the real daemon signature.
-        // When specific apps are selected, prefill exactly those and ignore the All/Recent/Top
-        // preset; otherwise fall back to the preset selection.
-        var hasSelectedApps = serviceConfig.SelectedAppIds.Count > 0;
-        bool all;
-        bool recent;
-        int? top;
-        if (hasSelectedApps)
-        {
-            all = false;
-            recent = false;
-            top = null;
-        }
-        else
-        {
-            MapPreset(serviceConfig, out all, out recent, out top);
-        }
+    /// <summary>
+    /// Ends a run whose session ended after the run read it. An image update ends the session and starts the
+    /// new container itself, and the adopt finishes a pending one, so only a run left with no container is
+    /// told to start one; a replaced container is busy and the schedule tries again at its next interval.
+    /// </summary>
+    private async Task<ScheduledPrefillServiceRunResult> ReportSessionEndedAsync(
+        PrefillDaemonServiceBase daemon, ISignalRNotificationService notifications, ScheduledPrefillServiceRun serviceRun)
+    {
+        if ((daemon.GetActivePersistentSession() ?? await daemon.AdoptRunningPersistentSessionAsync(serviceRun.Token)) is null)
+            return await ReportNoContainerAsync(notifications, serviceRun);
+        return await ReportContainerBusyAsync(notifications, serviceRun);
+    }
 
-        var operatingSystems = MapOperatingSystems(serviceConfig.OperatingSystems);
-        var maxConcurrency = serviceConfig.MaxConcurrency.Mode == ScheduledPrefillMaxConcurrencyMode.Fixed
-            ? serviceConfig.MaxConcurrency.Value
-            : null;
-
-        _logger.LogInformation(
-            "[ScheduledPrefill] Setting {Count} selected app(s) on session {SessionId}",
-            serviceConfig.SelectedAppIds.Count,
-            sessionId);
-        await daemon.SetSelectedAppsAsync(sessionId, serviceConfig.SelectedAppIds, ct);
-
-        _logger.LogInformation(
-            "[ScheduledPrefill] Starting prefill on persistent session {SessionId} (force={Force}, selectedApps={SelectedCount})",
-            sessionId,
-            serviceConfig.Force,
-            serviceConfig.SelectedAppIds.Count);
-
-        try
-        {
-            PrefillResult result;
-            try
-            {
-                result = await daemon.PrefillAsync(
-                    sessionId,
-                    all: all,
-                    recent: recent,
-                    recentlyPurchased: false,
-                    top: top,
-                    force: serviceConfig.Force,
-                    operatingSystems: operatingSystems,
-                    maxConcurrency: maxConcurrency,
-                    cancellationToken: ct,
-                    scheduleId: serviceConfig.ScheduleId);
-            }
-            catch (PrefillAlreadyRunningException)
-            {
-                await ReportProgressAsync(notifications, serviceRun, "skipped", "A prefill is already in progress", percent: ScheduledPrefillRunGates.ComputeRunPercent(1));
-                return ScheduledPrefillServiceRunResult.Unavailable;
-            }
-
-            await mutation.DisposeAsync();
-            var runId = result.RunId;
-
-            // A failed start may leave IsPrefilling already false, which would make the poll loop
-            // exit immediately and wrongly report "completed". Treat a non-Success start as failed.
-            if (!result.Success)
-            {
-                if (result.RequiresLogin)
-                {
-                    await ReportProgressAsync(
-                        notifications, serviceRun, "needs-login",
-                        ScheduledPrefillRunGates.BuildNeedsLoginMessage(serviceId, containerRunning: true),
-                        ScheduledPrefillRunGates.LoggedOutNeedsLoginReason,
-                        percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                        stageKey: "signalr.scheduledPrefill.needsPersistentLogin");
-                    return ScheduledPrefillServiceRunResult.NeedsLogin;
-                }
-
-                var daemonFailure = !string.IsNullOrWhiteSpace(result.ErrorMessage);
-                var failureMessage = daemonFailure ? result.ErrorMessage! : "Prefill failed to start";
-                await ReportProgressAsync(
-                    notifications,
-                    serviceRun,
-                    "failed",
-                    failureMessage,
-                    percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                    // The daemon's own text has no key to translate it by, so only the generic sentence
-                    // this method wrote itself carries one.
-                    stageKey: result.StageKey ?? (daemonFailure ? null : "signalr.scheduledPrefill.failedToStart"));
-                return ScheduledPrefillServiceRunResult.Failed;
-            }
-
-            await ReportProgressAsync(
-                notifications,
-                serviceRun,
-                "running",
-                "Prefill in progress",
-                downloadSessionId: sessionId,
-                percent: ScheduledPrefillRunGates.ComputeRunPercent(0),
-                stageKey: "signalr.scheduledPrefill.running");
-
-            // Live progress is PUSHED, never sampled. The daemon already raises a tick for every chunk it
-            // finishes (it has to - the prefill page renders from those very ticks); the scheduler used to
-            // ignore that and re-read session.LastProgress on a ten-second timer, which is why the card
-            // lagged by up to ten seconds and moved in coarse steps. The relay below subscribes to that
-            // push instead. The loop that follows never touches LastProgress again: it is purely a guard
-            // for the run deadline, the stall detector, cancellation, and stop detection - none of which a
-            // progress push can do, because all four are about the ABSENCE of progress or an external stop.
-            var relay = new ScheduledPrefillProgressRelay(
-                this,
-                notifications,
-                session,
-                serviceRun,
-                sessionId);
-
-            Func<DaemonSession, PrefillProgress, long, Task> onDaemonProgress = relay.OnProgressAsync;
-            daemon.PrefillProgressUpdated += onDaemonProgress;
-            var relayStopped = false;
-
-            // Silences the relay and waits for any send already inside its gate to finish. MUST run before
-            // this service emits any terminal event, or a live tick still in flight could land on the card
-            // after "completed"/"cancelled". Idempotent: the finally calls it again on the exception paths.
-            async Task StopRelayAsync()
-            {
-                if (relayStopped)
-                {
-                    return;
-                }
-
-                relayStopped = true;
-                daemon.PrefillProgressUpdated -= onDaemonProgress;
-                await relay.DeactivateAndDrainAsync();
-            }
-
-            try
-            {
-                // Arm only now, so the explicit "running / 0%" event above is always the card's first
-                // live line. Then replay whatever the daemon has already pushed while we were wiring up -
-                // a one-shot catch-up for the dispatch-to-subscribe window, not a poll.
-                relay.Arm();
-                await relay.ReplayLatestAsync();
-
-                var runDeadline = DateTime.UtcNow + config.MaxServiceRuntime;
-                while (session.IsPrefilling)
-                {
-                    // The whole body sits inside the try, because the catch is the only thing that stops
-                    // the container. A cancel landing between the delay loop below exiting and the check
-                    // at the top would otherwise throw straight past it, leaving the daemon downloading
-                    // while this service's card says it stopped. The window is microseconds wide, but
-                    // every card now has its own cancel, so it is entered once per running service
-                    // instead of once per run. [45]
-                    try
-                    {
-                        ct.ThrowIfCancellationRequested();
-
-                        if (DateTime.UtcNow >= runDeadline)
-                        {
-                            if (runId.HasValue)
-                                await daemon.CancelPrefillRunAsync(sessionId, runId.Value, CancellationToken.None);
-                            await StopRelayAsync();
-                            await ReportProgressAsync(notifications, serviceRun, "failed", "Exceeded maximum service runtime", percent: ScheduledPrefillRunGates.ComputeRunPercent(1), stageKey: "signalr.scheduledPrefill.failedMaxRuntime");
-                            return ScheduledPrefillServiceRunResult.Failed;
-                        }
-
-                        if (PrefillDaemonServiceBase.IsPrefillStalled(session, DateTime.UtcNow, config.StallTimeout))
-                        {
-                            if (await daemon.FailStalledSessionAsync(session, runId, DateTime.UtcNow,
-                                config.StallTimeout, "Prefill stalled: no bytes transferred within the configured timeout.",
-                                scheduleId: serviceConfig.ScheduleId))
-                            {
-                                await StopRelayAsync();
-                                await ReportProgressAsync(notifications, serviceRun, "failed", "Prefill stalled (no progress)", percent: ScheduledPrefillRunGates.ComputeRunPercent(1), stageKey: "signalr.scheduledPrefill.failedStalled");
-                                return ScheduledPrefillServiceRunResult.Failed;
-                            }
-                        }
-
-                        // Wait out the guard cadence in slices, breaking the moment the prefill stops, so a
-                        // stop is acted on in ~250ms instead of up to a full ten seconds.
-                        //
-                        // Counted slices, NOT a wall-clock deadline: DateTime.UtcNow is not monotonic, so an
-                        // NTP correction, a VM resume or an admin moving the clock backwards would otherwise
-                        // suspend the guard checks for the length of the jump.
-                        var slices = (int)Math.Ceiling(_guardCheckInterval / _stopDetectionSlice);
-                        for (var slice = 0; slice < slices && session.IsPrefilling; slice++)
-                        {
-                            await Task.Delay(_stopDetectionSlice, ct);
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        if (runId.HasValue)
-                            await daemon.CancelPrefillRunAsync(sessionId, runId.Value, CancellationToken.None);
-                        throw;
-                    }
-                }
-
-                await StopRelayAsync();
-
-                // A prefill the user STOPPED leaves the loop above exactly like a natural finish: the
-                // modal's stop cancels the DAEMON session (not this run's token), and the terminal funnel is
-                // the sole writer of IsPrefilling=false, stamping the reason on the session as it goes.
-                // Without this check a stopped prefill was reported as a completed run - it stamped the
-                // genuine "Last run" and told the user their cancelled prefill had succeeded.
-                if (session.PrefillState == PrefillState.Cancelled)
-                {
-                    await ReportProgressAsync(
-                        notifications,
-                        serviceRun,
-                        "cancelled",
-                        "Prefill stopped",
-                        downloadSessionId: sessionId,
-                        percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                        stageKey: "signalr.scheduledPrefill.stopped");
-                    return ScheduledPrefillServiceRunResult.Cancelled;
-                }
-
-                // A run the daemon ENDED WITH AN ERROR leaves the loop the same way a natural finish does,
-                // and it usually transferred zero bytes, so the completion message below classified it as
-                // "all selected games were already cached" and stamped a successful run. The terminal
-                // funnel is the sole writer of this state, so it is the authoritative outcome. [1]
-                if (session.PrefillState == PrefillState.Failed)
-                {
-                    var daemonFailure = !string.IsNullOrWhiteSpace(session.ErrorMessage);
-                    await ReportProgressAsync(
-                        notifications,
-                        serviceRun,
-                        "failed",
-                        daemonFailure ? session.ErrorMessage! : "Prefill failed",
-                        downloadSessionId: sessionId,
-                        percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                        // The daemon's own text has no key to translate it by, so only the generic
-                        // sentence this method wrote itself carries one.
-                        stageKey: session.ErrorStageKey ?? (daemonFailure ? null : "signalr.scheduledPrefill.failed"));
-                    return ScheduledPrefillServiceRunResult.Failed;
-                }
-
-                // The daemon calls a run successful when every app in it failed individually: nothing
-                // threw, so its own result carries Success=true and the branch above never fires. Its
-                // per-app failure count is the only evidence left, and a run that downloaded none of the
-                // games it was asked for is not a completed run. Checked AFTER the daemon's own error so
-                // a reported reason, which names the actual cause, still wins over this count. [34]
-                var failedApps = relay.FailedApps;
-                // The daemon reports TotalApps over the socket and can send 0 with an app_completed
-                // tick, which would read as "2 of 0 games". The failures themselves are the floor.
-                var attemptedApps = Math.Max(relay.TotalApps, failedApps);
-                if (failedApps > 0 && attemptedApps == failedApps)
-                {
-                    await ReportProgressAsync(
-                        notifications,
-                        serviceRun,
-                        "failed",
-                        $"{failedApps} of {attemptedApps} games failed to download",
-                        downloadSessionId: sessionId,
-                        percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                        stageKey: "signalr.scheduledPrefill.failedApps",
-                        stageContext: new Dictionary<string, object?>
-                        {
-                            ["failed"] = failedApps,
-                            ["total"] = attemptedApps
-                        });
-                    return ScheduledPrefillServiceRunResult.Failed;
-                }
-
-                // Some games failed while others downloaded: the platform completes, and its card names
-                // how many failed.
-                if (failedApps > 0)
-                {
-                    serviceRun.State.Warning = new RunWarning(
-                        "signalr.scheduledPrefill.failedApps",
-                        new Dictionary<string, object?> { ["failed"] = failedApps, ["total"] = attemptedApps });
-                }
-
-                var completion = BuildCompletionMessage(session.TotalBytesTransferred,
-                    hasSelectedApps && !serviceConfig.Force);
-                await ReportProgressAsync(
-                    notifications,
-                    serviceRun,
-                    "completed",
-                    completion.Message,
-                    bytesDownloaded: session.TotalBytesTransferred,
-                    downloadSessionId: sessionId,
-                    percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                    stageKey: completion.StageKey,
-                    stageContext: completion.Context);
-                return ScheduledPrefillServiceRunResult.Ran;
-            }
-            finally
-            {
-                // The handler must never outlive the service that owns it: a leaked closure would keep
-                // emitting this service's card from the NEXT service's daemon ticks.
-                await StopRelayAsync();
-            }
-        }
-        finally
-        {
-            if (session.PrefillScheduleId == serviceConfig.ScheduleId)
-            {
-                session.PrefillScheduleId = null;
-            }
-        }
+    private async Task<ScheduledPrefillServiceRunResult> ReportContainerBusyAsync(
+        ISignalRNotificationService notifications, ScheduledPrefillServiceRun serviceRun)
+    {
+        await ReportProgressAsync(
+            notifications,
+            serviceRun,
+            "skipped",
+            "The persistent container is busy",
+            percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
+            stageKey: "signalr.scheduledPrefill.skippedContainerBusy");
+        return ScheduledPrefillServiceRunResult.Skipped;
     }
 
     private async Task<ScheduledPrefillServiceRunResult> StartRunAsync(
@@ -1508,6 +1254,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 stageKey: "errors.prefill.runLimit");
             return ScheduledPrefillServiceRunResult.Unavailable;
         }
+        catch (DaemonCommandException ex) when (ex.ErrorCode == "daemon-outdated")
+        {
+            await ReportProgressAsync(notifications, serviceRun, "skipped",
+                "The prefill daemon image is too old for this version.",
+                stageKey: "errors.prefill.daemonOutdated");
+            return ScheduledPrefillServiceRunResult.Unavailable;
+        }
         catch (DaemonCommandException ex) when (ex.RequiresLogin)
         {
             await ReportProgressAsync(notifications, serviceRun, "needs-login",
@@ -1516,10 +1269,38 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 stageKey: "signalr.scheduledPrefill.needsPersistentLogin");
             return ScheduledPrefillServiceRunResult.NeedsLogin;
         }
-        var run = daemon.GetRun(session.Id, serviceRun.OperationId)
-            ?? throw new DaemonCommandException("operation-not-found");
+        catch (Exception ex) when (ex is KeyNotFoundException or DaemonCommandException && !daemon.IsSessionLive(session))
+        {
+            // A Stop or an image update ended the session after the run read it.
+            return await ReportSessionEndedAsync(daemon, notifications, serviceRun);
+        }
+        catch (DaemonCommandException ex) when (ex.ErrorCode == "outcome-unknown")
+        {
+            // The live session refused the run before adding it, while an image update or a recovery holds it.
+            return await ReportContainerBusyAsync(notifications, serviceRun);
+        }
+        var run = daemon.GetRun(session.Id, serviceRun.OperationId);
+        if (run is null)
+        {
+            // The same ending when the session ended after the daemon accepted the run.
+            if (!daemon.IsSessionLive(session))
+                return await ReportSessionEndedAsync(daemon, notifications, serviceRun);
+            throw new DaemonCommandException("operation-not-found");
+        }
         return await WatchRunAsync(daemon, session, run, serviceRun, notifications, config);
     }
+
+    /// <summary>
+    /// The line a run's card shows for a lifecycle stage, with the key the browser translates it by.
+    /// </summary>
+    private static (string Message, string StageKey) DescribeStage(string stage) => stage switch
+    {
+        "starting" => ("Starting scheduled prefill", "signalr.scheduledPrefill.starting"),
+        "preparing" => ("Preparing prefill", "signalr.scheduledPrefill.preparing"),
+        "recovering" => ("Waiting for the prefill daemon to reconnect", "signalr.scheduledPrefill.reconnecting"),
+        "cancelling" => ("Stopping prefill", "signalr.scheduledPrefill.stopping"),
+        _ => ("Prefill in progress", "signalr.scheduledPrefill.running")
+    };
 
     private async Task<ScheduledPrefillServiceRunResult> WatchRunAsync(
         PrefillDaemonServiceBase daemon, DaemonSession session, DaemonRun run,
@@ -1550,13 +1331,12 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     if (serviceRun.Token.IsCancellationRequested || expired)
                     {
                         // A cancel the person sent is theirs even when the limit passed before this pass saw it.
-                        await daemon.CancelPrefillRunAsync(session.Id, run.PrefillRunId, CancellationToken.None,
+                        await daemon.CancelPrefillRunAsync(session.Id, run.PrefillRunId, _stopBudget,
                             expired && !serviceRun.Token.IsCancellationRequested ? "runtime-exceeded" : null);
                     }
                     else if (stalled)
                         await daemon.FailStalledSessionAsync(session, run.PrefillRunId, now,
-                            config.StallTimeout, "Prefill stalled: no bytes transferred within the configured timeout.",
-                            scheduleId: serviceRun.ServiceConfig.ScheduleId);
+                            config.StallTimeout, scheduleId: serviceRun.ServiceConfig.ScheduleId);
                 }
                 var stage = run.CancelRequested ? "cancelling" : run.Recovering || session.Recovering ? "recovering"
                     : run.Snapshot.State is "started" or "preparing" ? "preparing" : "running";
@@ -1565,11 +1345,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 if (resumed) await relay.ReplayLatestAsync(resume: true);
                 if (stage is "recovering" or "cancelling" || previous.Stage == "starting"
                     || resumed && serviceRun.State.Stage == "recovering")
-                    await ReportProgressAsync(notifications, serviceRun, stage,
-                        stage == "recovering" ? "Waiting for the prefill daemon to reconnect"
-                            : stage == "cancelling" ? "Stopping prefill"
-                            : stage == "preparing" ? "Preparing prefill" : "Prefill in progress",
+                {
+                    var line = DescribeStage(stage);
+                    await ReportProgressAsync(notifications, serviceRun, stage, line.Message, stageKey: line.StageKey,
                         downloadSessionId: session.Id, run: run, session: session);
+                }
                 await Task.WhenAny(run.Completion.Task, Task.Delay(_stopDetectionSlice, _detachedRunLifetime.Token));
             }
         }
@@ -1628,7 +1408,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             ScheduledPrefillServiceRunResult.Ran => completion.StageKey,
             _ => run.CancelReason == "runtime-exceeded" ? "signalr.scheduledPrefill.failedMaxRuntime"
                 : run.CancelReason == "stalled" ? "signalr.scheduledPrefill.failedStalled"
-                : run.ErrorStageKey ?? "signalr.scheduledPrefill.failed"
+                : run.ErrorStageKey!
         };
         await ReportProgressAsync(notifications, serviceRun, outcome switch
         {
@@ -1641,7 +1421,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             ScheduledPrefillServiceRunResult.Ran => completion.Message,
             ScheduledPrefillServiceRunResult.Cancelled => "Prefill stopped",
             ScheduledPrefillServiceRunResult.Skipped => "All selected games overlapped another prefill; no work was performed.",
-            _ => run.ErrorMessage ?? "Prefill failed"
+            _ => run.ErrorMessage!
         }, bytesDownloaded: summary.BytesTransferred, downloadSessionId: session.Id,
             percent: 100, stageKey: stageKey, stageContext: outcome == ScheduledPrefillServiceRunResult.Ran ? completion.Context : null);
         return outcome;
@@ -1665,7 +1445,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
     /// <summary>
     /// Turns the daemon's live progress PUSH into this run's universal-notification events.
-    /// Replaces the ten-second sampler that used to re-read <see cref="DaemonSession.LastProgress"/>.
+    /// Replaces the ten-second sampler that used to re-read the session's progress.
     ///
     /// It is deliberately more than an event handler, because the push is not as tame as it looks:
     /// socket events are dispatched fire-and-forget, so two ticks can be in flight at once and an
@@ -1694,7 +1474,6 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         private readonly DaemonSession _session;
         private readonly ScheduledPrefillServiceRun _serviceRun;
         private readonly string _sessionId;
-        private readonly int _selectedAppCount;
 
         /// <summary>
         /// Serializes decide-and-send. A plain lock cannot span the awaited SignalR send, so two
@@ -1728,7 +1507,6 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             _session = session;
             _serviceRun = serviceRun;
             _sessionId = sessionId;
-            _selectedAppCount = serviceRun.ServiceConfig.SelectedAppIds.Count;
         }
 
         /// <summary>
@@ -1757,14 +1535,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         internal Task ReplayLatestAsync(bool resume = false)
         {
             if (resume) _replayPending = true;
-            if (_session.Runs.TryGetValue(_serviceRun.OperationId, out var run))
-                return run.LastProgress is { } progress
-                    ? OnProgressAsync(_session, progress, progress.Sequence) : Task.CompletedTask;
-            var sequence = Interlocked.Read(ref _session.ProgressSequence);
-            var snapshot = _session.LastProgress;
-            return snapshot is null
-                ? Task.CompletedTask
-                : OnProgressAsync(_session, snapshot, sequence);
+            return _session.Runs.TryGetValue(_serviceRun.OperationId, out var run) && run.LastProgress is { } progress
+                ? OnProgressAsync(_session, progress, progress.Sequence) : Task.CompletedTask;
         }
 
         internal async Task OnProgressAsync(DaemonSession pushedSession, PrefillProgress progress, long sequence)
@@ -1774,10 +1546,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 return;
             }
 
-            _session.Runs.TryGetValue(_serviceRun.OperationId, out var run);
-            if (!_session.Runs.IsEmpty && (run is null
+            if (!_session.Runs.TryGetValue(_serviceRun.OperationId, out var run)
                 || progress.OperationId != _serviceRun.OperationIdString
-                || progress.DaemonInstanceId != run.DaemonInstanceId))
+                || progress.DaemonInstanceId != run.DaemonInstanceId)
                 return;
 
             // TRY-enter, never queue. If a send is already in flight this tick is DROPPED - the next
@@ -1793,7 +1564,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
             try
             {
-                if (run is not null && (sequence < _highestSequence || sequence == _highestSequence && !_replayPending))
+                if (sequence < _highestSequence || sequence == _highestSequence && !_replayPending)
                     return;
                 // Completion counters advance even for an OVERTAKEN tick: dropping a stale
                 // app-completed payload must not lose the knowledge that the game actually finished,
@@ -1813,16 +1584,11 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 // every app failed by reporting success, so this count is the only evidence the run
                 // is worth failing, and a downloading tick would otherwise reset it to zero.
                 _failedApps = Math.Max(_failedApps, progress.FailedApps);
-                _totalApps = Math.Max(
-                    _totalApps,
-                    run is null && _selectedAppCount > 0 ? _selectedAppCount : progress.TotalApps);
+                _totalApps = Math.Max(_totalApps, progress.TotalApps);
 
                 // Re-check inside the gate: the run's terminal path may have won the race while this
                 // tick was queued. A live line must never land on a card that is already terminal.
-                if (!_active
-                    || (run is null
-                        ? !_session.IsPrefilling || Volatile.Read(ref _session.TerminalCompletedFlag) != 0
-                        : Volatile.Read(ref run.TerminalCompletedFlag) != 0))
+                if (!_active || Volatile.Read(ref run.TerminalCompletedFlag) != 0)
                 {
                     return;
                 }
@@ -2079,7 +1845,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
 
         // Mirror the line onto this service's own tracked operation before sending it, so a browser
         // that reloads mid-run rebuilds this service's card from the run-status endpoint instead of
-        // waiting for the next tick that may be minutes away. [25]
+        // waiting for the next tick that may be minutes away.
         var snapshot = serviceRun.State.Record(stage, message, stageKey, percent, clearPercent,
             stageContext, bytesDownloaded, totalBytes, downloadSessionId, needsLoginReason,
             run, session, ordinaryProgress, resume: resume);
@@ -2102,7 +1868,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         {
             // This SERVICE's operation id: the card it lands on is keyed by service, and its cancel
             // must reach this platform alone. The run's id rides alongside so the browser can still
-            // tell one run from the next. [19]
+            // tell one run from the next.
             operationId = serviceRun.OperationIdString,
             runOperationId = serviceRun.RunOperationId,
             serviceId = serviceId.ToString(),
@@ -2115,8 +1881,8 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             message = snapshot.Message,
             // Names the one sentence this event puts on the card - the skip reason, the needs-login
             // reason, or the progress line - so the browser can render it in the reader's language.
-            // The English above stays on the wire for the log and as the fallback for a build whose
-            // locale has no words for the key yet.
+            // The English above is the server log's line; the browser shows it only when an event has
+            // no key or the key's placeholders have no values.
             stageKey = snapshot.StageKey,
             stageContext = snapshot.StageContext,
             needsLoginReason = snapshot.NeedsLoginReason,

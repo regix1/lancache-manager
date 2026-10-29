@@ -140,11 +140,12 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     }
 
     /// <summary>
-    /// Runs a prefill for the session's current selection and waits for it to finish.
+    /// Starts a prefill for the session's current selection and returns when the daemon accepts the run.
     /// </summary>
     /// <remarks>
-    /// The caller gets the real outcome rather than a job id. A prefill that is already in
-    /// flight for this session comes back as 409 Conflict instead of starting a second one.
+    /// The response carries the run id and its accepted state, not the finished outcome; progress and the
+    /// outcome arrive over the hub. A prefill that is already in flight for this session comes back as
+    /// 409 Conflict instead of starting a second one.
     /// </remarks>
     [HttpPost("sessions/{sessionId}/prefill")]
     [ProducesResponseType(typeof(PrefillResult), StatusCodes.Status200OK)]
@@ -160,11 +161,11 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
         var userSession = HttpContext.GetUserSession();
         if (userSession != null)
         {
-            var effectiveLimit = ResolveThreadLimit(userSession);
-            if (effectiveLimit.HasValue)
+            var threadLimit = ResolveThreadLimit(userSession);
+            if (threadLimit.HasValue)
             {
                 request ??= new StartPrefillRequest();
-                request.MaxConcurrency = Math.Min(request.MaxConcurrency ?? effectiveLimit.Value, effectiveLimit.Value);
+                request.MaxConcurrency = Math.Min(request.MaxConcurrency ?? threadLimit.Value, threadLimit.Value);
             }
         }
 
@@ -209,7 +210,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
             // it is safe to surface via the canonical ApiResponse factory.
             _logger.LogInformation("{Platform} prefill rejected for session {SessionId}: {Message}",
                 _platformName, sessionId, ex.Message);
-            throw new ConflictException(ex.Message);
+            throw new ConflictException(ex.Message) { StageKey = "prefill.log.alreadyRunning" };
         }
     }
 

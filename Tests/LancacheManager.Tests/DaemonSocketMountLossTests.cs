@@ -23,7 +23,8 @@ public sealed class DaemonSocketMountLossTests : IDisposable
     {
         // No directory at all: the bind mount is gone, exactly the deleted-data-folder case.
         var socketPath = Path.Combine(NewTempRoot(), "sessions", "abc123", "responses", "daemon.sock");
-        using var client = new SocketDaemonClient(socketPath, sharedSecret: null, logger: NullLogger<SocketDaemonClient>.Instance);
+        using var client = new SocketDaemonClient(socketPath, sharedSecret: null, logger: NullLogger<SocketDaemonClient>.Instance)
+        { SignInLostStageKey = "errors.steam.signInLost" };
 
         var elapsed = Stopwatch.StartNew();
         var failure = await Assert.ThrowsAsync<FileNotFoundException>(
@@ -48,7 +49,8 @@ public sealed class DaemonSocketMountLossTests : IDisposable
         var responsesDir = Path.Combine(NewTempRoot(), "sessions", "abc123", "responses");
         Directory.CreateDirectory(responsesDir);
         var socketPath = Path.Combine(responsesDir, "daemon.sock");
-        using var client = new SocketDaemonClient(socketPath, sharedSecret: null, logger: NullLogger<SocketDaemonClient>.Instance);
+        using var client = new SocketDaemonClient(socketPath, sharedSecret: null, logger: NullLogger<SocketDaemonClient>.Instance)
+        { SignInLostStageKey = "errors.steam.signInLost" };
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var elapsed = Stopwatch.StartNew();

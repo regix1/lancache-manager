@@ -1,6 +1,7 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Scheduling;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 
@@ -63,7 +64,7 @@ public sealed class OperationQueueService : IOperationQueue
 
     /// <summary>
     /// Invoked when a parked operation ends, including a cancel. The cache controller drops the queued
-    /// Remove all whose id this is. Synchronous, on the completion stack.
+    /// Remove all whose id this is and reports an ending that ran no service. Synchronous, on the completion stack.
     /// </summary>
     internal static Action<Guid>? QueuedRemoveAllEnded;
     private static readonly TimeSpan _promotionRetryDelay = TimeSpan.FromMilliseconds(100);
@@ -459,6 +460,9 @@ public sealed class OperationQueueService : IOperationQueue
 
     private async Task PromoteEligibleAsync()
     {
+        // A pass raised from a repair's flow carries the repair's silence limit, and a promoted job
+        // is never that repair's own step. Cleared here, so it does not flow back to the caller.
+        RustProcessHelper.ChildSilenceLimit.Value = null;
         try
         {
             var retryRequested = false;
@@ -504,6 +508,7 @@ public sealed class OperationQueueService : IOperationQueue
 
                     Guid? startedId = null;
                     string? startError = null;
+                    string? startErrorDetail = null;
                     var startDeclined = false;
                     var nothingToDo = false;
                     OperationBlockedException? stillBlocked = null;
@@ -565,8 +570,17 @@ public sealed class OperationQueueService : IOperationQueue
                         catch (Exception ex)
                         {
                             // A refusal's key reaches the card, which shows it in the reader's language. The card
-                            // carries no values, so a refusal that needs some keeps its filled-in sentence.
-                            startError = ex is ApiException { StageKey: { } refusalKey, Context: null } ? refusalKey : ex.Message;
+                            // carries no values, so a refusal that needs some keeps its filled-in sentence. An error that
+                            // is not a refusal is not worded for a reader: it ends on the generic key, and the row keeps
+                            // its text as the error detail.
+                            startError = ex switch
+                            {
+                                ApiException { StageKey: { } refusalKey, Context: null } => refusalKey,
+                                ApiException => ex.Message,
+                                _ => "signalr.generic.failed"
+                            };
+                            // A refusal's text is the server's English sentence; only the generic key needs the detail.
+                            startErrorDetail = ex is ApiException ? null : ex.Message;
                             _logger.LogError(ex, "Queued {Type} '{Name}' failed to start at promotion", waiter.Type, waiter.Name);
                         }
                     }
@@ -712,7 +726,11 @@ public sealed class OperationQueueService : IOperationQueue
                             success: startDeclined || nothingToDo,
                             error: startError,
                             skipped: startDeclined || nothingToDo,
-                            onCompleting: startDeclined ? MarkSkippedForDownload : null);
+                            onCompleting: startDeclined
+                                ? MarkSkippedForDownload
+                                : startErrorDetail is { } detail
+                                    ? (OperationInfo operation) => operation.ErrorDetail = detail
+                                    : null);
                     }
                 }
             }

@@ -20,7 +20,7 @@ public abstract partial class PrefillDaemonServiceBase
     {
         try
         {
-            // RC3: a challenge can still arrive from a daemon
+            // A challenge can still arrive from a daemon
             // client whose session was already terminated/replaced - the client read loop delivering a
             // queued "username" challenge right after Stop removed the session, just as a fresh
             // container becomes the service's active session. Writing it to PendingLoginChallenge or
@@ -83,11 +83,11 @@ public abstract partial class PrefillDaemonServiceBase
     }
 
     /// <summary>
-    /// Handles status update events from socket communication.
+    /// Applies a daemon status. A status read passes <paramref name="signOutCount"/>, the session's
+    /// <see cref="DaemonSession.SignOutCount"/> taken before the read; a pushed status passes null.
     /// </summary>
-    private async Task OnStatusChangeAsync(DaemonSession session, DaemonStatus status)
+    private async Task ApplyStatusAsync(DaemonSession session, DaemonStatus status, int? signOutCount)
     {
-        Exception? cancelMarkWriteFailure = null;
         try
         {
             // Post-detach/replace/terminate guard: daemon event callbacks are dispatched fire-and-forget,
@@ -111,12 +111,17 @@ public abstract partial class PrefillDaemonServiceBase
                 {
                     return;
                 }
+                // A signed-in answer read before a sign-out was applied is older than that sign-out.
+                if (signOutCount is { } readFrom && status.Status == "logged-in" && session.SignOutCount != readFrom)
+                {
+                    return;
+                }
 
                 previousAuthState = session.AuthState;
                 var reportedAuthState = status.Status switch
                 {
                     "awaiting-login" => DaemonAuthState.NotAuthenticated,
-                    "not-logged-in" when status.SupportsConcurrentPrefill && Platform.RequiresLogin() => DaemonAuthState.NotAuthenticated,
+                    "not-logged-in" when Platform.RequiresLogin() => DaemonAuthState.NotAuthenticated,
                     "logged-in" => DaemonAuthState.Authenticated,
                     _ => session.AuthState
                 };
@@ -127,15 +132,14 @@ public abstract partial class PrefillDaemonServiceBase
                 // daemon reached signed-in, so a later connection drop can clear the mark and sign in once.
                 // Message "Initialized" is the daemon's startup snapshot (GetStatus maps isInitialized to
                 // that text). It is not a finished sign-in, so it never arms the drop for this cancel.
-                // A logged-in report while this cancel is still running is the cancel's own sign-in,
-                // including one with no message, so it does not arm either. Once LoginCanceling is
-                // clear, a later logged-in report does, and a drop after that can sign in once.
+                // A sign-in the daemon finishes while this cancel is still running arms it too: a cancel
+                // cannot undo a finished sign-in, so no drop code for this cancel follows it.
                 var keepPersonCancel = session.LoginCanceledByPerson
                     && reportedAuthState == DaemonAuthState.Authenticated;
                 if (keepPersonCancel)
                 {
                     var initializedSnapshot = string.Equals(status.Message, "Initialized", StringComparison.Ordinal);
-                    if (!session.LoggedInWhilePersonCanceled && !initializedSnapshot && !session.LoginCanceling)
+                    if (!session.LoggedInWhilePersonCanceled && !initializedSnapshot)
                     {
                         session.LoggedInWhilePersonCanceled = true;
                         witnessArmed = true;
@@ -148,15 +152,21 @@ public abstract partial class PrefillDaemonServiceBase
                     newAuthState = reportedAuthState;
                     session.AuthState = newAuthState;
                     // Any sign-in ends the retry for the drop before it. A retry still waiting returns at its
-                    // next wake, and the next drop starts its own retry with the first wait.
+                    // next wake, and the next drop starts its own retry with the first wait. Only a change into
+                    // signed in is a new sign-in: a status read or a repeated report of a container already
+                    // signed in is the same one.
                     if (newAuthState == DaemonAuthState.Authenticated)
                     {
-                        session.SignInCount++;
+                        if (previousAuthState != DaemonAuthState.Authenticated) session.SignInCount++;
                         session.SignInAgainAfterDrop = null;
-                        cancelMarkCleared = session.LoginCanceledByPerson || session.LoggedInWhilePersonCanceled;
+                        cancelMarkCleared = session.LoginCanceledByPerson || session.LoggedInWhilePersonCanceled
+                            || _loginStateRowsOutOfDate.ContainsKey(session.Id);
                         session.LoginCanceledByPerson = false;
                         session.LoggedInWhilePersonCanceled = false;
-                        _canceledAutomaticSignIn.TryRemove(session.Id, out _);
+                    }
+                    else if (previousAuthState == DaemonAuthState.Authenticated)
+                    {
+                        session.SignOutCount++;
                     }
 
                     // The daemon reports a refused sign-in as "awaiting-login" with a "Login failed:" message.
@@ -196,31 +206,15 @@ public abstract partial class PrefillDaemonServiceBase
                 {
                     session.LoggedInWhilePersonCanceled = false;
                     session.LoginCanceledByPerson = false;
-                    _canceledAutomaticSignIn.TryRemove(session.Id, out _);
                     cancelMarkCleared = true;
                 }
             }
 
+            // A write that fails keeps memory as the truth: the daemon did reach logged-in, and a drop still
+            // starts its retry below.
             if (cancelMarkCleared || witnessArmed)
             {
-                try
-                {
-                    await SaveLoginCanceledByPersonAsync(session);
-                }
-                catch (Exception ex)
-                {
-                    // This read's witness never reached the row, so the in-memory flag goes back to clear.
-                    if (witnessArmed)
-                    {
-                        lock (session.PrefillLock)
-                        {
-                            session.LoggedInWhilePersonCanceled = false;
-                        }
-                    }
-
-                    cancelMarkWriteFailure = ex;
-                    throw;
-                }
+                await SaveLoginStateAsync(session);
             }
 
             // Capture the resolved account display name from either ingest field (GetStatus
@@ -291,6 +285,28 @@ public abstract partial class PrefillDaemonServiceBase
                 StartSignInAgain(session);
             }
 
+            // A log-off reports a signed-in container signed out without the drop code while the daemon keeps the
+            // saved login (Steam as awaiting-login, Epic and Xbox through the status read as not logged in), so the
+            // stored mark keeps a restart or a recreate from signing it in again. A drop code, also one that follows
+            // that report, says the connection dropped instead.
+            if (newAuthState == DaemonAuthState.NotAuthenticated && session.IsPersistent)
+            {
+                bool signedOut;
+                bool signedOutChanged;
+                lock (session.PrefillLock)
+                {
+                    signedOut = status.ErrorCode != "auth-lost"
+                        && (session.SignedOut
+                            || (previousAuthState == DaemonAuthState.Authenticated && status.Status != "logged-in"));
+                    signedOutChanged = signedOut != session.SignedOut;
+                    session.SignedOut = signedOut;
+                }
+                if (signedOutChanged)
+                {
+                    await SaveLoginStateAsync(session);
+                }
+            }
+
             if (session.AuthState != previousAuthState)
             {
                 await NotifyAuthStateChangeAsync(session);
@@ -332,7 +348,7 @@ public abstract partial class PrefillDaemonServiceBase
             if (session.AuthState == newAuthState)
                 await NotifyStatusChangeAsync(session, status);
         }
-        catch (Exception ex) when (!ReferenceEquals(ex, cancelMarkWriteFailure))
+        catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error handling socket status change for session {SessionId}", session.Id);
         }
@@ -354,78 +370,11 @@ public abstract partial class PrefillDaemonServiceBase
     {
         try
         {
-            if (!session.Runs.IsEmpty || session.Capabilities?.SupportsConcurrentPrefill == true)
-            {
-                if (IsSessionLive(session) && Guid.TryParse(socketProgress.OperationId, out var id)
-                    && session.Runs.TryGetValue(id, out var run)
-                    && run.DaemonInstanceId == socketProgress.DaemonInstanceId
-                    && socketProgress.Sequence > run.Snapshot.Sequence && run.TerminalCompletedFlag == 0)
-                    await ReconcileRunAsync(session, run, session.CancellationTokenSource.Token);
-                return;
-            }
-            Guid? runId;
-            lock (session.PrefillLock)
-            {
-                runId = session.PrefillRunId;
-                if (socketProgress.OperationId is not null
-                    && (!Guid.TryParse(socketProgress.OperationId, out var operationId) || operationId != runId))
-                    return;
-                if (runId is null || !session.IsPrefilling || session.TerminalCompletedFlag != 0)
-                    return;
-            }
-            // Post-detach/replace/terminate guard (see OnStatusChangeAsync): a fire-and-forget progress
-            // event can arrive after this session was torn down; ignore it before any history/cache write
-            // or broadcast if it is no longer the live registered instance. NotifyPrefillProgressAsync
-            // re-checks after its awaits before durable writes/broadcasts.
-            if (!IsSessionLive(session))
-            {
-                return;
-            }
-
-            // Convert socket progress to internal PrefillProgress format
-            // Property names match daemon's PrefillProgressUpdate class
-            var progress = new PrefillProgress
-            {
-                OperationId = runId.ToString(),
-                ErrorCode = socketProgress.ErrorCode,
-                RequiresLogin = socketProgress.RequiresLogin,
-                State = socketProgress.State ?? "downloading",
-                // The daemon sends currentAppId as a number and uses 0 for "no app in flight",
-                // which the flexible string converter turns into "0" rather than null. Every
-                // downstream check is a null/empty test, so an un-normalized "0" reads as a real
-                // app: it opened a history entry after the last game finished that nothing could
-                // ever complete, and session teardown then recorded it as a cancelled "App 0".
-                CurrentAppId = socketProgress.CurrentAppId == "0" ? null : socketProgress.CurrentAppId,
-                CurrentAppName = socketProgress.CurrentAppName,
-                TotalBytes = socketProgress.TotalBytes,
-                BytesDownloaded = socketProgress.BytesDownloaded,
-                PercentComplete = socketProgress.PercentComplete,
-                BytesPerSecond = (long)socketProgress.BytesPerSecond,
-                ElapsedSeconds = socketProgress.ElapsedSeconds,
-                TotalApps = socketProgress.TotalApps,
-                UpdatedApps = socketProgress.UpdatedApps,
-                AlreadyUpToDate = socketProgress.AlreadyUpToDate,
-                FailedApps = socketProgress.FailedApps,
-                TotalBytesTransferred = socketProgress.TotalBytesTransferred,
-                TotalTimeSeconds = socketProgress.TotalTimeSeconds,
-                UpdatedAt = socketProgress.UpdatedAt,
-                Result = socketProgress.Result,
-                ErrorMessage = string.IsNullOrEmpty(socketProgress.ErrorMessage) ? null
-                    : new DaemonCommandException(socketProgress.ErrorCode, socketProgress.RequiresLogin == true).Message,
-                // Map depot info for cache tracking
-                Depots = socketProgress.Depots?.Select(d => new DepotManifestProgressInfo
-                {
-                    DepotId = d.DepotId,
-                    ManifestId = d.ManifestId,
-                    TotalBytes = d.TotalBytes
-                }).ToList()
-            };
-
-            _logger.LogDebug("Socket Progress: {AppName} ({AppId}) - {State}, {Bytes}/{Total} bytes",
-                progress.CurrentAppName, progress.CurrentAppId, progress.State,
-                progress.BytesDownloaded, progress.TotalBytes);
-
-            await NotifyPrefillProgressAsync(session, progress);
+            if (IsSessionLive(session) && Guid.TryParse(socketProgress.OperationId, out var id)
+                && session.Runs.TryGetValue(id, out var run)
+                && run.DaemonInstanceId == socketProgress.DaemonInstanceId
+                && socketProgress.Sequence > run.Snapshot.Sequence && run.TerminalCompletedFlag == 0)
+                await ReconcileRunAsync(session, run, session.CancellationTokenSource.Token);
         }
         catch (Exception ex)
         {
@@ -451,7 +400,6 @@ public abstract partial class PrefillDaemonServiceBase
             FireAndForgetAsync(() => RefreshRunsAsync(session.Id), nameof(RefreshRunsAsync));
             return;
         }
-        Guid? runId;
         lock (session.PrefillLock)
         {
             if (!IsSessionLive(session) || !ReferenceEquals(session.Client, daemonClient)
@@ -459,7 +407,6 @@ public abstract partial class PrefillDaemonServiceBase
                 || session.CancellationTokenSource.IsCancellationRequested)
                 return;
             session.Status = DaemonSessionStatus.Error;
-            runId = session.PrefillRunId;
         }
         _logger.LogWarning("Socket disconnected for session {SessionId}", session.Id);
         try
@@ -473,7 +420,6 @@ public abstract partial class PrefillDaemonServiceBase
                 session.LastLoginFailureKey = failure.StageKey;
                 CompleteLoginOperation(session);
             }
-            await TransitionToTerminalAsync(session, PrefillState.Failed, runId, failure.Message, failure.StageKey);
             DaemonSessionDto snapshot;
             lock (session.PrefillLock)
             {
@@ -536,6 +482,8 @@ public abstract partial class PrefillDaemonServiceBase
         var authState = session.AuthState;
         // Read with the state, before any await: the attempt this state belongs to, which a new start may move on.
         var loginAttempt = session.LoginAttempt;
+        // Only a person's Log in registers a login operation; the automatic sign-ins never do.
+        var personLogin = session.LoginOperationId is not null;
         // Every ending of a login comes through here - the daemon's own success broadcast, a fail-fast,
         // the user cancelling, a logout, a login command that never reached the daemon, and the headless
         // abandon - so this is the single place a login's card gets closed. LoggingIn is the one state
@@ -566,6 +514,17 @@ public abstract partial class PrefillDaemonServiceBase
                 {
                     session.LoginSettled = true;
                 }
+            }
+
+            // A person's finished Log in starts a new re-login window from now, stored so a restart reads it.
+            // The automatic sign-ins keep the stored sign-in time and date.
+            if (personLogin && session.IsPersistent)
+            {
+                var lastLoginAt = DateTime.UtcNow;
+                session.LastLoginAt = lastLoginAt;
+                session.ExpiresAt = ComputePersistentExpiry(lastLoginAt, _stateService.GetAdminPersistentLoginValidityDays());
+                session.NeedsRelogin = false;
+                await SaveLoginStateAsync(session);
             }
         }
 
@@ -652,434 +611,9 @@ public abstract partial class PrefillDaemonServiceBase
             new { sessionId = session.Id, status });
     }
 
-    /// <summary>
-    /// Emits the non-terminal <c>started</c> state transition: resets the per-run terminal
-    /// idempotency guard, records the start time, clears any previous completion result, and
-    /// broadcasts exactly one <c>PrefillStateChanged</c>. Terminal transitions
-    /// (completed/failed/cancelled) go exclusively through <see cref="TransitionToTerminalAsync"/>.
-    /// </summary>
-    private async Task NotifyPrefillStartedAsync(DaemonSession session)
+    private async Task BroadcastHistoryUpdatedAsync(string sessionId)
     {
-        var state = PrefillProgressState.Started.ToWireString();
-        var started = new { sessionId = session.Id, state, durationSeconds = (int?)null };
-        await BroadcastToSubscribersAsync(session, EventPrefillStateChanged, started);
-        if (!IsSessionLive(session)) return;
-        await _notifications.NotifyAdminAsync(EventPrefillStateChanged, started);
-        if (!IsSessionLive(session)) return;
-        await ReportSessionActivityAsync(session, present: true);
-    }
-
-    /// <summary>
-    /// THE SINGLE terminal funnel for a prefill run. Idempotent via an
-    /// <see cref="Interlocked.CompareExchange(ref int, int, int)"/> guard on
-    /// <see cref="DaemonSession.TerminalCompletedFlag"/>, so a socket-death + a late daemon
-    /// terminal event can never double-fire. This is the ONLY place that:
-    /// sets <c>IsPrefilling=false</c>, records the <c>LastPrefill*</c> completion result,
-    /// clears the <c>LastProgress</c> snapshot, and emits exactly one <c>PrefillStateChanged</c>.
-    /// ALL terminal paths (completed / failed / cancelled / cancel / socket-disconnect) route here.
-    /// </summary>
-    private async Task<bool> TransitionToTerminalAsync(
-        DaemonSession session, PrefillState terminalState, Guid? runId,
-        string? reason = null, string? stageKey = null, PrefillProgress? progress = null,
-        Func<bool>? canClaim = null, bool cancelDaemon = false, bool cancelBeforeClaim = false,
-        CancellationToken cancellationToken = default)
-    {
-        await session.PrefillWork.WaitAsync(cancellationToken);
-        try
-        {
-            IDaemonClient client;
-            lock (session.PrefillLock)
-            {
-                if (runId is null || !IsSessionLive(session) || session.PrefillRunId != runId
-                    || !session.IsPrefilling || session.TerminalCompletedFlag != 0
-                    || session.CancellationTokenSource.IsCancellationRequested
-                    || canClaim?.Invoke() == false)
-                    return false;
-                client = session.Client;
-            }
-
-            if (cancelDaemon && cancelBeforeClaim)
-                await client.CancelPrefillAsync(cancellationToken);
-
-            string? appId;
-            long bytesDownloaded;
-            long totalBytes;
-            int? durationSeconds;
-            string state;
-            lock (session.PrefillLock)
-            {
-                if (!IsSessionLive(session) || session.PrefillRunId != runId
-                    || !ReferenceEquals(client, session.Client) || !session.IsPrefilling
-                    || session.TerminalCompletedFlag != 0 || session.CancellationTokenSource.IsCancellationRequested
-                    || canClaim?.Invoke() == false)
-                    return false;
-
-                session.TerminalCompletedFlag = 1;
-                appId = session.CurrentAppId;
-                bytesDownloaded = session.CurrentBytesDownloaded;
-                totalBytes = session.CurrentTotalBytes;
-                durationSeconds = session.PrefillStartedAt.HasValue
-                    ? (int)(DateTime.UtcNow - session.PrefillStartedAt.Value).TotalSeconds : null;
-                state = terminalState switch
-                {
-                    PrefillState.Completed => PrefillProgressState.Completed.ToWireString(),
-                    PrefillState.Cancelled => PrefillProgressState.Cancelled.ToWireString(),
-                    _ => PrefillProgressState.Failed.ToWireString()
-                };
-                if (progress is not null)
-                    UpdateTransferredBytes(session, progress.TotalBytesTransferred);
-                session.ErrorMessage = reason;
-                session.ErrorStageKey = stageKey;
-                session.PrefillState = terminalState;
-                session.LastProgress = null;
-                Volatile.Write(ref session.LastProgressTicksUtc, 0L);
-                session.CurrentAppId = null;
-                session.CurrentAppName = null;
-                session.PreviousAppId = null;
-                session.PreviousAppName = null;
-                session.CurrentBytesDownloaded = 0;
-                session.CurrentTotalBytes = 0;
-                session.LastPrefillCompletedAt = DateTime.UtcNow;
-                session.LastPrefillDurationSeconds = durationSeconds;
-                session.LastPrefillStatus = state;
-                session.IsPrefilling = false;
-            }
-
-            try
-            {
-                try
-                {
-                    if (terminalState == PrefillState.Cancelled)
-                    {
-                        await _sessionService.CancelEntriesAsync(session.Id);
-                        if (appId is not null && IsSessionLive(session))
-                            await BroadcastHistoryUpdatedAsync(session.Id, appId, "Cancelled");
-                    }
-                    else if (appId is not null)
-                    {
-                        var status = terminalState == PrefillState.Failed ? "Failed"
-                            : bytesDownloaded == 0 ? "Cached" : "Completed";
-                        await _sessionService.CompleteEntryAsync(
-                            session.Id, appId, status, bytesDownloaded, totalBytes, reason);
-                        if (IsSessionLive(session))
-                            await BroadcastHistoryUpdatedAsync(session.Id, appId, status);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to close prefill history for session {SessionId}, run {RunId}", session.Id, runId);
-                }
-
-                if (cancelDaemon && !cancelBeforeClaim)
-                {
-                    try
-                    {
-                        using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                        await client.CancelPrefillAsync(cleanup.Token);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Could not confirm prefill cancellation for session {SessionId}, run {RunId}", session.Id, runId);
-                        lock (session.PrefillLock)
-                        {
-                            if (IsSessionLive(session) && session.PrefillRunId == runId
-                                && ReferenceEquals(session.Client, client))
-                                session.Status = DaemonSessionStatus.Error;
-                        }
-                    }
-                }
-
-                if (!IsSessionLive(session)) return true;
-                _logger.LogInformation("Prefill {State} for session {SessionId}, run {RunId}, duration: {Duration}s",
-                    state, session.Id, runId, durationSeconds ?? 0);
-                var terminal = new { sessionId = session.Id, state, durationSeconds };
-                try
-                {
-                    await BroadcastToSubscribersAsync(session, EventPrefillStateChanged, terminal);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to publish prefill terminal for session {SessionId}", session.Id);
-                }
-                if (!IsSessionLive(session)) return true;
-                try
-                {
-                    await _notifications.NotifyAdminAsync(EventPrefillStateChanged, terminal);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to publish prefill terminal to the hub for session {SessionId}", session.Id);
-                }
-                if (!IsSessionLive(session)) return true;
-                try
-                {
-                    var snapshot = DaemonSessionDto.FromSession(session);
-                    await NotifyHubAsync(session, EventSessionUpdated, snapshot);
-                    if (IsSessionLive(session))
-                        await ReportSessionActivityAsync(session, present: true);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to publish the finished prefill session {SessionId}", session.Id);
-                }
-                return true;
-            }
-            finally
-            {
-                lock (session.PrefillLock)
-                {
-                    if (session.PrefillRunId == runId && session.TerminalCompletedFlag == 1)
-                        session.TerminalCompletedFlag = 2;
-                }
-            }
-        }
-        finally
-        {
-            session.PrefillWork.Release();
-        }
-    }
-
-    /// <summary>
-    /// Handles a daemon progress push for a session. Protected (not private) so tests can invoke it
-    /// directly via a subclass seam, mirroring <see cref="OnCredentialChallengeAsync"/>'s accessibility
-    /// widening - production wires this via the socket read loop (<see cref="OnProgressChangeAsync"/>),
-    /// which a test harness that injects a session directly bypasses.
-    /// </summary>
-    protected async Task NotifyPrefillProgressAsync(DaemonSession session, PrefillProgress progress)
-    {
-        if (!session.Runs.IsEmpty)
-        {
-            if (IsSessionLive(session) && Guid.TryParse(progress.OperationId, out var id)
-                && session.Runs.TryGetValue(id, out var run) && run.DaemonInstanceId == progress.DaemonInstanceId
-                && progress.Sequence > run.Snapshot.Sequence && run.TerminalCompletedFlag == 0)
-                await ReconcileRunAsync(session, run, session.CancellationTokenSource.Token);
-            return;
-        }
-        Guid? runId;
-        lock (session.PrefillLock)
-        {
-            runId = session.PrefillRunId;
-            if (progress.OperationId is not null
-                && (!Guid.TryParse(progress.OperationId, out var operationId) || operationId != runId))
-                return;
-            if (runId is null || !IsSessionLive(session) || !session.IsPrefilling
-                || session.TerminalCompletedFlag != 0)
-                return;
-        }
-
-        var progressState = PrefillProgressStateExtensions.ParseOrUnknown(progress.State);
-        if (progressState is PrefillProgressState.Completed or PrefillProgressState.Failed
-            or PrefillProgressState.Error or PrefillProgressState.Cancelled)
-        {
-            var terminalState = progressState switch
-            {
-                PrefillProgressState.Completed => PrefillState.Completed,
-                PrefillProgressState.Cancelled => PrefillState.Cancelled,
-                _ => PrefillState.Failed
-            };
-            var failure = terminalState == PrefillState.Failed
-                ? new DaemonCommandException(progress.ErrorCode, progress.RequiresLogin == true) : null;
-            await TransitionToTerminalAsync(session, terminalState, runId,
-                failure?.Message, failure?.StageKey, progress);
-            return;
-        }
-
-        await session.PrefillWork.WaitAsync();
-        try
-        {
-            long sequence;
-            string? previousAppId;
-            string? previousAppName;
-            long previousBytes;
-            long previousTotal;
-            bool startingNewApp;
-            long bytesDownloaded;
-            long totalBytes;
-            string? account;
-            var appId = string.IsNullOrEmpty(progress.CurrentAppId) ? null : progress.CurrentAppId;
-            var appName = progress.CurrentAppName;
-            var appCompleted = progressState == PrefillProgressState.AppCompleted && appId is not null;
-            lock (session.PrefillLock)
-            {
-                if (!IsSessionLive(session) || session.PrefillRunId != runId
-                    || !session.IsPrefilling || session.TerminalCompletedFlag != 0)
-                    return;
-                if (appCompleted && session.CurrentAppId is null && session.PreviousAppId == appId
-                    && session.LastProgress?.State is "app_completed" or "already_cached")
-                    return;
-
-                sequence = ++session.ProgressSequence;
-                previousAppId = session.CurrentAppId;
-                previousAppName = session.CurrentAppName;
-                previousBytes = session.CurrentBytesDownloaded;
-                previousTotal = session.CurrentTotalBytes;
-                account = session.AccountUsername;
-                startingNewApp = appId is not null
-                    && (previousAppId != appId || previousAppName != appName);
-                if (startingNewApp)
-                {
-                    session.PreviousAppId = previousAppId;
-                    session.PreviousAppName = previousAppName;
-                    session.CompletedBytesTransferred = Math.Max(session.CompletedBytesTransferred, session.TotalBytesTransferred);
-                    session.CurrentBytesDownloaded = 0;
-                    session.CurrentTotalBytes = 0;
-                }
-                session.CurrentAppId = appId;
-                session.CurrentAppName = appName;
-                if (appId is not null)
-                {
-                    if (progress.BytesDownloaded > 0) session.CurrentBytesDownloaded = progress.BytesDownloaded;
-                    if (progress.TotalBytes > 0) session.CurrentTotalBytes = progress.TotalBytes;
-                }
-                bytesDownloaded = session.CurrentBytesDownloaded;
-                totalBytes = session.CurrentTotalBytes;
-                if (appCompleted)
-                {
-                    session.PreviousAppId = appId;
-                    session.PreviousAppName = appName;
-                    session.CurrentAppId = null;
-                    session.CurrentAppName = null;
-                    session.CurrentBytesDownloaded = 0;
-                    session.CurrentTotalBytes = 0;
-                    UpdateTransferredBytes(session, Math.Max(session.TotalBytesTransferred,
-                        session.CompletedBytesTransferred + bytesDownloaded));
-                }
-                else
-                {
-                    UpdateTransferredBytes(session, progress.TotalBytesTransferred > 0
-                        ? progress.TotalBytesTransferred : session.CompletedBytesTransferred + progress.BytesDownloaded);
-                }
-                progress.OperationId = runId.ToString();
-                progress.TotalBytesTransferred = session.TotalBytesTransferred;
-            }
-
-            if (startingNewApp)
-            {
-                if (previousAppId is not null)
-                {
-                    try
-                    {
-                        var status = previousBytes == 0 ? "Cached" : "Completed";
-                        await _sessionService.CompleteEntryAsync(session.Id, previousAppId, status, previousBytes, previousTotal);
-                        if (!IsSessionLive(session)) return;
-                        await BroadcastHistoryUpdatedAsync(session.Id, previousAppId, status);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to complete prefill history for app {AppId}", previousAppId);
-                    }
-                }
-                if (!IsSessionLive(session)) return;
-                try
-                {
-                    var entry = await _sessionService.StartEntryAsync(session.Id, appId!, appName);
-                    if (!IsSessionLive(session)) return;
-                    if (entry is not null)
-                        await BroadcastHistoryUpdatedAsync(session.Id, appId!, "InProgress");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to start prefill history for app {AppId}", appId);
-                }
-            }
-            if (!IsSessionLive(session)) return;
-
-            if (appCompleted)
-            {
-                var isCached = progress.Result == "AlreadyUpToDate";
-                var status = progress.Result switch
-                {
-                    "AlreadyUpToDate" => "Cached",
-                    "Skipped" or "NoDepotsToDownload" => "Skipped",
-                    "Cancelled" => "Cancelled",
-                    "Failed" => "Failed",
-                    _ => "Completed"
-                };
-                try
-                {
-                    var failure = progress.Result == "Failed"
-                        ? new DaemonCommandException(progress.ErrorCode, progress.RequiresLogin == true) : null;
-                    var entry = await _sessionService.CompleteEntryAsync(
-                        session.Id, appId!, status, bytesDownloaded, totalBytes, failure?.Message);
-                    if (!IsSessionLive(session)) return;
-                    await BroadcastHistoryUpdatedAsync(session.Id, appId!, status);
-                    if (!IsSessionLive(session)) return;
-                    // A skipped result only repeats a prior cache decision; it cannot establish or
-                    // recreate completion records after cache removal.
-                    if (entry is not null && progress.Result == "Success" && !session.CancellationTokenSource.IsCancellationRequested)
-                    {
-                        try
-                        {
-                            var recorded = await RecordCacheAsync(
-                                appId!, appName, totalBytes, account, progress.CacheRevision, progress.Depots);
-                            if (!IsSessionLive(session)) return;
-                            if (!IsSessionLive(session)) return;
-                            if (recorded && !session.CancellationTokenSource.IsCancellationRequested)
-                                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to record cached app {AppId}", appId);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to complete prefill history for app {AppId}", appId);
-                }
-
-                progress.State = (isCached ? PrefillProgressState.AlreadyCached : PrefillProgressState.AppCompleted).ToWireString();
-                progress.TotalBytes = totalBytes;
-                progress.BytesDownloaded = bytesDownloaded;
-                progress.PercentComplete = 100;
-                progress.BytesPerSecond = 0;
-            }
-
-            lock (session.PrefillLock)
-            {
-                if (!IsSessionLive(session) || session.PrefillRunId != runId
-                    || !session.IsPrefilling || session.TerminalCompletedFlag != 0)
-                    return;
-                session.LastProgress = progress;
-                if (session.PrefillState == PrefillState.Started)
-                    session.PrefillState = PrefillState.Downloading;
-            }
-
-            var sessionBroadcast = appCompleted ? Task.CompletedTask
-                : NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session));
-            var subscriberBroadcast = BroadcastToSubscribersAsync(session, EventPrefillProgress,
-                new { sessionId = session.Id, progress });
-            try
-            {
-                await RaisePrefillProgressAsync(session, progress, sequence);
-            }
-            finally
-            {
-                await Task.WhenAll(sessionBroadcast, subscriberBroadcast);
-            }
-        }
-        finally
-        {
-            session.PrefillWork.Release();
-        }
-    }
-
-    internal static void UpdateTransferredBytes(DaemonSession session, long totalBytesTransferred)
-    {
-        session.TotalBytesTransferred = Math.Max(session.TotalBytesTransferred, totalBytesTransferred);
-
-        // Advance the stall clock only when bytes increase. A zero-progress session must still be
-        // detectable as stalled, including when repeated socket ticks carry the same byte count.
-        if (session.TotalBytesTransferred > session.LastProgressBytes)
-        {
-            session.LastProgressBytes = session.TotalBytesTransferred;
-            Volatile.Write(ref session.LastProgressTicksUtc, DateTime.UtcNow.Ticks);
-        }
-    }
-
-    private async Task BroadcastHistoryUpdatedAsync(string sessionId, string appId, string status)
-    {
-        var historyEvent = new { sessionId, appId, status };
+        var historyEvent = new { sessionId };
         // Narrowed from NotifyAllDownloadsAndServiceHubAsync → NotifyAllAsync (downloads hub only).
         // Only the admin Prefill Sessions page (which subscribes via the default downloads hub)
         // consumes this event. The session-owner clients connected to the service-specific daemon
@@ -1139,48 +673,115 @@ public abstract partial class PrefillDaemonServiceBase
     public async Task RefreshRunsAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         if (!_sessions.TryGetValue(sessionId, out var session) || !IsSessionLive(session)) return;
+        // This read comes after every read a pass skipped before it, so it answers their request. A read that
+        // gets no answer puts the request back, and the request is written before the recovering flag so a
+        // holder that clears the flag afterwards still finds the request when it releases the lease.
+        var requested = session.RecoveryRequested;
+        session.RecoveryRequested = false;
         try
         {
+            var signInCount = session.SignInCount;
+            var signOutCount = session.SignOutCount;
             var status = await session.Client.GetStatusAsync(cancellationToken);
             if (status is null)
             {
-                if (!session.Runs.IsEmpty) session.Recovering = true;
+                if (requested) session.RecoveryRequested = true;
+                // The capabilities a skipped pass did not apply may name the old daemon, so no run is sent until
+                // a read answers.
+                if (!session.Runs.IsEmpty || requested) session.Recovering = true;
+                session.NextRecoveryAtUtc = DateTime.UtcNow.AddSeconds(10);
+                await SendRecoveryUpdateAsync(session);
                 return;
             }
             // A drop pushed while the socket to the daemon was down reaches the app only through a read.
             // Only an always-on Steam session acts on it; applying it to other sessions would send them a
-            // status message every sweep.
+            // status message every sweep. A running automatic sign-in applies its own outcome when it ends,
+            // and a signed-out answer read before a sign-in finished is older than that sign-in.
             if (session.IsPersistent
                 && Platform == PrefillPlatform.Steam
-                && (session.LoginOperationId is null || status.Status == "logged-in"))
+                && (session.LoginOperationId is null || status.Status == "logged-in")
+                && !session.SigningInAutomatically
+                && (status.Status == "logged-in" || session.SignInCount == signInCount))
             {
-                await OnStatusChangeAsync(session, status);
+                await ApplyStatusAsync(session, status, signOutCount);
             }
             await RecoverRunsAsync(session, status, cancellationToken);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            if (requested) session.RecoveryRequested = true;
+            throw;
+        }
         catch (Exception ex)
         {
+            if (requested) session.RecoveryRequested = true;
             session.Recovering = true;
             session.NextRecoveryAtUtc = DateTime.UtcNow.AddSeconds(10);
             _logger.LogWarning(ex, "Could not reconcile prefill runs for session {SessionId}", sessionId);
+            await SendRecoveryUpdateAsync(session);
+        }
+    }
+
+    /// <summary>
+    /// Drops the runs whose rows the Prefill Sessions reset deleted from every session, so the card stops
+    /// listing runs whose history is gone. A run that finished after the delete kept its row and stays. The
+    /// ids decide, not the finished flag: a run deleted while it was still publishing its finish is gone too.
+    /// Holding the recovery lease keeps a sweep that read the rows before the delete from putting them back.
+    /// </summary>
+    internal async Task ForgetFinishedRunsAsync(IReadOnlyCollection<Guid> deletedRunIds)
+    {
+        foreach (var session in _sessions.Values)
+        {
+            await session.RecoveryWork.WaitAsync();
+            try
+            {
+                var removed = false;
+                foreach (var runId in deletedRunIds)
+                    removed |= session.Runs.TryRemove(runId, out _);
+                // An idle container sends no update of its own, so open pages learn of the removal only here.
+                if (removed)
+                    await NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session));
+            }
+            finally { session.RecoveryWork.Release(); }
         }
     }
 
     internal async Task RecoverRunsAsync(DaemonSession session, DaemonStatus status, CancellationToken cancellationToken)
     {
-        if (!await session.RecoveryWork.WaitAsync(0, cancellationToken)) return;
+        if (!await session.RecoveryWork.WaitAsync(0, cancellationToken))
+        {
+            // The holder may have read the daemon before this read did, as when the container restarted in
+            // place meanwhile, so a pass with a fresh read follows it. A holder that released before the request
+            // was written may already have checked for one, so this pass tries the lease once more and applies its
+            // own read. A recovery pass still holding it finds the request when it releases; a Prefill Sessions reset,
+            // an image replace, or the first Start's wait for the lease (PrefillAsync) holds it without a pass and
+            // leaves the request to the sweep (SessionExpiry.cs).
+            session.RecoveryRequested = true;
+            if (!await session.RecoveryWork.WaitAsync(0, cancellationToken)) return;
+        }
         try
         {
             if (!IsSessionLive(session)) return;
+            // A pass that waited for the lease may hold a read taken before the one the last holder applied, as
+            // when the container restarted in place meanwhile; applying it would point the session back at the old
+            // daemon instance. The newer read already ran this pass's work.
+            if (session.Capabilities is { } applied && status.ReadStamp < applied.ReadStamp) return;
             if (!status.SupportsConcurrentPrefill)
             {
                 session.Capabilities = status;
-                session.Recovering = session.Runs.Values.Any(run => run.TerminalCompletedFlag != 2);
+                lock (session.PrefillLock)
+                {
+                    // A drop after this pass's status read already marked the session recovering. A client that
+                    // has reconnected since lets this older read end it; the drop's own pass, which found this
+                    // pass holding the lease, then runs again after it with a fresh read.
+                    if (session.Client is not DaemonClientBase { IsConnected: false })
+                        session.Recovering = session.Runs.Values.Any(run => run.TerminalCompletedFlag != 2);
+                }
                 if (!session.Recovering) session.Runs.Clear();
                 return;
             }
-            session.Recovering = session.Recovering || session.Capabilities?.DaemonInstanceId != status.DaemonInstanceId;
+            lock (session.PrefillLock)
+                session.Recovering = session.Recovering || session.Capabilities?.DaemonInstanceId != status.DaemonInstanceId;
             foreach (var expired in session.Runs.Values.Where(run => run.TerminalCompletedFlag == 2)
                 .OrderByDescending(run => run.CompletedAtUtc).Select((run, index) => (run, index))
                 .Where(entry => entry.index >= 256 || entry.run.CompletedAtUtc < DateTime.UtcNow.AddHours(-24)))
@@ -1194,6 +795,9 @@ public abstract partial class PrefillDaemonServiceBase
                     || !Guid.TryParse(snapshot.OperationId, out var id) || id == Guid.Empty)
                     throw new JsonException("Daemon operation inventory has an invalid identity.");
                 if (session.Runs.ContainsKey(id) || saved.Any(row => row.Id == id)) continue;
+                // A run's row is saved before the run is sent, so a finished operation with no row is one whose
+                // row was deleted, and adopting it would write back history a reset removed.
+                if (snapshot.State is "completed" or "failed" or "cancelled") continue;
                 var page = await session.Client.GetOperationAsync(id, snapshot.DaemonInstanceId,
                     cancellationToken: cancellationToken);
                 var adopted = new DaemonRun
@@ -1211,34 +815,66 @@ public abstract partial class PrefillDaemonServiceBase
             foreach (var run in session.Runs.Values.Where(run => run.TerminalCompletedFlag == 0))
             {
                 if (run.AdmissionPending) continue;
-                if (run.DaemonInstanceId != status.DaemonInstanceId)
+                // A bad answer about one run leaves the others to this pass. A lost connection or an unanswered
+                // read still ends the pass, which keeps the session recovering.
+                try
                 {
-                    await run.PrefillWork.WaitAsync(cancellationToken);
-                    try
+                    if (run.DaemonInstanceId != status.DaemonInstanceId)
                     {
-                        if (run.TerminalCompletedFlag != 0 || run.AdmissionPending) continue;
-                        run.HistoryIncomplete = true;
-                        await FinishRunAsync(session, run, run.Snapshot with
+                        await run.PrefillWork.WaitAsync(cancellationToken);
+                        try
                         {
-                            State = "failed",
-                            Reason = "instance-changed",
-                            Sequence = run.Snapshot.Sequence + 1,
-                            UpdatedAt = DateTimeOffset.UtcNow
-                        }, [], cancellationToken);
+                            if (run.TerminalCompletedFlag != 0 || run.AdmissionPending) continue;
+                            run.HistoryIncomplete = true;
+                            await FinishRunAsync(session, run, run.Snapshot with
+                            {
+                                State = "failed",
+                                Reason = "instance-changed",
+                                Sequence = run.Snapshot.Sequence + 1,
+                                UpdatedAt = DateTimeOffset.UtcNow
+                            }, [], cancellationToken);
+                        }
+                        finally { run.PrefillWork.Release(); }
+                        continue;
                     }
-                    finally { run.PrefillWork.Release(); }
-                    continue;
+                    await ReconcileRunAsync(session, run, cancellationToken,
+                        inventory.FirstOrDefault(snapshot => snapshot.OperationId == run.PrefillRunId.ToString()));
+                    if (run.CancelRequested && run.TerminalCompletedFlag == 0)
+                        await session.Client.CancelPrefillAsync(run.PrefillRunId, run.DaemonInstanceId, cancellationToken);
                 }
-                await ReconcileRunAsync(session, run, cancellationToken,
-                    inventory.FirstOrDefault(snapshot => snapshot.OperationId == run.PrefillRunId.ToString()));
-                if (run.CancelRequested && run.TerminalCompletedFlag == 0)
-                    await session.Client.CancelPrefillAsync(run.PrefillRunId, run.DaemonInstanceId, cancellationToken);
+                catch (Exception ex) when (ex is JsonException or DaemonCommandException)
+                {
+                    _logger.LogWarning(ex, "Could not reconcile prefill run {RunId} for session {SessionId}", run.PrefillRunId, session.Id);
+                }
             }
-            session.Recovering = session.Runs.Values.Any(run => run.Recovering && run.TerminalCompletedFlag == 0);
+            lock (session.PrefillLock)
+            {
+                // A drop after this pass's status read already marked the session recovering.
+                if (session.Client is not DaemonClientBase { IsConnected: false })
+                    session.Recovering = session.Runs.Values.Any(run => run.Recovering && run.TerminalCompletedFlag == 0);
+            }
             session.NextRecoveryAtUtc = DateTime.UtcNow.AddSeconds(10);
-            await NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session));
+            await SendRecoveryUpdateAsync(session);
         }
-        finally { session.RecoveryWork.Release(); }
+        finally
+        {
+            session.RecoveryWork.Release();
+            if (session.RecoveryRequested)
+                FireAndForgetAsync(() => RefreshRunsAsync(session.Id), nameof(RefreshRunsAsync));
+        }
+    }
+
+    /// <summary>
+    /// A container list read runs a recovery pass and the page reads the list again on this update, so the pass
+    /// sends only what differs from the last update any path sent. A change another path made without
+    /// sending its own update still differs from that, and a recovering flag written and cleared again
+    /// without one leaves no record, so pages that read it meanwhile get this update.
+    /// </summary>
+    private async Task SendRecoveryUpdateAsync(DaemonSession session)
+    {
+        var update = DaemonSessionDto.FromSession(session);
+        if (JsonSerializer.Serialize(update) != session.LastRecoveryUpdate)
+            await NotifyHubAsync(session, EventSessionUpdated, update);
     }
 
     private async Task ReconcileRunAsync(DaemonSession session, DaemonRun run, CancellationToken cancellationToken,
@@ -1338,9 +974,12 @@ public abstract partial class PrefillDaemonServiceBase
             run.TerminalCompletedFlag = 2;
             run.Completion.TrySetResult(DaemonSessionDto.FromRun(run));
         }
+        // The lists count a run until it gives up its slot, so an update sent during the publish still counted it.
+        if (IsSessionLive(session))
+            await SendRunSessionUpdateAsync(session, run.PrefillRunId);
     }
 
-    private static void ApplyRunSnapshot(DaemonRun run, DaemonRunSnapshot snapshot, IReadOnlyList<DaemonRunItem> items)
+    private void ApplyRunSnapshot(DaemonRun run, DaemonRunSnapshot snapshot, IReadOnlyList<DaemonRunItem> items)
     {
         foreach (var item in items)
         {
@@ -1356,7 +995,7 @@ public abstract partial class PrefillDaemonServiceBase
             run.LastProgressBytes = snapshot.BytesTransferred;
             Volatile.Write(ref run.LastProgressTicksUtc, DateTime.UtcNow.Ticks);
         }
-        var failure = snapshot.State == "failed" ? new DaemonCommandException(snapshot.Reason) : null;
+        var failure = snapshot.State == "failed" ? new DaemonCommandException(snapshot.Reason, loginStageKey: SignInLostStageKey) : null;
         run.ErrorMessage = failure?.Message;
         run.ErrorStageKey = failure?.StageKey;
         if (snapshot.State == "failed" && snapshot.Reason == "stalled")
@@ -1400,7 +1039,7 @@ public abstract partial class PrefillDaemonServiceBase
         if (run.TerminalCompletedFlag == 0) run.PrefillState = PrefillState.Downloading;
     }
 
-    private async Task PublishRunAsync(DaemonSession session, DaemonRun run, IReadOnlyList<DaemonRunItem> changed, bool terminal)
+    private async Task PublishRunAsync(DaemonSession session, DaemonRun run, List<DaemonRunItem> changed, bool terminal)
     {
         foreach (var item in changed)
         {
@@ -1418,10 +1057,35 @@ public abstract partial class PrefillDaemonServiceBase
                 }
             }
         }
-        if (!IsSessionLive(session)) return;
-        await RaisePrefillProgressAsync(session, run.LastProgress!, run.Snapshot.Sequence);
+        if (terminal && run.Items.Values.Any(item => item.Result == "success"))
+            FireAndForgetAsync(OnRunDownloadedAsync, nameof(OnRunDownloadedAsync));
         var progressEvent = new { sessionId = session.Id, progress = run.LastProgress };
+        if (!IsSessionLive(session))
+        {
+            // A Stop ends its runs after the session left the live list, and a Stop whose container removal fails
+            // sends no SessionEnded, so the open pages learn each run's end here. A failed send keeps its
+            // subscription: the SessionEnded of a retried Stop still has to reach that page.
+            if (!terminal) return;
+            string[] subscribers;
+            lock (session.PrefillLock) subscribers = session.SubscribedConnections.ToArray();
+            foreach (var connectionId in subscribers)
+            {
+                try
+                {
+                    await SendToClientAsync(connectionId, EventPrefillProgress, progressEvent).WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send the end of prefill {RunId} to {ConnectionId}", run.PrefillRunId, connectionId);
+                }
+            }
+            return;
+        }
+        await RaisePrefillProgressAsync(session, run.LastProgress!, run.Snapshot.Sequence);
         await BroadcastToSubscribersAsync(session, EventPrefillProgress, progressEvent);
+        // The admin Prefill Sessions list re-reads this session's games only when a save changed one of them.
+        if (terminal || changed.Count > 0)
+            await BroadcastHistoryUpdatedAsync(session.Id);
         if (terminal)
         {
             var terminalEvent = new
@@ -1434,10 +1098,32 @@ public abstract partial class PrefillDaemonServiceBase
                 run = DaemonSessionDto.FromRun(run)
             };
             await BroadcastToSubscribersAsync(session, EventPrefillStateChanged, terminalEvent);
-            await _notifications.NotifyAdminAsync(EventPrefillStateChanged, terminalEvent).WaitAsync(TimeSpan.FromSeconds(5));
+            // The run is already saved, so a notice that outlasts its bound is logged and does not fail the run.
+            try
+            {
+                await _notifications.NotifyAdminAsync(EventPrefillStateChanged, terminalEvent).WaitAsync(TimeSpan.FromSeconds(5), CacheStatusClock);
+            }
+            catch (TimeoutException ex)
+            {
+                _logger.LogWarning(ex, "The ending of prefill {RunId} is still being sent to the account holders", run.PrefillRunId);
+            }
         }
-        await NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session)).WaitAsync(TimeSpan.FromSeconds(5));
+        // A run's end sends its session update from FinishRunAsync, once the run no longer holds its slot.
+        if (!terminal)
+            await SendRunSessionUpdateAsync(session, run.PrefillRunId);
         await ReportSessionActivityAsync(session, present: true);
+    }
+
+    private async Task SendRunSessionUpdateAsync(DaemonSession session, Guid runId)
+    {
+        try
+        {
+            await NotifyHubAsync(session, EventSessionUpdated, DaemonSessionDto.FromSession(session)).WaitAsync(TimeSpan.FromSeconds(5), CacheStatusClock);
+        }
+        catch (TimeoutException ex)
+        {
+            _logger.LogWarning(ex, "The session update for prefill {RunId} is still waiting to be sent", runId);
+        }
     }
 
     private Task<bool> RecordCacheAsync(

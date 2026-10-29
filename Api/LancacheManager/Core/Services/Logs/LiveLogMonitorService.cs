@@ -159,7 +159,11 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                             _stateService.GetLogPosition(ds.Name) == 0)
                         {
                             var count = await _rustProcessHelper.CountLogLinesAsync(ds.LogPath, stoppingToken);
-                            _stateService.SetLogSourcePositions(ds.Name, count.SourceLineCounts);
+                            // An empty series gets no key: the importer reads a missing key as 0, and a
+                            // stored 0 would read as a missing series once its empty file is gone.
+                            _stateService.SetLogSourcePositions(ds.Name, count.SourceLineCounts
+                                .Where(source => source.Value > 0)
+                                .ToDictionary(source => source.Key, source => source.Value));
                             _stateService.SetLogTotalLines(ds.Name, count.LinesProcessed);
                             _logger.LogInformation(
                                 "Datasource '{Name}': Fresh install - initialized {SourceCount} source position(s) to end of file ({LineCount} lines total)",

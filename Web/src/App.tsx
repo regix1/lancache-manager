@@ -29,7 +29,6 @@ import { isAbortError } from '@utils/error';
 import { ApiError } from '@services/apiError';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
-import { ScheduledPrefillEditSessionCleanupRecovery } from '@components/features/management/schedules/scheduled-prefill/ScheduledPrefillEditSessionCleanupRecovery';
 import type { ServiceScheduleInfo } from '@components/features/management/schedules/types';
 import { useErrorHandler } from '@hooks/useErrorHandler';
 
@@ -170,8 +169,9 @@ const AppContent: React.FC = () => {
 
   // Setup SignalR listeners for preferences and theme
   useEffect(() => {
-    preferencesService.setupSignalRListener(signalR);
+    const removeListeners = preferencesService.setupSignalRListener(signalR);
     themeService.setupPreferenceListeners();
+    return removeListeners;
   }, [signalR]);
 
   // Check if modal was dismissed this session
@@ -659,8 +659,6 @@ const AppContent: React.FC = () => {
 
   return (
     <>
-      {authMode === 'authenticated' && <ScheduledPrefillEditSessionCleanupRecovery />}
-
       {/* Full Scan Required Modal - Shows globally on all pages */}
       <FullScanRequiredModal
         opened={showFullScanRequiredModal && authMode === 'authenticated'}

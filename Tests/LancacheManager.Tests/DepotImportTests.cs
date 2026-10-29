@@ -80,6 +80,123 @@ public sealed class DepotImportTests
     }
 
     [Fact]
+    public async Task AGitHubReplaceKeepsTheDepotsPrefillMapped()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = Snapshot(200);
+        await using (var initial = fixture.Database.Factory.CreateDbContext())
+        {
+            initial.PrefillCachedDepots.Add(new PrefillCachedDepot
+            {
+                AppId = 77,
+                DepotId = 770,
+                ManifestId = 1,
+                AppName = "Prefill only game",
+                CachedAtUtc = DateTime.UtcNow
+            });
+            initial.SteamDepotMappings.Add(new SteamDepotMapping
+            {
+                DepotId = 770,
+                AppId = 77,
+                AppName = "Prefill only game",
+                IsOwner = true,
+                Source = "Prefill",
+                DiscoveredAt = fixture.PreviousCrawl
+            });
+            await initial.SaveChangesAsync();
+        }
+
+        Assert.True(await fixture.Service.ImportFromGitHubAsync());
+
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var restored = await db.SteamDepotMappings.SingleAsync(row => row.DepotId == 770);
+        Assert.Equal(77, restored.AppId);
+        Assert.Equal("Prefill only game", restored.AppName);
+        Assert.Equal("Prefill", restored.Source);
+    }
+
+    [Fact]
+    public async Task AGitHubImportCanceledDuringTheRestoreKeepsTheDepotsPrefillMapped()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = Snapshot(200);
+        await using (var initial = fixture.Database.Factory.CreateDbContext())
+        {
+            initial.PrefillCachedDepots.Add(new PrefillCachedDepot
+            {
+                AppId = 77,
+                DepotId = 770,
+                ManifestId = 1,
+                AppName = "Prefill only game",
+                CachedAtUtc = DateTime.UtcNow
+            });
+            initial.SteamDepotMappings.Add(new SteamDepotMapping
+            {
+                DepotId = 770,
+                AppId = 77,
+                AppName = "Prefill only game",
+                IsOwner = true,
+                Source = "Prefill",
+                DiscoveredAt = fixture.PreviousCrawl
+            });
+            await initial.SaveChangesAsync();
+        }
+
+        // The person's Cancel lands after the replace committed, while the restore reads what prefill cached.
+        using var cancellation = new CancellationTokenSource();
+        fixture.CancelOnPrefillRead = cancellation;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => fixture.Service.ImportFromGitHubAsync(cancellation.Token).WaitAsync(TimeSpan.FromSeconds(30)));
+
+        Assert.True(cancellation.IsCancellationRequested);
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var restored = Assert.Single(await db.SteamDepotMappings.Where(row => row.DepotId == 770).ToListAsync());
+        Assert.Equal(77, restored.AppId);
+        Assert.Equal("Prefill only game", restored.AppName);
+        Assert.Equal("Prefill", restored.Source);
+    }
+
+    [Fact]
+    public async Task AGitHubReplaceKeepsTheSnapshotOwnerOfAPrefillDepot()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = Snapshot(200);
+        await using (var initial = fixture.Database.Factory.CreateDbContext())
+        {
+            initial.PrefillCachedDepots.AddRange(
+                new PrefillCachedDepot
+                {
+                    AppId = 55,
+                    DepotId = 10,
+                    ManifestId = 1,
+                    AppName = "Older prefill name",
+                    CachedAtUtc = DateTime.UtcNow.AddDays(-2)
+                },
+                new PrefillCachedDepot
+                {
+                    AppId = 55,
+                    DepotId = 10,
+                    ManifestId = 2,
+                    AppName = "Newer prefill name",
+                    CachedAtUtc = DateTime.UtcNow.AddDays(-1)
+                });
+            await initial.SaveChangesAsync();
+        }
+
+        Assert.True(await fixture.Service.ImportFromGitHubAsync());
+
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var rows = await db.SteamDepotMappings.Where(row => row.DepotId == 10).ToListAsync();
+        Assert.Equal(2, rows.Single(row => row.IsOwner).AppId);
+        var prefill = rows.Single(row => row.AppId == 55);
+        Assert.False(prefill.IsOwner);
+        Assert.Equal("Newer prefill name", prefill.AppName);
+    }
+
+    [Fact]
     public async Task AGitHubImportStartedFromTheDepotPageUnderHiddenGivesAHiddenRow()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -474,7 +591,8 @@ public sealed class DepotImportTests
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
         Assert.True((await InvokeAsync<SteamKit2Service.DepotBaseline>(fixture.Service, "GetDepotBaselineAsync")).HasUsableBaseline);
-        await fixture.Pics.ClearDepotMappingsAsync();
+        await using (var db = fixture.Database.Factory.CreateDbContext())
+            await db.SteamDepotMappings.ExecuteDeleteAsync();
         Assert.False((await InvokeAsync<SteamKit2Service.DepotBaseline>(fixture.Service, "GetDepotBaselineAsync")).HasUsableBaseline);
         await fixture.SeedAsync();
         File.Delete(fixture.MappingFile);
@@ -1011,6 +1129,7 @@ public sealed class DepotImportTests
             = (cursor, _) => Task.FromResult((cursor + 10, false));
         public bool FailPublication { get; set; }
         public bool FailReload { get; set; }
+        public CancellationTokenSource? CancelOnPrefillRead { get; set; }
         public string MappingFile => Pics.GetPicsJsonFilePath();
         public string StateFile { get; }
 
@@ -1154,11 +1273,27 @@ public sealed class DepotImportTests
             }
         }
 
+        private sealed class PrefillRead(Fixture fixture) : DbCommandInterceptor
+        {
+            public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+                DbCommand command, CommandEventData commandEvent, InterceptionResult<DbDataReader> result,
+                CancellationToken cancellationToken = default)
+            {
+                if (command.CommandText.Contains("PrefillCachedDepots", StringComparison.Ordinal))
+                    fixture.CancelOnPrefillRead?.Cancel();
+                return base.ReaderExecutingAsync(command, commandEvent, result, cancellationToken);
+            }
+        }
+
         private sealed class Probe(
             Fixture fixture, IServiceScopeFactory scopes, SteamService steam, PicsDataService pics, StateService state,
             IHttpClientFactory clients, ISignalRNotificationService notifications, SteamAuthStorageService storage, IUnifiedOperationTracker tracker)
             : SteamKit2Service(NullLogger<SteamKit2Service>.Instance, scopes, steam, pics, state, clients, notifications,
-                new SteamWebApiService(NullLogger<SteamWebApiService>.Instance, clients, storage), storage, tracker)
+                new SteamWebApiService(NullLogger<SteamWebApiService>.Instance, clients, storage), storage, tracker,
+                new PrefillCacheService(
+                    new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>(fixture.Database.Options)
+                        .AddInterceptors(new PrefillRead(fixture)).Options),
+                    NullLogger<PrefillCacheService>.Instance))
         {
             internal override Task<(uint CurrentChangeNumber, bool RequiresFullScan)> CheckChangesAsync(uint changeNumberToCheck, CancellationToken ct)
                 => fixture.CheckChanges(changeNumberToCheck, ct);

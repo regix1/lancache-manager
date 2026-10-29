@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
-import { findSoleNode, parseSource, transpile } from './transpile-module.mjs';
+import { compileToUrl, findSoleNode, parseSource, transpile } from './transpile-module.mjs';
+
+const prefillTypes = await import(
+  await compileToUrl('../src/components/features/prefill/hooks/prefillTypes.ts')
+);
 
 const source = parseSource(
   'src/components/features/management/sections/PrefillSessionsSection.tsx',
@@ -39,6 +43,7 @@ const walk = (node, type) => [
 ];
 const render = (props) =>
   new Function(
+    'currentPrefillRun',
     'useTranslation',
     'useActivityStatus',
     'useState',
@@ -59,6 +64,7 @@ const render = (props) =>
     'h',
     `${compiled}\nreturn PersistentContainerCard;`
   )(
+    prefillTypes.currentPrefillRun,
     () => ({ t: (key) => key }),
     () => ({ isActive: () => false }),
     () => [true, () => undefined],
@@ -85,6 +91,7 @@ const render = (props) =>
 
 const renderSession = (session) =>
   new Function(
+    'currentPrefillRun',
     'useTranslation',
     'useState',
     'useActivityStatus',
@@ -117,6 +124,7 @@ const renderSession = (session) =>
     'h',
     `${sessionCompiled}\nreturn SessionCard;`
   )(
+    prefillTypes.currentPrefillRun,
     () => ({
       t: (key, values = {}) => (values.service ? `${key}:${values.service}` : key)
     }),
@@ -226,7 +234,8 @@ test('session titles preserve account identity and anonymous service labels', ()
       id: `${entry.platform}-${entry.title}`,
       status: 'Active',
       createdAt: '2026-09-27T00:00:00Z',
-      isPrefilling: false,
+      activeRunCount: 0,
+      runs: [],
       ...entry
     });
     const title = walk(tree, 'span').find((node) =>
@@ -241,8 +250,20 @@ test('session titles preserve account identity and anonymous service labels', ()
   }
 });
 
+const prefillRun = (runId, state, patch = {}) => ({
+  runId,
+  snapshot: {
+    state,
+    startedAt: '2026-10-28T16:00:00Z',
+    bytesTransferred: 0,
+    currentItem: null,
+    ...patch.snapshot
+  },
+  completedAtUtc: patch.completedAtUtc
+});
+
 test('persistent session activity and schedule counts have separate owners', () => {
-  const entries = [{ runId: 'first' }, { runId: 'second' }];
+  const entries = [prefillRun('first', 'downloading'), prefillRun('second', 'completed')];
   const tree = render({
     container: {
       service: 'Steam',
@@ -292,6 +313,32 @@ test('login expiry is labelled inside details and only appears for a signed-in c
   }
 });
 
+test('a container whose sign-in state could not be read is not labelled as logged out', () => {
+  const loginBadgeLabel = (patch) => {
+    const tree = render({
+      container: {
+        service: 'Steam',
+        sessionId: 'session',
+        isRunning: true,
+        isAuthenticated: false,
+        needsRelogin: false,
+        ...patch
+      },
+      schedules: []
+    });
+    const titleLine = walk(tree, 'div').find(
+      (node) => node.props.className === 'session-row__titleline'
+    );
+    return walk(titleLine, badge)[0].children;
+  };
+  const base = 'management.prefillSessions.persistentSessions.status';
+  assert.deepEqual(loginBadgeLabel({ authUnknown: true }), ['common.unknown']);
+  assert.deepEqual(loginBadgeLabel({ authUnknown: false }), [`${base}.notLoggedIn`]);
+  assert.deepEqual(loginBadgeLabel({ authUnknown: true, isAuthenticated: true }), [
+    `${base}.authenticated`
+  ]);
+});
+
 test('neutral buttons have no decorative ring and retain keyboard focus styling', () => {
   const css = readFileSync(
     new URL('../src/styles/components/buttons.css', import.meta.url),
@@ -315,4 +362,219 @@ test('active prefill progress uses a separate track surface without an outline',
     css,
     /\.prefill-run-progress::-webkit-progress-bar\s*\{[^}]*background: var\(--theme-bg-primary\);/
   );
+});
+
+test('a container row names the game and bytes of the run it describes', () => {
+  const text = (node) =>
+    typeof node === 'object' && node !== null ? node.children.flatMap(text) : [String(node)];
+  const meta = (container) =>
+    text(
+      walk(
+        render({
+          container: { service: 'Steam', sessionId: 'session', ...container },
+          schedules: []
+        }),
+        'div'
+      ).find((node) => node.props.className === 'mgmt-row__meta session-row__meta')
+    ).join('');
+  const game = { snapshot: { currentItem: { name: 'Portal' }, bytesTransferred: 2048 } };
+  assert.match(
+    meta({ isRunning: true, activeRunCount: 1, runs: [prefillRun('a', 'downloading', game)] }),
+    /prefilling.*2048/s
+  );
+  // The server still counts a run active for a moment after it ends; the row then names no game.
+  const ended = meta({
+    isRunning: true,
+    activeRunCount: 1,
+    runs: [prefillRun('a', 'completed', { ...game, completedAtUtc: '2026-10-28T16:01:00Z' })]
+  });
+  assert.match(ended, /prefillingGeneric/);
+  assert.doesNotMatch(ended, /Portal/);
+  assert.doesNotMatch(meta({ isRunning: true, activeRunCount: 0, runs: [] }), /prefilling/);
+});
+
+const liftSectionFunction = (name, pick) => {
+  const declaration = findSoleNode(
+    source,
+    `${name} declaration`,
+    (node) => ts.isVariableDeclaration(node) && node.name.getText(source) === name
+  );
+  const js = transpile(
+    `const lifted = ${pick(declaration.initializer).getText(source)};`,
+    ts.ModuleKind.CommonJS
+  );
+  return (scope) =>
+    new Function(...Object.keys(scope), `${js}\nreturn lifted;`)(...Object.values(scope));
+};
+const liftLoadHistory = liftSectionFunction('loadHistory', (node) => node.arguments[0]);
+const liftLoadSessions = liftSectionFunction('loadSessions', (node) => node.arguments[0]);
+const liftHistoryHandler = liftSectionFunction('handlePrefillHistoryUpdated', (node) => node);
+const liftStoreHistory = liftSectionFunction('storeHistory', (node) => node.arguments[0]);
+const liftFinishHistoryRead = liftSectionFunction('finishHistoryRead', (node) => node.arguments[0]);
+
+// The two helpers every history reader calls; they read the scope's refs and setters.
+const withHistoryHelpers = (scope) => {
+  scope.storeHistory = liftStoreHistory(scope);
+  scope.finishHistoryRead = liftFinishHistoryRead(scope);
+  return scope;
+};
+
+const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+// One section's worth of state, with every history read held open until the test answers it.
+const historySection = () => {
+  const reads = [];
+  const stored = { current: {} };
+  const errors = [];
+  const scheduled = [];
+  const newestHistoryReadRef = { current: new Map() };
+  const scope = withHistoryHelpers({
+    ApiService: {
+      getPrefillSessionHistory: (sessionId) =>
+        new Promise((resolve, reject) => reads.push({ sessionId, resolve, reject })),
+      getPrefillSessions: async () => ({
+        sessions: [{ sessionId: 'session' }],
+        totalCount: 1
+      }),
+      getActivePrefillSessions: async () => []
+    },
+    t: (key) => key,
+    onError: (message, error) => errors.push({ message, error }),
+    setHistoryData: (update) => {
+      stored.current = typeof update === 'function' ? update(stored.current) : update;
+    },
+    setLoadingHistory: () => undefined,
+    setExpandedHistory: () => undefined,
+    setSessions: () => undefined,
+    setActiveSessions: () => undefined,
+    setTotalCount: () => undefined,
+    setCacheRoute: () => undefined,
+    setHasLoadedSessions: () => undefined,
+    setLoadingSessions: () => undefined,
+    setSessionsError: () => undefined,
+    getErrorMessage: String,
+    mockMode: false,
+    page: 1,
+    pageSize: 10,
+    statusFilter: '',
+    platformFilter: 'all',
+    sessionsRequestRef: { current: 0 },
+    newestHistoryReadRef,
+    pendingHistoryRef: { current: new Set() },
+    failingHistoryRef: { current: new Set() },
+    scheduleHistoryRefresh: (callback) => scheduled.push(callback)
+  });
+  const onEvent = liftHistoryHandler(scope);
+  return {
+    reads,
+    stored,
+    errors,
+    scheduled,
+    newestHistoryReadRef,
+    loadHistory: liftLoadHistory(scope),
+    loadSessions: liftLoadSessions(scope),
+    // An event, then the refresh the section schedules for it.
+    async event(sessionId) {
+      void onEvent({ sessionId });
+      const callbacks = scheduled.splice(0);
+      callbacks.at(-1)?.();
+      await settle();
+    },
+    rows: (label) => [{ appName: label }]
+  };
+};
+
+test('an older history read answered last never replaces a newer one', async () => {
+  const section = historySection();
+  void section.loadHistory('session');
+  await section.event('session');
+  assert.equal(section.reads.length, 2);
+  section.reads[1].resolve(section.rows('event'));
+  await settle();
+  section.reads[0].resolve(section.rows('expand'));
+  await settle();
+  assert.deepEqual(section.stored.current.session, section.rows('event'));
+});
+
+test('the page-load read answered after an event read does not replace it', async () => {
+  const section = historySection();
+  await section.loadSessions();
+  await settle();
+  assert.equal(section.reads.length, 1);
+  await section.event('session');
+  assert.equal(section.reads.length, 2);
+  section.reads[1].resolve(section.rows('event'));
+  await settle();
+  section.reads[0].resolve(section.rows('page load'));
+  await settle();
+  assert.deepEqual(section.stored.current.session, section.rows('event'));
+});
+
+test('an event read that never answers does not stop the next one', async () => {
+  const section = historySection();
+  await section.event('session');
+  await section.event('session');
+  assert.equal(section.reads.length, 2);
+  section.reads[1].resolve(section.rows('second'));
+  await settle();
+  assert.deepEqual(section.stored.current.session, section.rows('second'));
+});
+
+test('events schedule one refresh each and a refresh reads each waiting session once', async () => {
+  const section = historySection();
+  const onEvent = liftHistoryHandler(
+    withHistoryHelpers({
+      pendingHistoryRef: { current: new Set() },
+      scheduleHistoryRefresh: (callback) => section.scheduled.push(callback),
+      newestHistoryReadRef: section.newestHistoryReadRef,
+      failingHistoryRef: { current: new Set() },
+      ApiService: {
+        getPrefillSessionHistory: (sessionId) =>
+          new Promise((resolve, reject) => section.reads.push({ sessionId, resolve, reject }))
+      },
+      setHistoryData: () => undefined,
+      setLoadingHistory: () => undefined,
+      onError: () => undefined,
+      t: (key) => key
+    })
+  );
+  void onEvent({ sessionId: 'first' });
+  void onEvent({ sessionId: 'first' });
+  void onEvent({ sessionId: 'second' });
+  assert.equal(section.scheduled.length, 3);
+  section.scheduled.at(-1)();
+  assert.deepEqual(
+    section.reads.map((read) => read.sessionId),
+    ['first', 'second']
+  );
+});
+
+test('a run of failed history reads reports once, and a read that answers re-arms the report', async () => {
+  const section = historySection();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await section.event('session');
+    section.reads[attempt].reject(new Error('down'));
+    await settle();
+  }
+  assert.equal(section.errors.length, 1);
+  assert.equal(section.errors[0].message, 'management.prefillSessions.errors.loadHistory');
+  await section.event('session');
+  section.reads[3].resolve(section.rows('back'));
+  await settle();
+  await section.event('session');
+  section.reads[4].reject(new Error('down again'));
+  await settle();
+  assert.equal(section.errors.length, 2);
+});
+
+test('reads still open when the section closes store nothing and report nothing', async () => {
+  const section = historySection();
+  await section.event('session');
+  await section.event('session');
+  section.newestHistoryReadRef.current.clear();
+  section.reads[0].reject(new Error('down'));
+  section.reads[1].resolve(section.rows('late'));
+  await settle();
+  assert.equal(section.errors.length, 0);
+  assert.deepEqual(section.stored.current, {});
 });

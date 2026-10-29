@@ -60,9 +60,11 @@ public class ScheduleExecutionService
         }
 
         var serviceRun = operation.Metadata as ScheduledPrefillServiceRunState;
-        var detail = operation.Status == OperationStatus.Completed || string.IsNullOrWhiteSpace(operation.Message)
+        // A failed run that keeps its error text apart from a keyed message shows that text, as its row does.
+        var reason = operation.ErrorDetail ?? operation.Message;
+        var detail = operation.Status == OperationStatus.Completed || string.IsNullOrWhiteSpace(reason)
             ? null
-            : operation.Message[..Math.Min(operation.Message.Length, DetailLimit)];
+            : reason[..Math.Min(reason.Length, DetailLimit)];
 
         var warning = operation.Status == OperationStatus.Completed
             ? UnifiedOperationTracker.ReadWarnings(operation).FirstOrDefault()

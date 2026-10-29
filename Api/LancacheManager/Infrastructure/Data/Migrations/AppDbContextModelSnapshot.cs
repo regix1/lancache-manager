@@ -1157,6 +1157,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<bool>("IsPrefilling")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime>("LastLoginAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<bool>("LoggedInWhilePersonCanceled")
                         .HasColumnType("boolean");
 
@@ -1173,6 +1176,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
+
+                    b.Property<bool>("SignedOut")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Status")
                         .IsRequired()

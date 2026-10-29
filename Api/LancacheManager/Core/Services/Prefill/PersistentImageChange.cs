@@ -8,7 +8,8 @@ internal sealed class PersistentImageChange
     public required string ContainerId { get; init; }
     public required string ConfiguredImage { get; init; }
     public required string DesiredImageId { get; init; }
-    public required DateTime ExpiresAt { get; init; }
+    public required DateTime ExpiresAt { get; set; }
+    public required DateTime LastLoginAt { get; init; }
     public required bool Authenticated { get; init; }
 
     /// <summary>The old session was retrying its saved login after a dropped sign-in.</summary>

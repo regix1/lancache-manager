@@ -1320,11 +1320,9 @@ const savedLoginAction = ({
   identity = 'a',
   liveIdentity = identity,
   availability = { available: true, reason: null },
-  loading = false,
-  recover = async () => undefined
+  loading = false
 } = {}) => {
   const counters = {
-    recovery: 0,
     loads: 0,
     stores: [],
     targets: [],
@@ -1363,10 +1361,6 @@ const savedLoginAction = ({
     setActions,
     setErrors,
     setErrorActions,
-    recover: async () => {
-      counters.recovery += 1;
-      await recover();
-    },
     loadPersistentContainers: async () => {
       counters.loads += 1;
     },
@@ -1412,10 +1406,9 @@ test('saved-login refusal preserves exact action ownership without login mutatio
     assert.deepEqual(fixture.counters.targets, []);
     assert.deepEqual(fixture.counters.attempts, []);
     assert.deepEqual(fixture.counters.actions, ['login', undefined]);
-    assert.deepEqual(fixture.counters.errors, [undefined, integrationReasonKeys[reason]]);
+    assert.deepEqual(fixture.counters.errors, [integrationReasonKeys[reason]]);
     // The refusal is a Log in error, so the Services row does not show it beside Start.
-    assert.deepEqual(fixture.counters.errorActions, [undefined, 'login']);
-    assert.equal(fixture.counters.recovery, 1);
+    assert.deepEqual(fixture.counters.errorActions, ['login']);
     assert.equal(fixture.counters.loads, 0);
   }
 });
@@ -1427,12 +1420,11 @@ test('saved-login loading and retained stale handlers cannot mutate the current 
   assert.deepEqual(loading.counters.targets, []);
   assert.deepEqual(loading.counters.attempts, []);
   assert.deepEqual(loading.counters.actions, ['login', undefined]);
-  assert.deepEqual(loading.counters.errors, [undefined, 'errors.integration.statusUnavailable']);
+  assert.deepEqual(loading.counters.errors, ['errors.integration.statusUnavailable']);
 
   const stale = savedLoginAction({ identity: 'a', liveIdentity: 'b' });
   await stale.login('steam', true);
   assert.deepEqual(stale.counters, {
-    recovery: 0,
     loads: 0,
     stores: [],
     targets: [],
@@ -1441,32 +1433,6 @@ test('saved-login loading and retained stale handlers cannot mutate the current 
     errors: [],
     errorActions: []
   });
-});
-
-test('identity change during deferred cleanup leaves the replacement action and error untouched', async () => {
-  const gate = deferred();
-  const fixture = savedLoginAction({ recover: () => gate.promise });
-  const pending = fixture.login('steam', true);
-  assert.deepEqual(fixture.counters.actions, ['login']);
-  assert.deepEqual(fixture.counters.errors, [undefined]);
-
-  fixture.privateAvailabilityIdentityRef.current = 'b';
-  fixture.attempts.current.set('steam', { replacement: true });
-  fixture.actionState.steam = 'start';
-  fixture.errorState.steam = 'new-owner-error';
-  const actionWrites = fixture.counters.actions.length;
-  const errorWrites = fixture.counters.errors.length;
-  gate.resolve();
-  await pending;
-
-  assert.equal(fixture.actionState.steam, 'start');
-  assert.equal(fixture.errorState.steam, 'new-owner-error');
-  assert.equal(fixture.counters.actions.length, actionWrites);
-  assert.equal(fixture.counters.errors.length, errorWrites);
-  assert.deepEqual(fixture.counters.stores, []);
-  assert.deepEqual(fixture.counters.targets, []);
-  assert.deepEqual(fixture.counters.attempts, []);
-  assert.equal(fixture.counters.loads, 0);
 });
 
 test('a Start failure stays cleared after another tab starts and then stops the container', () => {

@@ -68,6 +68,17 @@ public partial class CacheManagementService
     private readonly string _cachedScanFilePath;
     private readonly SemaphoreSlim _scanCacheLock = new SemaphoreSlim(1, 1);
 
+    // Held while the cached scan's field and file are loaded, saved or cleared, so a load that
+    // began before an invalidation cannot write the old scan back after it. Nothing is taken
+    // while holding it. One per process, like the one scan file on disk it guards.
+    private static readonly SemaphoreSlim _cachedScanLock = new(1, 1);
+
+    // When each running count's dialog last asked for it, as a Stopwatch timestamp.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, long> _countPolls = new();
+
+    // A hidden browser tab can slow the dialog's one-second poll to about once a minute.
+    private readonly TimeSpan _countPollLimit = TimeSpan.FromMinutes(3);
+
     /// <summary>
     /// Context dictionary of the most recent cache-file-scan progress tick (same shape as the
     /// CacheSizeScanProgress SignalR payload's Context). The unified tracker only stores the stage
@@ -235,15 +246,17 @@ public partial class CacheManagementService
     {
         await LoadCachedScanAsync();
 
-        var cachedScan = _cachedCacheScan?.ScanResult;
-        if (cachedScan == null)
+        // Read once: an invalidation can clear the field between two reads.
+        var cached = _cachedCacheScan;
+        if (cached == null)
         {
             return;
         }
 
+        var cachedScan = cached.ScanResult;
         info.TotalFiles = cachedScan.TotalFiles;
         info.CacheScanTotalBytes = cachedScan.TotalBytes;
-        info.CacheScanTimestampUtc = _cachedCacheScan!.ScannedAtUtc;
+        info.CacheScanTimestampUtc = cached.ScannedAtUtc;
         info.HasCacheScan = true;
         await ApplyScanStaleAsync(info);
     }
@@ -255,7 +268,8 @@ public partial class CacheManagementService
     {
         await LoadCachedScanAsync();
 
-        var usedBytesByMountAtScan = _cachedCacheScan?.UsedCacheSizeByMountAtScan;
+        var cached = _cachedCacheScan;
+        var usedBytesByMountAtScan = cached?.UsedCacheSizeByMountAtScan;
         if (usedBytesByMountAtScan is { Count: > 0 })
         {
             var currentUsedBytesByMount = ReadCacheMountUsage(usedBytesByMountAtScan.Keys);
@@ -267,7 +281,7 @@ public partial class CacheManagementService
 
         info.ScanStale = CacheScanStaleCalculator.IsAnyScanStale(
             info.UsedCacheSize,
-            _cachedCacheScan?.UsedCacheSizeAtScan);
+            cached?.UsedCacheSizeAtScan);
     }
     
     /// <summary>
@@ -1161,11 +1175,12 @@ public partial class CacheManagementService
     /// </summary>
     private async Task LoadCachedScanAsync()
     {
-        if (_cachedCacheScan != null)
-            return;
-
+        await _cachedScanLock.WaitAsync();
         try
         {
+            if (_cachedCacheScan != null)
+                return;
+
             if (!File.Exists(_cachedScanFilePath))
                 return;
 
@@ -1191,6 +1206,10 @@ public partial class CacheManagementService
                 "Failed to load cached cache scan from {FilePath} - waiting for the next scheduled or manual scan",
                 _cachedScanFilePath);
             _cachedCacheScan = null;
+        }
+        finally
+        {
+            _cachedScanLock.Release();
         }
     }
 
@@ -1259,6 +1278,7 @@ public partial class CacheManagementService
 
     private async Task PersistCachedScanAsync(CachedCacheScan entry)
     {
+        await _cachedScanLock.WaitAsync();
         // In-memory readers should observe the new baseline even if persistence is
         // temporarily unavailable. The next successful scan or refresh retries the file write.
         _cachedCacheScan = entry;
@@ -1281,6 +1301,10 @@ public partial class CacheManagementService
         {
             _logger.LogWarning(ex, "Failed to persist cache scan to {FilePath}", _cachedScanFilePath);
         }
+        finally
+        {
+            _cachedScanLock.Release();
+        }
     }
 
     /// <summary>
@@ -1290,9 +1314,10 @@ public partial class CacheManagementService
     /// </summary>
     public void InvalidateCachedScan()
     {
-        _cachedCacheScan = null;
+        _cachedScanLock.Wait();
         try
         {
+            _cachedCacheScan = null;
             if (File.Exists(_cachedScanFilePath))
             {
                 File.Delete(_cachedScanFilePath);
@@ -1302,6 +1327,51 @@ public partial class CacheManagementService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to delete cached cache scan file {FilePath}", _cachedScanFilePath);
+        }
+        finally
+        {
+            _cachedScanLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Ends a count once nothing has asked for it for <see cref="_countPollLimit"/>: a reloaded page
+    /// or a lost start answer leaves a count with no dialog to show it or stop it.
+    /// </summary>
+    internal async Task CancelUnpolledCountAsync(Guid operationId, CancellationToken stop)
+    {
+        _countPolls[operationId] = Stopwatch.GetTimestamp();
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(_countPollLimit / 4, stop);
+                if (Stopwatch.GetElapsedTime(_countPolls[operationId]) >= _countPollLimit)
+                {
+                    _logger.LogInformation(
+                        "Cache file count {OperationId} stopped: nothing asked for it for {Minutes:0.#} minutes",
+                        operationId,
+                        _countPollLimit.TotalMinutes);
+                    _operationTracker.CancelOperation(operationId);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            _countPolls.TryRemove(operationId, out _);
+        }
+    }
+
+    /// <summary>Marks a running count as still watched. An id with no running count is ignored.</summary>
+    internal void RecordCountPoll(Guid operationId)
+    {
+        if (_countPolls.TryGetValue(operationId, out var polledAt))
+        {
+            _countPolls.TryUpdate(operationId, Stopwatch.GetTimestamp(), polledAt);
         }
     }
 
@@ -1368,7 +1438,7 @@ public partial class CacheManagementService
             // progress event beside each file tick; each event is a zero-latency wake-up that
             // triggers exactly one read of the (Rust-side-unchanged) progress file, replacing the
             // old DefaultProgressPollMs file poll. cancellationToken is threaded through unchanged so
-            // the P2-D shutdown-kill path still tears the process down.
+            // the shutdown-kill path still tears the process down.
             var processResult = await _rustProcessHelper.ExecuteTrackedProcessWithProgressEventsAsync(
                 startInfo,
                 operationId,
@@ -1385,11 +1455,11 @@ public partial class CacheManagementService
                     },
                 processLabel: "cache_size");
 
-            // Cancel-vs-exit race: tracker cancel kills the process tree BEFORE cancelling the
-            // CTS, so the child can die (exit 137 / SIGKILL) and WaitForExit return normally
-            // before the token observes cancellation. Classify that as CANCELLED - never as a
-            // "Failed to calculate cache size" error (mirrors the eviction scan's
-            // ThrowIfCancellationRequested immediately after the Rust run).
+            // A cancel during the run throws OperationCanceledException from the helper's stdout
+            // read. This check catches a cancel that arrives after the child exited and the helper
+            // returned, and classifies it as CANCELLED - never as a "Failed to calculate cache size"
+            // error (mirrors the eviction scan's ThrowIfCancellationRequested immediately after
+            // the Rust run).
             if (cancellationToken.IsCancellationRequested)
             {
                 await _rustProcessHelper.DeleteTempFileAsync(outputFile);
@@ -2138,33 +2208,36 @@ public partial class CacheManagementService
     /// </summary>
     private CacheSizeResponse? BuildStaleResult()
     {
-        if (_cachedCacheScan == null)
+        // Read once: an invalidation can clear the field between two reads.
+        var cached = _cachedCacheScan;
+        if (cached == null)
         {
             return null;
         }
 
         // Return a copy: IsCached belongs to this response, not to the shared persisted object.
-        var cachedResult = CopyCacheSizeResponse(_cachedCacheScan.ScanResult, isCached: true);
-        SyncScanTimestamp(cachedResult, _cachedCacheScan.ScannedAtUtc);
+        var cachedResult = CopyCacheSizeResponse(cached.ScanResult, isCached: true);
+        SyncScanTimestamp(cachedResult, cached.ScannedAtUtc);
         ApplyMeasuredClearRates(cachedResult);
         return cachedResult;
     }
 
     private CacheSizeResponse? BuildStaleDatasourceResult(string cachePath)
     {
-        if (_cachedCacheScan == null)
+        var cached = _cachedCacheScan;
+        if (cached == null)
         {
             return null;
         }
 
         var canonicalPath = GetCanonicalCachePath(cachePath);
-        if (!_cachedCacheScan.RootResults.TryGetValue(canonicalPath, out var result))
+        if (!cached.RootResults.TryGetValue(canonicalPath, out var result))
         {
             return null;
         }
 
         var cachedResult = CopyCacheSizeResponse(result, isCached: true);
-        SyncScanTimestamp(cachedResult, _cachedCacheScan.ScannedAtUtc);
+        SyncScanTimestamp(cachedResult, cached.ScannedAtUtc);
         ApplyMeasuredClearRates(cachedResult);
         return cachedResult;
     }

@@ -100,6 +100,5 @@ export const STORAGE_KEYS = {
   // Prefill run state, shared by PrefillContext, PrefillPanel and the prefill SignalR hooks.
   // These predate the lancache_ prefix and the VALUES must stay exactly as they are - renaming a
   // storage key silently orphans the state already saved in every user's browser.
-  PREFILL_IN_PROGRESS: 'prefill_in_progress',
   PREFILL_SESSION_ID: 'prefill_session_id'
 } as const;

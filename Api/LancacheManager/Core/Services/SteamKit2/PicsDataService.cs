@@ -399,32 +399,6 @@ public class PicsDataService
     }
 
     /// <summary>
-    /// Clear all depot mappings from the database
-    /// </summary>
-    public async Task ClearDepotMappingsAsync(CancellationToken cancellationToken = default, bool preserveOrphanResolved = false)
-    {
-        using var scopedDb = _scopeFactory.CreateScopedDbContext();
-
-        int count;
-        if (preserveOrphanResolved)
-        {
-            // Preserve locally-resolved orphan depot mappings (delisted/removed games)
-            // These mappings were discovered via direct PICS queries and won't be in GitHub data
-            count = await scopedDb.DbContext.SteamDepotMappings
-                .Where(m => m.Source != "orphan-resolved")
-                .ExecuteDeleteAsync(cancellationToken);
-
-            var preserved = await scopedDb.DbContext.SteamDepotMappings.CountAsync(cancellationToken);
-            _logger.LogInformation("Cleared {Deleted} depot mappings from database (preserved {Preserved} orphan-resolved mappings)", count, preserved);
-        }
-        else
-        {
-            count = await scopedDb.DbContext.SteamDepotMappings.ExecuteDeleteAsync(cancellationToken);
-            _logger.LogInformation("Successfully cleared {Count} depot mappings from database", count);
-        }
-    }
-
-    /// <summary>
     /// Import PICS data from JSON file to database
     /// </summary>
     public async Task ImportToDatabaseAsync()

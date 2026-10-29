@@ -119,7 +119,7 @@ test('a pending reuse hides manual prompting, then rejection permits a manual re
   const host = await loadHost(storeUrls.get('pending-rejection'), 'pending-host');
 
   for (const service of ['Steam', 'Epic', 'Xbox']) {
-    store.setPersistentLoginStartSessionId(service, 'reuse-session', 'edit-1', 'action-1', true);
+    store.setPersistentLoginStartSessionId(service, 'reuse-session', true);
     assert.equal(
       store.armPersistentLoginTimeout(service, Date.now() + 60_000, {
         noResult: 'no result',
@@ -162,12 +162,10 @@ test('a pending reuse hides manual prompting, then rejection permits a manual re
   assert.equal(store.isPersistentLoginIntegrationReuse('Steam'), false);
   assert.equal(store.hasActivePersistentLogin('Steam'), false);
 
-  store.setPersistentLoginStartSessionId('Steam', 'manual-session', 'edit-2', 'action-2', false);
+  store.setPersistentLoginStartSessionId('Steam', 'manual-session', false);
   const manualRequest = store.consumePersistentLoginStartRequest('Steam');
   assert.deepEqual(manualRequest, {
     sessionId: 'manual-session',
-    editSessionId: 'edit-2',
-    editActionId: 'action-2',
     reuseIntegration: false
   });
 });
@@ -175,19 +173,17 @@ test('a pending reuse hides manual prompting, then rejection permits a manual re
 test('a reset invalidates stale reuse before a new manual attempt owns the service', async (context) => {
   const store = await loadStore('stale-completion', context);
 
-  store.setPersistentLoginStartSessionId('Epic', 'reuse-session', undefined, undefined, true);
+  store.setPersistentLoginStartSessionId('Epic', 'reuse-session', true);
   store.updatePersistentLoginState('Epic', (current) => ({ ...current, loading: true }));
   const reuseEpoch = store.getPersistentLoginEpoch('Epic');
 
   store.resetPersistentLoginState('Epic');
-  store.setPersistentLoginStartSessionId('Epic', 'manual-session', undefined, undefined, false);
+  store.setPersistentLoginStartSessionId('Epic', 'manual-session', false);
 
   assert.ok(store.getPersistentLoginEpoch('Epic') > reuseEpoch);
   assert.equal(store.isPersistentLoginIntegrationReuse('Epic'), false);
   assert.deepEqual(store.consumePersistentLoginStartRequest('Epic'), {
     sessionId: 'manual-session',
-    editSessionId: undefined,
-    editActionId: undefined,
     reuseIntegration: false
   });
 });
@@ -259,7 +255,7 @@ test('an account change clears a pending saved-login reuse without changing shar
     ['Steam', { isRunning: true, isAuthenticated: false, sessionId: 'shared-session' }]
   ]);
   let persistentLoginTarget = 'steam';
-  store.setPersistentLoginStartSessionId('Steam', 'shared-session', undefined, undefined, true);
+  store.setPersistentLoginStartSessionId('Steam', 'shared-session', true);
   store.updatePersistentLoginState('Steam', (current) => ({ ...current, loading: true }));
 
   const onIdentityChange = bindLifted(
@@ -589,14 +585,7 @@ test('the shared API sends availability, reuse mode, and qualified login and log
   try {
     const availability = await api.getPersistentIntegrationLoginAvailability('Xbox');
     const loginId = '9df9a98a-7d81-42b5-bec8-b031323450e2';
-    const login = await api.startPersistentLogin(
-      'Xbox',
-      'session-1',
-      'edit-1',
-      'action-1',
-      true,
-      loginId
-    );
+    const login = await api.startPersistentLogin('Xbox', 'session-1', true, loginId);
     await api.cancelPersistentLogin('Xbox', 'session-1', { loginId });
     await api.logoutPersistentPrefillContainer('Xbox', 'session-1');
 
@@ -607,8 +596,6 @@ test('the shared API sends availability, reuse mode, and qualified login and log
     assert.deepEqual(JSON.parse(requests[1].init.body), {
       service: 'Xbox',
       sessionId: 'session-1',
-      editSessionId: 'edit-1',
-      editActionId: 'action-1',
       reuseIntegration: true,
       loginId
     });

@@ -1,6 +1,6 @@
 # LANCache Manager API Reference
 
-Every HTTP endpoint LANCache Manager serves: 285 operations across 6 groups, generated from the OpenAPI document of `LancacheManager | v1` version `1.0.0`.
+Every HTTP endpoint LANCache Manager serves: 283 operations across 6 groups, generated from the OpenAPI document of `LancacheManager | v1` version `1.0.0`.
 
 This is a flattened summary meant to be read by a person or pasted into a chat with an AI assistant. It is not the OpenAPI document itself. A running instance serves the interactive reference at `/scalar` and the full machine-readable document at `/openapi/v1.json`, both of which take an admin session or the API key.
 
@@ -19,7 +19,7 @@ This is a flattened summary meant to be read by a person or pasted into a chat w
 - **Cache and Games** (58 endpoints) - Cached content, game and depot identification, and game artwork.
 - **Clients** (10 endpoints) - Cache clients, their groups, and their hostname mappings.
 - **Downloads and Reporting** (40 endpoints) - Download history, dashboard figures, statistics, speeds, events, and logs.
-- **Prefill** (64 endpoints) - Platform prefill daemons, their schedules, and their administration.
+- **Prefill** (62 endpoints) - Platform prefill daemons, their schedules, and their administration.
 - **System** (48 endpoints) - Service health, metrics, database maintenance, migrations, and background operations.
 
 ## Access
@@ -1737,7 +1737,7 @@ Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outda
 
 Access: requires a signed-in session
 
-Runs a prefill for the session's current selection and waits for it to finish.
+Starts a prefill for the session's current selection and returns when the daemon accepts the run.
 
 Parameters: `sessionId` (path): string
 Body (inline object): (no fields)
@@ -1767,7 +1767,7 @@ Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outda
 
 Access: requires a signed-in session
 
-Runs a prefill for the session's current selection and waits for it to finish.
+Starts a prefill for the session's current selection and returns when the daemon accepts the run.
 
 Parameters: `sessionId` (path): string
 Body (inline object): (no fields)
@@ -1844,7 +1844,7 @@ Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outda
 
 Access: requires a signed-in session
 
-Runs a prefill for the session's current selection and waits for it to finish.
+Starts a prefill for the session's current selection and returns when the daemon accepts the run.
 
 Parameters: `sessionId` (path): string
 Body (inline object): (no fields)
@@ -1874,7 +1874,7 @@ Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outda
 
 Access: requires a signed-in session
 
-Runs a prefill for the session's current selection and waits for it to finish.
+Starts a prefill for the session's current selection and returns when the daemon accepts the run.
 
 Parameters: `sessionId` (path): string
 Body (inline object): (no fields)
@@ -1922,17 +1922,8 @@ Access: requires a signed-in session
 
 Provides an encrypted credential in response to a login challenge.
 
-Body (`PersistentProvideCredentialRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `challenge?: object`, `credential?: string?`, `editSessionId?: string?`, `editActionId?: string?`
+Body (`PersistentProvideCredentialRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `challenge?: object`, `credential?: string?`
 Response 200 (`MessageOnlyResponse`): `message?: string`
-
-### POST /api/system/prefill/persistent/edit-session-cleanup
-
-Access: requires a signed-in session
-
-Compensates a persistent edit session that was abandoned mid-flight.
-
-Body (`PersistentPrefillEditSessionCleanupRequest`): `editSessionId: string`, `cleanupId: string`, `services: PersistentPrefillEditSessionCleanupServiceRequest[]`
-Response 200: no body
 
 ### POST /api/system/prefill/persistent/login
 
@@ -1940,7 +1931,7 @@ Access: requires a signed-in session
 
 Starts or resumes the interactive login flow for the running persistent session.
 
-Body (`PersistentLoginRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `editSessionId?: string?`, `editActionId?: string?`
+Body (`PersistentLoginRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `reuseIntegration?: boolean`, `loginId?: string?`
 Response 200 (`CredentialChallenge`): `type?: string`, `challengeId?: string`, `credentialType?: string`, `serverPublicKey?: string`, `email?: string?`, `authUrl?: string?`, `userCode?: string?`, `verificationUri?: string?`, `createdAt?: string`, `expiresAt?: string`, `sessionId?: string?`
 
 ### POST /api/system/prefill/persistent/logout
@@ -1949,17 +1940,8 @@ Access: requires a signed-in session
 
 Logs the running persistent session out in place.
 
-Body (`PersistentLoginRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `editSessionId?: string?`, `editActionId?: string?`
+Body (`PersistentLoginRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `reuseIntegration?: boolean`, `loginId?: string?`
 Response 200 (`PersistentLogoutResponseDto`): `forgotten: boolean`, `fallback?: string?`
-
-### POST /api/system/prefill/persistent/prefill
-
-Access: requires a signed-in session
-
-Starts a prefill download on the running persistent session.
-
-Body (`PersistentStartPrefillRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `appIds?: array?`, `all?: boolean`, `recent?: boolean`, `recentlyPurchased?: boolean`, `top?: integer?`, `force?: boolean`, `operatingSystems?: array?`, `maxConcurrency?: integer?`, `editSessionId?: string?`, `editActionId?: string?`
-Response 200 (`PrefillResult`): `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
 
 ### POST /api/system/prefill/persistent/selected-apps
 
@@ -1967,7 +1949,7 @@ Access: requires a signed-in session
 
 Sets the selected app list for the running persistent session.
 
-Body (`PersistentSelectedAppsRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `appIds: string[]`, `editSessionId?: string?`, `editActionId?: string?`
+Body (`PersistentSelectedAppsRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `appIds: string[]`
 Response 200: no body
 
 ### POST /api/system/prefill/persistent/start
@@ -1976,8 +1958,8 @@ Access: requires a signed-in session
 
 Starts a persistent admin-owned session for the given platform.
 
-Body (`StartPersistentSessionRequest`): `service: PrefillPlatform`, `editSessionId?: string?`, `editActionId?: string?`
-Response 200 (`DaemonSessionDto`): `id?: string`, `userId?: string`, `containerName?: string`, `status?: string`, `errorMessage?: string?`, `authState?: string`, `isPrefilling?: boolean`, `createdAt?: string`, `expiresAt?: string`, `timeRemainingSeconds?: integer`, `isTemporary?: boolean`, `isPersistent?: boolean`, `needsRelogin?: boolean`, `ipAddress?: string?`, `operatingSystem?: string?`, `browser?: string?`, `lastSeenAt?: string`, `accountUsername?: string?`, `platform?: string`, `username?: string?`, `currentAppId?: string?`, `currentAppName?: string?`, `totalBytesTransferred?: integer`, `networkDiagnostics?: object`, `lastPrefillCompletedAt?: string?`, `lastPrefillDurationSeconds?: integer?`, `lastPrefillStatus?: string?`
+Body (`StartPersistentSessionRequest`): `service: PrefillPlatform`
+Response 200 (`DaemonSessionDto`): `id?: string`, `userId?: string`, `containerName?: string`, `status?: string`, `errorMessage?: string?`, `authState?: string`, `createdAt?: string`, `expiresAt?: string`, `timeRemainingSeconds?: integer`, `isTemporary?: boolean`, `isPersistent?: boolean`, `needsRelogin?: boolean`, `ipAddress?: string?`, `operatingSystem?: string?`, `browser?: string?`, `lastSeenAt?: string`, `accountUsername?: string?`, `platform?: string`, `username?: string?`, `networkDiagnostics?: object`
 
 ### POST /api/system/prefill/persistent/stop
 
@@ -2027,7 +2009,7 @@ Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outda
 
 Access: requires a signed-in session
 
-Runs a prefill for the session's current selection and waits for it to finish.
+Starts a prefill for the session's current selection and returns when the daemon accepts the run.
 
 Parameters: `sessionId` (path): string
 Body (inline object): (no fields)

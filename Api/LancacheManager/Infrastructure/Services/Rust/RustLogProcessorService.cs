@@ -60,7 +60,11 @@ public class RustLogProcessorService
         long LinesProcessed,
         double? Elapsed,
         string? Message,
-        string? StageKey);
+        string? StageKey)
+    {
+        public string? Datasource { get; init; }
+        public string? DatabaseError { get; init; }
+    }
 
     // A pass sets the run flag; reset-to-end holds the reservation. They are separate fields so no run
     // writer can clear a reservation and releasing a reservation cannot clear a running pass's flag.
@@ -131,7 +135,7 @@ public class RustLogProcessorService
                         OperationId: operationId,
                         Success: false,
                         Status: OperationStatus.Cancelled,
-                        Message: "Log processing was cancelled",
+                        Message: "signalr.generic.cancelled",
                         Cancelled: true,
                         EntriesProcessed: metrics.EntriesProcessed,
                         LinesProcessed: metrics.LinesProcessed,
@@ -161,12 +165,16 @@ public class RustLogProcessorService
                     OperationId: operationId,
                     Success: false,
                     Status: OperationStatus.Failed,
-                    Message: info.Error ?? metrics.Message ?? "Log processing failed",
+                    // Every failed log processing run is completed with its reason key as the error: each ending
+                    // in this class passes one, and the restart replay passes the key its record stored.
+                    Message: info.Error!,
                     Cancelled: false,
                     EntriesProcessed: metrics.EntriesProcessed,
                     LinesProcessed: metrics.LinesProcessed,
                     Elapsed: metrics.Elapsed,
-                    StageKey: metrics.StageKey));
+                    StageKey: metrics.StageKey,
+                    Datasource: metrics.Datasource,
+                    DatabaseError: metrics.DatabaseError));
         };
     }
 
@@ -254,12 +262,12 @@ public class RustLogProcessorService
                 entriesProcessed,
                 linesProcessed,
                 null,
-                "Log processing was cancelled",
+                "signalr.generic.cancelled",
                 null);
             _operationTracker.CompleteOperation(
                 operationId,
                 false,
-                "Operation was cancelled",
+                "signalr.generic.cancelled",
                 cancelled: true,
                 onCompleting: operation => operation.Metadata = metrics);
             return;
@@ -267,20 +275,27 @@ public class RustLogProcessorService
 
         if (batch.FailedDatasourceName is { } failedDatasourceName && !(batchFinished && EndedPartly(batch)))
         {
-            var message = batch.DatabaseError is { } databaseError
-                ? $"Log processing failed for datasource '{failedDatasourceName}': {databaseError}"
-                : $"Log processing failed for datasource '{failedDatasourceName}'";
+            var message = DatasourceFailureKey(batch);
             var metrics = new LogProcessingTerminalMetrics(
                 entriesProcessed,
                 linesProcessed,
                 null,
                 message,
-                null);
+                null)
+            {
+                Datasource = failedDatasourceName,
+                DatabaseError = batch.DatabaseError
+            };
             _operationTracker.CompleteOperation(
                 operationId,
                 false,
                 message,
-                onCompleting: operation => operation.Metadata = metrics);
+                onCompleting: operation =>
+                {
+                    operation.Metadata = metrics;
+                    operation.FailedDatasource = failedDatasourceName;
+                    operation.DatabaseError = batch.DatabaseError;
+                });
             return;
         }
 
@@ -303,12 +318,12 @@ public class RustLogProcessorService
             entriesProcessed,
             linesProcessed,
             null,
-            "Log processing ended without completing; marked failed",
+            "signalr.logProcessing.failed",
             null);
         _operationTracker.CompleteOperation(
             operationId,
             false,
-            "Log processing ended without completing",
+            "signalr.logProcessing.failed",
             onCompleting: operation => operation.Metadata = incompleteMetrics);
     }
 
@@ -389,7 +404,7 @@ public class RustLogProcessorService
             for (var i = 0; i < datasources.Count; i++)
             {
                 // Stop spawning Rust children for the remaining datasources once the shared
-                // operation has been cancelled (csharp-services-1 / P2-E). The in-flight
+                // operation has been cancelled. The in-flight
                 // datasource handles its own cancellation via the shared CTS token.
                 if (batchToken.IsCancellationRequested
                     || _operationTracker.GetOperation(batchOperationId)?.Status.IsTerminal() == true)
@@ -767,7 +782,11 @@ public class RustLogProcessorService
             retained.LinesProcessed,
             retained.Elapsed,
             retained.Message,
-            retained.StageKey);
+            retained.StageKey)
+        {
+            Datasource = retained.Datasource,
+            DatabaseError = retained.DatabaseError
+        };
         var source = new CancellationTokenSource();
         var restored = _operationTracker.TryRestoreOperation(
             repair.Id,
@@ -844,7 +863,9 @@ public class RustLogProcessorService
                         LinesProcessed = retained.LinesProcessed + progress.LinesParsed,
                         Elapsed = retained.Elapsed,
                         Message = retained.Message,
-                        StageKey = progress.StageKey
+                        StageKey = progress.StageKey,
+                        Datasource = retained.Datasource,
+                        DatabaseError = retained.DatabaseError
                     };
                 }
                 if (refreshSatisfied)
@@ -880,14 +901,20 @@ public class RustLogProcessorService
                     retained.LinesProcessed,
                     metrics.Elapsed,
                     metrics.Message,
-                    metrics.StageKey);
+                    metrics.StageKey)
+                {
+                    Datasource = metrics.Datasource,
+                    DatabaseError = metrics.DatabaseError
+                };
                 repair.LogProcessing = new LogProcessingRepair
                 {
                     EntriesProcessed = confirmed.EntriesProcessed,
                     LinesProcessed = confirmed.LinesProcessed,
                     Elapsed = confirmed.Elapsed,
                     Message = confirmed.Message,
-                    StageKey = confirmed.StageKey
+                    StageKey = confirmed.StageKey,
+                    Datasource = confirmed.Datasource,
+                    DatabaseError = confirmed.DatabaseError
                 };
             });
         return confirmed;
@@ -906,6 +933,11 @@ public class RustLogProcessorService
         _currentBatch = null;
     }
 
+    private static string DatasourceFailureKey(LogProcessingBatchState batch) =>
+        batch.DatabaseError is null
+            ? "signalr.logProcessing.failedForDatasource"
+            : "signalr.logProcessing.failedForDatasourceWithError";
+
     private static (
         LogProcessingTerminalMetrics Metrics,
         bool Success,
@@ -922,7 +954,7 @@ public class RustLogProcessorService
                     batch.EntriesProcessed,
                     batch.LinesProcessed,
                     null,
-                    "Log processing was cancelled",
+                    "signalr.generic.cancelled",
                     null),
                 false,
                 true,
@@ -931,16 +963,18 @@ public class RustLogProcessorService
 
         if (batch.FailedDatasourceName is { } failedDatasourceName && !(batchFinished && EndedPartly(batch)))
         {
-            var message = batch.DatabaseError is { } databaseError
-                ? $"Log processing failed for datasource '{failedDatasourceName}': {databaseError}"
-                : $"Log processing failed for datasource '{failedDatasourceName}'";
+            var message = DatasourceFailureKey(batch);
             return (
                 new LogProcessingTerminalMetrics(
                     batch.EntriesProcessed,
                     batch.LinesProcessed,
                     null,
                     message,
-                    null),
+                    null)
+                {
+                    Datasource = failedDatasourceName,
+                    DatabaseError = batch.DatabaseError
+                },
                 false,
                 false,
                 message);
@@ -965,11 +999,11 @@ public class RustLogProcessorService
                 batch.EntriesProcessed,
                 batch.LinesProcessed,
                 null,
-                "Log processing ended without completing; marked failed",
+                "signalr.logProcessing.failed",
                 null),
             false,
             false,
-            "Log processing ended without completing");
+            "signalr.logProcessing.failed");
     }
 
     private static readonly string[] _validTerminalStatuses =
@@ -1066,7 +1100,7 @@ public class RustLogProcessorService
             // A start refused while another pass runs logs a warning, so the wait does not ask for one.
             if (IsProcessing)
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+                await Task.Delay(TimeSpan.FromMilliseconds(250), _clock, cancellationToken);
                 continue;
             }
 
@@ -1090,7 +1124,7 @@ public class RustLogProcessorService
             }
 
             // Another pass holds the processor; this one has to start after it.
-            await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+            await Task.Delay(TimeSpan.FromMilliseconds(250), _clock, cancellationToken);
         }
     }
 
@@ -1603,11 +1637,14 @@ public class RustLogProcessorService
             var riotCompletedCleanly = exitCode == 0
                 && hasTerminalCheckpoint
                 && finalProgress!.TerminalStatus is "completed";
-            var riotError = riotSuccess || wasCancelled
-                ? null
-                : finalProgress?.TerminalStatus is { Length: > 0 } terminalStatus
-                    ? $"Log processing ended with {terminalStatus}"
-                    : $"Log processing failed with exit code {exitCode}";
+            if (!riotSuccess && !wasCancelled)
+            {
+                _logger.LogWarning(
+                    "Log processing under a Riot mapping run ended with terminal status {TerminalStatus} and exit code {ExitCode}",
+                    finalProgress?.TerminalStatus,
+                    exitCode);
+            }
+            var riotError = riotSuccess || wasCancelled ? null : "signalr.logProcessing.failed";
             await riotMappingRun.CompleteAsync(
                 riotSuccess,
                 wasCancelled,
@@ -1659,7 +1696,7 @@ public class RustLogProcessorService
                         EntriesProcessed: hasTerminalCheckpoint ? finalProgress!.EntriesSaved : 0,
                         LinesProcessed: hasTerminalCheckpoint ? finalProgress!.LinesParsed : 0,
                         Elapsed: null,
-                        Message: "Log processing was cancelled",
+                        Message: "signalr.generic.cancelled",
                         StageKey: null);
                     terminalMetrics = await FinishProcessingRepairAsync(
                         repairOwner!,
@@ -1669,7 +1706,7 @@ public class RustLogProcessorService
                         cancelled: true,
                         error: null);
                     repairFinished = true;
-                    _operationTracker.CompleteOperation(ownerOperationId.Value, false, "Operation was cancelled", cancelled: true, onCompleting: operation => operation.Metadata = terminalMetrics);
+                    _operationTracker.CompleteOperation(ownerOperationId.Value, false, "signalr.generic.cancelled", cancelled: true, onCompleting: operation => operation.Metadata = terminalMetrics);
                 }
 
                 return false;
@@ -1693,7 +1730,7 @@ public class RustLogProcessorService
                             EntriesProcessed: 0,
                             LinesProcessed: finalProgress.LinesParsed,
                             Elapsed: null,
-                            Message: finalProgress.StageKey ?? "Log processing failed",
+                            Message: "signalr.logProcessing.failed",
                             StageKey: finalProgress.StageKey);
                         terminalMetrics = await FinishProcessingRepairAsync(
                             repairOwner!,
@@ -1701,9 +1738,9 @@ public class RustLogProcessorService
                             terminalMetrics,
                             success: false,
                             cancelled: false,
-                            error: finalProgress.StageKey);
+                            error: "signalr.logProcessing.failed");
                         repairFinished = true;
-                        _operationTracker.CompleteOperation(ownerOperationId.Value, false, finalProgress.StageKey, onCompleting: operation => operation.Metadata = terminalMetrics);
+                        _operationTracker.CompleteOperation(ownerOperationId.Value, false, "signalr.logProcessing.failed", onCompleting: operation => operation.Metadata = terminalMetrics);
                     }
 
                     return false;
@@ -1725,7 +1762,7 @@ public class RustLogProcessorService
                             EntriesProcessed: 0,
                             LinesProcessed: 0,
                             Elapsed: null,
-                            Message: "Log processing ended without a valid completion checkpoint",
+                            Message: "signalr.logProcessing.failed",
                             StageKey: null);
                         terminalMetrics = await FinishProcessingRepairAsync(
                             repairOwner!,
@@ -1733,10 +1770,10 @@ public class RustLogProcessorService
                             terminalMetrics,
                             success: false,
                             cancelled: false,
-                            error: "Log processing ended without a valid completion checkpoint");
+                            error: "signalr.logProcessing.failed");
                         repairFinished = true;
                         _operationTracker.CompleteOperation(ownerOperationId.Value, false,
-                            "Log processing ended without a valid completion checkpoint", onCompleting: operation => operation.Metadata = terminalMetrics);
+                            "signalr.logProcessing.failed", onCompleting: operation => operation.Metadata = terminalMetrics);
                     }
                     return false;
                 }
@@ -1746,7 +1783,7 @@ public class RustLogProcessorService
                 if (finalProgress!.TerminalStatus == "partial")
                 {
                     PersistIngestDiagnostics(datasourceName!, finalProgress, startPositions);
-                    var mergedPositions = MergedSourcePositions(datasourceName!, finalProgress);
+                    var mergedPositions = MergedSourcePositions(datasourceName!, finalProgress, completed: false);
                     if (mergedPositions != null)
                     {
                         // Rust reports what it read for each reached stem. A rotated member error can
@@ -1770,15 +1807,19 @@ public class RustLogProcessorService
                                 EntriesProcessed: finalProgress.EntriesSaved,
                                 LinesProcessed: finalProgress.LinesParsed,
                                 Elapsed: null,
-                                Message: databaseError,
-                                StageKey: null);
+                                Message: savedSome ? databaseError : "signalr.logProcessing.failedForDatasourceWithError",
+                                StageKey: null)
+                            {
+                                Datasource = savedSome ? null : datasourceName,
+                                DatabaseError = savedSome ? null : databaseError
+                            };
                             terminalMetrics = await FinishProcessingRepairAsync(
                                 repairOwner!,
                                 ownerOperationId.Value,
                                 terminalMetrics,
                                 success: savedSome,
                                 cancelled: false,
-                                error: savedSome ? null : databaseError);
+                                error: savedSome ? null : "signalr.logProcessing.failedForDatasourceWithError");
                             repairFinished = true;
                             if (savedSome)
                             {
@@ -1786,7 +1827,16 @@ public class RustLogProcessorService
                                     ownerOperationId.Value,
                                     DatabaseErrorAfterSavingWarning(finalProgress.EntriesSaved, databaseError));
                             }
-                            _operationTracker.CompleteOperation(ownerOperationId.Value, savedSome, savedSome ? null : databaseError, onCompleting: operation => operation.Metadata = terminalMetrics);
+                            _operationTracker.CompleteOperation(
+                                ownerOperationId.Value,
+                                savedSome,
+                                savedSome ? null : "signalr.logProcessing.failedForDatasourceWithError",
+                                onCompleting: operation =>
+                                {
+                                    operation.Metadata = terminalMetrics;
+                                    operation.FailedDatasource = terminalMetrics.Datasource;
+                                    operation.DatabaseError = terminalMetrics.DatabaseError;
+                                });
                         }
                         return false;
                     }
@@ -1840,7 +1890,7 @@ public class RustLogProcessorService
                             EntriesProcessed: finalProgress.EntriesSaved,
                             LinesProcessed: finalProgress.LinesParsed,
                             Elapsed: null,
-                            Message: unexpectedMessage,
+                            Message: "signalr.logProcessing.failed",
                             StageKey: null);
                         terminalMetrics = await FinishProcessingRepairAsync(
                             repairOwner!,
@@ -1848,9 +1898,9 @@ public class RustLogProcessorService
                             terminalMetrics,
                             success: false,
                             cancelled: false,
-                            error: unexpectedMessage);
+                            error: "signalr.logProcessing.failed");
                         repairFinished = true;
-                        _operationTracker.CompleteOperation(ownerOperationId.Value, false, unexpectedMessage, onCompleting: operation => operation.Metadata = terminalMetrics);
+                        _operationTracker.CompleteOperation(ownerOperationId.Value, false, "signalr.logProcessing.failed", onCompleting: operation => operation.Metadata = terminalMetrics);
                     }
                     return false;
                 }
@@ -1858,7 +1908,7 @@ public class RustLogProcessorService
                 // Normal completion - send completion with actual data
                 if (finalProgress != null)
                 {
-                    var mergedPositions = MergedSourcePositions(datasourceName!, finalProgress);
+                    var mergedPositions = MergedSourcePositions(datasourceName!, finalProgress, completed: true);
                     var diagnostics = IngestDiagnosticsFor(finalProgress, startPositions);
                     _stateService.RecordLogIngestPass(
                         datasourceName!,
@@ -1963,7 +2013,7 @@ public class RustLogProcessorService
                         EntriesProcessed: 0,
                         LinesProcessed: 0,
                         Elapsed: null,
-                        Message: $"Log processing failed with exit code {exitCode}",
+                        Message: "signalr.logProcessing.failed",
                         StageKey: null);
                     terminalMetrics = await FinishProcessingRepairAsync(
                         repairOwner!,
@@ -1971,9 +2021,9 @@ public class RustLogProcessorService
                         terminalMetrics,
                         success: false,
                         cancelled: false,
-                        error: $"Log processing failed with exit code {exitCode}");
+                        error: "signalr.logProcessing.failed");
                     repairFinished = true;
-                    _operationTracker.CompleteOperation(ownerOperationId.Value, false, $"Log processing failed with exit code {exitCode}", onCompleting: operation => operation.Metadata = terminalMetrics);
+                    _operationTracker.CompleteOperation(ownerOperationId.Value, false, "signalr.logProcessing.failed", onCompleting: operation => operation.Metadata = terminalMetrics);
                 }
 
                 return false;
@@ -2009,7 +2059,7 @@ public class RustLogProcessorService
                         EntriesProcessed: 0,
                         LinesProcessed: 0,
                         Elapsed: null,
-                        Message: "Log processing was cancelled",
+                        Message: "signalr.generic.cancelled",
                         StageKey: null);
                     if (repairPrepared && !repairFinished)
                     {
@@ -2022,7 +2072,7 @@ public class RustLogProcessorService
                             error: null);
                         repairFinished = true;
                     }
-                    _operationTracker.CompleteOperation(cancelOpId.Value, false, "Operation was cancelled", cancelled: true, onCompleting: operation => operation.Metadata = terminalMetrics);
+                    _operationTracker.CompleteOperation(cancelOpId.Value, false, "signalr.generic.cancelled", cancelled: true, onCompleting: operation => operation.Metadata = terminalMetrics);
                 }
             }
 
@@ -2044,7 +2094,7 @@ public class RustLogProcessorService
                     EntriesProcessed: 0,
                     LinesProcessed: 0,
                     Elapsed: null,
-                    Message: $"Log processing error: {ex.Message}",
+                    Message: "signalr.logProcessing.failed",
                     StageKey: null);
                 if (repairPrepared && !repairFinished)
                 {
@@ -2054,10 +2104,10 @@ public class RustLogProcessorService
                         terminalMetrics,
                         success: false,
                         cancelled: false,
-                        error: ex.Message);
+                        error: "signalr.logProcessing.failed");
                     repairFinished = true;
                 }
-                _operationTracker.CompleteOperation(ownerOperationId.Value, false, ex.Message, onCompleting: operation => operation.Metadata = terminalMetrics);
+                _operationTracker.CompleteOperation(ownerOperationId.Value, false, "signalr.logProcessing.failed", onCompleting: operation => operation.Metadata = terminalMetrics);
             }
 
             return false;
@@ -2307,7 +2357,8 @@ public class RustLogProcessorService
 
     private Dictionary<string, long>? MergedSourcePositions(
         string datasourceName,
-        LogProcessingProgress progress)
+        LogProcessingProgress progress,
+        bool completed)
     {
         if (progress.SourcePositions.Count == 0)
         {
@@ -2315,9 +2366,35 @@ public class RustLogProcessorService
         }
 
         var mergedPositions = _stateService.GetLogSourcePositions(datasourceName);
+        // Each entry is "<path>: <message>". The path and the message can both hold ": ", and a folder
+        // name can end on a log file name, so the cut is the last one whose path ends on a log file name.
+        // A message names a path only when it is the same file's own path.
+        var stemsWithFileErrors = new HashSet<string>();
+        foreach (var entry in progress.FilesWithErrors)
+        {
+            for (var cut = entry.LastIndexOf(": ", StringComparison.Ordinal); cut > 0;
+                cut = entry.LastIndexOf(": ", cut - 1, StringComparison.Ordinal))
+            {
+                if (LogSourceLayout.LogicalStem(Path.GetFileName(entry[..cut])) is { } stem)
+                {
+                    stemsWithFileErrors.Add(stem);
+                    break;
+                }
+            }
+        }
         foreach (var (stem, offset) in progress.SourcePositions)
         {
-            mergedPositions[stem] = offset;
+            // A pass reports a series once it reaches it, so one at 0 with no file error is empty and
+            // gets no key: a stored 0 would read as a missing series once its empty file is gone.
+            // A partial pass keeps the 0 of a series with a file error, which can hold unread records.
+            if (offset == 0 && (completed || !stemsWithFileErrors.Contains(stem)))
+            {
+                mergedPositions.Remove(stem);
+            }
+            else
+            {
+                mergedPositions[stem] = offset;
+            }
         }
 
         return mergedPositions;

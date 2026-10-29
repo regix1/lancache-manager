@@ -186,10 +186,13 @@ public static class SignalRNotifications
         long LinesProcessed = 0,
         double? Elapsed = null,
         string? StageKey = null,
-        Dictionary<string, object?>? Context = null
+        Dictionary<string, object?>? Context = null,
+        string? Datasource = null,
+        string? DatabaseError = null
     ) : IOperationComplete
     {
-        // No dedicated Error field: on failure the human-readable reason rides in Message.
+        // No dedicated Error field: on failure the reason rides in Message as a locale key, and the values
+        // the key's text names ride in Datasource and DatabaseError.
         string? IOperationComplete.Error => Success ? null : Message;
     }
 

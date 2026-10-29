@@ -1,18 +1,16 @@
 import type { HubConnection } from '@microsoft/signalr';
-import { formatBytes } from '@utils/formatters';
-import { formatDurationFromSeconds, type PrefillSessionDto } from '../types';
+import type { PrefillSessionDto } from '../types';
 import type { DaemonAuthState } from '@/types/operations';
+import type { GameServiceId } from '@/types/gameService';
 import type { LogEntryType } from '../ActivityLog.utils';
 import i18n from '@/i18n';
-import { COMPLETION_NOTIFICATION_WINDOW_MS, getEventName } from './prefillConstants';
+import { getEventName } from './prefillConstants';
 import {
+  getPrefillRunReasonKey,
   supportsConcurrentPrefill,
-  type PrefillProgress,
-  type BackgroundCompletion,
-  type CachedAnimationItem
+  type PrefillRun,
+  type PrefillProgress
 } from './prefillTypes';
-import { STORAGE_KEYS } from '@utils/constants';
-import { sessionStore } from '@utils/storage';
 
 interface UsePrefillEventHandlersOptions {
   applyRunProgress?: (progress: PrefillProgress) => void;
@@ -21,37 +19,12 @@ interface UsePrefillEventHandlersOptions {
   setSession: React.Dispatch<React.SetStateAction<PrefillSessionDto | null>>;
   setTimeRemaining: React.Dispatch<React.SetStateAction<number>>;
   setIsLoggedIn: React.Dispatch<React.SetStateAction<boolean>>;
-  setIsPrefillActive: React.Dispatch<React.SetStateAction<boolean>>;
-  setPrefillProgress: React.Dispatch<React.SetStateAction<PrefillProgress | null>>;
-  onSessionEnd?: () => void;
-  clearAllPrefillStorage: () => void;
-  setBackgroundCompletionRef: React.RefObject<(completion: BackgroundCompletion) => void>;
-  clearBackgroundCompletion: () => void;
-  isCompletionDismissed: (completedAt: string) => boolean;
+  /** Drops a session the server has ended and returns the page to its start. */
+  endSession: () => void;
   sessionRef: React.RefObject<PrefillSessionDto | null>;
-  isCancelling: React.RefObject<boolean>;
-  currentAnimationAppIdRef: React.RefObject<string>;
-  expectedAppCountRef: React.RefObject<number>;
-  downloadedGamesCountRef: React.RefObject<number>;
-  cachedGamesCountRef: React.RefObject<number>;
-  totalBytesDownloadedRef: React.RefObject<number>;
-  enqueueAnimation: (
-    item: CachedAnimationItem,
-    setPrefillProgress: React.Dispatch<React.SetStateAction<PrefillProgress | null>>
-  ) => void;
-  resetAnimationState: () => void;
-  stopAnimations: () => void;
-  cachedAnimationQueueRef: React.RefObject<CachedAnimationItem[]>;
-  isProcessingAnimationRef: React.RefObject<boolean>;
-  serviceId: string;
-  /** CONTRACT: invokes GetCurrentPrefillProgress(sessionId) and binds the live bar. */
+  serviceId: GameServiceId;
+  /** Reads the session's run list (GetPrefillRuns) and binds the live bar. */
   rehydratePrefillProgress: (connection: HubConnection, sessionId: string) => Promise<void>;
-  /** Builds the coarse 'reconnecting' placeholder from a session DTO that is mid-prefill. */
-  seedReconnectingProgressFromSession: (session: PrefillSessionDto) => PrefillProgress;
-  /** Reactive mirror of isCancelling for the Cancel button's disabled "Cancelling..." state. */
-  setIsCancellingState: React.Dispatch<React.SetStateAction<boolean>>;
-  /** Watchdog timer started on Cancel; terminal events clear it. */
-  cancelWatchdogRef: React.RefObject<ReturnType<typeof setTimeout> | null>;
 }
 
 /**
@@ -68,41 +41,11 @@ export function registerPrefillEventHandlers(
     setSession,
     setTimeRemaining,
     setIsLoggedIn,
-    setIsPrefillActive,
-    setPrefillProgress,
-    onSessionEnd,
-    clearAllPrefillStorage,
-    setBackgroundCompletionRef,
-    clearBackgroundCompletion,
-    isCompletionDismissed,
+    endSession,
     sessionRef,
-    isCancelling,
-    currentAnimationAppIdRef,
-    expectedAppCountRef,
-    downloadedGamesCountRef,
-    cachedGamesCountRef,
-    totalBytesDownloadedRef,
-    enqueueAnimation,
-    resetAnimationState,
-    stopAnimations,
-    cachedAnimationQueueRef,
-    isProcessingAnimationRef,
     serviceId,
-    rehydratePrefillProgress,
-    seedReconnectingProgressFromSession,
-    setIsCancellingState,
-    cancelWatchdogRef
+    rehydratePrefillProgress
   } = options;
-
-  // Clears the cancel watchdog + reactive "Cancelling..." state. Called from every terminal path
-  // so the Cancel button never gets stuck disabled and the watchdog can't fire after the fact.
-  const clearCancelTracking = (): void => {
-    setIsCancellingState(false);
-    if (cancelWatchdogRef.current !== null) {
-      clearTimeout(cancelWatchdogRef.current);
-      cancelWatchdogRef.current = null;
-    }
-  };
 
   const t = i18n.t.bind(i18n);
 
@@ -132,7 +75,7 @@ export function registerPrefillEventHandlers(
     addLog(type, trimmed);
   });
 
-  // Handle auth state changes from backend. Another session's sign-in is not this tab's. [112]
+  // Handle auth state changes from backend. Another session's sign-in is not this tab's.
   connection.on(
     getEventName('AuthStateChanged', serviceId),
     ({ sessionId, authState }: { sessionId: string; authState: DaemonAuthState }) => {
@@ -147,33 +90,14 @@ export function registerPrefillEventHandlers(
     setSession(session);
     setTimeRemaining(Math.max(0, Math.floor((Date.parse(session.expiresAt) - Date.now()) / 1000)));
     setIsLoggedIn(session.authState === 'Authenticated');
-
-    // Server truth: a prefill is already running for this session. Seed the bar immediately
-    // (coarse 'reconnecting' placeholder). V6: do NOT invoke GetCurrentPrefillProgress here — the
-    // backend already replays the existing PrefillProgress event to Clients.Caller on subscribe, so
-    // the real bar binds from that push. Adding the invoke too is a redundant, racy double-write
-    // (two snapshots + the live tick) that can flicker the bar backward. The visibilitychange /
-    // onreconnected paths keep the invoke because there is no fresh subscribe replay there.
-    if (session.isPrefilling && !supportsConcurrentPrefill(session)) {
-      setIsPrefillActive(true);
-      setPrefillProgress((prev) => prev ?? seedReconnectingProgressFromSession(session));
-    }
   });
 
   // Handle session ended (sent to session owner)
   connection.on(
     getEventName('SessionEnded', serviceId),
-    ({ reason }: { sessionId: string; reason: string }) => {
-      addLog('warning', t('prefill.log.sessionEnded', { reason: reason }));
-      setSession(null);
-      setIsLoggedIn(false);
-      setIsPrefillActive(false);
-      clearCancelTracking();
-      stopAnimations();
-      setPrefillProgress(null);
-      // Clear all prefill-related storage when session ends
-      clearAllPrefillStorage();
-      onSessionEnd?.();
+    ({ reasonKey }: { sessionId: string; reasonKey: string }) => {
+      addLog('warning', t('prefill.log.sessionEnded', { reason: t(reasonKey) }));
+      endSession();
     }
   );
 
@@ -189,117 +113,6 @@ export function registerPrefillEventHandlers(
     }) => {
       if (progress.operationId && progress.daemonInstanceId) {
         if (sessionRef.current?.id === sessionId) options.applyRunProgress?.(progress);
-        return;
-      }
-      const isFinalState =
-        progress.state === 'completed' ||
-        progress.state === 'failed' ||
-        progress.state === 'cancelled' ||
-        progress.state === 'idle';
-
-      if (isFinalState) {
-        isCancelling.current = false;
-        clearCancelTracking();
-        stopAnimations();
-        setPrefillProgress(null);
-        return;
-      }
-
-      if (isCancelling.current) return;
-
-      // Seed the expected-app count from the daemon's totalApps the first time we learn it, so
-      // the two-tier "Game X of N" overall bar can render even for prefill-all/recent jobs where
-      // the count is not known up-front on the client.
-      if (expectedAppCountRef.current === 0 && progress.totalApps && progress.totalApps > 0) {
-        expectedAppCountRef.current = progress.totalApps;
-      }
-
-      if (progress.state === 'downloading') {
-        if (
-          !currentAnimationAppIdRef.current ||
-          currentAnimationAppIdRef.current === progress.currentAppId
-        ) {
-          setPrefillProgress({
-            ...progress,
-            expectedAppCount: expectedAppCountRef.current || progress.totalApps || undefined,
-            // V11: plumb the client-tracked running counts so "Game X of N" + the overall bar
-            // advance live. The daemon only sends real counters in the FINAL completed summary,
-            // so without this processedApps stays 0 and the position freezes at "Game 1 of N".
-            updatedApps: downloadedGamesCountRef.current,
-            alreadyUpToDate: cachedGamesCountRef.current
-          });
-        }
-      } else if (progress.state === 'app_completed') {
-        currentAnimationAppIdRef.current = '';
-
-        // Log game completion with download size
-        const gameName =
-          progress.currentAppName || t('prefill.log.unnamedApp', { appId: progress.currentAppId });
-        const sizeDownloaded = formatBytes(progress.bytesDownloaded || progress.totalBytes || 0);
-        addLog('success', t('prefill.log.gameDownloaded', { gameName, size: sizeDownloaded }));
-
-        // Track for summary
-        downloadedGamesCountRef.current++;
-        totalBytesDownloadedRef.current += progress.bytesDownloaded || progress.totalBytes || 0;
-
-        setPrefillProgress((prev) =>
-          prev
-            ? {
-                ...prev,
-                state: 'app_completed',
-                percentComplete: 100,
-                currentAppName: progress.currentAppName || prev.currentAppName,
-                // V11: the count was just incremented above, so processedApps now includes this
-                // finished app and "Game X of N" advances instead of sticking at 1.
-                updatedApps: downloadedGamesCountRef.current,
-                alreadyUpToDate: cachedGamesCountRef.current
-              }
-            : null
-        );
-      } else if (progress.state === 'already_cached') {
-        // Log cached game
-        const gameName =
-          progress.currentAppName || t('prefill.log.unnamedApp', { appId: progress.currentAppId });
-        addLog('info', t('prefill.log.gameAlreadyUpToDate', { gameName }));
-
-        // Track for summary
-        cachedGamesCountRef.current++;
-
-        if (expectedAppCountRef.current === 0 && progress.totalApps > 0) {
-          expectedAppCountRef.current = progress.totalApps;
-        }
-
-        enqueueAnimation(
-          {
-            appId: progress.currentAppId,
-            appName: progress.currentAppName,
-            totalBytes: progress.totalBytes || 0,
-            // V11: snapshot the running counts (the cached count was just incremented above) so the
-            // animation's fresh PrefillProgress keeps "Game X of N" + the overall bar advancing.
-            expectedAppCount: expectedAppCountRef.current || progress.totalApps || undefined,
-            updatedApps: downloadedGamesCountRef.current,
-            alreadyUpToDate: cachedGamesCountRef.current
-          },
-          setPrefillProgress
-        );
-      } else if (
-        ['loading-metadata', 'metadata-loaded', 'starting', 'preparing'].includes(progress.state)
-      ) {
-        if (progress.message) {
-          addLog('info', progress.message);
-        }
-        if (progress.message?.includes('0 games')) {
-          setPrefillProgress(null);
-          return;
-        }
-        setPrefillProgress({
-          ...progress,
-          percentComplete: 0,
-          bytesDownloaded: 0,
-          totalBytes: 0
-        });
-      } else if (['completed', 'failed', 'cancelled'].includes(progress.state)) {
-        setPrefillProgress(null);
       }
     }
   );
@@ -320,105 +133,24 @@ export function registerPrefillEventHandlers(
     ({
       sessionId: stateSessionId,
       state,
-      durationSeconds,
       operationId,
-      daemonInstanceId
+      daemonInstanceId,
+      run
     }: {
       sessionId: string;
       state: string;
-      durationSeconds?: number;
       operationId?: string;
       daemonInstanceId?: string;
+      /** The ended run, sent with every per-run event; its reason is what the run card shows. */
+      run: PrefillRun;
     }) => {
       if (operationId && daemonInstanceId) {
-        if (sessionRef.current?.id === stateSessionId)
-          void rehydratePrefillProgress(connection, stateSessionId);
-        return;
-      }
-      if (state === 'started') {
-        setIsPrefillActive(true);
-        setIsCancellingState(false);
-        addLog('download', t('prefill.log.prefillStarted'));
-        resetAnimationState();
-        clearBackgroundCompletion();
-
-        // Reset counters for new prefill
-        downloadedGamesCountRef.current = 0;
-        cachedGamesCountRef.current = 0;
-        totalBytesDownloadedRef.current = 0;
-        // V5: also clear the expected-app count so a stale total from a prior run (e.g. a
-        // prefill-top(50)) can't leak into a new prefill-recent(12) job on a non-executeCommand
-        // start path (2nd tab / replayed start). The PrefillProgress seed-guard re-derives the
-        // correct count from the daemon's totalApps on the first tick.
-        expectedAppCountRef.current = 0;
-        sessionStore.setJSON(STORAGE_KEYS.PREFILL_IN_PROGRESS, {
-          startedAt: new Date().toISOString(),
-          sessionId: stateSessionId
-        });
-      } else if (state === 'completed') {
-        setIsPrefillActive(false);
-        const duration = durationSeconds ?? 0;
-        const formattedDuration = formatDurationFromSeconds(duration);
-        addLog('success', t('prefill.log.prefillCompleted', { duration: formattedDuration }));
-
-        // Log summary of what was prefilled
-        const downloaded = downloadedGamesCountRef.current;
-        const cached = cachedGamesCountRef.current;
-        const totalBytes = totalBytesDownloadedRef.current;
-        if (downloaded > 0 || cached > 0) {
-          const parts: string[] = [];
-          if (downloaded > 0) {
-            parts.push(
-              t('prefill.log.summaryDownloaded', {
-                count: downloaded,
-                size: formatBytes(totalBytes)
-              })
-            );
-          }
-          if (cached > 0) {
-            parts.push(t('prefill.log.summaryAlreadyUpToDate', { count: cached }));
-          }
-          addLog('info', t('prefill.log.summary', { parts: parts.join(', ') }));
+        if (sessionRef.current?.id !== stateSessionId) return;
+        if (state === 'failed') {
+          const reasonKey = getPrefillRunReasonKey(run.snapshot.reason, serviceId);
+          if (reasonKey) addLog('error', t(reasonKey));
         }
-
-        isCancelling.current = false;
-        clearCancelTracking();
-
-        // If there are pending cached animations, let them finish before clearing
-        const hasPendingAnimations =
-          cachedAnimationQueueRef.current.length > 0 || isProcessingAnimationRef.current;
-        if (!hasPendingAnimations) {
-          setPrefillProgress(null);
-          resetAnimationState();
-        }
-        // Note: Animation completion handler will clear progress when done
-
-        setBackgroundCompletionRef.current({
-          completedAt: new Date().toISOString(),
-          message: t('prefill.completion.message', { duration: formattedDuration }),
-          duration: duration
-        });
-        sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-      } else if (state === 'failed') {
-        setIsPrefillActive(false);
-        addLog('error', t('prefill.log.prefillFailed'));
-        isCancelling.current = false;
-        clearCancelTracking();
-
-        stopAnimations();
-        setPrefillProgress(null);
-        resetAnimationState();
-        sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
-      } else if (state === 'cancelled') {
-        setIsPrefillActive(false);
-        addLog('info', t('prefill.log.prefillCancelled'));
-        isCancelling.current = false;
-        clearCancelTracking();
-
-        stopAnimations();
-        setPrefillProgress(null);
-        resetAnimationState();
-        sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
+        void rehydratePrefillProgress(connection, stateSessionId);
       }
     }
   );
@@ -446,6 +178,10 @@ export function registerPrefillEventHandlers(
       }
       return currentSession;
     });
+    // The update's runs only merge into the card, so a run a reset deleted leaves only through the run list.
+    // A session whose features are not known yet has no run list to read.
+    if (sessionRef.current?.id === session.id && supportsConcurrentPrefill(session))
+      void rehydratePrefillProgress(connection, session.id);
   });
 
   connection.onreconnecting(() => {
@@ -458,42 +194,28 @@ export function registerPrefillEventHandlers(
     if (currentSession) {
       try {
         await connection.invoke('SubscribeToSessionAsync', currentSession.id);
-
-        // Re-bind the live progress bar from server truth (the daemon may still be prefilling
-        // after the socket drop). CONTRACT: GetCurrentPrefillProgress.
-        await rehydratePrefillProgress(connection, currentSession.id);
-
-        if (supportsConcurrentPrefill(currentSession)) return;
-
-        const lastResult = (await connection.invoke('GetLastPrefillResult', currentSession.id)) as {
-          status: string;
-          completedAt: string;
-          durationSeconds: number;
-        } | null;
-
-        if (lastResult && lastResult.status === 'completed') {
-          const completedTime = new Date(lastResult.completedAt).getTime();
-          if (
-            Date.now() - completedTime < COMPLETION_NOTIFICATION_WINDOW_MS &&
-            !isCompletionDismissed(lastResult.completedAt)
-          ) {
-            const formattedDuration = formatDurationFromSeconds(lastResult.durationSeconds);
-            setBackgroundCompletionRef.current({
-              completedAt: lastResult.completedAt,
-              message: t('prefill.completion.message', { duration: formattedDuration }),
-              duration: lastResult.durationSeconds
-            });
-            addLog(
-              'success',
-              t('prefill.log.prefillCompletedWhileDisconnected', {
-                duration: formattedDuration
-              })
-            );
-          }
-        }
-        sessionStore.removeItem(STORAGE_KEYS.PREFILL_IN_PROGRESS);
       } catch {
-        // Failed to resubscribe after reconnection
+        // A failed or slow reply does not end the session; only a server that no longer lists it has ended it.
+        // A session it still lists is subscribed once more, because run events go only to subscribers.
+        if (connection.state !== 'Connected') return;
+        try {
+          const listed = await connection.invoke<PrefillSessionDto[]>('GetMySessions');
+          if (!listed.some((entry: PrefillSessionDto) => entry.id === currentSession.id)) {
+            addLog('warning', t('prefill.log.sessionEndedOnServer'));
+            endSession();
+            return;
+          }
+          await connection.invoke('SubscribeToSessionAsync', currentSession.id);
+        } catch {
+          // The next reconnect or visibility change tries again.
+          return;
+        }
+      }
+      try {
+        // The run list is read again, because a run can end while the socket is down.
+        await rehydratePrefillProgress(connection, currentSession.id);
+      } catch {
+        // The next live event reads the run list again.
       }
     }
   });

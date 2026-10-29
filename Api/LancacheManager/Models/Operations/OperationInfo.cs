@@ -110,6 +110,18 @@ public class OperationInfo
     [System.Text.Json.Serialization.JsonIgnore]
     public string? RepairError { get; set; }
 
+    /// <summary>The error text behind a failed run whose message is a locale key; the run row's error.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? ErrorDetail { get; set; }
+
+    /// <summary>The datasource a failed log processing run stopped on; the value its error key's text names.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? FailedDatasource { get; set; }
+
+    /// <summary>The database error that stopped that datasource, when there was one.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? DatabaseError { get; set; }
+
     /// <summary>What the run left undone, one per locale key; read and written under the operation's lock.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public List<RunWarning> Warnings { get; } = new();

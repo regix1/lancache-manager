@@ -691,6 +691,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
     createPortal(
       <div
         ref={dropdownRef}
+        data-closing={closing ? '' : undefined}
         className={`github-dropdown-container absolute z-[85] motion-reduce:animate-none ${
           closing
             ? position.openUpward

@@ -56,6 +56,9 @@ internal sealed class RunVisibilityJsonConverter : JsonStringEnumConverter<RunVi
 /// <param name="ScanLookbackDays">The lookback window, in days, of a repeated-miss corruption scan; null otherwise, a structural scan included.</param>
 /// <param name="WaitingForDownload">True when a download writing to the cache holds the waiting run back; the browser
 /// then says it waits for downloads unless a blocker is named.</param>
+/// <param name="FailedDatasource">The datasource a failed log processing run stopped on, which its error key's text
+/// names; null for every other run.</param>
+/// <param name="DatabaseError">The database error that stopped that datasource; null when there was none.</param>
 public sealed record OperationRun(
     Guid OperationId, string OperationType, string Name, string? Target, string? ScheduleKey, string Status,
     RunVisibility Visibility, double PercentComplete, string Message, string? Error, string? BlockedByName,
@@ -65,7 +68,7 @@ public sealed record OperationRun(
     bool LatestRunSucceeded, Guid? ScheduleId,
     PrefillPlatform? ServiceId, bool LiveIngest, bool IntegrationLogin, Guid? OwnerSessionId,
     long? CompletedRevision, DateTime StartedAt, long Revision, string? ScanMode, bool BlockedByFullRepair,
-    int? ScanThreshold, int? ScanLookbackDays, bool WaitingForDownload);
+    int? ScanThreshold, int? ScanLookbackDays, bool WaitingForDownload, string? FailedDatasource, string? DatabaseError);
 
 /// <summary>
 /// Every tracked run plus the revision read before they were listed, so the browser drops a run

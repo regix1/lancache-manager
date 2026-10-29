@@ -9,91 +9,6 @@ namespace LancacheManager.Tests;
 public class ScheduledPrefillRunGatesTests
 {
     private static readonly Guid SystemUserId = ScheduledPrefillConstants.DeriveSystemUserId();
-    private static readonly Guid RealUserId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-
-    [Fact]
-    public void ShouldSkipForBusySessions_ReturnsFalse_WhenOnlyPersistentSystemSessionAuthenticated()
-    {
-        var session = MakeSession(SystemUserId, isPersistent: true);
-
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(session, out var message, out var stageKey);
-
-        Assert.False(shouldSkip);
-        Assert.Equal(string.Empty, message);
-        Assert.Equal(string.Empty, stageKey);
-    }
-
-    [Fact]
-    public void ShouldSkipForBusySessions_ReturnsFalse_WhenRealUserSessionActive()
-    {
-        // INVERTED on purpose. This used to skip on any session owned by somebody other than the
-        // scheduler, and that is the behavior being removed: a manual or guest container is a
-        // separate entity with its own container, so it must never hold up a scheduled run. The gate
-        // is also no longer handed a session list, so a manual session can only reach it by being
-        // passed as the persistent session, which is what this asserts is ignored.
-        var session = MakeSession(RealUserId, isPersistent: false);
-
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(session, out var message, out var stageKey);
-
-        Assert.False(shouldSkip);
-        Assert.Equal(string.Empty, message);
-        Assert.Equal(string.Empty, stageKey);
-    }
-
-    [Fact]
-    public void ShouldSkipForBusySessions_ReturnsFalse_WhenANonPersistentSessionIsPrefilling()
-    {
-        // The user's rule, stated as a test: a temporary or guest container actively downloading for
-        // somebody else says nothing about whether this platform's scheduled run can proceed.
-        var session = MakeSession(RealUserId, isPersistent: false, isPrefilling: true);
-
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(session, out var message, out var stageKey);
-
-        Assert.False(shouldSkip);
-        Assert.Equal(string.Empty, message);
-        Assert.Equal(string.Empty, stageKey);
-    }
-
-    [Fact]
-    public void ShouldSkipForBusySessions_ReturnsTrue_WhenThePersistentSessionIsPrefilling()
-    {
-        var session = MakeSession(SystemUserId, isPersistent: true, isPrefilling: true);
-
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(session, out var message, out var stageKey);
-
-        Assert.True(shouldSkip);
-        Assert.Equal("A prefill is already in progress", message);
-        Assert.Equal("signalr.scheduledPrefill.skippedAlreadyRunning", stageKey);
-    }
-
-    [Fact]
-    public void ShouldSkipForBusySessions_ReturnsFalse_WhenThereIsNoPersistentSession()
-    {
-        // The gate now takes the ONE session the run already resolved, so "no session list" and
-        // "every session was terminated" both arrive here as a null.
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(null, out var message, out var stageKey);
-
-        Assert.False(shouldSkip);
-        Assert.Equal(string.Empty, message);
-        Assert.Equal(string.Empty, stageKey);
-    }
-
-    [Theory]
-    [InlineData(DaemonSessionStatus.Terminated)]
-    [InlineData(DaemonSessionStatus.Error)]
-    public void ShouldSkipForBusySessions_ReturnsFalse_WhenThePersistentSessionIsNotActive(DaemonSessionStatus status)
-    {
-        // Replaces the old terminated-sessions and error-sessions cases: with a single session in
-        // hand rather than a list, "not active" is the whole of what those two used to say. A
-        // terminated container's stale prefilling flag must not defer the run forever.
-        var session = MakeSession(SystemUserId, isPersistent: true, isPrefilling: true, status: status);
-
-        var shouldSkip = ScheduledPrefillRunGates.ShouldSkipForBusySessions(session, out var message, out var stageKey);
-
-        Assert.False(shouldSkip);
-        Assert.Equal(string.Empty, message);
-        Assert.Equal(string.Empty, stageKey);
-    }
 
     [Fact]
     public void TryGetRunnablePersistentSession_ReturnsTrue_AndSessionId_WhenPersistentSessionExists()
@@ -190,19 +105,10 @@ public class ScheduledPrefillRunGatesTests
     }
 
     [Fact]
-    public void BuildNotReadyMessage_DropsTheLoginLanguageForAnonymousPlatforms()
+    public void NoContainerReason_DropsTheLoginLanguage()
     {
-        // A running-but-unready container is the same situation for every platform, but Battle.net
-        // and Riot have nothing to sign in to - telling them to log in sends the user looking for a
-        // screen that does not exist.
-        var anonymous = ScheduledPrefillRunGates.BuildNotReadyMessage(PrefillPlatform.BattleNet);
-
-        Assert.Contains("BattleNet", anonymous);
-        Assert.DoesNotContain("logged in", anonymous);
-        Assert.DoesNotContain("log in", anonymous);
-        Assert.DoesNotContain("login", anonymous, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("login", ScheduledPrefillRunGates.ContainerNotReadyReason.Replace(
-            "needs no login", string.Empty, StringComparison.OrdinalIgnoreCase), StringComparison.OrdinalIgnoreCase);
+        // Battle.net and Riot have nothing to sign in to, so telling them to log in sends the user
+        // looking for a screen that does not exist.
         Assert.DoesNotContain("log in", ScheduledPrefillRunGates.NoContainerReason);
     }
 
@@ -596,8 +502,6 @@ public class ScheduledPrefillRunGatesTests
     private static DaemonSession MakeSession(
         Guid userId,
         bool isPersistent,
-        DaemonSessionStatus status = DaemonSessionStatus.Active,
-        bool isPrefilling = false,
         DaemonAuthState authState = DaemonAuthState.Authenticated,
         bool needsRelogin = false)
     {
@@ -605,9 +509,8 @@ public class ScheduledPrefillRunGatesTests
         {
             Id = Guid.NewGuid().ToString("N")[..16],
             UserId = userId,
-            Status = status,
+            Status = DaemonSessionStatus.Active,
             IsPersistent = isPersistent,
-            IsPrefilling = isPrefilling,
             AuthState = authState,
             NeedsRelogin = needsRelogin,
             CreatedAt = DateTime.UtcNow,

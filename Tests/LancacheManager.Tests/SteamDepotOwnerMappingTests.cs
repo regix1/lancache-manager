@@ -1,5 +1,6 @@
 using System.Text.Json;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -30,13 +31,12 @@ public sealed class SteamDepotOwnerMappingTests
             new TestDbContextFactory(options),
             NullLogger<PrefillCacheService>.Instance);
 
-        await service.RecordCachedDepotAsync(
+        await service.RecordSteamCacheAsync(
             667970,
-            1770481,
-            4625979481897414804,
             "VTOL VR",
             1,
-            null);
+            null,
+            [new DepotManifestProgressInfo { DepotId = 1770481, ManifestId = 4625979481897414804, TotalBytes = 1 }]);
 
         await using var verification = new AppDbContext(options);
         var mappings = await verification.SteamDepotMappings

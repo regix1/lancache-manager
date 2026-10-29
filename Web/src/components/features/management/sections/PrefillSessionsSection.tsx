@@ -42,7 +42,6 @@ import ApiService, {
 import type { PrefillSessionStatus } from '@/types/operations';
 import { GAME_SERVICES, type GameServiceId } from '@/types/gameService';
 import { getErrorMessage } from '@utils/error';
-import { ApiError } from '@services/apiError';
 import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 import { formatBytes } from '@utils/formatters';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
@@ -50,11 +49,17 @@ import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
+import { useRefreshRate } from '@contexts/useRefreshRate';
+import { useRefreshThrottle } from '@hooks/useRefreshThrottle';
 import { useMockMode } from '@contexts/useMockMode';
 import { cleanIpAddress } from '@components/features/user/types';
 import { rowToggleHandlers } from '@utils/rowToggle';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { PrefillRuns } from '@components/features/prefill/PrefillRuns';
+import {
+  currentPrefillRun,
+  getPrefillRunReasonKey
+} from '@components/features/prefill/hooks/prefillTypes';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import StatusDot from '@components/common/StatusDot';
 import '../managementSectionContent.css';
@@ -81,6 +86,17 @@ interface PrefillSessionsSectionProps {
   onError: (message: string, error?: unknown) => void;
   onSuccess: (message: string) => void;
 }
+
+// The reason a history entry was stored with (a stop's translation key, or a run's reason code).
+// A value no translation names is a daemon-side token, so nothing is shown for it.
+const HistoryReason: React.FC<{ reason: string; serviceId: GameServiceId }> = ({
+  reason,
+  serviceId
+}) => {
+  const { t, i18n } = useTranslation();
+  const key = getPrefillRunReasonKey(reason, serviceId) ?? reason;
+  return i18n.exists(key) ? <span>{t(key)}</span> : null;
+};
 
 // Prefill history status badge
 const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> = ({
@@ -215,7 +231,7 @@ const SessionCard: React.FC<{
   const [menuOpen, setMenuOpen] = useState(false);
   const historyPageSize = 5;
   // Downloading state flows through the unified activity registry for live daemon sessions; the DTO's
-  // isPrefilling flag stays the pre-seed fallback (activity.isActive(...) || existing).
+  // active run count stays the pre-seed fallback (activity.isActive(...) || existing).
   const activity = useActivityStatus();
 
   // Normalize session data between DaemonSessionDto and PrefillSessionDto
@@ -225,7 +241,7 @@ const SessionCard: React.FC<{
   const isPrefilling =
     (daemonSessionId !== null &&
       activity.isActive('prefillSession', daemonSessionId, 'downloading')) ||
-    (isDaemonSession ? session.isPrefilling : false);
+    (isDaemonSession ? (session.activeRunCount ?? 0) > 0 : false);
 
   const platform = isDaemonSession ? session.platform || 'Steam' : session.platform || 'Steam';
   const serviceId = resolveServiceId(platform);
@@ -244,8 +260,11 @@ const SessionCard: React.FC<{
   const ipAddress = isDaemonSession ? session.ipAddress : undefined;
   const operatingSystem = isDaemonSession ? session.operatingSystem : undefined;
   const browser = isDaemonSession ? session.browser : undefined;
-  const currentAppName = isDaemonSession ? session.currentAppName : undefined;
-  const totalBytesTransferred = isDaemonSession ? session.totalBytesTransferred : undefined;
+  const currentRun = isDaemonSession ? currentPrefillRun(session.runs) : undefined;
+  const currentAppName = currentRun?.completedAtUtc
+    ? undefined
+    : currentRun?.snapshot.currentItem?.name;
+  const totalBytesTransferred = currentRun?.snapshot.bytesTransferred;
   const isAuthenticated_ = isDaemonSession
     ? session.authState === 'Authenticated'
     : session.isAuthenticated;
@@ -415,7 +434,9 @@ const SessionCard: React.FC<{
 
       <CollapsibleRegion open={isHistoryExpanded} contentClassName="mgmt-row-detail">
         <div className="session-detail">
-          {isDaemonSession && Boolean(session.runs?.length) && <PrefillRuns runs={session.runs} />}
+          {isDaemonSession && Boolean(session.runs?.length) && (
+            <PrefillRuns runs={session.runs} serviceId={serviceId} />
+          )}
           <p className="mgmt-subhead caps-label">
             {t('management.prefillSessions.labels.prefillHistory')}
           </p>
@@ -468,6 +489,9 @@ const SessionCard: React.FC<{
                               ? `${formatBytes(entry.bytesDownloaded)} / ${formatBytes(entry.totalBytes)}`
                               : formatBytes(entry.bytesDownloaded || entry.totalBytes)}
                           </span>
+                        )}
+                        {entry.reason && (
+                          <HistoryReason reason={entry.reason} serviceId={serviceId} />
                         )}
                         {entry.errorMessage && (
                           <span className="is-error">
@@ -637,9 +661,15 @@ const PersistentContainerCard: React.FC<{
     ? t(`${baseKey}.status.needsRelogin`)
     : isAuthenticated
       ? t(`${baseKey}.status.authenticated`)
-      : t(`${baseKey}.status.notLoggedIn`);
+      : container.authUnknown
+        ? t('common.unknown')
+        : t(`${baseKey}.status.notLoggedIn`);
 
-  const isPrefilling = isRunning && (container.isPrefilling ?? false);
+  const isPrefilling = isRunning && (container.activeRunCount ?? 0) > 0;
+  const containerRun = currentPrefillRun(container.runs);
+  const containerAppName = containerRun?.completedAtUtc
+    ? undefined
+    : containerRun?.snapshot.currentItem?.name;
 
   const [isSchedulesExpanded, setIsSchedulesExpanded] = useState(false);
   const toggleSchedules = () => setIsSchedulesExpanded((expanded) => !expanded);
@@ -665,11 +695,11 @@ const PersistentContainerCard: React.FC<{
             <span>{runLabel}</span>
             {isPrefilling && (
               <span>
-                {container.currentAppName
-                  ? t(`${baseKey}.prefilling`, { game: container.currentAppName })
+                {containerAppName
+                  ? t(`${baseKey}.prefilling`, { game: containerAppName })
                   : t(`${baseKey}.prefillingGeneric`)}
-                {(container.totalBytesTransferred ?? 0) > 0
-                  ? ` · ${formatBytes(container.totalBytesTransferred ?? 0)}`
+                {(containerRun?.snapshot.bytesTransferred ?? 0) > 0
+                  ? ` · ${formatBytes(containerRun?.snapshot.bytesTransferred ?? 0)}`
                   : ''}
               </span>
             )}
@@ -719,7 +749,8 @@ const PersistentContainerCard: React.FC<{
           <div className="prefill-session-detail__content">
             <PrefillRuns
               runs={container.runs}
-              activeCount={Math.max(container.activeRunCount ?? 0, isPrefilling ? 1 : 0)}
+              serviceId={serviceId}
+              activeCount={container.activeRunCount ?? 0}
             />
             <section
               className="prefill-session-detail__schedules"
@@ -847,6 +878,46 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const sessionsRequestRef = useRef(0);
   const bansRequestRef = useRef(0);
   const persistentRequestRef = useRef(0);
+  // Each history read takes the next number for its session, and only the newest read of a session
+  // stores or reports, so a read that started before a run's last save never replaces the read after it.
+  const newestHistoryReadRef = useRef<Map<string, number>>(new Map());
+  // Sessions whose history event arrived since the last refresh, and sessions whose last read failed.
+  const pendingHistoryRef = useRef(new Set<string>());
+  const failingHistoryRef = useRef(new Set<string>());
+  const { getRefreshInterval } = useRefreshRate();
+  const scheduleHistoryRefresh = useRefreshThrottle(getRefreshInterval);
+
+  // Reads still open when the section closes store nothing and report nothing.
+  useEffect(() => {
+    const newestReads = newestHistoryReadRef.current;
+    return () => newestReads.clear();
+  }, []);
+
+  // A read that a newer read has passed never replaces a session's history, but it fills a session
+  // that has none, so a newer read that fails does not leave an expanded row empty. A section that
+  // closed cleared the reads and stores nothing. An answer also ends the session's run of failures.
+  const storeHistory = useCallback(
+    (sessionId: string, read: number, history: PrefillHistoryEntryDto[]) => {
+      const newest = newestHistoryReadRef.current.get(sessionId);
+      if (newest === undefined) return;
+      failingHistoryRef.current.delete(sessionId);
+      setHistoryData((prev) =>
+        newest === read || !prev[sessionId] ? { ...prev, [sessionId]: history } : prev
+      );
+    },
+    []
+  );
+
+  // A session keeps its loading mark until the newest read of it ends, whichever path started that
+  // read, so an older read that ends first does not turn the row into "No prefill history yet".
+  const finishHistoryRead = useCallback((sessionId: string, read: number) => {
+    if (newestHistoryReadRef.current.get(sessionId) !== read) return;
+    setLoadingHistory((prev) => {
+      const next = new Set(prev);
+      next.delete(sessionId);
+      return next;
+    });
+  }, []);
 
   // Load sessions and pre-fetch history
   const loadSessions = useCallback(async () => {
@@ -862,7 +933,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       return;
     }
     setLoadingSessions(true);
-    setSessionsError(null);
     try {
       const [sessionsRes, activeRes] = await Promise.all([
         ApiService.getPrefillSessions(
@@ -874,6 +944,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         ApiService.getActivePrefillSessions()
       ]);
       if (request !== sessionsRequestRef.current) return;
+      setSessionsError(null);
       setSessions(sessionsRes.sessions);
       setTotalCount(sessionsRes.totalCount);
       setActiveSessions(activeRes);
@@ -888,20 +959,27 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         ...sessionsRes.sessions.map((session) => session.sessionId),
         ...activeRes.map((session) => session.id)
       ];
+      const historyReads = historySessionIds.map((sessionId) => {
+        const read = (newestHistoryReadRef.current.get(sessionId) ?? 0) + 1;
+        newestHistoryReadRef.current.set(sessionId, read);
+        return read;
+      });
       // A failed read keeps the session's last confirmed history, or leaves it absent so that
       // expanding the row fetches it, instead of recording an empty history.
       Promise.allSettled(
         historySessionIds.map((sessionId) => ApiService.getPrefillSessionHistory(sessionId))
       ).then((results) => {
         // A newer load reads the same sessions again, so only its answers are kept.
-        if (request !== sessionsRequestRef.current) return;
-        const newHistoryData: Record<string, PrefillHistoryEntryDto[]> = {};
-        results.forEach((result, index) => {
-          if (result.status === 'fulfilled') {
-            newHistoryData[historySessionIds[index]] = result.value;
-          }
-        });
-        setHistoryData((prev) => ({ ...prev, ...newHistoryData }));
+        if (request === sessionsRequestRef.current) {
+          results.forEach((result, index) => {
+            if (result.status === 'fulfilled') {
+              storeHistory(historySessionIds[index], historyReads[index], result.value);
+            }
+          });
+        }
+        historySessionIds.forEach((sessionId, index) =>
+          finishHistoryRead(sessionId, historyReads[index])
+        );
       });
     } catch (error) {
       if (request !== sessionsRequestRef.current) return;
@@ -909,17 +987,17 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     } finally {
       if (request === sessionsRequestRef.current) setLoadingSessions(false);
     }
-  }, [mockMode, page, pageSize, statusFilter, platformFilter]);
+  }, [mockMode, page, pageSize, statusFilter, platformFilter, storeHistory, finishHistoryRead]);
 
   // Load bans
   const loadBans = useCallback(async () => {
     const request = ++bansRequestRef.current;
     setLoadingBans(true);
-    setBansError(null);
     try {
       // Always fetch full ban list so toggling the filter doesn't trigger reloads.
       const bansRes = await ApiService.getPrefillBans(true);
       if (request !== bansRequestRef.current) return;
+      setBansError(null);
       setBans(bansRes);
       setHasLoadedBans(true);
     } catch (error) {
@@ -935,13 +1013,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const loadPersistentContainers = useCallback(async () => {
     const request = ++persistentRequestRef.current;
     setLoadingPersistent(true);
-    setPersistentError(null);
     try {
       const [containers, config] = await Promise.all([
         ApiService.getPersistentPrefillContainers(),
         ApiService.getScheduledPrefillConfig()
       ]);
       if (request !== persistentRequestRef.current) return;
+      setPersistentError(null);
       setPersistentContainers(containers);
       setScheduledPrefillConfig(config);
     } catch (error) {
@@ -956,10 +1034,13 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const loadHistory = useCallback(
     async (sessionId: string) => {
       setLoadingHistory((prev) => new Set(prev).add(sessionId));
+      const read = (newestHistoryReadRef.current.get(sessionId) ?? 0) + 1;
+      newestHistoryReadRef.current.set(sessionId, read);
       try {
         const history = await ApiService.getPrefillSessionHistory(sessionId);
-        setHistoryData((prev) => ({ ...prev, [sessionId]: history }));
+        storeHistory(sessionId, read, history);
       } catch (error) {
+        if (newestHistoryReadRef.current.get(sessionId) !== read) return;
         onError(t('management.prefillSessions.errors.loadHistory'), error);
         // The row closes rather than show an empty history, and the next expand fetches again.
         setExpandedHistory((prev) => {
@@ -968,14 +1049,10 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           return next;
         });
       } finally {
-        setLoadingHistory((prev) => {
-          const next = new Set(prev);
-          next.delete(sessionId);
-          return next;
-        });
+        finishHistoryRead(sessionId, read);
       }
     },
-    [onError, t]
+    [onError, t, storeHistory, finishHistoryRead]
   );
 
   // Toggle history expansion
@@ -1043,13 +1120,33 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       void loadSessions();
     };
 
-    const handlePrefillHistoryUpdated = async (event: PrefillHistoryUpdatedEvent) => {
-      try {
-        const history = await ApiService.getPrefillSessionHistory(event.sessionId);
-        setHistoryData((prev) => ({ ...prev, [event.sessionId]: history }));
-      } catch {
-        // Ignore errors in SignalR handler
-      }
+    const handlePrefillHistoryUpdated = (event: PrefillHistoryUpdatedEvent) => {
+      // A running prefill sends this event on every progress pass; the reads follow the user's refresh
+      // rate like every other live surface, and each session waiting at that moment is read once.
+      pendingHistoryRef.current.add(event.sessionId);
+      scheduleHistoryRefresh(() => {
+        const sessionIds = [...pendingHistoryRef.current];
+        pendingHistoryRef.current.clear();
+        for (const sessionId of sessionIds) {
+          const read = (newestHistoryReadRef.current.get(sessionId) ?? 0) + 1;
+          newestHistoryReadRef.current.set(sessionId, read);
+          ApiService.getPrefillSessionHistory(sessionId)
+            .then(
+              (history) => storeHistory(sessionId, read, history),
+              (error: unknown) => {
+                // One notice per run of failed reads of a session; the next read that answers clears it.
+                if (
+                  newestHistoryReadRef.current.get(sessionId) !== read ||
+                  failingHistoryRef.current.has(sessionId)
+                )
+                  return;
+                failingHistoryRef.current.add(sessionId);
+                onError(t('management.prefillSessions.errors.loadHistory'), error);
+              }
+            )
+            .finally(() => finishHistoryRead(sessionId, read));
+        }
+      });
     };
 
     on('DaemonSessionCreated', handleSessionCreated);
@@ -1071,6 +1168,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     on('XboxDaemonSessionCreated', handleSessionCreated);
     on('XboxDaemonSessionUpdated', handleSessionUpdated);
     on('XboxDaemonSessionTerminated', handleSessionTerminated);
+    on('XboxPrefillHistoryUpdated', handlePrefillHistoryUpdated);
 
     return () => {
       off('DaemonSessionCreated', handleSessionCreated);
@@ -1092,8 +1190,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       off('XboxDaemonSessionCreated', handleSessionCreated);
       off('XboxDaemonSessionUpdated', handleSessionUpdated);
       off('XboxDaemonSessionTerminated', handleSessionTerminated);
+      off('XboxPrefillHistoryUpdated', handlePrefillHistoryUpdated);
     };
-  }, [on, off, loadSessions]);
+  }, [on, off, loadSessions, scheduleHistoryRefresh, onError, t, storeHistory, finishHistoryRead]);
 
   // Action handlers
   const handleTerminateSession = async (sessionId: string) => {
@@ -1116,7 +1215,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       onSuccess(t('management.prefillSessions.terminatedCount', { count: result.count }));
       setTerminateAllConfirm(false);
     } catch (error: unknown) {
-      if (error instanceof ApiError && error.status === 503) setTerminateAllConfirm(false);
       onError(t('management.prefillSessions.errors.terminateAll'), error);
     } finally {
       await loadSessions();
@@ -1135,7 +1233,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       onSuccess(t('management.prefillSessions.actions.banUser'));
       setBanConfirm(null);
     } catch (error: unknown) {
-      if (error instanceof ApiError && error.status === 503) setBanConfirm(null);
       onError(t('management.prefillSessions.errors.banUser'), error);
     } finally {
       await Promise.all([loadSessions(), loadBans()]);

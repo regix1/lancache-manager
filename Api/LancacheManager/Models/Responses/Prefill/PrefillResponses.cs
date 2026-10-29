@@ -87,7 +87,7 @@ internal sealed class PersistentSessionNotFoundStateJsonConverter : JsonStringEn
 }
 
 /// <summary>
-/// Stable <c>error</c> discriminators for <see cref="PersistentLoginConflictResponse"/> (RC3).
+/// Stable <c>error</c> discriminators for <see cref="PersistentLoginConflictResponse"/>.
 /// The frontend reads these off <c>error.cause</c> structurally - never
 /// by sniffing the message text - so they are a wire contract shared 1:1 with
 /// <c>usePersistentPrefillAuth.ts</c>.
@@ -97,13 +97,13 @@ public static class PersistentLoginConflictReasons
     /// <summary>The session a login flow was pinned to has been replaced by a different active session.</summary>
     public const string SessionReplaced = "session_replaced";
 
-    /// <summary>The daemon rejected the credential (no matching pending challenge) - see RC4.</summary>
+    /// <summary>The daemon rejected the credential (no matching pending challenge).</summary>
     public const string CredentialRejected = "credential_rejected";
 }
 
 /// <summary>
 /// 409 body for a persistent-login REST call that was pinned to a session which is no longer the one
-/// the server would act on (RC3): either a different session has
+/// the server would act on: either a different session has
 /// become active for the service (<see cref="PersistentLoginConflictReasons.SessionReplaced"/>) or the
 /// daemon dropped the supplied credential (<see cref="PersistentLoginConflictReasons.CredentialRejected"/>).
 /// The frontend reads <see cref="Error"/> + <see cref="State"/> from <c>error.cause</c>.
@@ -124,7 +124,7 @@ public class PersistentLoginConflictResponse
 /// <summary>
 /// Success body for the persistent login/challenge routes when the session is already authenticated
 /// (no credential challenge to answer). Carries the resolved <see cref="SessionId"/> so the frontend
-/// can pin the session the flow belongs to (RC3), plus the
+/// can pin the session the flow belongs to, plus the
 /// existing <c>status:"logged-in"</c> shape the frontend already type-guards on.
 /// </summary>
 public class PersistentLoginStatusResponse
@@ -207,9 +207,11 @@ public class PrefillSessionDto
             AccountUsername = liveSession?.AccountUsername ?? entity.AccountUsername,
             Platform = liveSession?.Platform ?? entity.Platform.ToString(),
             Username = liveSession != null ? (liveSession.Username ?? liveSession.AccountUsername) : entity.AccountUsername,
-            Status = liveSession?.Status.ToString() ?? entity.Status.ToString(),
+            Status = liveSession is null ? entity.Status.ToString()
+                : (liveSession.IsStopping && liveSession.Status == DaemonSessionStatus.Error
+                    ? DaemonSessionStatus.Terminated : liveSession.Status).ToString(),
             IsAuthenticated = liveSession?.AuthState == DaemonAuthState.Authenticated || entity.IsAuthenticated,
-            IsPrefilling = liveSession?.IsPrefilling ?? entity.IsPrefilling,
+            IsPrefilling = liveSession is not null && liveSession.Runs.Values.Any(run => run.TerminalCompletedFlag != 2),
             CreatedAtUtc = entity.CreatedAtUtc,
             EndedAtUtc = entity.EndedAtUtc,
             ExpiresAtUtc = entity.ExpiresAtUtc,
@@ -277,6 +279,12 @@ public class PrefillHistoryEntryDto
 
     /// <summary>Failure detail. Null unless <see cref="Status"/> reports a failure.</summary>
     public string? ErrorMessage { get; set; }
+
+    /// <summary>
+    /// Why the entry did not complete: a reason code such as <c>stalled</c>, or the translation key of the stop
+    /// that cancelled its run. Null when no reason was reported.
+    /// </summary>
+    public string? Reason { get; set; }
 }
 
 /// <summary>

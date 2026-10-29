@@ -219,7 +219,7 @@ const { getErrorMessage } = await import(
   })
 );
 
-const { translateStageKeyMessage, hasUnresolvedInterpolation } = await import(
+const { blankStringValues, translateStageKeyMessage, hasUnresolvedInterpolation } = await import(
   await compileToUrl('../src/utils/stageKeyMessage.ts', { '@/i18n': i18nStub })
 );
 
@@ -241,7 +241,7 @@ const shownFor = async (body, language) => {
   );
 };
 
-test('external API error messages resolve in both languages and retain the server sentence for an unknown key', async () => {
+test('external API error messages resolve in both languages and show an unknown key as its key path', async () => {
   for (const [stageKey, english] of Object.entries(recoveryMessages)) {
     assert.equal(await shownFor({ stageKey, error: english }, 'en'), english);
     const translated = await shownFor({ stageKey, error: english }, 'zh');
@@ -250,7 +250,7 @@ test('external API error messages resolve in both languages and retain the serve
     assert.doesNotMatch(translated, /SteamKit2|AsyncJobFailedException| at .*\(/);
     assert.equal(
       await shownFor({ stageKey: `missing.${stageKey}`, error: english }, 'zh'),
-      english
+      `missing.${stageKey}`
     );
   }
 });
@@ -274,13 +274,16 @@ test('both picker load failures translate typed reasons and expose missing requi
       language === 'missing' ? empty : translator
     );
     // undefined: a body with the server's own text and no stage key; null: a bodyless 503.
-    for (const stageKey of [
-      'errors.steam.signInLost',
-      'errors.steam.gameDetailsUnavailable',
-      'errors.prefill.requestFailed',
-      'errors.prefill.runLimit',
-      undefined,
-      null
+    for (const [stageKey, context] of [
+      ['errors.steam.signInLost'],
+      ['errors.prefill.signInLost'],
+      ['errors.prefill.loginRequired'],
+      ['errors.prefill.noRunningSession', { service: 'BattleNet' }],
+      ['errors.steam.gameDetailsUnavailable'],
+      ['errors.prefill.requestFailed'],
+      ['errors.prefill.runLimit'],
+      [undefined],
+      [null]
     ]) {
       const failure = await buildApiError({
         status: 503,
@@ -288,10 +291,11 @@ test('both picker load failures translate typed reasons and expose missing requi
         text: async () =>
           stageKey === null
             ? ''
-            : JSON.stringify({ stageKey, error: 'SteamKit2.AsyncJobFailedException' })
+            : JSON.stringify({ stageKey, context, error: 'SteamKit2.AsyncJobFailedException' })
       });
       const key = stageKey ?? 'errors.prefill.requestFailed';
-      const expected = language === 'missing' ? key : translator.t(key);
+      const expected = language === 'missing' ? key : translator.t(key, context);
+      if (language !== 'missing') assert.doesNotMatch(expected, /\{\{/);
       let scheduledMessage;
       const selection = {
         serviceKey: 'steam',
@@ -373,7 +377,7 @@ test('both picker load failures translate typed reasons and expose missing requi
           ? translator.t('common.errors.serverUnreachable')
           : stageKey === undefined
             ? 'SteamKit2.AsyncJobFailedException'
-            : translator.t(stageKey);
+            : translator.t(stageKey, context);
       assert.equal(ordinaryMessage, ordinaryExpected);
       assert.equal(ordinaryMessage, getErrorMessage(failure));
     }
@@ -385,15 +389,17 @@ test('nonterminal app failure does not display or map its unconsumed error field
   const callback = findSoleNode(
     source,
     'live prefill progress callback',
-    (node) => ts.isArrowFunction(node) && node.getText(source).includes('const isFinalState =')
+    (node) =>
+      ts.isArrowFunction(node) && node.getText(source).includes('options.applyRunProgress?.')
   );
   const display = [];
-  bindLifted(callback.getText(source), {
-    isCancelling: { current: false },
-    expectedAppCountRef: { current: 1 },
-    setPrefillProgress: (value) => display.push(value),
-    addLog: (...args) => display.push(args)
-  })({
+  const handleProgress = bindLifted(callback.getText(source), {
+    sessionRef: { current: { id: 's1' } },
+    options: { applyRunProgress: (progress) => display.push(progress) }
+  });
+  // Only a run's own progress, which names its operation and daemon, reaches the bar. A failure
+  // with neither attached has no run to show and no field of it is read.
+  handleProgress({
     sessionId: 's1',
     progress: {
       state: 'app_failed',
@@ -404,6 +410,9 @@ test('nonterminal app failure does not display or map its unconsumed error field
     }
   });
   assert.deepEqual(display, []);
+  const runProgress = { state: 'running', totalApps: 1, operationId: 'o1', daemonInstanceId: 'd1' };
+  handleProgress({ sessionId: 's1', progress: runProgress });
+  assert.deepEqual(display, [runProgress]);
 });
 
 // ---------------------------------------------------------------------------
@@ -442,6 +451,7 @@ const scheduledPrefillServiceLabel = bindLifted(functionFor('scheduledPrefillSer
 
 // Both wordings below read the stage key through this, so it is lifted the same way they are.
 const scheduledPrefillSentence = bindLifted(functionFor('scheduledPrefillSentence'), {
+  blankStringValues,
   translateStageKeyMessage,
   hasUnresolvedInterpolation
 });
@@ -476,16 +486,44 @@ const cardFor = async (event, language) => {
 test('a prefill refused because the container is still going down reads in the reader language', async () => {
   const body = {
     error:
-      'An existing persistent steam container is still being removed or restarting. Please try again shortly.',
+      'An existing persistent battlenet container is still being removed or restarting. Please try again shortly.',
     stageKey: 'errors.prefill.containerBusy',
-    context: { service: 'steam' }
+    context: { service: 'battlenet' }
   };
 
   assert.equal(
     await shownFor(body, 'en'),
-    'An existing persistent steam container is still being removed or restarting. Please try again shortly.'
+    'An existing persistent Battle.net container is still being removed or restarting. Please try again shortly.'
   );
-  assert.equal(await shownFor(body, 'zh'), '现有的 steam 持久容器仍在移除或重启中。请稍后重试。');
+  assert.equal(
+    await shownFor(body, 'zh'),
+    '现有的 Battle.net 持久容器仍在移除或重启中。请稍后重试。'
+  );
+});
+
+test('container refusals name the service by its display name for every daemon', async () => {
+  // The daemons send their internal service names; the reader sees the names the Services rows use.
+  const labels = {
+    Steam: 'Steam',
+    Epic: 'Epic Games',
+    Xbox: 'Xbox',
+    battlenet: 'Battle.net',
+    riot: 'Riot'
+  };
+  for (const [service, label] of Object.entries(labels)) {
+    for (const [stageKey, context] of [
+      ['errors.prefill.containerBusy', { service }],
+      ['errors.prefill.containerRemovalFailed', { service }],
+      ['errors.prefill.daemonShuttingDown', { service, sessionId: 'session-1' }]
+    ]) {
+      for (const language of ['en', 'zh']) {
+        const shown = await shownFor({ error: 'English line', stageKey, context }, language);
+        assert.ok(shown.includes(label), `${stageKey} ${service} ${language}: ${shown}`);
+        assert.doesNotMatch(shown, /errors\.prefill|\{\{|\$t\(/, `${stageKey} ${service}`);
+        if (!label.includes(service)) assert.ok(!shown.includes(service), `${stageKey} ${service}`);
+      }
+    }
+  }
 });
 
 test('the ban refusal reads in the reader language', async () => {
@@ -499,18 +537,6 @@ test('the ban refusal reads in the reader language', async () => {
   assert.equal(await shownFor(body, 'zh'), '您已被禁止使用预填充功能。');
 });
 
-test('a run skipped because a prefill is already going says so in the reader language', async () => {
-  const event = {
-    serviceId: 'Steam',
-    stage: 'skipped',
-    message: 'A prefill is already in progress',
-    stageKey: 'signalr.scheduledPrefill.skippedAlreadyRunning'
-  };
-
-  assert.equal(await cardFor(event, 'en'), 'Steam skipped: A prefill is already in progress');
-  assert.equal(await cardFor(event, 'zh'), 'Steam 已跳过：预填充已在进行中');
-});
-
 test('the game being downloaded and its position in the run survive the translation', async () => {
   const event = {
     serviceId: 'Steam',
@@ -522,6 +548,34 @@ test('the game being downloaded and its position in the run survive the translat
 
   assert.equal(await cardFor(event, 'en'), 'Steam: Downloading Team Fortress 2 (2 of 5 games)');
   assert.equal(await cardFor(event, 'zh'), 'Steam：正在下载 Team Fortress 2（2/5 个游戏）');
+});
+
+test('a game name holding braces does not turn the progress line back into English', async () => {
+  for (const game of ['Foo {{Bar}} Edition', 'Thing}}']) {
+    const event = {
+      serviceId: 'Steam',
+      stage: 'running',
+      message: `Downloading ${game} (2 of 5 games)`,
+      stageKey: 'signalr.scheduledPrefill.downloadingGame',
+      stageContext: { game, completed: 2, total: 5 }
+    };
+
+    assert.equal(await cardFor(event, 'en'), `Steam: Downloading ${game} (2 of 5 games)`);
+    assert.equal(await cardFor(event, 'zh'), `Steam：正在下载 ${game}（2/5 个游戏）`);
+  }
+
+  // A token the context did not fill still falls back to the English beside the key.
+  const missingTotal = {
+    serviceId: 'Steam',
+    stage: 'running',
+    message: 'Downloading Foo {{Bar}} Edition (2 of 5 games)',
+    stageKey: 'signalr.scheduledPrefill.downloadingGame',
+    stageContext: { game: 'Foo {{Bar}} Edition', completed: 2 }
+  };
+  assert.equal(
+    await cardFor(missingTotal, 'zh'),
+    'Steam：Downloading Foo {{Bar}} Edition (2 of 5 games)'
+  );
 });
 
 test('a needs-login skip keeps the prerequisite it named, in the reader language', async () => {
@@ -569,16 +623,7 @@ test('a failed service names itself and its reason in the reader language', asyn
   );
 });
 
-test('a superseded history row is stored as a key and read as a sentence', async () => {
-  const csharp = readFileSync(
-    new URL(
-      '../../Api/LancacheManager/Core/Services/Prefill/PrefillSessionService.cs',
-      import.meta.url
-    ),
-    'utf8'
-  );
-  assert.match(csharp, /stale\.ErrorMessage = "signalr\.prefillSession\.superseded";/);
-
+test('a superseded history row stored as a key is read as a sentence', async () => {
   await translator.changeLanguage('zh');
   assert.equal(
     translateStageKeyMessage('signalr.prefillSession.superseded'),

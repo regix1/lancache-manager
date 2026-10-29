@@ -146,7 +146,9 @@ export function ScheduledPrefillConfigModal({
       ? null
       : !container?.isRunning
         ? 'container'
-        : !isScheduledPrefillAnonymousService(target.serviceKey) && !container.isAuthenticated
+        : !isScheduledPrefillAnonymousService(target.serviceKey) &&
+            !container.isAuthenticated &&
+            !container.authUnknown
           ? 'login'
           : null;
   const { on: onSignalR, off: offSignalR, isConnected } = useSignalR();
@@ -282,7 +284,9 @@ export function ScheduledPrefillConfigModal({
         !activeContainer ||
         activeContainer.sessionId !== sessionId ||
         !activeContainer.isRunning ||
-        (!isScheduledPrefillAnonymousService(serviceKey) && !activeContainer.isAuthenticated)
+        (!isScheduledPrefillAnonymousService(serviceKey) &&
+          !activeContainer.isAuthenticated &&
+          !activeContainer.authUnknown)
       )
         return;
       if (gameAuthRef.current?.key === key && !gameAuthRef.current.authenticated) return;
@@ -349,7 +353,8 @@ export function ScheduledPrefillConfigModal({
               setGameLoadError(null);
             } catch (error: unknown) {
               if (!isCurrent()) return;
-              const stageKey = error instanceof ApiError ? error.body?.stageKey : null;
+              const body = error instanceof ApiError ? error.body : null;
+              const stageKey = body?.stageKey;
               setGameLoadError(
                 stageKey === 'errors.prefill.signInLost'
                   ? t('errors.prefill.signInLost')
@@ -358,7 +363,7 @@ export function ScheduledPrefillConfigModal({
                     : stageKey === 'errors.steam.gameDetailsUnavailable'
                       ? t('errors.steam.gameDetailsUnavailable')
                       : stageKey?.startsWith('errors.')
-                        ? t(stageKey)
+                        ? t(stageKey, body?.context)
                         : t('errors.prefill.requestFailed')
               );
               setGameSelection((current) =>
@@ -413,7 +418,9 @@ export function ScheduledPrefillConfigModal({
     const key = `${gameSelection.serviceKey}:${gameSelection.sessionId}`;
     const authenticated =
       container.isRunning &&
-      (isScheduledPrefillAnonymousService(gameSelection.serviceKey) || container.isAuthenticated);
+      (isScheduledPrefillAnonymousService(gameSelection.serviceKey) ||
+        container.isAuthenticated ||
+        container.authUnknown === true);
     const previous = gameAuthRef.current;
     gameAuthRef.current = { key, authenticated };
     if (!authenticated && (previous?.key !== key || previous.authenticated)) {

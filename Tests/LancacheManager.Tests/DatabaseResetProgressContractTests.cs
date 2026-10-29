@@ -47,7 +47,7 @@ public class DatabaseResetProgressContractTests
             steamKit2Service: null!,
             xboxCatalogMappingService: null!,
             epicMappingService: null!,
-            serviceProvider: null!,
+            serviceProvider: new ServiceCollection().BuildServiceProvider(),
             cacheManagementService: null!,
             stateRepository: null!,
             datasourceService: null!,
@@ -107,7 +107,7 @@ public class DatabaseResetProgressContractTests
             steamKit2Service: null!,
             xboxCatalogMappingService: null!,
             epicMappingService: null!,
-            serviceProvider: null!,
+            serviceProvider: new ServiceCollection().BuildServiceProvider(),
             cacheManagementService: null!,
             stateRepository: null!,
             datasourceService: null!,
@@ -147,7 +147,7 @@ public class DatabaseResetProgressContractTests
             steamKit2Service: null!,
             xboxCatalogMappingService: null!,
             epicMappingService: null!,
-            serviceProvider: null!,
+            serviceProvider: new ServiceCollection().BuildServiceProvider(),
             cacheManagementService: null!,
             stateRepository: null!,
             datasourceService: null!,
@@ -247,40 +247,6 @@ public class DatabaseResetProgressContractTests
         Assert.Equal([true], deletesUnderLock);
         await owner.WaitForLogStepAsync(active: false, CancellationToken.None)
             .WaitAsync(TimeSpan.FromSeconds(10));
-    }
-
-    [Fact]
-    public void SelectedResetPublishesSuccessOnlyAfterForeignKeyCleanup()
-    {
-        var root = FindRepositoryRoot();
-        var source = File.ReadAllText(Path.Combine(
-            root,
-            "Api",
-            "LancacheManager",
-            "Infrastructure",
-            "Services",
-            "System",
-            "DatabaseService.cs"));
-        var cleanup = source.IndexOf(
-            "SET session_replication_role = DEFAULT;",
-            StringComparison.Ordinal);
-        var success = source.IndexOf(
-            "_operationTracker.CompleteOperation(operationId, success: true);",
-            StringComparison.Ordinal);
-
-        Assert.True(cleanup >= 0, "foreign-key cleanup statement is missing");
-        Assert.True(success > cleanup, "success terminal must follow foreign-key cleanup");
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null && !Directory.Exists(Path.Combine(directory.FullName, "Web")))
-        {
-            directory = directory.Parent;
-        }
-
-        return directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found");
     }
 
     private class NoopSignalRProxy : DispatchProxy

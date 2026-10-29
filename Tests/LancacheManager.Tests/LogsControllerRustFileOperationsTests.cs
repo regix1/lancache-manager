@@ -340,6 +340,56 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.True(File.Exists(fixture.ResumePath("alpha")));
     }
 
+    // Every datasource is counted before any is written, so a count that fails on a later
+    // datasource leaves the earlier one where it was.
+    [Fact]
+    public async Task ResetAllToEnd_ACountThatFailsOnALaterDatasourceMovesNoDatasourceAsync()
+    {
+        using var fixture = new ControllerFixture();
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["access.log"] = 1 });
+        fixture.State.SetLogPosition("alpha", 1);
+        fixture.State.SetLogPosition("beta", 30);
+        fixture.State.SetLogTotalLines("beta", 31);
+        fixture.WriteResume("alpha", "alpha-resume");
+        fixture.WriteResume("beta", "beta-resume");
+        fixture.RustHelper.CountHandler = (path, _) => path == fixture.BetaLogPath
+            ? throw new RustProcessException("log_service_manager", 1, "fixture failure", "count-lines")
+            : Task.FromResult(new LogLineCountResult(3, 1, new Dictionary<string, long> { ["access.log"] = 3 }));
+
+        await Assert.ThrowsAsync<RustProcessException>(() =>
+            fixture.Controller.ResetLogPositionAsync(request: null));
+
+        Assert.Equal(
+            new Dictionary<string, long> { ["access.log"] = 1 },
+            fixture.State.GetLogSourcePositions("alpha"));
+        Assert.Equal(1, fixture.State.GetLogPosition("alpha"));
+        Assert.Equal(30, fixture.State.GetLogPosition("beta"));
+        Assert.Equal(31, fixture.State.GetLogTotalLines("beta"));
+        Assert.True(File.Exists(fixture.ResumePath("alpha")));
+        Assert.True(File.Exists(fixture.ResumePath("beta")));
+    }
+
+    // An empty series gets no key, so its file going away later does not read as a missing
+    // series. A missing series saved at 0 keeps its key.
+    [Fact]
+    public async Task ResetToEnd_StoresNoKeyForAnEmptySeriesAndKeepsAMissingSeriesSavedAtZeroAsync()
+    {
+        using var fixture = new ControllerFixture();
+        await File.WriteAllTextAsync(Path.Combine(fixture.AlphaLogPath, "access.log"), "line\n");
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long> { ["steam-access.log"] = 0 });
+        fixture.RustHelper.CountHandler = (_, _) => Task.FromResult(new LogLineCountResult(
+            3,
+            2,
+            new Dictionary<string, long> { ["access.log"] = 3, ["epic-access.log"] = 0 }));
+
+        var result = await fixture.Controller.ResetDatasourceLogPositionAsync("alpha", request: null);
+
+        Assert.IsType<OkObjectResult>(result);
+        Assert.Equal(
+            new Dictionary<string, long> { ["access.log"] = 3, ["steam-access.log"] = 0 },
+            fixture.State.GetLogSourcePositions("alpha"));
+    }
+
     [Fact]
     public async Task ResetToEnd_CancellationDoesNotPersistFallbackZeroAsync()
     {
@@ -364,35 +414,6 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.Equal(21, fixture.State.GetLogPosition("alpha"));
         Assert.Equal(22, fixture.State.GetLogTotalLines("alpha"));
         Assert.True(File.Exists(fixture.ResumePath("alpha")));
-    }
-
-    [Fact]
-    public async Task ResetToEnd_MultiDatasourceFailureKeepsEarlierSuccessfulCountAsync()
-    {
-        using var fixture = new ControllerFixture();
-        fixture.State.SetLogPosition("beta", 30);
-        fixture.State.SetLogTotalLines("beta", 31);
-        fixture.WriteResume("alpha", "alpha-resume");
-        fixture.WriteResume("beta", "beta-resume");
-        fixture.RustHelper.CountHandler = (path, _) =>
-        {
-            if (path == fixture.AlphaLogPath)
-            {
-                return Task.FromResult(new LogLineCountResult(4, 1, new Dictionary<string, long>()));
-            }
-
-            throw new RustProcessException("log_service_manager", 1, "fixture failure", "count-lines");
-        };
-
-        await Assert.ThrowsAsync<RustProcessException>(() =>
-            fixture.Controller.ResetLogPositionAsync(request: null));
-
-        Assert.Equal(4, fixture.State.GetLogPosition("alpha"));
-        Assert.Equal(4, fixture.State.GetLogTotalLines("alpha"));
-        Assert.Equal(30, fixture.State.GetLogPosition("beta"));
-        Assert.Equal(31, fixture.State.GetLogTotalLines("beta"));
-        Assert.False(File.Exists(fixture.ResumePath("alpha")));
-        Assert.True(File.Exists(fixture.ResumePath("beta")));
     }
 
     [Fact]
@@ -1312,6 +1333,78 @@ public sealed class LogsControllerRustFileOperationsTests
         Assert.Equal(0, fixture.State.GetLogPosition("alpha"));
         Assert.Equal(0, fixture.State.GetLogTotalLines("alpha"));
         Assert.False(File.Exists(logPath));
+    }
+
+    [Fact]
+    public async Task FreshInstallSeed_StoresNoKeyForAnEmptySeriesAsync()
+    {
+        using var fixture = new ControllerFixture();
+        await File.WriteAllTextAsync(Path.Combine(fixture.AlphaLogPath, "access.log"), "line\n");
+        fixture.RustHelper.CountHandler = (_, _) => Task.FromResult(new LogLineCountResult(
+            3,
+            2,
+            new Dictionary<string, long> { ["access.log"] = 3, ["steam-access.log"] = 0 }));
+        var monitor = new LiveLogMonitorService(
+            NullLogger<LiveLogMonitorService>.Instance,
+            new ConfigurationBuilder().Build(),
+            fixture.Processor,
+            fixture.State,
+            fixture.Datasources,
+            fixture.Checker,
+            fixture.RustHelper,
+            fixture.RepairOwner);
+
+        await ((Task)typeof(LiveLogMonitorService)
+            .GetMethod("OnStartupAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(monitor, new object[] { CancellationToken.None })!).WaitAsync(_wait);
+
+        Assert.Contains(fixture.AlphaLogPath, fixture.RustHelper.CountRequests);
+        Assert.Equal(
+            new Dictionary<string, long> { ["access.log"] = 3 },
+            fixture.State.GetLogSourcePositions("alpha"));
+    }
+
+    // A pass reports a series once it reaches it, so an empty per-service log reported at 0 leaves
+    // no 0 key. A partial pass keeps the 0 only when one of that series' files had an error, which
+    // can mean it stopped before reading it. A missing series saved at 0 keeps its key either way.
+    // A log folder whose name holds ": ", even right after a log file name, still matches its
+    // series' file errors.
+    [Theory]
+    [InlineData(true, false, "")]
+    [InlineData(true, true, "access.log: old")]
+    [InlineData(false, false, "")]
+    [InlineData(false, true, "")]
+    [InlineData(false, true, "lan: logs")]
+    [InlineData(false, true, "access.log: old")]
+    public void ImportPass_StoresAnEmptySeriesAtZeroOnlyWhenPartial(bool completed, bool seriesFileFailed, string logFolder)
+    {
+        using var fixture = new ControllerFixture();
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            ["steam-access.log"] = 0,
+            ["epic-access.log"] = 0
+        });
+        var progress = new LogProcessingProgress
+        {
+            SourcePositions = new Dictionary<string, long> { ["access.log"] = 3, ["steam-access.log"] = 0 }
+        };
+        if (seriesFileFailed)
+        {
+            progress.FilesWithErrors.Add($"{Path.Combine(fixture.AlphaLogPath, logFolder, "steam-access.log.1")}: read failed");
+        }
+
+        var merged = (Dictionary<string, long>?)typeof(RustLogProcessorService)
+            .GetMethod("MergedSourcePositions", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(fixture.Processor, new object[] { "alpha", progress, completed });
+
+        var keepsZero = seriesFileFailed && !completed;
+        var expected = keepsZero
+            ? new Dictionary<string, long> { ["access.log"] = 3, ["steam-access.log"] = 0, ["epic-access.log"] = 0 }
+            : new Dictionary<string, long> { ["access.log"] = 3, ["epic-access.log"] = 0 };
+        Assert.Equal(expected, merged);
+        Assert.Equal(
+            keepsZero,
+            RustLogProcessorService.MissingSeriesPositions(merged!, new[] { "access.log" }).ContainsKey("steam-access.log"));
     }
 
     [Fact]

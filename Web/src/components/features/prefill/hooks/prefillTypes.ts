@@ -1,3 +1,6 @@
+import type { GameServiceId } from '@/types/gameService';
+import type { ScheduledPrefillServiceKey } from '@components/features/management/schedules/scheduled-prefill/types';
+
 export interface PrefillProgress {
   operationId?: string;
   daemonInstanceId?: string;
@@ -89,6 +92,25 @@ export function isPrefillRunActive(run: PrefillRun): boolean {
   return !['completed', 'failed', 'cancelled'].includes(run.snapshot.state);
 }
 
+// The run a session row describes, picked as the server picks it: the oldest active run, else the run that
+// ended last. Both run lists arrive ordered by start time. End times are compared as instants because the
+// server trims trailing zeros from the fraction, so the strings do not sort.
+export function currentPrefillRun(runs: PrefillRun[] | undefined): PrefillRun | undefined {
+  const list = runs ?? [];
+  return (
+    list.find(isPrefillRunActive) ??
+    list.reduce<PrefillRun | undefined>(
+      (latest: PrefillRun | undefined, run: PrefillRun) =>
+        latest === undefined ||
+        (run.completedAtUtc ? Date.parse(run.completedAtUtc) : 0) >
+          (latest.completedAtUtc ? Date.parse(latest.completedAtUtc) : 0)
+          ? run
+          : latest,
+      undefined
+    )
+  );
+}
+
 export function prefillRunKey(run: PrefillRun): string {
   return `${run.sessionId}:${run.daemonInstanceId}:${run.runId}`;
 }
@@ -99,7 +121,10 @@ export interface PrefillRunFailedGame {
   reasonKey: string;
 }
 
-export function getPrefillRunReasonKey(reason: string | null | undefined): string | null {
+export function getPrefillRunReasonKey(
+  reason: string | null | undefined,
+  service: GameServiceId | ScheduledPrefillServiceKey
+): string | null {
   switch (reason) {
     case 'skippedOverlap':
       return 'prefill.runs.overlap';
@@ -114,7 +139,21 @@ export function getPrefillRunReasonKey(reason: string | null | undefined): strin
     case 'stalled':
       return 'signalr.scheduledPrefill.failedStalled';
     case 'auth-lost':
-      return 'errors.prefill.signInLost';
+      // Only a Steam container signs in again by itself with its saved login
+      return service === 'steam' ? 'errors.prefill.signInLost' : 'errors.prefill.loginRequired';
+    // A run in which a game failed; the server builds the same key for these codes.
+    case 'download-failed':
+    case 'prefill-failed':
+      return 'errors.prefill.requestFailed';
+    // A Start the daemon refused, stored with the refusal's code and the key that refusal showed.
+    case 'run-limit':
+      return 'errors.prefill.runLimit';
+    case 'operation-conflict':
+      return 'errors.prefill.operationConflict';
+    case 'daemon-outdated':
+      return 'errors.prefill.daemonOutdated';
+    case 'game-details-unavailable':
+      return 'errors.steam.gameDetailsUnavailable';
     default:
       return null;
   }
@@ -201,6 +240,21 @@ export function mergePrefillRuns(current: PrefillRun[], incoming: PrefillRun[]):
   );
 }
 
+/**
+ * A full run list from the server is the whole set it still holds, so a finished run it leaves out
+ * was deleted (a Prefill Sessions reset) and must leave the page too. A running run it leaves out
+ * stays: its own terminal push or the next list settles it. Pushes name single runs and never call
+ * this.
+ */
+export function dropUnlistedFinishedRuns(
+  current: PrefillRun[],
+  listed: PrefillRun[]
+): PrefillRun[] {
+  return current.filter(
+    (run) => isPrefillRunActive(run) || listed.some((entry) => entry.runId === run.runId)
+  );
+}
+
 export function getPrefillRunProgress(run: PrefillRun): PrefillProgress {
   const { snapshot, progress } = run;
   const item = snapshot.currentItem;
@@ -284,22 +338,20 @@ export function canStartPrefill(session: {
   maxConcurrentRuns?: number;
   activeRunCount?: number;
   recovering?: boolean;
-  isPrefilling?: boolean;
   runs?: PrefillRun[];
 }): boolean {
   if (session.recovering || session.runs?.some((run) => isPrefillRunActive(run) && run.recovering))
     return false;
-  if (!supportsConcurrentPrefill(session)) return !session.isPrefilling;
-  return (
-    Math.max(session.activeRunCount ?? 0, session.runs?.filter(isPrefillRunActive).length ?? 0) <
-    (session.maxConcurrentRuns ?? 1)
+  // Features are empty until the server has read the daemon status; one Start is offered then, and the
+  // server either runs it or refuses with the daemon-outdated key.
+  if (!supportsConcurrentPrefill(session)) return !session.runs?.some(isPrefillRunActive);
+  const activeRuns = Math.max(
+    session.activeRunCount ?? 0,
+    session.runs?.filter(isPrefillRunActive).length ?? 0
   );
-}
-
-export interface BackgroundCompletion {
-  completedAt: string;
-  message: string;
-  duration: number;
+  return typeof session.maxConcurrentRuns === 'number'
+    ? activeRuns < session.maxConcurrentRuns
+    : activeRuns === 0;
 }
 
 export function supportsConcurrentPrefill(
@@ -312,18 +364,4 @@ export function supportsConcurrentPrefill(
     'inlineSelection',
     'activeOperations'
   ].every((feature) => session?.features?.includes(feature));
-}
-
-export interface CachedAnimationItem {
-  appId: string;
-  appName?: string;
-  totalBytes: number;
-  /**
-   * Snapshot of the running job counts at enqueue time so the cached-game animation can keep the
-   * two-tier "Game X of N" overall bar advancing (the animation builds a fresh PrefillProgress and
-   * would otherwise starve those fields back to 0). V11.
-   */
-  expectedAppCount?: number;
-  updatedApps?: number;
-  alreadyUpToDate?: number;
 }

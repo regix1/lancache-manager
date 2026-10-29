@@ -6,6 +6,7 @@ import ts from 'typescript';
 import {
   bindLifted,
   compileToUrl,
+  compileTree,
   findSoleNode,
   moduleUrl,
   parseSource
@@ -60,8 +61,9 @@ const { getErrorMessage } = await import(
   })
 );
 
-const { translateStageKeyMessage } = await import(
-  await compileToUrl('../src/utils/stageKeyMessage.ts', { '@/i18n': i18nStub })
+const { translateStageKeyMessage, translateRecoveryStage, datasourceFailureValues } = await import(
+  // compileTree, because the recovery stage reads `import.meta.env`, which only vite supplies.
+  await compileTree('../src/utils/stageKeyMessage.ts', { '@/i18n': i18nStub })
 );
 
 /** The failed response the browser gets, with the body the API wrote into it. */
@@ -285,13 +287,13 @@ test('a refusal with no key still reads as the English sentence', async () => {
   assert.equal(await shownFor(unkeyed, 'en'), unkeyed.error);
 });
 
-test('a key this build has no words for falls back to the sentence, not the key path', async () => {
+test('a key this build has no words for shows its key path, not the server sentence', async () => {
   const newer = {
     error: 'A newer server refused this for a reason this build has no words for',
     stageKey: 'errors.http.somethingAddedLater'
   };
 
-  assert.equal(await shownFor(newer, 'zh'), newer.error);
+  assert.equal(await shownFor(newer, 'zh'), newer.stageKey);
 });
 
 test('the values sent beside the key reach the template', async () => {
@@ -309,6 +311,29 @@ test('the values sent beside the key reach the template', async () => {
     zh.management.logRemoval.errors.unexpectedResponse.replace('{{service}}', 'steam')
   );
   assert.ok(!shown.includes('{{'), `the placeholder was never filled in: ${shown}`);
+});
+
+test('a recovery stage keeps its values when a value contains braces', async () => {
+  const stageKey = 'signalr.logProcessing.failedForDatasourceWithError';
+  const fallbackKey = 'initialization.logProcessing.failedToProcess';
+  const braceError = 'malformed array literal: "{{1,2}}"';
+
+  for (const language of ['en', 'zh']) {
+    await translator.changeLanguage(language);
+    assert.equal(
+      translateRecoveryStage(stageKey, datasourceFailureValues('steam', braceError), fallbackKey),
+      translator.t(stageKey, { datasource: 'steam', databaseError: braceError })
+    );
+    // A template token that has no value still falls back instead of printing the token.
+    assert.equal(
+      translateRecoveryStage(stageKey, { datasource: 'steam' }, fallbackKey),
+      translator.t(fallbackKey)
+    );
+    assert.equal(
+      translateRecoveryStage(stageKey, undefined, fallbackKey),
+      translator.t(fallbackKey)
+    );
+  }
 });
 
 test('a notification card translates a refusal key instead of printing it', async () => {

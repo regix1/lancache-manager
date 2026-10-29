@@ -463,7 +463,7 @@ public class ScheduleControllerNotificationModeTests
     }
 
     // Run Now on scheduled prefill with no prefill schedule enabled is refused with a key the
-    // browser translates, and nothing is started or left pending. [69]
+    // browser translates, and nothing is started or left pending.
     [Fact]
     public async Task TriggerRunAsync_ScheduledPrefillWithNoScheduleEnabled_Answers409WithItsKeyAndStartsNothing()
     {

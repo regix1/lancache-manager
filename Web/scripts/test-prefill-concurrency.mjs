@@ -5,6 +5,7 @@ import { moduleUrl } from './transpile-module.mjs';
 
 const {
   mergePrefillRuns,
+  dropUnlistedFinishedRuns,
   applyPrefillRunProgress,
   getPrefillRunProgress,
   canStartPrefill,
@@ -144,19 +145,13 @@ test('recovery retains original identity and pending cancellation through equal-
   assert.equal(isPrefillRunActive(terminal), false);
 });
 
-test('capacity uses the shared three-run inventory and preserves exclusive legacy admission', () => {
+test('capacity uses the shared three-run inventory', () => {
   const runs = [run('1'), run('2'), run('3')];
   assert.equal(canStartPrefill({ features, runs, maxConcurrentRuns: 4 }), true);
   assert.equal(canStartPrefill({ features, runs, maxConcurrentRuns: 3 }), false);
   assert.equal(canStartPrefill({ features, runs, maxConcurrentRuns: 4, recovering: true }), false);
   assert.equal(
     canStartPrefill({ features, runs: [{ ...runs[0], recovering: true }], maxConcurrentRuns: 4 }),
-    false
-  );
-  assert.equal(canStartPrefill({ isPrefilling: true }), false);
-  assert.equal(canStartPrefill({ isPrefilling: false }), true);
-  assert.equal(
-    canStartPrefill({ features: ['concurrentPrefill'], isPrefilling: true, maxConcurrentRuns: 4 }),
     false
   );
 });
@@ -210,7 +205,7 @@ test('targeted cancel waits for server terminal without affecting siblings or ar
     liftHookCallback(
       'src/components/features/prefill/hooks/usePrefillSignalR.ts',
       'useCallback',
-      'if (runId)'
+      "'CancelPrefillRunAsync'"
     ),
     {
       hubConnection: {
@@ -250,10 +245,6 @@ test('persistent cancellation targets the selected run while another cancel is p
   let pendingIds = [];
   const calls = [];
   const releases = [];
-  let releaseRecovery;
-  const recovery = new Promise((resolve) => {
-    releaseRecovery = resolve;
-  });
   const container = { sessionId: 'session', isRunning: true, runs: [run('1'), run('2'), run('3')] };
   const cancel = bindLifted(
     liftConstArrow(
@@ -261,7 +252,6 @@ test('persistent cancellation targets the selected run while another cancel is p
       'handleCancelPersistentDownload'
     ),
     {
-      recover: () => recovery,
       getPersistentServiceId: () => 'Steam',
       persistentContainerByService: new Map([['Steam', container]]),
       cancellingRunsRef: { current: new Set() },
@@ -286,10 +276,7 @@ test('persistent cancellation targets the selected run while another cancel is p
   const duplicate = cancel('steam', '1');
   const second = cancel('steam', '2');
   assert.deepEqual(pendingIds, ['1', '2']);
-  assert.deepEqual(calls, [], 'cleanup must finish before either request is sent');
   await duplicate;
-  releaseRecovery();
-  await Promise.resolve();
   assert.deepEqual(calls, [
     ['Steam', 'session', '1'],
     ['Steam', 'session', '2']
@@ -390,7 +377,7 @@ test('a Prefill tab reacts only to its own session sign-in state', async () => {
   );
   const onAuthState = handlers.get(getEventName('AuthStateChanged', 'steam'));
 
-  // Another session signing in, or being asked for a password, is not this tab's business. [112]
+  // Another session signing in, or being asked for a password, is not this tab's business.
   onAuthState({ sessionId: 'B', authState: 'Authenticated' });
   onAuthState({ sessionId: 'B', authState: 'PasswordRequired' });
   assert.deepEqual(states, []);
@@ -445,7 +432,7 @@ test('a refused sign-in shows its reason in the dialog and draws no popup of its
     loginAttempt: 3
   });
 
-  // The server's run card is the one notice; the dialog keeps its own sentence. [110]
+  // The server's run card is the one notice; the dialog keeps its own sentence.
   assert.deepEqual(popups, []);
   assert.deepEqual(errors, ['prefill.auth.signInRefused']);
 });
@@ -490,4 +477,133 @@ test('all service handlers route keyed progress and terminals without clearing s
     });
     assert.equal(refreshes, 1);
   }
+});
+
+test('a run list fetched from the server drops the finished runs it no longer lists, and a push keeps them', async () => {
+  const hookPath = 'src/components/features/prefill/hooks/usePrefillSignalR.ts';
+  const sessionRef = { current: { id: 'session' } };
+  const runsRef = { current: [] };
+  const shown = [];
+  const updateRuns = bindLifted(
+    liftHookCallback(hookPath, 'useCallback', 'pendingProgressRef.current.values()'),
+    {
+      sessionRef,
+      runsRef,
+      mergePrefillRuns,
+      applyPrefillRunProgress,
+      pendingProgressRef: { current: new Map() },
+      setRuns: (next) => shown.push(next.map((entry) => entry.runId))
+    }
+  );
+  const refetch = bindLifted(liftHookCallback(hookPath, 'useCallback', "'GetPrefillRuns'"), {
+    supportsConcurrentPrefill: () => true,
+    sessionRef,
+    runsRef,
+    runsRequestRef: { current: null },
+    runsAgainRef: { current: false },
+    updateRuns,
+    dropUnlistedFinishedRuns,
+    isPrefillRunActive,
+    getErrorMessage: (error) => error.message,
+    expectedAppCountRef: { current: 0 },
+    setIsPrefillActive: () => undefined,
+    setPrefillProgress: () => undefined
+  });
+  const answering = (listed) => ({ invoke: async () => listed });
+
+  // A reset deleted finished run 1; the server now lists only the running run 2.
+  runsRef.current = [run('1', 5, 'failed'), run('2', 3)];
+  await refetch(answering([run('2', 4)]), 'session');
+  assert.deepEqual(shown.at(-1), ['2']);
+
+  // A running run the list leaves out stays, as before.
+  runsRef.current = [run('1', 5, 'completed'), run('2', 3)];
+  await refetch(answering([]), 'session');
+  assert.deepEqual(shown.at(-1), ['2']);
+
+  // A finished run the list still holds stays.
+  runsRef.current = [run('1', 5, 'completed')];
+  await refetch(answering([run('1', 5, 'completed')]), 'session');
+  assert.deepEqual(shown.at(-1), ['1']);
+
+  // A push names one run, so it never drops the others.
+  runsRef.current = [run('1', 5, 'completed')];
+  updateRuns([run('2', 1)]);
+  assert.deepEqual(shown.at(-1), ['1', '2']);
+});
+
+test('a session update after a reset drops the finished runs the server no longer lists', async () => {
+  const hookPath = 'src/components/features/prefill/hooks/usePrefillSignalR.ts';
+  const { getEventName, registerPrefillEventHandlers } = await loadEventHandlers();
+  const sessionRef = { current: { id: 'session', expiresAt: '2026-09-12T11:00:00Z', runs: [] } };
+  const runsRef = { current: [run('1', 5, 'failed')] };
+  const shown = [];
+  const updateRuns = bindLifted(
+    liftHookCallback(hookPath, 'useCallback', 'pendingProgressRef.current.values()'),
+    {
+      sessionRef,
+      runsRef,
+      mergePrefillRuns,
+      applyPrefillRunProgress,
+      pendingProgressRef: { current: new Map() },
+      setRuns: (next) => shown.push(next.map((entry) => entry.runId))
+    }
+  );
+  const refetch = bindLifted(liftHookCallback(hookPath, 'useCallback', "'GetPrefillRuns'"), {
+    supportsConcurrentPrefill: () => true,
+    sessionRef,
+    runsRef,
+    runsRequestRef: { current: null },
+    runsAgainRef: { current: false },
+    updateRuns,
+    dropUnlistedFinishedRuns,
+    isPrefillRunActive,
+    getErrorMessage: (error) => error.message,
+    expectedAppCountRef: { current: 0 },
+    setIsPrefillActive: () => undefined,
+    setPrefillProgress: () => undefined
+  });
+  const sessionEffect = liftHookCallback(hookPath, 'useEffect', 'updateRuns(session.runs)');
+  const handlers = new Map();
+  const requests = [];
+  registerPrefillEventHandlers(
+    {
+      on: (name, fn) => handlers.set(name, fn),
+      onreconnecting: () => undefined,
+      onreconnected: () => undefined,
+      invoke: async () => []
+    },
+    {
+      serviceId: 'steam',
+      sessionRef,
+      setSession: (update) => {
+        sessionRef.current = update(sessionRef.current);
+        bindLifted(sessionEffect, { session: sessionRef.current, updateRuns })();
+      },
+      setTimeRemaining: () => undefined,
+      rehydratePrefillProgress: (connection, sessionId) => {
+        const request = refetch(connection, sessionId);
+        requests.push(request);
+        return request;
+      }
+    }
+  );
+
+  // A reset deleted the idle container's failed run 1; its session update lists no runs.
+  handlers.get(getEventName('DaemonSessionUpdated', 'steam'))({
+    id: 'session',
+    expiresAt: '2026-09-12T11:00:00Z',
+    features,
+    runs: []
+  });
+  await Promise.all(requests);
+  assert.deepEqual(shown.at(-1), []);
+
+  // Another session's update asks nothing of this tab.
+  handlers.get(getEventName('DaemonSessionUpdated', 'steam'))({
+    id: 'another',
+    expiresAt: '2026-09-12T11:00:00Z',
+    runs: []
+  });
+  assert.equal(requests.length, 1);
 });

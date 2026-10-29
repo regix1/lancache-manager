@@ -434,7 +434,8 @@
 
 /* The unmapped removal count has one height in every state, so the dialog does not grow and
    re-center when the count returns. The per-service list scrolls inside it, since a cache can
-   hold any number of services. */
+   hold any number of services. Two service rows fit; a third shows only in part, which is the
+   cue that the list scrolls. */
 .unmapped-removal-count {
   display: flex;
   flex-direction: column;

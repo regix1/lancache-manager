@@ -3,10 +3,12 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using Docker.DotNet;
 using Docker.DotNet.Models;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 
 namespace LancacheManager.Core.Services;
 
@@ -26,7 +28,6 @@ public abstract partial class PrefillDaemonServiceBase
             // daemon's startup cannot re-orphan a row an earlier daemon just reactivated.
             await _sessionService.MarkOrphansAsync(Platform);
 
-            // Find all running containers matching this service's prefix
             var containers = await _containerGateway.ListContainersAsync(
                 new ContainersListParameters
                 {
@@ -68,13 +69,22 @@ public abstract partial class PrefillDaemonServiceBase
                         continue;
                     }
 
-                    // Stop and remove the container
+                    // Stop and remove the container. A stop Docker refuses or does not answer is logged, and
+                    // the forced removal below still kills the container.
                     if (container.State == "running")
                     {
-                        await _containerGateway.StopContainerAsync(
-                            container.ID,
-                            new ContainerStopParameters { WaitBeforeKillSeconds = 1 },
-                            cancellationToken);
+                        try
+                        {
+                            await _containerGateway.StopContainerAsync(
+                                container.ID,
+                                new ContainerStopParameters { WaitBeforeKillSeconds = 1 },
+                                cancellationToken);
+                        }
+                        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+                        {
+                            _logger.LogWarning(ex, "Docker did not stop orphaned {ServiceName} container {Id}; forcing removal",
+                                ServiceName, ShortContainerId(container.ID));
+                        }
                     }
 
                     // RemoveVolumes: a login-required daemon (Xbox/Epic) stores its anonymous token
@@ -101,9 +111,48 @@ public abstract partial class PrefillDaemonServiceBase
                 }
             }
         }
-        catch (Exception ex)
+        // A list Docker does not answer in time reaches the startup catch, which logs it and keeps the client.
+        catch (Exception ex) when (ex is not TimeoutException)
         {
             _logger.LogError(ex, "Error during orphaned container cleanup");
+        }
+    }
+
+    /// <summary>
+    /// True when the container's labeled session is meant to go: its teardown is still running or is stored
+    /// after Docker failed it, or its row reads Terminated because a teardown Docker could not finish left it
+    /// running. Such a container is never adopted. A stored teardown finishes it on the next Stop or Start;
+    /// with no teardown left, whoever finds it removes it.
+    /// </summary>
+    private async Task<bool> IsStoppedSessionContainerAsync(ContainerListResponse container)
+    {
+        if (!container.Labels.TryGetValue(SessionIdLabelKey, out var sessionId))
+        {
+            return false;
+        }
+
+        if (IsTearingDown(container))
+        {
+            return true;
+        }
+
+        return (await _sessionService.GetSessionAsync(sessionId))?.Status == PrefillSessionStatus.Terminated;
+    }
+
+    /// <summary>
+    /// True when a teardown of the container's labeled session is still running or is stored after Docker
+    /// failed it; that teardown owns the container.
+    /// </summary>
+    private bool IsTearingDown(ContainerListResponse container)
+    {
+        if (!container.Labels.TryGetValue(SessionIdLabelKey, out var sessionId))
+        {
+            return false;
+        }
+
+        lock (_terminationSync)
+        {
+            return _terminations.ContainsKey(sessionId);
         }
     }
 
@@ -218,13 +267,22 @@ public abstract partial class PrefillDaemonServiceBase
             }
 
             var target = decision.Target!;
+            if (await IsStoppedSessionContainerAsync(target))
+            {
+                _logger.LogInformation(
+                    "Startup re-adopt: removing running persistent {ServiceName} container {Id}; its session {SessionId} was stopped",
+                    ServiceName, ShortContainerId(target.ID), target.Labels[SessionIdLabelKey]);
+                await RemoveContainerForceAsync(target.ID, cancellationToken);
+                return;
+            }
+
             _logger.LogInformation(
                 "Re-adopting running persistent {ServiceName} prefill daemon container {Id} after restart",
                 ServiceName, ShortContainerId(target.ID));
 
             try
             {
-                await ReconnectPersistentSessionAsync(target, cancellationToken);
+                await ReconnectPersistentSessionAsync(target, startupReadopt: true, cancellationToken);
 
                 if (GetActivePersistentSession() == null)
                 {
@@ -251,7 +309,9 @@ public abstract partial class PrefillDaemonServiceBase
                     ServiceName, ShortContainerId(target.ID));
                 await RemoveContainerForceAsync(target.ID, cancellationToken);
             }
-            catch (Exception ex)
+            // A Docker call that times out says nothing about the container, so it is kept for the next Start
+            // to adopt, and the timeout reaches the startup catch.
+            catch (Exception ex) when (ex is not TimeoutException)
             {
                 _logger.LogWarning(ex,
                     "Failed to re-adopt persistent {ServiceName} container {Id}; removing it so it cannot become an invisible zombie",
@@ -259,7 +319,7 @@ public abstract partial class PrefillDaemonServiceBase
                 await RemoveContainerForceAsync(target.ID, cancellationToken);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not TimeoutException)
         {
             _logger.LogError(ex, "Error during persistent {ServiceName} container re-adoption", ServiceName);
         }
@@ -307,8 +367,8 @@ public abstract partial class PrefillDaemonServiceBase
     /// <summary>
     /// Removes a dead persistent container (when <paramref name="targetToRemove"/> is non-null) and
     /// creates a fresh one for a FullPersistence service so the daemon self-authenticates from its named
-    /// auth volume. Anchors the new session's expiry to the prior life's still-future validity window
-    /// (from <paramref name="latestRow"/>) and marks the create involuntary so the fresh-login guard
+    /// auth volume. Carries the prior life's last sign-in and re-login date (from <paramref name="latestRow"/>),
+    /// past or not, and marks the create involuntary so the fresh-login guard
     /// preserves the login. A create failure is logged but never aborts startup - the dead session's DB
     /// row stays non-Terminated, so the next startup's retry arm attempts the recreate again.
     /// </summary>
@@ -318,8 +378,10 @@ public abstract partial class PrefillDaemonServiceBase
         string? startupImageId,
         CancellationToken cancellationToken)
     {
-        var anchoredExpiresAt = ResolveRecreatedPersistentExpiry(
-            latestRow?.ExpiresAtUtc, DateTime.UtcNow, _stateService.GetAdminPersistentLoginValidityDays());
+        // The recreate carries the replaced life's sign-in time and re-login date, past or not: a past date means
+        // a person signs in again. A service with no earlier row starts a fresh window.
+        var anchoredExpiresAt = latestRow?.ExpiresAtUtc
+            ?? ComputePersistentExpiry(DateTime.UtcNow, _stateService.GetAdminPersistentLoginValidityDays());
 
         if (targetToRemove != null)
         {
@@ -332,7 +394,10 @@ public abstract partial class PrefillDaemonServiceBase
             // involuntaryRecreate makes the fresh-login guard preserve the login already on this
             // service's named auth volume so the recreated daemon self-authenticates.
             if (latestRow is not null)
+            {
                 await _sessionService.InterruptRunsAsync(latestRow.SessionId, "instance-changed", cancellationToken);
+                await BroadcastHistoryUpdatedAsync(latestRow.SessionId);
+            }
             if (string.IsNullOrWhiteSpace(startupImageId))
             {
                 await CreateSessionAsync(
@@ -340,7 +405,8 @@ public abstract partial class PrefillDaemonServiceBase
                     isPersistent: true,
                     persistentExpiresAtOverrideUtc: anchoredExpiresAt,
                     involuntaryRecreate: true,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken,
+                    persistentLastLoginAtUtc: latestRow?.LastLoginAtUtc);
             }
             else
             {
@@ -357,7 +423,8 @@ public abstract partial class PrefillDaemonServiceBase
                         persistentExpiresAtOverrideUtc: anchoredExpiresAt,
                         involuntaryRecreate: true,
                         cancellationToken,
-                        resolvedImageId: startupImageId);
+                        resolvedImageId: startupImageId,
+                        persistentLastLoginAtUtc: latestRow?.LastLoginAtUtc);
                 }
                 finally
                 {
@@ -385,6 +452,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// </summary>
     private async Task ReconnectPersistentSessionAsync(
         ContainerListResponse container,
+        bool startupReadopt,
         CancellationToken cancellationToken,
         PersistentImageChange? imageChange = null)
     {
@@ -450,13 +518,18 @@ public abstract partial class PrefillDaemonServiceBase
         // sessionId-based guest-shaped name.
         var containerName = container.Names?.FirstOrDefault()?.TrimStart('/') ?? $"{ContainerPrefix}persistent";
 
-        // Preserve the original validity window when the prior DB record is available; otherwise restamp
-        // from the admin-configured persistent login validity.
+        // The stored re-login date, the last sign-in plus the validity days, is kept whenever the container has
+        // a record, even when it is already past: the expiry pass then asks for a new sign-in. The sign-in time
+        // is read in the same order. Only a container with no record gets a fresh window that starts now.
         var dbRecord = await _sessionService.GetSessionAsync(sessionId);
-        var createdAtUtc = dbRecord?.CreatedAtUtc ?? DateTime.UtcNow;
-        var expiresAt = imageChange?.ExpiresAt ?? (dbRecord != null && dbRecord.ExpiresAtUtc > DateTime.UtcNow
-            ? dbRecord.ExpiresAtUtc
-            : DateTime.UtcNow.AddDays(_stateService.GetAdminPersistentLoginValidityDays()));
+        var now = DateTime.UtcNow;
+        var createdAtUtc = dbRecord?.CreatedAtUtc ?? now;
+        var lastLoginAtUtc = imageChange?.LastLoginAt
+            ?? dbRecord?.LastLoginAtUtc
+            ?? now;
+        var expiresAt = imageChange?.ExpiresAt
+            ?? dbRecord?.ExpiresAtUtc
+            ?? ComputePersistentExpiry(now, _stateService.GetAdminPersistentLoginValidityDays());
 
         _logger.LogInformation(
             "Re-adopting persistent {ServiceName} session {SessionId} from running container {Id}",
@@ -474,13 +547,15 @@ public abstract partial class PrefillDaemonServiceBase
             useTcpMode,
             tcpHostPort,
             createdAtUtc,
+            lastLoginAtUtc,
             expiresAt,
             isTemporary: false,
             isPersistent: true,
             ipAddress: null,
             userAgent: null,
             networkDiagnostics: null,
-            isReconnect: imageChange is null,
+            isReconnect: imageChange is null && dbRecord is not null,
+            startupReadopt: startupReadopt,
             involuntaryRecreate: false,
             cancellationToken,
             imageChange: imageChange,
@@ -567,7 +642,7 @@ public abstract partial class PrefillDaemonServiceBase
         _logger.LogWarning(
             "Persistent container name {Name} still conflicting after {Max} retries; force-removing and creating once more",
             parameters.Name, maxRetries);
-        await ForceRemoveContainersByExactNameAsync(parameters.Name!, cancellationToken);
+        await ForceRemoveContainersByExactNameAsync(parameters.Name!, cancellationToken, removeVolumes: false);
         return await _containerGateway.CreateContainerAsync(parameters, cancellationToken);
     }
 
@@ -575,7 +650,7 @@ public abstract partial class PrefillDaemonServiceBase
         => ex.Message.Contains("Conflict", StringComparison.OrdinalIgnoreCase)
            && ex.Message.Contains("already in use", StringComparison.OrdinalIgnoreCase);
 
-    private async Task ForceRemoveContainersByExactNameAsync(string containerName, CancellationToken cancellationToken)
+    private async Task ForceRemoveContainersByExactNameAsync(string containerName, CancellationToken cancellationToken, bool removeVolumes)
     {
         var matches = await _containerGateway.ListContainersAsync(
             new ContainersListParameters
@@ -590,7 +665,11 @@ public abstract partial class PrefillDaemonServiceBase
 
         foreach (var match in matches.Where(c => (c.Names ?? new List<string>()).Any(n => n.TrimStart('/') == containerName)))
         {
-            await RemoveContainerForceAsync(match.ID, cancellationToken);
+            // A removal still in progress leaves the name taken, so the create after this would conflict.
+            if (await RemoveContainerForceAsync(match.ID, cancellationToken, removeVolumes) == ContainerRemovalOutcome.RemovalInProgress)
+            {
+                throw ContainerRemovalFailure();
+            }
         }
     }
 
@@ -621,7 +700,8 @@ public abstract partial class PrefillDaemonServiceBase
     /// sibling that shares the SAME named auth volume with a surviving container
     /// (<see cref="GetPersistentConfigVolumeName"/>) and must never wipe it; pass <paramref name="removeVolumes"/>
     /// true only for teardown paths that own the container's volume outright (e.g. non-persistent session
-    /// termination, orphan cleanup).
+    /// termination, orphan cleanup). A removal Docker refuses or does not answer fails with the container-removal
+    /// error; a cancel of the caller's own token still surfaces as a cancel.
     /// </summary>
     private async Task<ContainerRemovalOutcome> RemoveContainerForceAsync(string containerId, CancellationToken cancellationToken, bool removeVolumes = false)
     {
@@ -643,7 +723,19 @@ public abstract partial class PrefillDaemonServiceBase
             // Another removal is already in flight; the container's absence is NOT yet confirmed.
             return ContainerRemovalOutcome.RemovalInProgress;
         }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Docker did not remove {ServiceName} container {Id}", ServiceName, ShortContainerId(containerId));
+            throw ContainerRemovalFailure();
+        }
     }
+
+    private ServiceUnavailableException ContainerRemovalFailure()
+        => new($"Docker did not remove the {ServiceName} container.")
+        {
+            StageKey = "errors.prefill.containerRemovalFailed",
+            Context = new() { ["service"] = ServiceName }
+        };
 
     private static string ShortContainerId(string containerId)
         => containerId.Length >= 12 ? containerId[..12] : containerId;
@@ -735,6 +827,8 @@ public abstract partial class PrefillDaemonServiceBase
 
     private static bool IsImagePullTransient(Exception exception) => exception switch
     {
+        // The gateway already waited its full limit, so a retry only multiplies the wait.
+        DockerTimeoutException => false,
         DockerApiException docker => docker.StatusCode is HttpStatusCode.RequestTimeout
             or HttpStatusCode.TooManyRequests or HttpStatusCode.InternalServerError
             or HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout,
@@ -831,7 +925,8 @@ public abstract partial class PrefillDaemonServiceBase
                     }
                 }
             }
-            catch (Exception ex)
+            // A timeout or a cancel fails this create and caches nothing, so the next create inspects again.
+            catch (Exception ex) when (ex is not TimeoutException && ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Failed to auto-detect host data path from container mounts");
             }
@@ -963,7 +1058,8 @@ public abstract partial class PrefillDaemonServiceBase
                         string.Join(", ", containers.SelectMany(c => c.Names)));
                 }
             }
-            catch (Exception ex)
+            // A timeout fails this create, so it answers Docker unavailable before any slower Docker call.
+            catch (Exception ex) when (ex is not TimeoutException)
             {
                 _logger.LogWarning(ex, "Failed to check lancache-dns network mode");
             }

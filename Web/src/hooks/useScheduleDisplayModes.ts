@@ -101,7 +101,7 @@ export function useScheduleDisplayModes(): ScheduleDisplayModes {
           console.error('useScheduleDisplayModes default seed failed:', error);
         })
     ]);
-    // The bar draws no card before this, so a reload never shows one full and then moves it. [62]
+    // The bar draws no card before this, so a reload never shows one full and then moves it.
     if (active.current) setReady(true);
   }, [invoke, applySchedules, applyDefault]);
 

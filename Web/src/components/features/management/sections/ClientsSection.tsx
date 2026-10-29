@@ -1048,7 +1048,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
             onToggle={() => setHostnamesExpanded((prev) => !prev)}
             badge={
               // The enabled state comes from the failed read, so it stays out of the header until
-              // a read succeeds. [148]
+              // a read succeeds.
               hostnamesError !== null ? (
                 hostnamesExpanded ? undefined : (
                   <SectionErrorChip />
@@ -1072,7 +1072,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
               </Alert>
             ) : hostnamesError ? (
               // The form starts at default values until a read succeeds, so the box takes its
-              // place rather than sitting above switches that may not match the server. [148]
+              // place rather than sitting above switches that may not match the server.
               <ErrorBlock
                 title={t('management.sections.clients.hostnames.loadFailed')}
                 message={hostnamesError}

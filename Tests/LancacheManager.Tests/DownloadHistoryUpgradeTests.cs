@@ -1245,10 +1245,10 @@ public class DownloadHistoryUpgradeTests
     public async Task ImportRequestWaitsForCleanupBeforeDatabaseOrQueueWorkAsync()
     {
         var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory? contexts = null;
+        BlockingDbContexts? contexts = null;
         await using var harness = await UpgradeHarness.CreateAsync(
             cleanup,
-            options => contexts = new PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory(options));
+            options => contexts = new BlockingDbContexts(options));
         await SeedIslandAsync(harness, rows: 2, logsPerRow: 0);
         harness.Recorder.Clear();
         await harness.Service.StartAsync(CancellationToken.None);
@@ -1304,10 +1304,10 @@ public class DownloadHistoryUpgradeTests
     public async Task ShutdownSettlesARequestWaitingForCleanupAsync()
     {
         var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory? contexts = null;
+        BlockingDbContexts? contexts = null;
         await using var harness = await UpgradeHarness.CreateAsync(
             cleanup,
-            options => contexts = new PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory(options));
+            options => contexts = new BlockingDbContexts(options));
         using var service = harness.CreateService(cleanup.Task);
         var initialRequest = service.StartupRequest;
         Assert.True(initialRequest.IsCompletedSuccessfully);
@@ -1352,10 +1352,10 @@ public class DownloadHistoryUpgradeTests
     public async Task CancelledStartDoesNotEnterTheServiceAsync()
     {
         var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory? contexts = null;
+        BlockingDbContexts? contexts = null;
         await using var harness = await UpgradeHarness.CreateAsync(
             cleanup,
-            options => contexts = new PrefillProgressLoginPhaseGuardTests.BlockingDbContextFactory(options));
+            options => contexts = new BlockingDbContexts(options));
         var logger = new CapturingLogger<DownloadHistoryUpgradeService>();
         using var service = harness.CreateService(cleanup.Task, logger);
         var initialRequest = service.StartupRequest;

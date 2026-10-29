@@ -18,7 +18,8 @@ import {
   AUTO_DISMISS_DELAY_MS,
   NOTIFICATION_ANIMATION_DURATION_MS,
   LIVE_ONLY_CANCEL_DETAIL_KEYS,
-  OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE
+  OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE,
+  REMOVAL_TYPES
 } from './constants';
 import { isTerminalNotificationStatus } from './notificationStatus';
 import { createRecoveryRunner, type FetchWithAuth } from './recovery';
@@ -79,23 +80,8 @@ const shouldAutoDismiss = (): boolean => {
   return !themeService.getPicsAlwaysVisibleSync();
 };
 
-// Removal/clearing operation types that share the backend _cacheLock.
-// NOTE (wait-queue model): isAnyRemovalRunning must NOT gate buttons whose actions now
-// ENQUEUE on conflict - clicking during another op is a supported action whose feedback
-// is the purple waiting card. Remaining legitimate consumers are: sync reads that would
-// block on _cacheLock (cache-size/log-count refresh), the kept-409 sync corruption scan,
-// the client-side bulk-removal loop (not queue-aware), and data-refresh suppression.
-const REMOVAL_TYPES = [
-  'log_removal',
-  'game_removal',
-  'service_removal',
-  'corruption_removal',
-  'cache_clearing'
-] as const;
-
 // A failed run-list read is asked again after this long while the connection is up. It repeats a
-// request and ends no card; 5 s is the app's retry delay for a failed request
-// (ScheduledPrefillEditSessionCleanupRecovery.tsx:6).
+// request and ends no card.
 const RUN_LIST_RETRY_DELAY_MS = 5000;
 
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {
@@ -674,13 +660,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     [version]
   );
 
-  // Compute if any removal operation is running (these all share a backend lock)
+  // True while any removal runs (they share a backend lock). Do not use it to disable buttons whose actions
+  // queue behind a running removal. It is used by the delete-mode switch, the clear tooltip on the cache
+  // page, the corruption scan, load and refresh, the scan history delete, and the log file delete.
   const isAnyRemovalRunning = useMemo(
-    () =>
-      runs.some(
-        (n) =>
-          REMOVAL_TYPES.includes(n.type as (typeof REMOVAL_TYPES)[number]) && n.status === 'running'
-      ),
+    () => runs.some((n) => REMOVAL_TYPES.includes(n.type) && n.status === 'running'),
     [runs]
   );
 

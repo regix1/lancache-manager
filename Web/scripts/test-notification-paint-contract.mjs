@@ -795,7 +795,7 @@ test('a warning ending colors its strip segment amber', () => {
   assert.deepEqual(Object.keys(drawn.props.style), ['--seg-fill']);
 });
 
-// ── Closing a kept ending [49] ──────────────────────────────────────────────
+// ── Closing a kept ending ──────────────────────────────────────────────
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const dismissBar = (card, closeOperation, lost = false) => {
@@ -1891,7 +1891,7 @@ test('unmount clears hover, exit, and all document boundary callbacks', () => {
   }
 });
 
-// ── A tooltip dismissed with Escape stays dismissed [99] ────────────────────
+// ── A tooltip dismissed with Escape stays dismissed ────────────────────
 
 test('an Escape keeps an open tooltip hidden when the pointer reached its control just before', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
@@ -1906,6 +1906,8 @@ test('an Escape keeps an open tooltip hidden when the pointer reached its contro
     hideTimeoutRef: { current: null },
     showTimeoutRef,
     addsNothing: () => false,
+    menuCoversTrigger: () => false,
+    triggerRef: { current: null },
     closeOpenTooltip: closeNow,
     closeNow,
     setX: () => undefined,
@@ -2232,7 +2234,7 @@ test('a background row that waits says what it waits for, in the sentence case i
   assert.match(running.props.className, /\bcapitalize\b/);
 });
 
-// ── While the server is unreachable [171] [174] ─────────────────────────────
+// ── While the server is unreachable ─────────────────────────────
 
 test('a running run card offers its close button only while the connection is lost', () => {
   const closeButtons = (tree) =>
@@ -2646,6 +2648,8 @@ const mountWizardStep = async () => {
     useSignalR: () => signalR,
     useConfig: () => ({ config: { dataSources: [] } }),
     useSelectionSet: () => ({ selected: new Set(), toggle: () => undefined }),
+    translateRecoveryStage: (message) => message,
+    datasourceFailureValues: () => undefined,
     ApiService: {
       getProcessingStatus: () =>
         Promise.resolve({

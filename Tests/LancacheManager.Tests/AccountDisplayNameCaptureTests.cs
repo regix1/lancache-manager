@@ -26,11 +26,11 @@ public class AccountDisplayNameCaptureTests
     {
         var (daemon, session, sessionService, recorder) = await CreateDaemonWithSeededSessionAsync(platform: "Xbox");
 
-        await InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, new DaemonStatus
+        await InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, new DaemonStatus
         {
             Status = "logged-in",
             AccountDisplayName = "XboxGamerTag"
-        });
+        }, null);
 
         Assert.Equal("XboxGamerTag", session.Username);
         Assert.Equal("XboxGamerTag", session.AccountUsername);
@@ -51,11 +51,11 @@ public class AccountDisplayNameCaptureTests
     {
         var (daemon, session, sessionService, _) = await CreateDaemonWithSeededSessionAsync(platform: "Xbox");
 
-        await InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, new DaemonStatus
+        await InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, new DaemonStatus
         {
             Status = "logged-in",
             DisplayName = "AuthStateGamertag"
-        });
+        }, null);
 
         Assert.Equal("AuthStateGamertag", session.Username);
         Assert.Equal("AuthStateGamertag", session.AccountUsername);
@@ -70,11 +70,11 @@ public class AccountDisplayNameCaptureTests
     {
         var (daemon, session, sessionService, _) = await CreateDaemonWithSeededSessionAsync(platform: "battlenet");
 
-        await InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, new DaemonStatus
+        await InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, new DaemonStatus
         {
             Status = "logged-in",
             AccountDisplayName = "UnexpectedBattleNetName"
-        });
+        }, null);
 
         Assert.Equal("UnexpectedBattleNetName", session.Username);
         Assert.Equal("UnexpectedBattleNetName", session.AccountUsername);
@@ -89,10 +89,10 @@ public class AccountDisplayNameCaptureTests
     {
         var (daemon, session, sessionService, _) = await CreateDaemonWithSeededSessionAsync(platform: "battlenet");
 
-        await InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, new DaemonStatus
+        await InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, new DaemonStatus
         {
             Status = "logged-in"
-        });
+        }, null);
 
         Assert.Null(session.Username);
         Assert.Null(session.AccountUsername);
@@ -109,11 +109,11 @@ public class AccountDisplayNameCaptureTests
         var (daemon, session, sessionService, recorder) = await CreateDaemonWithSeededSessionAsync(platform: "Xbox");
         session.AuthState = DaemonAuthState.Authenticated;
 
-        await InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, new DaemonStatus
+        await InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, new DaemonStatus
         {
             Status = "logged-in",
             AccountDisplayName = "LateGamertag"
-        });
+        }, null);
 
         Assert.Equal("LateGamertag", session.Username);
         Assert.Equal("LateGamertag", session.AccountUsername);
@@ -192,7 +192,7 @@ public class AccountDisplayNameCaptureTests
         // PrefillPlatform parses "Xbox"/"BattleNet"; runtime session.Platform may be "battlenet".
         var persistPlatform = platform.Equals("battlenet", StringComparison.OrdinalIgnoreCase) ? "BattleNet" : platform;
         await sessionService.CreateSessionAsync(
-            session.Id, session.UserId, $"container-{session.Id}", $"name-{session.Id}", session.ExpiresAt, persistPlatform);
+            session.Id, session.UserId, $"container-{session.Id}", $"name-{session.Id}", session.ExpiresAt, DateTime.UtcNow, persistPlatform);
 
         return (daemon, session, sessionService, recorder);
     }

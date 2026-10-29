@@ -12,6 +12,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { PERSISTENT_PREFILL_VALIDITY_BOUNDS } from '@components/features/prefill/persistentPrefillConstants';
 import ApiService from '@services/api.service';
 import { useConnectionLost } from '@hooks/useConnectionLost';
+import { useErrorHandler } from '@hooks/useErrorHandler';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import { SCHEDULED_PREFILL_SERVICE_RUN_ORDER } from './constants';
 import type { ScheduledPrefillPersistenceMode } from './types';
@@ -28,6 +29,7 @@ export function ScheduledPrefillSharedSettingsModal({
   onClose
 }: ScheduledPrefillSharedSettingsModalProps) {
   const { t } = useTranslation();
+  const { notifyError } = useErrorHandler();
   // While the connection banner is up every read fails for that reason, so the banner speaks for
   // the read alerts.
   const connectionLost = useConnectionLost();
@@ -50,6 +52,8 @@ export function ScheduledPrefillSharedSettingsModal({
   });
   const dirty = useRef({ days: false, mode: false });
   const revisions = useRef({ days: 0, mode: 0 });
+  const daysWrite = useRef({ serial: 0, pending: 0 });
+  const modeWrite = useRef({ serial: 0, pending: 0 });
   const session = useRef({ opened, id: 0 });
   if (session.current.opened !== opened) session.current = { opened, id: session.current.id + 1 };
 
@@ -59,13 +63,24 @@ export function ScheduledPrefillSharedSettingsModal({
     const controller = new AbortController();
     const current = () =>
       !controller.signal.aborted && session.current.opened && session.current.id === opening;
-    const daysRevision = ++revisions.current.days;
-    const modeRevision = ++revisions.current.mode;
-    dirty.current = { days: false, mode: false };
-    setDays(saved.current.days);
-    setMode(saved.current.mode);
+    const daysPending = daysWrite.current.pending > 0;
+    const daysSerialAtRead = daysWrite.current.serial;
+    const modePending = modeWrite.current.pending > 0;
+    const modeSerialAtRead = modeWrite.current.serial;
+    // An opening during the validity write must keep the revision that write captured, or the
+    // write drops its result and this opening is left with the previous days.
+    const daysRevision = daysPending ? revisions.current.days : ++revisions.current.days;
+    // An opening during the mode write must keep the revision that write captured, or the
+    // write drops its result and this opening is left with the previous mode.
+    const modeRevision = modePending ? revisions.current.mode : ++revisions.current.mode;
+    dirty.current = {
+      days: daysPending ? dirty.current.days : false,
+      mode: modePending ? dirty.current.mode : false
+    };
+    if (!daysPending) setDays(saved.current.days);
+    if (!modePending) setMode(saved.current.mode);
     setSaveErrors({});
-    setSaving(false);
+    if (!daysPending && !modePending) setSaving(false);
     setClearing(false);
     setClearPending(false);
     setClearOpen(false);
@@ -76,6 +91,9 @@ export function ScheduledPrefillSharedSettingsModal({
         if (!current()) return;
         setReadErrors((previous) => ({ ...previous, days: undefined }));
         if (revisions.current.days === daysRevision) {
+          // A read that left before the validity write stored still has the previous days.
+          if (daysWrite.current.serial !== daysSerialAtRead || daysWrite.current.pending > 0)
+            return;
           saved.current.days = result.days;
           if (!dirty.current.days) setDays(result.days);
         }
@@ -89,8 +107,11 @@ export function ScheduledPrefillSharedSettingsModal({
         if (!current()) return;
         setReadErrors((previous) => ({ ...previous, mode: undefined }));
         if (revisions.current.mode === modeRevision) {
-          saved.current.mode = result.persistenceMode;
-          if (!dirty.current.mode) setMode(result.persistenceMode);
+          // A read that left before the mode write stored still has the previous mode.
+          if (modeWrite.current.serial === modeSerialAtRead && modeWrite.current.pending === 0) {
+            saved.current.mode = result.persistenceMode;
+            if (!dirty.current.mode) setMode(result.persistenceMode);
+          }
         }
         setOverrides(
           SCHEDULED_PREFILL_SERVICE_RUN_ORDER.filter(
@@ -106,7 +127,13 @@ export function ScheduledPrefillSharedSettingsModal({
   }, [opened, t]);
 
   const close = () => {
-    if (saving || clearing) return;
+    if (clearing) return;
+    // The save was already sent, so closing needs no discard choice. The container list
+    // reloads when that save finishes, and a failure is reported on the page.
+    if (saving) {
+      onClose();
+      return;
+    }
     if (dirty.current.days || dirty.current.mode || clearPending) setDiscardOpen(true);
     else onClose();
   };
@@ -152,45 +179,74 @@ export function ScheduledPrefillSharedSettingsModal({
     }
     setSaving(true);
     const pending: Promise<void>[] = [];
+    const closedErrors: string[] = [];
     if (days !== null && saved.current.days !== null && dirty.current.days) {
       revisions.current.days += 1;
+      const daysRevision = revisions.current.days;
+      daysWrite.current.pending += 1;
+      daysWrite.current.serial += 1;
       pending.push(
         ApiService.updatePersistentPrefillValidity({ days })
           .then(() => {
-            if (!current()) return;
+            daysWrite.current.pending -= 1;
+            daysWrite.current.serial += 1;
+            if (revisions.current.days !== daysRevision) return;
             saved.current.days = days;
             dirty.current.days = false;
+            if (!current()) {
+              if (session.current.opened) setDays(days);
+              return;
+            }
             setReadErrors((previous) => ({ ...previous, days: undefined }));
             setSaveErrors((previous) => ({ ...previous, days: undefined }));
           })
           .catch((error: unknown) => {
+            daysWrite.current.pending -= 1;
+            daysWrite.current.serial += 1;
             if (current())
               setSaveErrors((previous) => ({ ...previous, days: getErrorMessage(error) }));
+            else closedErrors.push(getErrorMessage(error));
           })
       );
     }
     if (mode !== null && saved.current.mode !== null && dirty.current.mode) {
       revisions.current.mode += 1;
+      const modeRevision = revisions.current.mode;
+      modeWrite.current.pending += 1;
+      modeWrite.current.serial += 1;
       pending.push(
         ApiService.setScheduledPrefillPersistence(mode)
           .then((result) => {
-            if (!current()) return;
+            modeWrite.current.pending -= 1;
+            modeWrite.current.serial += 1;
+            if (revisions.current.mode !== modeRevision) return;
             saved.current.mode = result.persistenceMode;
             dirty.current.mode = false;
+            if (!current()) {
+              if (session.current.opened) setMode(result.persistenceMode);
+              return;
+            }
             setMode(result.persistenceMode);
             setReadErrors((previous) => ({ ...previous, mode: undefined }));
             setSaveErrors((previous) => ({ ...previous, mode: undefined }));
           })
           .catch((error: unknown) => {
+            modeWrite.current.pending -= 1;
+            modeWrite.current.serial += 1;
             if (current())
               setSaveErrors((previous) => ({ ...previous, mode: getErrorMessage(error) }));
+            else closedErrors.push(getErrorMessage(error));
           })
       );
     }
     await Promise.all(pending);
-    if (!current()) return;
-    setSaving(false);
     void containers.loadPersistentContainers();
+    setSaving(false);
+    if (!current()) {
+      for (const message of closedErrors)
+        notifyError(t(`${baseKey}.settings.saveError`, { error: message }));
+      return;
+    }
     if (!dirty.current.days && !dirty.current.mode && !clearFailed) onClose();
   };
   const modes: ScheduledPrefillPersistenceMode[] = [
@@ -372,7 +428,7 @@ export function ScheduledPrefillSharedSettingsModal({
                 {t(`${baseKey}.settings.saving`)}
               </span>
             )}
-            <Button onClick={close} disabled={saving || clearing}>
+            <Button onClick={close} disabled={clearing}>
               {t('common.cancel')}
             </Button>
             <Button

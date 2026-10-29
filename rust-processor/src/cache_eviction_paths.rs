@@ -13,6 +13,7 @@ pub(super) struct DatasourceRoots {
     default_cache_path: PathBuf,
     default_scheme: cache_utils::CacheKeyScheme,
     allow_null_default: bool,
+    roots: Vec<PathBuf>,
 }
 
 impl DatasourceRoots {
@@ -32,11 +33,15 @@ impl DatasourceRoots {
     fn from_paths(datasources: &[DatasourceConfig], paths: &HashMap<String, PathBuf>) -> Self {
         let mut cache_paths_by_name = HashMap::with_capacity(datasources.len());
         let mut default_entry: Option<(PathBuf, cache_utils::CacheKeyScheme)> = None;
+        let mut roots: Vec<PathBuf> = Vec::new();
 
         for ds in datasources {
             let Some(cache_path) = paths.get(&datasource_lookup_key(&ds.name)).cloned() else {
                 continue;
             };
+            if !roots.contains(&cache_path) {
+                roots.push(cache_path.clone());
+            }
             let scheme = cache_utils::CacheKeyScheme::from_config_str(&ds.key_scheme);
             cache_paths_by_name.insert(
                 datasource_lookup_key(&ds.name),
@@ -65,20 +70,29 @@ impl DatasourceRoots {
             // those rows verifiable. Multiple datasources can share a root while using different
             // key schemes, so a NULL datasource there must remain unresolved.
             allow_null_default: datasources.len() == 1,
+            roots,
         }
     }
 
-    fn resolve(&self, datasource: Option<&str>) -> Option<(&Path, cache_utils::CacheKeyScheme)> {
-        match datasource {
+    fn resolve(&self, datasource: Option<&str>) -> Option<(usize, cache_utils::CacheKeyScheme)> {
+        let (path, scheme) = match datasource {
             Some(name) if !name.trim().is_empty() => self
                 .cache_paths_by_name
                 .get(&datasource_lookup_key(name))
-                .map(|(path, scheme)| (path.as_path(), *scheme)),
+                .map(|(path, scheme)| (path.as_path(), *scheme))?,
             None if self.allow_null_default => {
-                Some((self.default_cache_path.as_path(), self.default_scheme))
+                (self.default_cache_path.as_path(), self.default_scheme)
             }
-            Some(_) | None => None,
-        }
+            Some(_) | None => return None,
+        };
+        self.roots
+            .iter()
+            .position(|root| root.as_path() == path)
+            .map(|index| (index, scheme))
+    }
+
+    pub(super) fn root_path(&self, index: usize) -> &Path {
+        self.roots[index].as_path()
     }
 }
 
@@ -93,7 +107,11 @@ impl RepairIndex {
     pub(super) fn intersects(&self, primary: Option<&str>, origins: &[Option<String>]) -> bool {
         std::iter::once(primary)
             .chain(origins.iter().map(Option::as_deref))
-            .filter_map(|origin| self.roots.resolve(origin).map(|(root, _)| root))
+            .filter_map(|origin| {
+                self.roots
+                    .resolve(origin)
+                    .map(|(index, _)| self.roots.root_path(index))
+            })
             .any(|root| self.affected_roots.contains(root))
     }
 
@@ -105,9 +123,10 @@ impl RepairIndex {
         let mut saw_origin = false;
         for origin in std::iter::once(primary).chain(origins.iter().map(Option::as_deref)) {
             saw_origin = true;
-            let Some((root, _)) = self.roots.resolve(origin) else {
+            let Some((index, _)) = self.roots.resolve(origin) else {
                 return false;
             };
+            let root = self.roots.root_path(index);
             let indexed = self
                 .files
                 .digests_for_root(root)
@@ -127,10 +146,13 @@ impl RepairIndex {
         let mut saw_origin = false;
         for origin in std::iter::once(primary).chain(origins.iter().map(Option::as_deref)) {
             saw_origin = true;
-            let Some((root, _)) = self.roots.resolve(origin) else {
+            let Some((index, _)) = self.roots.resolve(origin) else {
                 return false;
             };
-            if !self.trusted_empty_roots.contains(root) {
+            if !self
+                .trusted_empty_roots
+                .contains(self.roots.root_path(index))
+            {
                 return false;
             }
         }
@@ -160,32 +182,41 @@ impl RepairIndex {
 /// resolved datasource root. A name that is not exactly 32 hex chars cannot equal any md5
 /// probe candidate, so skipping it from the index cannot change any probe outcome.
 pub(super) struct FilesOnDisk {
-    digests_by_root: HashMap<PathBuf, HashSet<u128>>,
+    digests_by_root: Vec<Option<HashSet<u128>>>,
+    roots: Vec<PathBuf>,
 }
 
 impl FilesOnDisk {
     pub(super) fn len(&self) -> usize {
-        self.digests_by_root.values().map(HashSet::len).sum()
+        self.digests_by_root
+            .iter()
+            .map(|digests| digests.as_ref().map_or(0, HashSet::len))
+            .sum()
     }
 
     pub(super) fn is_empty(&self) -> bool {
-        self.digests_by_root.values().all(HashSet::is_empty)
+        self.digests_by_root
+            .iter()
+            .all(|digests| digests.as_ref().is_none_or(HashSet::is_empty))
     }
 
     fn digests_for_root(&self, root: &Path) -> Option<&HashSet<u128>> {
-        self.digests_by_root.get(root)
+        let index = self.roots.iter().position(|candidate| candidate == root)?;
+        self.digests_by_root.get(index).and_then(|d| d.as_ref())
+    }
+
+    fn digests_for_index(&self, index: usize) -> Option<&HashSet<u128>> {
+        self.digests_by_root.get(index).and_then(|d| d.as_ref())
     }
 }
 
 /// Identity of one unique cache probe: datasource resolution + normalized service + URL.
-/// Probe results are memoized per `memo_key` across the entire scan, since many downloads share
+/// Probe results are memoized per `memo_key` for the current flush, since many downloads share
 /// the same (service, url, datasource) tuple and the on-disk index is immutable scan-wide.
 ///
 /// For resolved datasources, `memo_key` is the md5 digest of the `(root, scheme, service, url)`
 /// composite. Unresolved datasource names use an explicit sentinel plus the raw datasource value;
-/// they never probe or support absence decisions. The memo stores only this 16-byte key and the
-/// bool result, so the scan-wide memo no longer retains an owned root PathBuf + service + full URL
-/// String per unique tuple (the unbounded growth on large libraries). Including the scheme
+/// they never probe or support absence decisions. Including the scheme
 /// prevents datasources that share a root but use different key recipes from reusing one another's
 /// probe result. The strings on this struct live only for the current batch.
 ///
@@ -193,7 +224,7 @@ impl FilesOnDisk {
 /// `cache_utils::probe_chunks_for_bytes`, but is DELIBERATELY EXCLUDED from the memo identity.
 /// The byte size is a deterministic function of (service, url) within a scan, so two keys with
 /// the same tuple probe the same candidate set; keeping it out of the identity guarantees the
-/// scan-wide memo still dedups each unique (root, scheme, service, url) to exactly one probe
+/// memo still dedups each unique (root, scheme, service, url) within a flush
 /// regardless of per-row size noise.
 pub(super) struct ProbeKey {
     pub(super) memo_key: u128,
@@ -205,7 +236,7 @@ pub(super) struct ProbeKey {
 
 enum ProbeRecipe {
     Resolved {
-        root: PathBuf,
+        root_index: usize,
         scheme: cache_utils::CacheKeyScheme,
     },
     /// The datasource was NULL in a multi-datasource install, empty, or unknown. Treating it as
@@ -226,10 +257,7 @@ impl ProbeKey {
         roots: &DatasourceRoots,
     ) -> Self {
         let recipe = match roots.resolve(datasource) {
-            Some((root, scheme)) => ProbeRecipe::Resolved {
-                root: root.to_path_buf(),
-                scheme,
-            },
+            Some((root_index, scheme)) => ProbeRecipe::Resolved { root_index, scheme },
             None => ProbeRecipe::Unresolved,
         };
         let service = cache_utils::service_name_lowercase(service);
@@ -237,10 +265,10 @@ impl ProbeKey {
         // format! String here would be a per-row allocation on multi-million-row scans.
         let mut memo_hash = md5::Context::new();
         match &recipe {
-            ProbeRecipe::Resolved { root, scheme } => {
+            ProbeRecipe::Resolved { root_index, scheme } => {
                 memo_hash.consume(b"resolved");
                 memo_hash.consume([MEMO_KEY_SEP as u8]);
-                memo_hash.consume(root.as_os_str().as_encoded_bytes());
+                memo_hash.consume(roots.root_path(*root_index).as_os_str().as_encoded_bytes());
                 memo_hash.consume([MEMO_KEY_SEP as u8]);
                 memo_hash.consume(match scheme {
                     cache_utils::CacheKeyScheme::Monolithic => b"monolithic".as_slice(),
@@ -272,10 +300,10 @@ impl ProbeKey {
     /// count is sized from `bytes_served` (clamped to [DEFAULT_MAX_CHUNKS, MAX_PROBE_CHUNKS]),
     /// so large objects whose present slices fall past the first 100 MiB are still found.
     pub(super) fn has_cache_file(&self, files_on_disk: &FilesOnDisk) -> bool {
-        let ProbeRecipe::Resolved { root, scheme } = &self.recipe else {
+        let ProbeRecipe::Resolved { root_index, scheme } = &self.recipe else {
             return false;
         };
-        let Some(digests) = files_on_disk.digests_for_root(root) else {
+        let Some(digests) = files_on_disk.digests_for_index(*root_index) else {
             return false;
         };
 
@@ -299,11 +327,11 @@ impl ProbeKey {
     /// reconciled by the cache-clear flow, not this scan); an unknown bare-metal service means
     /// "we do not know which key to look for". None of these misses is eviction evidence.
     pub(super) fn can_verify_absence(&self, files_on_disk: &FilesOnDisk) -> bool {
-        let ProbeRecipe::Resolved { root, .. } = &self.recipe else {
+        let ProbeRecipe::Resolved { root_index, .. } = &self.recipe else {
             return false;
         };
         let root_indexed_with_files = files_on_disk
-            .digests_for_root(root)
+            .digests_for_index(*root_index)
             .is_some_and(|digests| !digests.is_empty());
         if !root_indexed_with_files {
             return false;
@@ -312,17 +340,19 @@ impl ProbeKey {
         self.has_known_recipe()
     }
 
-    pub(super) fn can_verify_repair_absence(
-        &self,
-        files_on_disk: &FilesOnDisk,
-        trusted_empty_roots: &HashSet<PathBuf>,
-    ) -> bool {
-        let ProbeRecipe::Resolved { root, .. } = &self.recipe else {
+    pub(super) fn can_verify_repair_absence(&self, repair: &RepairIndex) -> bool {
+        let ProbeRecipe::Resolved { root_index, .. } = &self.recipe else {
             return false;
         };
-        let root_checked = files_on_disk
-            .digests_for_root(root)
-            .is_some_and(|digests| !digests.is_empty() || trusted_empty_roots.contains(root));
+        let root_checked = repair
+            .files
+            .digests_for_index(*root_index)
+            .is_some_and(|digests| {
+                !digests.is_empty()
+                    || repair
+                        .trusted_empty_roots
+                        .contains(repair.roots.root_path(*root_index))
+            });
         root_checked && self.has_known_recipe()
     }
 
@@ -360,38 +390,115 @@ impl ProbeKey {
         )
     }
 
-    fn is_unresolved(&self) -> bool {
+    pub(super) fn is_unresolved(&self) -> bool {
         matches!(&self.recipe, ProbeRecipe::Unresolved)
     }
 }
 
-/// Whether a download's complete probe-key set can support an absence decision. For fully
-/// resolved Monolithic keys, the shipped policy remains unchanged: one indexed datasource root
-/// makes the download verifiable. Bare-metal and unresolved-datasource absence are fail-closed
-/// because an unknown recipe, scheme, or root otherwise looks exactly like a cache miss.
-pub(super) fn keys_can_verify_absence(keys: &[ProbeKey], files_on_disk: &FilesOnDisk) -> bool {
-    if keys.is_empty() {
-        return false;
+/// The probe facts one download accumulates as its log rows stream past, folded from
+/// each key it produced. Classification reads these facts instead of the key set, so
+/// one page never holds every key at once.
+#[derive(Default)]
+pub(super) struct DownloadProbe {
+    pub(super) has_keys: bool,
+    pub(super) has_hit: bool,
+    pub(super) any_unresolved: bool,
+    pub(super) any_bare_metal: bool,
+    pub(super) any_unknown_recipe: bool,
+    any_unverifiable: bool,
+    any_can_verify: bool,
+    any_repair_unverifiable: bool,
+    pub(super) origins: Vec<Option<String>>,
+}
+
+impl DownloadProbe {
+    pub(super) fn note_key(
+        &mut self,
+        key: &ProbeKey,
+        files_on_disk: &FilesOnDisk,
+        repair: Option<&RepairIndex>,
+    ) {
+        self.has_keys = true;
+        self.any_unresolved |= key.is_unresolved();
+        self.any_bare_metal |= key.is_bare_metal();
+        self.any_unknown_recipe |= key.has_unknown_recipe();
+        let can_verify = key.can_verify_absence(files_on_disk);
+        self.any_unverifiable |= !can_verify;
+        self.any_can_verify |= can_verify;
+        if let Some(repair) = repair {
+            self.any_repair_unverifiable |= !key.can_verify_repair_absence(repair);
+        }
     }
 
-    // An unresolved datasource may refer to a different key scheme on the same root. Even if a
-    // different key is checkable, the unresolved key makes an all-absent conclusion unsafe.
-    if keys.iter().any(ProbeKey::is_unresolved) {
-        return false;
+    pub(super) fn note_hit(&mut self, cached: bool) {
+        self.has_hit |= cached;
     }
 
-    if keys.iter().any(ProbeKey::is_bare_metal) {
-        keys.iter().all(|key| key.can_verify_absence(files_on_disk))
-    } else {
-        keys.iter().any(|key| key.can_verify_absence(files_on_disk))
+    pub(super) fn note_origin(&mut self, origin: Option<String>) {
+        if !self.origins.contains(&origin) {
+            self.origins.push(origin);
+        }
+    }
+
+    /// Whether this download's complete probe-key set can support an absence decision.
+    /// For fully resolved Monolithic keys, one indexed datasource root makes the download verifiable.
+    /// Bare-metal and unresolved-datasource absence are fail-closed because an unknown recipe, scheme,
+    /// or root otherwise looks exactly like a cache miss.
+    pub(super) fn can_verify_absence(&self) -> bool {
+        if !self.has_keys {
+            return false;
+        }
+
+        // An unresolved datasource may refer to a different key scheme on the same root.
+        // Even if a different key is checkable, the unresolved key makes an all-absent
+        // conclusion unsafe.
+        if self.any_unresolved {
+            return false;
+        }
+
+        if self.any_bare_metal {
+            !self.any_unverifiable
+        } else {
+            self.any_can_verify
+        }
+    }
+
+    pub(super) fn can_verify_repair_absence(&self) -> bool {
+        self.has_keys && !self.any_repair_unverifiable
+    }
+
+    /// Whether nginx provably wrote this download's content to the cache. HIT bytes are
+    /// always proof: a HIT can only be served from a file that existed on disk. MISS
+    /// bytes are proof only under the monolithic scheme, where a lancache MISS proxies
+    /// the content and writes it to cache, so a game downloaded once (all MISS) can still be found evicted.
+    /// Bare-metal nginx breaks that premise: a concurrent
+    /// ranged request logs MISS with a response that is never written to cache, and
+    /// uncacheable or duplicate fetches do the same, so bare-metal MISS bytes are not
+    /// evidence that content landed on disk. Any bare-metal probe key therefore
+    /// disqualifies MISS bytes for the whole download (fail-closed for mixed-scheme
+    /// key sets). Zero-byte rows (aborted transfers / metadata-only sessions where
+    /// nothing was ever written) remain excluded.
+    pub(super) fn was_cached(&self, hit_bytes: i64, miss_bytes: i64) -> bool {
+        hit_bytes > 0 || (miss_bytes > 0 && !self.any_bare_metal)
     }
 }
 
-pub(super) fn keys_can_verify_repair_absence(keys: &[ProbeKey], repair: &RepairIndex) -> bool {
-    !keys.is_empty()
-        && keys
-            .iter()
-            .all(|key| key.can_verify_repair_absence(&repair.files, &repair.trusted_empty_roots))
+#[cfg(test)]
+pub(super) fn create_cache_file(root: &Path) -> PathBuf {
+    let digest = "0123456789abcdef0123456789abcdef";
+    let path = root.join("ef").join("cd").join(digest);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, b"cache").unwrap();
+    path
+}
+
+#[cfg(test)]
+pub(super) fn probe_for(keys: &[ProbeKey], files: &FilesOnDisk) -> DownloadProbe {
+    let mut probe = DownloadProbe::default();
+    for key in keys {
+        probe.note_key(key, files, None);
+    }
+    probe
 }
 
 /// Walks all configured cache directories and indexes file-name digests per datasource root.
@@ -504,8 +611,22 @@ where
         on_file_count(total_files);
     }
 
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for ds in datasources {
+        let root = PathBuf::from(&ds.cache_path);
+        if !roots.contains(&root) {
+            roots.push(root);
+        }
+    }
+    let digests = roots
+        .iter()
+        .map(|root| digests_by_root.remove(root))
+        .collect();
     (
-        FilesOnDisk { digests_by_root },
+        FilesOnDisk {
+            digests_by_root: digests,
+            roots,
+        },
         unchecked_roots.into_iter().collect(),
     )
 }
@@ -671,9 +792,17 @@ where
         digests_by_root.insert(files.canonical_path, files.digests);
     }
 
+    let ordered_roots = roots.roots.clone();
+    let digests = ordered_roots
+        .iter()
+        .map(|root| digests_by_root.remove(root))
+        .collect();
     Ok(RepairIndex {
         roots,
-        files: FilesOnDisk { digests_by_root },
+        files: FilesOnDisk {
+            digests_by_root: digests,
+            roots: ordered_roots,
+        },
         affected_roots,
         trusted_empty_roots,
     })
@@ -706,7 +835,8 @@ mod tests {
 
     fn indexed_root(root: &Path, digests: impl IntoIterator<Item = u128>) -> FilesOnDisk {
         FilesOnDisk {
-            digests_by_root: HashMap::from([(root.to_path_buf(), digests.into_iter().collect())]),
+            digests_by_root: vec![Some(digests.into_iter().collect())],
+            roots: vec![root.to_path_buf()],
         }
     }
 
@@ -718,12 +848,84 @@ mod tests {
         }
     }
 
-    fn create_cache_file(root: &Path) -> PathBuf {
-        let digest = "0123456789abcdef0123456789abcdef";
-        let path = root.join("ef").join("cd").join(digest);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, b"cache").unwrap();
-        path
+    #[test]
+    fn repair_verifiable_keys_can_verify_repair_absence() {
+        let root = tempfile::tempdir().unwrap();
+        create_cache_file(root.path());
+        let operation_id = Uuid::new_v4();
+        let datasources = [datasource("default", root.path(), "monolithic")];
+        let sources = [repair_source("default", root.path(), "monolithic")];
+        let repair = collect_files_for_repair(&datasources, &sources, operation_id, |_| {})
+            .expect("collect populated repair root");
+        let key = ProbeKey::new(
+            "steam",
+            "/content".to_string(),
+            Some("default"),
+            0,
+            &repair.roots,
+        );
+        let mut probe = DownloadProbe::default();
+        probe.note_key(&key, &repair.files, Some(&repair));
+
+        assert!(probe.can_verify_repair_absence());
+    }
+
+    #[test]
+    fn one_repair_unverifiable_key_blocks_repair_absence() {
+        let root = tempfile::tempdir().unwrap();
+        create_cache_file(root.path());
+        let operation_id = Uuid::new_v4();
+        let datasources = [datasource("default", root.path(), "monolithic")];
+        let sources = [repair_source("default", root.path(), "monolithic")];
+        let repair = collect_files_for_repair(&datasources, &sources, operation_id, |_| {})
+            .expect("collect populated repair root");
+        let verifiable = ProbeKey::new(
+            "steam",
+            "/content".to_string(),
+            Some("default"),
+            0,
+            &repair.roots,
+        );
+        let unverifiable = ProbeKey::new(
+            "steam",
+            "/other".to_string(),
+            Some("missing"),
+            0,
+            &repair.roots,
+        );
+        let mut probe = DownloadProbe::default();
+        probe.note_key(&verifiable, &repair.files, Some(&repair));
+        probe.note_key(&unverifiable, &repair.files, Some(&repair));
+
+        assert!(!probe.can_verify_repair_absence());
+    }
+
+    #[test]
+    fn no_keys_cannot_verify_repair_absence() {
+        let probe = DownloadProbe::default();
+
+        assert!(!probe.can_verify_repair_absence());
+    }
+
+    #[test]
+    fn one_download_holds_each_origin_once() {
+        let mut probe = DownloadProbe::default();
+        for _ in 0..20 {
+            probe.note_origin(Some("default".to_string()));
+        }
+        probe.note_origin(Some("other".to_string()));
+        probe.note_origin(Some("other".to_string()));
+        probe.note_origin(None);
+
+        assert_eq!(probe.origins.len(), 3);
+        assert_eq!(
+            probe
+                .origins
+                .iter()
+                .filter(|origin| origin.as_deref() == Some("default"))
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -1261,7 +1463,7 @@ mod tests {
             let key = ProbeKey::new("steam", url.to_string(), datasource, 0, &roots);
             assert!(!key.has_cache_file(&files));
             assert!(!key.can_verify_absence(&files));
-            assert!(!keys_can_verify_absence(&[key], &files));
+            assert!(!probe_for(&[key], &files).can_verify_absence());
         }
     }
 
@@ -1284,7 +1486,7 @@ mod tests {
         );
 
         assert!(resolved.can_verify_absence(&files));
-        assert!(!keys_can_verify_absence(&[resolved, unresolved], &files));
+        assert!(!probe_for(&[resolved, unresolved], &files).can_verify_absence());
     }
 
     #[test]
@@ -1332,7 +1534,7 @@ mod tests {
         assert!(monolithic.can_verify_absence(&files));
         assert!(!bare.can_verify_absence(&files));
         assert!(bare.has_unknown_recipe());
-        assert!(!keys_can_verify_absence(&[monolithic, bare], &files));
+        assert!(!probe_for(&[monolithic, bare], &files).can_verify_absence());
     }
 
     #[test]
@@ -1355,7 +1557,7 @@ mod tests {
         let offline_key =
             ProbeKey::new("steam", "/content".to_string(), Some("offline"), 0, &roots);
 
-        assert!(keys_can_verify_absence(&[indexed_key, offline_key], &files));
+        assert!(probe_for(&[indexed_key, offline_key], &files).can_verify_absence());
     }
 
     #[test]
@@ -1376,7 +1578,7 @@ mod tests {
 
         assert!(!key.has_cache_file(&files));
         assert!(!key.can_verify_absence(&files));
-        assert!(!keys_can_verify_absence(&[key], &files));
+        assert!(!probe_for(&[key], &files).can_verify_absence());
     }
 
     #[test]
@@ -1394,6 +1596,6 @@ mod tests {
         let files = indexed_root(root, [1]);
 
         assert!(key.can_verify_absence(&files));
-        assert!(keys_can_verify_absence(&[key], &files));
+        assert!(probe_for(&[key], &files).can_verify_absence());
     }
 }

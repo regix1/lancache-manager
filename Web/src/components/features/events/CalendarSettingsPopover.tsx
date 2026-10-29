@@ -130,6 +130,7 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
         createPortal(
           <div
             ref={popoverRef}
+            data-closing={closing ? '' : undefined}
             className={`absolute rounded-lg border overflow-hidden z-[90] flex flex-col calendar-settings-popover motion-reduce:animate-none ${
               closing
                 ? popoverPos.openUpward

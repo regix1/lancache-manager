@@ -67,7 +67,7 @@ public class OperationHistoryCleanupService : ScheduledBackgroundService
             .ToList();
 
         // Nothing to remove: an automatic run returns before starting so no card surfaces, and a Run
-        // Now reports itself skipped below so the click is answered. [59]
+        // Now reports itself skipped below so the click is answered.
         if (toRemove.Count == 0 && CurrentRunNotice.Trigger != RunTrigger.Manual)
         {
             return;

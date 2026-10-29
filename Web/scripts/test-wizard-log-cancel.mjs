@@ -240,6 +240,16 @@ async function startWizard(overrides) {
     useSignalR: () => hub,
     useConfig: () => ({ config: { dataSources: [] } }),
     useSelectionSet: () => ({ selected: new Set(), toggle: () => undefined }),
+    // Marks a translated key the way the real helper sends a known key through i18n; a sentence with no key
+    // reads as the fallback key it is given.
+    // The datasource texts name a value, so the real helper falls back when none is passed.
+    translateRecoveryStage: (message, context, fallbackKey) =>
+      (message.startsWith('signalr.') || message.startsWith('errors.')) &&
+      !(message.includes('failedForDatasource') && !context)
+        ? `translated ${message}${context ? ` ${JSON.stringify(context)}` : ''}`
+        : fallbackKey,
+    datasourceFailureValues: (datasource, databaseError) =>
+      datasource ? { datasource, databaseError } : undefined,
     ApiError,
     ApiService: {
       getProcessingStatus: () => {
@@ -271,7 +281,11 @@ async function startWizard(overrides) {
               active: false,
               status: run.status,
               ...(run.nextOperationId ? { nextOperationId: run.nextOperationId } : {}),
-              ...(run.status === 'failed' ? { error: 'Database unavailable' } : {})
+              ...(run.status === 'failed'
+                ? { error: 'error' in run ? run.error : 'Database unavailable' }
+                : {}),
+              ...(run.failedDatasource ? { failedDatasource: run.failedDatasource } : {}),
+              ...(run.databaseError ? { databaseError: run.databaseError } : {})
             };
         return runGate ? runGate.then(() => body) : Promise.resolve(body);
       },
@@ -427,6 +441,42 @@ test('a lost completion event of a failed pass shows the failure notice', async 
   wizard.dispose();
 });
 
+test("a lost completion event of a pass a restart cut short shows the run's restart reason", async () => {
+  const wizard = await startWizard({});
+  wizard.server.processing = false;
+  wizard.server.runs.set('op', {
+    status: 'failed',
+    endedAt: 0,
+    error: 'signalr.generic.interruptedByRestart'
+  });
+  await wizard.advanceTo(40);
+  const view = wizard.view();
+  assert.ok(view.texts.includes('translated signalr.generic.interruptedByRestart'));
+  assert.ok(!view.texts.includes('initialization.logProcessing.failedToProcess'));
+  wizard.dispose();
+});
+
+test("a lost completion event of a datasource failure shows the run's datasource line", async () => {
+  const wizard = await startWizard({});
+  wizard.server.processing = false;
+  wizard.server.runs.set('op', {
+    status: 'failed',
+    endedAt: 0,
+    error: 'signalr.logProcessing.failedForDatasourceWithError',
+    failedDatasource: 'alpha',
+    databaseError: 'pool timed out'
+  });
+  await wizard.advanceTo(40);
+  const view = wizard.view();
+  assert.ok(
+    view.texts.includes(
+      'translated signalr.logProcessing.failedForDatasourceWithError {"datasource":"alpha","databaseError":"pool timed out"}'
+    )
+  );
+  assert.ok(!view.texts.includes('initialization.logProcessing.failedToProcess'));
+  wizard.dispose();
+});
+
 test('a cancel that finds the run already gone shows no error', async () => {
   const wizard = await startWizard({ runGone: true });
   wizard.server.processing = false;
@@ -483,12 +533,71 @@ test("a stale tick keeps the completion event's failure message", async () => {
   await wizard.emit('LogProcessingComplete', {
     operationId: 'op',
     success: false,
-    message: 'Database unavailable'
+    message: 'signalr.generic.interruptedByRestart'
   });
   await release();
   const view = wizard.view();
-  assert.ok(view.texts.includes('Database unavailable'));
+  assert.ok(view.texts.includes('translated signalr.generic.interruptedByRestart'));
   assert.ok(!view.texts.includes('initialization.logProcessing.failedToProcess'));
+  wizard.dispose();
+});
+
+test('a pass that fails with an English sentence shows the localized failure notice', async () => {
+  const wizard = await startWizard({});
+  await wizard.emit('LogProcessingComplete', {
+    operationId: 'op',
+    success: false,
+    message: 'Database unavailable'
+  });
+  const view = wizard.view();
+  assert.ok(view.texts.includes('initialization.logProcessing.failedToProcess'));
+  assert.ok(!view.texts.includes('Database unavailable'));
+  wizard.dispose();
+});
+
+test('a pass that failed for a datasource shows its key with the values the server sends', async () => {
+  const wizard = await startWizard({});
+  await wizard.emit('LogProcessingComplete', {
+    operationId: 'op',
+    success: false,
+    message: 'signalr.logProcessing.failedForDatasourceWithError',
+    datasource: 'alpha',
+    databaseError: 'pool timed out'
+  });
+  const view = wizard.view();
+  assert.ok(
+    view.texts.includes(
+      'translated signalr.logProcessing.failedForDatasourceWithError {"datasource":"alpha","databaseError":"pool timed out"}'
+    )
+  );
+  wizard.dispose();
+});
+
+test('a pass a restart cut short shows its reason translated, not the key', async () => {
+  const wizard = await startWizard({});
+  // The restored ending sends the restart reason as a key in message.
+  await wizard.emit('LogProcessingComplete', {
+    operationId: 'op',
+    success: false,
+    message: 'signalr.generic.interruptedByRestart'
+  });
+  const view = wizard.view();
+  assert.ok(view.texts.includes('translated signalr.generic.interruptedByRestart'));
+  assert.ok(!view.texts.includes('signalr.generic.interruptedByRestart'));
+  wizard.dispose();
+});
+
+test('a canceled pass shows the localized notice, not the English text the server sends', async () => {
+  const wizard = await startWizard({});
+  await wizard.emit('LogProcessingComplete', {
+    operationId: 'op',
+    success: false,
+    cancelled: true,
+    message: 'Log processing was cancelled'
+  });
+  const view = wizard.view();
+  assert.ok(view.texts.includes('initialization.logProcessing.cancelled'));
+  assert.ok(!view.texts.includes('Log processing was cancelled'));
   wizard.dispose();
 });
 

@@ -48,7 +48,7 @@ public partial class SteamKit2Service
         _activeDepotScanMode = DepotScanMode.Incremental;
         var runCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
         _currentRebuildCts = runCts;
-        // The notice carries the Hidden flag, so a Hidden schedule draws nothing for this run. [60]
+        // The notice carries the Hidden flag, so a Hidden schedule draws nothing for this run.
         await using var reporter = CreateTrackedRebuildReporter(runCts,
             new RunNotice(EffectiveNotificationMode, RunTrigger.Manual));
 

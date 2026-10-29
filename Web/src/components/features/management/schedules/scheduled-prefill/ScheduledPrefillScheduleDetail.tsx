@@ -927,7 +927,7 @@ export function ScheduledPrefillScheduleDetail({
     return { ...item, ...patches[`${key}:${item.scheduleId}`], key };
   });
   // The Run Now explanation keys on this, never on runNowDisabled: that is also true for a
-  // non-admin and while a run is active or pending, when "enable a schedule" would be wrong. [69]
+  // non-admin and while a run is active or pending, when "enable a schedule" would be wrong.
   const noScheduleEnabled = !loading && !rows.some((row) => row.enabled);
   const backendUpdateRequired = config !== null && config.version < 6;
   const tableDisabled = disabled || backendUpdateRequired || pendingKeys.includes('all');

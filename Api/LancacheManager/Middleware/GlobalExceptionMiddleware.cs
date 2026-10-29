@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using LancacheManager.Core.Interfaces;
 
 namespace LancacheManager.Middleware;
 
@@ -159,6 +160,11 @@ public class GlobalExceptionMiddleware
         {
             // Request was cancelled - don't log as error
             context.Response.StatusCode = 499; // Client Closed Request
+        }
+        catch (DockerTimeoutException ex)
+        {
+            _logger.LogWarning(ex, "Docker did not answer in time");
+            await WriteErrorAsync(context, ex, HttpStatusCode.ServiceUnavailable, ex.Message, "errors.prefill.dockerUnavailable");
         }
         catch (Exception ex)
         {

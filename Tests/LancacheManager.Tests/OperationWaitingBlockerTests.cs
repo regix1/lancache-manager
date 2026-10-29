@@ -204,6 +204,31 @@ public sealed class OperationWaitingBlockerTests : IDisposable
     }
 
     [Fact]
+    public void AFailedLogProcessingRunAnswersTheDatasourceItsErrorKeyNames()
+    {
+        var tracker = CreateTracker();
+        var controller = CreateController(tracker);
+        var id = tracker.RegisterOperation(OperationType.LogProcessing, "Log Processing", new CancellationTokenSource());
+        tracker.CompleteOperation(
+            id,
+            success: false,
+            error: "signalr.logProcessing.failedForDatasourceWithError",
+            onCompleting: operation =>
+            {
+                operation.FailedDatasource = "alpha";
+                operation.DatabaseError = "pool timed out";
+            });
+        var status = Assert.IsType<OperationStatusResponse>(Assert.IsType<OkObjectResult>(controller.GetOperationStatus(id).Result).Value);
+        Assert.Equal(OperationStatus.Failed, status.Status);
+        Assert.Equal("signalr.logProcessing.failedForDatasourceWithError", status.Error);
+        var wire = System.Text.Json.JsonSerializer.SerializeToElement(status);
+        Assert.True(wire.TryGetProperty("FailedDatasource", out var datasource), "the answer names the datasource");
+        Assert.Equal("alpha", datasource.GetString());
+        Assert.True(wire.TryGetProperty("DatabaseError", out var databaseError), "the answer names the database error");
+        Assert.Equal("pool timed out", databaseError.GetString());
+    }
+
+    [Fact]
     public void ADroppedRunIsForgottenAtALaterDropFiveMinutesOn()
     {
         var tracker = CreateTracker();

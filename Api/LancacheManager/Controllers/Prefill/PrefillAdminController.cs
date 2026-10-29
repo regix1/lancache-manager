@@ -195,7 +195,8 @@ public class PrefillAdminController : ControllerBase
             BytesDownloaded = h.BytesDownloaded,
             TotalBytes = h.TotalBytes,
             Status = h.Status.ToString(),
-            ErrorMessage = h.ErrorMessage
+            ErrorMessage = h.ErrorMessage,
+            Reason = h.Reason
         }).ToList());
     }
 
@@ -226,13 +227,16 @@ public class PrefillAdminController : ControllerBase
         try
         {
             var stopped = guest != null
-                ? await PrefillDaemonServiceBase.TerminateGuestSessionsAsync(GetDaemons(), guest.Id, reason, adminSessionId.ToString())
-                : await StopSessionAsync(sessionId, reason, request?.Force ?? false, adminSessionId.ToString());
+                ? await PrefillDaemonServiceBase.TerminateGuestSessionsAsync(GetDaemons(), guest.Id, reason,
+                    PrefillDaemonServiceBase.StoppedByAdminReasonKey, adminSessionId.ToString())
+                : await StopSessionAsync(sessionId, reason, PrefillDaemonServiceBase.StoppedByAdminReasonKey,
+                    request?.Force ?? false, adminSessionId.ToString());
             if (!stopped.Success)
             {
                 var error = ApiResponse.Error("Prefill cleanup is incomplete. Retry this action.",
                     $"{stopped.FailedSessions} sessions and {stopped.PendingStarts} starts still require cleanup.");
                 error.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                error.StageKey = "errors.prefill.cleanupIncomplete";
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, error);
             }
             return Ok(new MessageOnlyResponse { Message = "Session terminated" });
@@ -243,9 +247,10 @@ public class PrefillAdminController : ControllerBase
     private PrefillDaemonServiceBase[] GetDaemons() =>
         [_steamDaemonService, _epicDaemonService, _battleNetDaemonService, _riotDaemonService, _xboxDaemonService];
 
-    private async Task<GuestPrefillStopResult> StopSessionAsync(string sessionId, string reason, bool force, string terminatedBy)
+    private async Task<GuestPrefillStopResult> StopSessionAsync(string sessionId, string reason, string reasonKey, bool force, string terminatedBy)
     {
-        var stops = GetDaemons().Select(daemon => daemon.TerminateSessionAsync(sessionId, reason, force, terminatedBy)).ToArray();
+        var stops = GetDaemons().Select(daemon => daemon.TerminateSessionAsync(sessionId, reason, force, terminatedBy,
+            reasonKey: reasonKey)).ToArray();
         try { await Task.WhenAll(stops); }
         catch (Exception ex)
         {
@@ -310,11 +315,12 @@ public class PrefillAdminController : ControllerBase
         _logger.LogWarning("Admin session {AdminId} terminating all {Count} non-persistent sessions: {Reason}",
             adminSessionId, count, reason);
 
-        var stops = steamSessions.Select(session => _steamDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString))
-            .Concat(epicSessions.Select(session => _epicDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString)))
-            .Concat(battleNetSessions.Select(session => _battleNetDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString)))
-            .Concat(riotSessions.Select(session => _riotDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString)))
-            .Concat(xboxSessions.Select(session => _xboxDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString)))
+        const string reasonKey = PrefillDaemonServiceBase.StoppedByAdminReasonKey;
+        var stops = steamSessions.Select(session => _steamDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString, reasonKey: reasonKey))
+            .Concat(epicSessions.Select(session => _epicDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString, reasonKey: reasonKey)))
+            .Concat(battleNetSessions.Select(session => _battleNetDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString, reasonKey: reasonKey)))
+            .Concat(riotSessions.Select(session => _riotDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString, reasonKey: reasonKey)))
+            .Concat(xboxSessions.Select(session => _xboxDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString, reasonKey: reasonKey)))
             .ToArray();
         try { await Task.WhenAll(stops); }
         catch (Exception)
@@ -323,6 +329,7 @@ public class PrefillAdminController : ControllerBase
             var error = ApiResponse.Error("Some prefill sessions could not be terminated. Retry this action.",
                 $"{count - failed} sessions terminated; {failed} sessions still require cleanup.");
             error.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            error.StageKey = "errors.prefill.terminateAllIncomplete";
             return StatusCode(StatusCodes.Status503ServiceUnavailable, error);
         }
 
@@ -399,7 +406,8 @@ public class PrefillAdminController : ControllerBase
         if (guest != null)
             PrefillDaemonServiceBase.GuestGate.EnterStop(guest.Id);
         var cleanup = guest != null
-            ? PrefillDaemonServiceBase.TerminateGuestSessionsAsync(GetDaemons(), guest.Id, "Banned by admin", adminSessionId)
+            ? PrefillDaemonServiceBase.TerminateGuestSessionsAsync(GetDaemons(), guest.Id, "Banned by admin",
+                PrefillDaemonServiceBase.BannedReasonKey, adminSessionId)
             : Task.FromResult(new GuestPrefillStopResult(0, 0));
         try
         {
@@ -408,12 +416,14 @@ public class PrefillAdminController : ControllerBase
                 return BadRequest(ApiResponse.Error("Could not ban user - session not found or has no identity to ban."));
             var stopped = guest != null
                 ? await cleanup
-                : await StopSessionAsync(sessionId, "Banned by admin", force: true, adminSessionId);
+                : await StopSessionAsync(sessionId, "Banned by admin", PrefillDaemonServiceBase.BannedReasonKey,
+                    force: true, adminSessionId);
             if (!stopped.Success)
             {
                 var error = ApiResponse.Error("The ban was saved, but prefill cleanup is incomplete. Retry this action.",
                     $"{stopped.FailedSessions} sessions and {stopped.PendingStarts} starts still require cleanup.");
                 error.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                error.StageKey = "errors.prefill.banSavedCleanupIncomplete";
                 return StatusCode(StatusCodes.Status503ServiceUnavailable, error);
             }
             return Ok(ToBanDto(ban));

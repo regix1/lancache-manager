@@ -235,15 +235,25 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const resetAllRunningReason = isResetRunning('all')
     ? t('management.datasources.resetRunning')
     : '';
-  const repositionRowReason = isUnmappedRemovalRunning ? unmappedRemovalReason : logsInUseReason;
-  const repositionAllReason = isUnmappedRemovalRunning
-    ? unmappedRemovalReason
-    : resetAllRunningReason ||
-      (logResetRunningKnown && serverLogResetRunning
-        ? t('management.datasources.resetRunning')
-        : '') ||
-      logsInUseReason ||
-      (!logResetRunningKnown ? t('management.datasources.resetRunningUnknown') : '');
+  const repositionRowReason =
+    (mockMode ? t('management.sections.settings.mockModeActive') : '') ||
+    (isUnmappedRemovalRunning ? unmappedRemovalReason : logsInUseReason);
+  const repositionAllReason =
+    (mockMode ? t('management.sections.settings.mockModeActive') : '') ||
+    (isUnmappedRemovalRunning
+      ? unmappedRemovalReason
+      : resetAllRunningReason ||
+        (logResetRunningKnown && serverLogResetRunning
+          ? t('management.datasources.resetRunning')
+          : '') ||
+        logsInUseReason ||
+        (!logResetRunningKnown ? t('management.datasources.resetRunningUnknown') : '') ||
+        (loading || checkingPermissions ? t('management.datasources.repositionLoading') : ''));
+  const processAllReason =
+    (mockMode ? t('management.sections.settings.mockModeActive') : '') ||
+    logsInUseReason ||
+    (loading || checkingPermissions ? t('management.datasources.repositionLoading') : '') ||
+    (actionLoading !== null ? t('management.datasources.processStarting') : '');
   const repositionAllDisabled =
     loading ||
     isResetRunning('all') ||
@@ -434,6 +444,8 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       } else {
         onError?.(t('management.datasources.errors.resetFailed'), err);
       }
+      // A failed reset can still have moved some positions, so the list is read again.
+      await refreshPositions();
     } finally {
       runningResets.setMany([resetKey], false);
     }
@@ -549,7 +561,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
             </DisabledActionGate>
             <DisabledActionGate
               disabled={processAllDisabled}
-              reason={logsInUseReason}
+              reason={processAllReason}
               label={t('common.processAll')}
               position="left"
               className="block w-full"
@@ -630,13 +642,12 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
               const isMultiSource = ds.layout === 'bare_metal' || ds.layout === 'mixed';
               const sourceCount = position?.sourceCount ?? ds.sourceCount ?? 0;
               const repositionDisabled =
-                isProcessing || isUnmappedRemovalRunning || mockMode || !isAdmin || !ds.enabled;
+                isProcessing || isUnmappedRemovalRunning || mockMode || !isAdmin;
               const processDisabled =
                 actionLoading !== null ||
                 isProcessing ||
                 mockMode ||
                 !isAdmin ||
-                !ds.enabled ||
                 position?.totalLines === 0;
 
               return (
@@ -815,9 +826,13 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                         <DisabledActionGate
                           disabled={processDisabled}
                           reason={
+                            (mockMode ? t('management.sections.settings.mockModeActive') : '') ||
                             logsInUseReason ||
                             (position?.totalLines === 0
                               ? t('management.datasources.noLogLines')
+                              : '') ||
+                            (actionLoading !== null
+                              ? t('management.datasources.processStarting')
                               : '')
                           }
                           label={t('common.process')}

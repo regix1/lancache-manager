@@ -2,6 +2,7 @@ using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Models;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
@@ -17,40 +18,11 @@ public abstract partial class PrefillDaemonServiceBase
         // Initialize Docker client
         try
         {
-            Uri dockerUri;
-            if (OperatingSystemDetector.IsWindows)
-            {
-                dockerUri = new Uri("npipe://./pipe/docker_engine");
-            }
-            else
-            {
-                dockerUri = new Uri("unix:///var/run/docker.sock");
-            }
+            await ConnectDockerAsync(cancellationToken);
 
-            // Check if Docker socket exists
-            if (!OperatingSystemDetector.IsWindows && !File.Exists("/var/run/docker.sock"))
-            {
-                _logger.LogWarning("Docker socket not found at /var/run/docker.sock. " +
-                    "Mount the Docker socket to enable prefill containers: -v /var/run/docker.sock:/var/run/docker.sock");
-            }
-
-            _containerGateway.Connect(dockerUri);
-
-            // Test connection
-            try
-            {
-                var version = await _containerGateway.GetVersionAsync(cancellationToken);
-                _logger.LogInformation("Docker client connected. Docker version: {Version}", version.Version);
-            }
-            catch (Exception ex)
-            {
-                // Log clean message without stack trace - Docker not running is expected in many setups
-                _logger.LogWarning("{ServiceName} Prefill feature will be disabled - Docker is not available. Start Docker Desktop to enable it.", ServiceName);
-                _logger.LogTrace(ex, "Docker connection error details");
-                _containerGateway.Reset();
-            }
-
-            // Ensure image is available
+            // Ensure image is available. After a Docker timeout the pull falls back to the cached image, the
+            // orphan sweep and the FullPersistence recreate keep going; any other startup Docker timeout ends
+            // startup at the catch below, the client stays connected, and the next Start adopts or creates.
             if (_containerGateway.IsAvailable)
             {
                 string? startupImageId = null;
@@ -62,7 +34,7 @@ public abstract partial class PrefillDaemonServiceBase
                 {
                     throw;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex is not TimeoutException)
                 {
                     _logger.LogWarning(ex,
                         "Could not resolve the current {ServiceName} image during startup; existing containers remain eligible for adoption",
@@ -93,7 +65,7 @@ public abstract partial class PrefillDaemonServiceBase
                     {
                         throw;
                     }
-                    catch (Exception ex)
+                    catch (Exception ex) when (ex is not TimeoutException)
                     {
                         _logger.LogWarning(ex,
                             "Persistent {ServiceName} image replacement failed during startup; the scheduled image check will retry",
@@ -105,12 +77,104 @@ public abstract partial class PrefillDaemonServiceBase
         catch (Exception ex)
         {
             // Log clean message without stack trace
-            _logger.LogWarning("Failed to initialize Docker client - {ServiceName} Prefill feature will be disabled.", ServiceName);
+            if (ex is TimeoutException)
+            {
+                _logger.LogWarning("Docker did not answer while {ServiceName} Prefill started; the client stays connected and the next Start adopts or creates.", ServiceName);
+            }
+            else
+            {
+                _logger.LogInformation("{ServiceName} Prefill startup was canceled.", ServiceName);
+            }
             _logger.LogTrace(ex, "Docker initialization error details");
-            _containerGateway.Reset();
         }
 
         _logger.LogInformation("{ServiceName}PrefillDaemonService started. Docker available: {DockerAvailable}", ServiceName, _containerGateway.IsAvailable);
+    }
+
+    /// <summary>
+    /// Connects the Docker client when it is not connected yet, and checks it with the version call. A Docker
+    /// that is missing or does not answer in time is logged, and the gateway's <c>IsAvailable</c> stays
+    /// false; each caller then gives its own refusal. Callers that arrive while a connect runs wait for that
+    /// one, so none of them reaches Docker before its version answered. The connect runs on its own token,
+    /// because the gateway bounds it; a caller's cancel ends only that caller's wait.
+    /// </summary>
+    private Task ConnectDockerAsync(CancellationToken cancellationToken)
+    {
+        if (_containerGateway.IsAvailable)
+        {
+            return Task.CompletedTask;
+        }
+
+        Task connect;
+        lock (_dockerConnectSync)
+        {
+            // A connect can finish between the read above and this lock; it then leaves nothing to start.
+            if (_containerGateway.IsAvailable)
+            {
+                return Task.CompletedTask;
+            }
+
+            // A connect that already ended failed, since IsAvailable is still false, so a new one starts.
+            if (_dockerConnect is null || _dockerConnect.IsCompleted)
+            {
+                _dockerConnect = ConnectOnceAsync();
+            }
+            connect = _dockerConnect;
+        }
+        return connect.WaitAsync(cancellationToken);
+
+        async Task ConnectOnceAsync()
+        {
+            Uri dockerUri;
+            if (OperatingSystemDetector.IsWindows)
+            {
+                dockerUri = new Uri("npipe://./pipe/docker_engine");
+            }
+            else
+            {
+                dockerUri = new Uri("unix:///var/run/docker.sock");
+            }
+
+            if (!OperatingSystemDetector.IsWindows && !File.Exists("/var/run/docker.sock"))
+            {
+                _logger.LogWarning("Docker socket not found at /var/run/docker.sock. " +
+                    "Mount the Docker socket to enable prefill containers: -v /var/run/docker.sock:/var/run/docker.sock");
+            }
+
+            try
+            {
+                var version = await _containerGateway.ConnectAsync(dockerUri, CancellationToken.None);
+                _logger.LogInformation("Docker client connected. Docker version: {Version}", version.Version);
+            }
+            catch (Exception ex)
+            {
+                // Docker is often not running, so the stack trace goes to Trace only.
+                _logger.LogWarning("{ServiceName} Prefill could not reach Docker; the next Start tries again. Start Docker, or mount /var/run/docker.sock into the LANCache Manager container, to enable it.", ServiceName);
+                _logger.LogTrace(ex, "Docker connection error details");
+            }
+        }
+    }
+
+    // Ends the daemon round trips of a shutdown (logout, daemon shutdown) at the app's one stop deadline, so
+    // the container stop and the database writes after them fit in Docker's 10 s stop time. Never canceled
+    // until BeginStopBudget runs.
+    private CancellationToken _daemonStopBudget;
+
+    /// <summary>
+    /// Starts the one stop deadline of the whole app and hands it to every prefill daemon service and to the
+    /// scheduler. The host stops its services one after another, so a budget each service started when the
+    /// host reached it would add up across services and run past Docker's 10 s stop time.
+    /// </summary>
+    public static void BeginStopBudget(IEnumerable<IHostedService> hostedServices)
+    {
+        var budget = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+        foreach (var service in hostedServices)
+        {
+            if (service is PrefillDaemonServiceBase daemon)
+                daemon._daemonStopBudget = budget.Token;
+            else if (service is ScheduledPrefillService scheduler)
+                scheduler.SetStopBudget(budget.Token);
+        }
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -131,10 +195,18 @@ public abstract partial class PrefillDaemonServiceBase
             if (GetPendingImageChange() is { } pendingImageChange
                 && !ShouldDetachOnShutdown(pendingImageChange.Session, config))
             {
-                await CancelPendingImageChangeAsync(
-                    pendingImageChange,
-                    terminatedBy: "system",
-                    cancellationToken);
+                // A pending update Docker cannot finish stays pending; the other sessions still stop below.
+                try
+                {
+                    await CancelPendingImageChangeAsync(
+                        pendingImageChange,
+                        terminatedBy: "system",
+                        cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Pending {ServiceName} image update could not be cancelled at shutdown", ServiceName);
+                }
             }
             var sessions = _sessions.Values.ToList();
 
@@ -142,9 +214,11 @@ public abstract partial class PrefillDaemonServiceBase
             // independent bounded drain + local-handle release (no shared mutable state, container untouched),
             // so several stuck drains share one shutdown-wide budget instead of costing the timeout x N
             // sequentially. The host cancellation token is threaded in so a cancelled shutdown cuts each drain
-            // short. Guest / KillOnRestart terminates run sequentially - each stops/removes a container and
-            // flips DB rows.
+            // short. Guest / KillOnRestart terminations all start before any is awaited too: each stops its
+            // container before its database writes, so a database that fails one write leaves no later
+            // container running until the next start.
             var detachTasks = new List<Task>();
+            var terminations = new List<Task>();
             foreach (var session in sessions)
             {
                 if (ShouldDetachOnShutdown(session, config))
@@ -153,13 +227,21 @@ public abstract partial class PrefillDaemonServiceBase
                 }
                 else
                 {
-                    await TerminateSessionAsync(session.Id, "Service shutdown");
+                    terminations.Add(TerminateSessionAsync(session.Id, "Service shutdown", reasonKey: ServiceShutdownReasonKey));
                 }
             }
 
-            if (detachTasks.Count > 0)
+            await Task.WhenAll(detachTasks.Concat(terminations));
+
+            // The next manager start reads the login state from the row, so a row that missed it gets one more write.
+            // It runs after the containers are let go, and within the host's stop time, because a database that does not
+            // answer would otherwise hold every container until the host kills the process.
+            foreach (var session in sessions)
             {
-                await Task.WhenAll(detachTasks);
+                if (_loginStateRowsOutOfDate.ContainsKey(session.Id))
+                {
+                    await SaveLoginStateAsync(session, cancellationToken);
+                }
             }
         }
         finally
@@ -285,7 +367,8 @@ public abstract partial class PrefillDaemonServiceBase
     /// KillOnRestart) the container is being removed, so the just-inserted row is rolled back to Terminated;
     /// for detach modes (KeepAcrossRestart / FullPersistence) the container is intentionally left running for
     /// re-adoption, so the row is left Active exactly as a normal shutdown detach leaves it. A re-adopt
-    /// (<paramref name="isReconnect"/>) is exempt: it runs only during StartAsync, never during StopAsync.
+    /// (<paramref name="isReconnect"/>) is exempt: the startup re-adopt runs before StopAsync, and the Start,
+    /// scheduled and Clear adopts hold _persistentStartLock, which StopAsync takes before its snapshot.
     /// </summary>
     internal async Task<bool> RollBackCreateIfShuttingDownAsync(
         DaemonSession session, bool involuntaryRecreate, bool isReconnect, CancellationToken cancellationToken)
@@ -348,18 +431,38 @@ public abstract partial class PrefillDaemonServiceBase
         bool reuseExistingSession = true,
         DateTime? persistentExpiresAtOverrideUtc = null,
         bool involuntaryRecreate = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DateTime? persistentLastLoginAtUtc = null)
     {
+        await ConnectDockerAsync(cancellationToken);
         if (!_containerGateway.IsAvailable)
         {
-            throw new InvalidOperationException(
-                "Docker is not running or not accessible. Please start Docker Desktop and try again.");
+            throw new ServiceUnavailableException(
+                "Docker is not running or not reachable. Start Docker, or mount /var/run/docker.sock into the LANCache Manager container, then try again.")
+            {
+                StageKey = "errors.prefill.dockerUnavailable"
+            };
         }
 
         if (!isPersistent)
         {
             if (sessionType == SessionType.Guest)
             {
+                // A Start whose create failed and whose cleanup Docker also failed is cleaned again here, so
+                // the guest is not refused once Docker works. A cleanup that fails again was logged where it
+                // failed, and the gate below still refuses this Start.
+                var kept = GuestGate.GetStarts(userId)
+                    .Where(keptStart => !keptStart.Active && !keptStart.Removed && keptStart.SessionId != null).ToArray();
+                if (kept.Length != 0)
+                {
+                    try { await Task.WhenAll(kept.Select(keptStart => keptStart.Daemon.CleanGuestStartAsync(keptStart))); }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex,
+                            "Guest {UserId} cleanup of an earlier failed start is incomplete; unfinished stages remain available for retry", userId);
+                    }
+                    GuestGate.FinishStop(userId, cleanupPending: false);
+                }
                 var start = GuestGate.EnterCreate(userId, this);
                 var cleanupPending = false;
                 var completed = false;
@@ -370,23 +473,31 @@ public abstract partial class PrefillDaemonServiceBase
                     var now = DateTime.UtcNow;
                     if (guest == null || guest.IsRevoked || guest.ExpiresAtUtc <= now
                         || !(Security.SessionService.GetPrefillExpiresAt(guest, Platform) > now))
-                        throw new ForbiddenException("Session access is no longer valid.");
+                        throw new ForbiddenException("Session access is no longer valid.") { StageKey = "errors.prefill.accessEnded" };
                     GuestGate.Check(start);
                     var session = await CreateSessionCoreAsync(userId, ipAddress, userAgent, sessionType, isPersistent,
                         reuseExistingSession, persistentExpiresAtOverrideUtc, involuntaryRecreate, createCts.Token, guestStart: start);
                     GuestGate.Check(start);
                     if (!IsSessionLive(session))
-                        throw new ForbiddenException("This prefill session was stopped.");
+                        throw new ForbiddenException("This prefill session was stopped.") { StageKey = "errors.prefill.sessionStopped" };
                     GuestGate.CompleteCreate(start);
                     completed = true;
                     return session;
                 }
-                catch
+                catch (Exception ex)
                 {
                     start.Registration.TrySetResult();
                     start.Publication.TrySetResult();
                     try { await CleanGuestStartAsync(start); }
                     catch (Exception) { cleanupPending = true; }
+                    // A stop that canceled an await inside the create ends it as the stopped refusal. A create
+                    // that failed for its own reason keeps that reason in the log.
+                    try { GuestGate.Check(start); }
+                    catch (ForbiddenException) when (ex is not (OperationCanceledException or ForbiddenException))
+                    {
+                        _logger.LogWarning(ex, "Guest {UserId} create failed and was then stopped", userId);
+                        throw;
+                    }
                     throw;
                 }
                 finally
@@ -430,7 +541,8 @@ public abstract partial class PrefillDaemonServiceBase
                 persistentExpiresAtOverrideUtc,
                 involuntaryRecreate,
                 cancellationToken,
-                resolvedImageId: persistentImageId);
+                resolvedImageId: persistentImageId,
+                persistentLastLoginAtUtc: persistentLastLoginAtUtc);
         }
         finally
         {
@@ -438,6 +550,29 @@ public abstract partial class PrefillDaemonServiceBase
         }
     }
 
+
+    /// <summary>
+    /// Reconnects to a running persistent container as its session; each caller first checks that the
+    /// session was not stopped. Returns the active persistent session, or null when the container was not
+    /// adopted. A Docker timeout says nothing about the container, and a caller's cancel is not an adopt
+    /// failure, so both end the caller and the container stays.
+    /// </summary>
+    private async Task<DaemonSession?> AdoptPersistentContainerAsync(
+        ContainerListResponse target, PersistentImageChange? imageChange, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ReconnectPersistentSessionAsync(target, startupReadopt: false, cancellationToken, imageChange);
+        }
+        catch (Exception ex) when (ex is not TimeoutException && !cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex,
+                "Failed to adopt existing persistent {ServiceName} container {Id}",
+                ServiceName, ShortContainerId(target.ID));
+        }
+
+        return GetActivePersistentSession();
+    }
 
     private async Task<DaemonSession> CreateSessionCoreAsync(
         Guid userId,
@@ -449,11 +584,11 @@ public abstract partial class PrefillDaemonServiceBase
         DateTime? persistentExpiresAtOverrideUtc,
         bool involuntaryRecreate,
         CancellationToken cancellationToken,
-        Action<bool>? persistentCreationResult = null,
-        Action<string, string>? persistentContainerCreated = null,
+        Func<string, string, string, Task>? persistentContainerCreated = null,
         GuestPrefillStart? guestStart = null,
         PersistentImageChange? imageChange = null,
-        string? resolvedImageId = null)
+        string? resolvedImageId = null,
+        DateTime? persistentLastLoginAtUtc = null)
     {
         if (isPersistent && imageChange is null && !string.IsNullOrWhiteSpace(resolvedImageId))
         {
@@ -472,7 +607,6 @@ public abstract partial class PrefillDaemonServiceBase
             if (existingSession != null)
             {
                 _logger.LogInformation("Returning existing active session {SessionId} for user {UserId}", existingSession.Id, userId);
-                persistentCreationResult?.Invoke(false);
                 return existingSession;
             }
         }
@@ -497,13 +631,31 @@ public abstract partial class PrefillDaemonServiceBase
 
         // Whether the fresh-login guard should preserve a FullPersistence volume login: true for a
         // caller-declared involuntary recreate (startup outage-recreate) OR an in-place error-state
-        // replacement (an involuntary socket death, not an admin stop). Terminating the errored session
-        // below flips its DB row to Terminated, so the guard's row-status heuristic alone would wrongly
-        // erase; this explicit flag overrides it for that verified-involuntary path.
+        // replacement (an errored session, not an admin stop). The flag keeps this Start's decision
+        // independent of the row, so it holds even when the Orphaned write below finds no row; the
+        // Orphaned write covers a later Start.
         var involuntaryReplacement = false;
+        DaemonSession? replacedSession = null;
 
         if (isPersistent)
         {
+            // A teardown that failed (a person's Stop, or an errored session's replacement that keeps its login)
+            // left the session out of every list, so this Start finishes it first, with its own reason and login
+            // choice, before deciding what to create.
+            List<string> failedTeardownIds;
+            lock (_terminationSync)
+            {
+                failedTeardownIds = _terminations.Values
+                    .Where((SessionTermination termination) =>
+                        IsFailedPersistentTeardown(termination) && termination.ImageChange is null)
+                    .Select((SessionTermination termination) => termination.Session.Id)
+                    .ToList();
+            }
+            foreach (var failedTeardownId in failedTeardownIds)
+            {
+                await TerminateSessionAsync(failedTeardownId);
+            }
+
             // Error-state replacement (kills leak M2): a socket-disconnect flips a persistent session
             // to Error without tearing its container down; the reuse-check above only matches Active,
             // so left alone every future Start would try to create a duplicate alongside it. Replace
@@ -514,8 +666,19 @@ public abstract partial class PrefillDaemonServiceBase
                 _logger.LogInformation(
                     "Existing persistent {ServiceName} session {SessionId} is in Error state; replacing it",
                     ServiceName, existingErrorSession.Id);
-                await TerminateSessionAsync(existingErrorSession.Id, "Replacing errored persistent session", force: true);
+                // The session errored without a person's stop (a lost socket, or a sign-in or download cancel
+                // the daemon never confirmed), so under FullPersistence a later Start that finds this row
+                // keeps the login, also when the removal below fails.
+                try
+                {
+                    await TerminateSessionAsync(existingErrorSession.Id, "Replacing errored persistent session", force: true, keepLogin: true);
+                }
+                finally
+                {
+                    await _sessionService.MarkOrphanedAsync(existingErrorSession.Id);
+                }
                 involuntaryReplacement = true;
+                replacedSession = existingErrorSession;
             }
 
             // Docker-level adopt-or-replace pre-create check (kills leak M1's leftover/409 path):
@@ -553,30 +716,26 @@ public abstract partial class PrefillDaemonServiceBase
             if (decision.Action == PersistentContainerAction.Adopt)
             {
                 var target = decision.Target!;
-                try
+                if (await IsStoppedSessionContainerAsync(target))
                 {
-                    await ReconnectPersistentSessionAsync(target, cancellationToken, imageChange);
+                    _logger.LogInformation(
+                        "Removing running persistent {ServiceName} container {Id}; its session {SessionId} was stopped",
+                        ServiceName, ShortContainerId(target.ID), target.Labels[SessionIdLabelKey]);
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogWarning(ex,
-                        "Failed to adopt existing persistent {ServiceName} container {Id}",
+                    var adopted = await AdoptPersistentContainerAsync(target, imageChange, cancellationToken);
+                    if (adopted != null)
+                    {
+                        return adopted;
+                    }
+
+                    _logger.LogWarning(
+                        "Adoption of persistent {ServiceName} container {Id} did not produce an active session; removing it and creating fresh",
                         ServiceName, ShortContainerId(target.ID));
                 }
 
-                var adopted = GetActivePersistentSession();
-                if (adopted != null)
-                {
-                    persistentCreationResult?.Invoke(false);
-                    return adopted;
-                }
-
-                // Adoption failed (thrown or one of ReconnectPersistentSessionAsync's silent exits) -
-                // the container is now a zombie occupying the deterministic name. Remove it rather
-                // than leaving it running and invisible, then fall through to create fresh below.
-                _logger.LogWarning(
-                    "Adoption of persistent {ServiceName} container {Id} did not produce an active session; removing it and creating fresh",
-                    ServiceName, ShortContainerId(target.ID));
+                // The container holds the fixed name with no session. Remove it, then create a fresh one below.
                 await RemoveContainerForceAsync(target.ID, cancellationToken);
             }
             else if (decision.Action == PersistentContainerAction.Remove)
@@ -606,11 +765,34 @@ public abstract partial class PrefillDaemonServiceBase
             }
         }
 
-        var sessionId = Guid.NewGuid().ToString("N")[..16];
+        // An image update's earlier attempt is over once its container is gone or was removed above. It ended
+        // without a person's Stop, so its row reads Orphaned, never Terminated, and FullPersistence keeps the login.
+        // The next attempt takes the earlier attempt's id, so one update keeps one row, unless a teardown still
+        // holds that id.
+        string? reusedAttemptId = null;
+        if (imageChange?.CreatedSessionId is { Length: > 0 } earlierAttemptId)
+        {
+            await _sessionService.MarkOrphanedAsync(earlierAttemptId);
+            lock (_terminationSync)
+            {
+                if (!_terminations.ContainsKey(earlierAttemptId))
+                {
+                    reusedAttemptId = earlierAttemptId;
+                }
+            }
+        }
+
+        var sessionId = reusedAttemptId ?? Guid.NewGuid().ToString("N")[..16];
         var basePath = GetDaemonBasePath();
         var sessionPath = Path.Combine(basePath, "sessions", sessionId);
         var commandsDir = Path.Combine(sessionPath, "commands");
         var responsesDir = Path.Combine(sessionPath, "responses");
+
+        // The removed attempt's socket file would answer the new container's first connect.
+        if (reusedAttemptId is not null && Directory.Exists(sessionPath))
+        {
+            Directory.Delete(sessionPath, recursive: true);
+        }
 
         if (guestStart != null)
         {
@@ -786,8 +968,11 @@ public abstract partial class PrefillDaemonServiceBase
             // Preserve the original hard-fail contract (the old ResolveLancacheServerIpAsync threw)
             // rather than silently starting a daemon that would route CDN traffic nowhere (H4).
             var configured = _networkOptions.CurrentValue.LancacheIp;
-            throw new InvalidOperationException(
-                $"Prefill__LancacheIp='{configured}' could not be resolved to an IP address.");
+            throw new ServiceUnavailableException(
+                $"Prefill__LancacheIp='{configured}' could not be resolved to an IP address.")
+            {
+                StageKey = "errors.prefill.lancacheIpUnresolved"
+            };
         }
         else
         {
@@ -856,9 +1041,28 @@ public abstract partial class PrefillDaemonServiceBase
             cancellationToken.ThrowIfCancellationRequested();
             guestStart.CreateDispatched = true;
         }
-        var createResponse = isPersistent
-            ? await CreatePersistentContainerWithConflictRetryAsync(createParameters, cancellationToken)
-            : await _containerGateway.CreateContainerAsync(createParameters, cancellationToken);
+        CreateContainerResponse createResponse;
+        try
+        {
+            createResponse = isPersistent
+                ? await CreatePersistentContainerWithConflictRetryAsync(createParameters, cancellationToken)
+                : await _containerGateway.CreateContainerAsync(createParameters, cancellationToken);
+        }
+        catch (TimeoutException) when (guestStart is null && !isPersistent)
+        {
+            // Docker may have made the container before the create gave up, and an own session has no cleanup
+            // by name elsewhere, so it and its volumes are removed here. The timeout stays the answer.
+            try
+            {
+                await ForceRemoveContainersByExactNameAsync(containerName, CancellationToken.None, removeVolumes: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not remove container {ContainerName} after its create timed out", containerName);
+            }
+            DeleteFailedCreateDirectory();
+            throw;
+        }
 
         var containerId = createResponse.ID;
         if (guestStart != null)
@@ -867,133 +1071,186 @@ public abstract partial class PrefillDaemonServiceBase
             GuestGate.Check(guestStart);
         }
         _logger.LogInformation("Created container {ContainerId} for session {SessionId}", containerId, sessionId);
-        persistentContainerCreated?.Invoke(sessionId, containerId);
-
-        // Start container
-        var started = await _containerGateway.StartContainerAsync(containerId, null, cancellationToken);
-        if (guestStart != null)
-            GuestGate.Check(guestStart);
-        if (!started)
+        if (persistentContainerCreated is not null)
         {
-            throw new InvalidOperationException($"Failed to start container {containerId}");
+            await persistentContainerCreated(sessionId, containerId, containerName);
         }
 
-        _logger.LogInformation("Started container {ContainerId} for session {SessionId}", containerId, sessionId);
-
-        // Verify container is actually running (it may have crashed immediately)
-        await Task.Delay(1000, cancellationToken); // Give it a moment to crash if it's going to
         try
         {
-            var inspect = await _containerGateway.InspectContainerAsync(containerId, cancellationToken);
-            if (!inspect.State.Running)
+            var started = await _containerGateway.StartContainerAsync(containerId, null, cancellationToken);
+            if (guestStart != null)
+                GuestGate.Check(guestStart);
+            if (!started)
             {
-                var exitCode = inspect.State.ExitCode;
-                var error = inspect.State.Error;
-                _logger.LogError("Container {ContainerId} exited immediately! ExitCode: {ExitCode}, Error: {Error}",
-                    containerId, exitCode, error);
-
-                // Try to get logs
-                try
-                {
-                    var logParams = new ContainerLogsParameters { ShowStdout = true, ShowStderr = true, Tail = "50" };
-                    using var logStream = await _containerGateway.GetContainerLogsAsync(containerId, false, logParams, cancellationToken);
-                    using var memoryStream = new MemoryStream();
-                    await logStream.CopyOutputToAsync(null, memoryStream, null, cancellationToken);
-                    memoryStream.Position = 0;
-                    using var reader = new StreamReader(memoryStream);
-                    var logs = await reader.ReadToEndAsync(cancellationToken);
-                    if (!string.IsNullOrWhiteSpace(logs))
-                    {
-                        _logger.LogError("Container logs:\n{Logs}", logs);
-                    }
-                    else
-                    {
-                        _logger.LogError("Container produced no logs before exiting");
-                    }
-                }
-                catch (Exception logEx)
-                {
-                    _logger.LogWarning(logEx, "Could not retrieve container logs");
-                }
-
-                throw new InvalidOperationException($"Container crashed on startup. ExitCode: {exitCode}. Check if image '{imageName}' exists and is valid.");
+                throw new InvalidOperationException($"Failed to start container {containerId}");
             }
 
-            _logger.LogInformation("Container {ContainerId} verified running for session {SessionId}", containerId, sessionId);
+            _logger.LogInformation("Started container {ContainerId} for session {SessionId}", containerId, sessionId);
+
+            // Verify container is actually running (it may have crashed immediately)
+            await Task.Delay(1000, cancellationToken); // Give it a moment to crash if it's going to
+            try
+            {
+                var inspect = await _containerGateway.InspectContainerAsync(containerId, cancellationToken);
+                if (!inspect.State.Running)
+                {
+                    var exitCode = inspect.State.ExitCode;
+                    var error = inspect.State.Error;
+                    _logger.LogError("Container {ContainerId} exited immediately! ExitCode: {ExitCode}, Error: {Error}",
+                        containerId, exitCode, error);
+
+                    try
+                    {
+                        var logParams = new ContainerLogsParameters { ShowStdout = true, ShowStderr = true, Tail = "50" };
+                        using var logStream = await _containerGateway.GetContainerLogsAsync(containerId, false, logParams, cancellationToken);
+                        using var memoryStream = new MemoryStream();
+                        await logStream.CopyOutputToAsync(null, memoryStream, null, cancellationToken);
+                        memoryStream.Position = 0;
+                        using var reader = new StreamReader(memoryStream);
+                        var logs = await reader.ReadToEndAsync(cancellationToken);
+                        if (!string.IsNullOrWhiteSpace(logs))
+                        {
+                            _logger.LogError("Container logs:\n{Logs}", logs);
+                        }
+                        else
+                        {
+                            _logger.LogError("Container produced no logs before exiting");
+                        }
+                    }
+                    catch (Exception logEx)
+                    {
+                        _logger.LogWarning(logEx, "Could not retrieve container logs");
+                    }
+
+                    throw new ServiceUnavailableException($"Container crashed on startup. ExitCode: {exitCode}. Check if image '{imageName}' exists and is valid.")
+                    {
+                        StageKey = "errors.prefill.containerExitedOnStart"
+                    };
+                }
+
+                _logger.LogInformation("Container {ContainerId} verified running for session {SessionId}", containerId, sessionId);
+            }
+            catch (DockerContainerNotFoundException)
+            {
+                _logger.LogError("Container {ContainerId} was removed before we could verify it (crashed immediately with AutoRemove). " +
+                    "Image '{ImageName}' may not exist or is crashing on startup.", containerId, imageName);
+                throw new ServiceUnavailableException($"Container crashed immediately. Ensure image '{imageName}' exists and is properly configured.")
+                {
+                    StageKey = "errors.prefill.containerExitedOnStart"
+                };
+            }
+
+            // Check internet and DNS from inside the container so a broken network shows on the session.
+            var networkDiagnostics = await TestContainerConnectivityAsync(containerId, containerName, isHostMode, cancellationToken);
+
+            // Guests end at the admin's per-service duration, never at the shorter standard timeout, which would
+            // cut a duration above 2 hours short. Own sessions use the standard timeout; persistent sessions date
+            // from their last sign-in below.
+            var createdAtUtc = DateTime.UtcNow;
+            var isTemporary = sessionType == SessionType.Guest;
+            var standardExpiresAt = createdAtUtc.AddMinutes(GetSessionTimeoutMinutes());
+            DateTime expiresAt;
+            // A persistent create carries the sign-in time of the life it replaces: an image update and a
+            // FullPersistence recreate pass it, an errored session's replacement reads it from that session, and
+            // any other persistent create reads it from the latest row that a person's Stop or a login removal
+            // has not ended. A create with none of these is its own first sign-in.
+            var carriedLastLoginAtUtc = persistentLastLoginAtUtc ?? replacedSession?.LastLoginAt;
+            if (carriedLastLoginAtUtc is null && isPersistent
+                && await _sessionService.GetLatestPersistentSessionAsync(Platform) is { Status: not PrefillSessionStatus.Terminated } latestRow)
+            {
+                carriedLastLoginAtUtc = latestRow.LastLoginAtUtc;
+            }
+            var lastLoginAtUtc = carriedLastLoginAtUtc ?? createdAtUtc;
+            if (isPersistent)
+            {
+                // Persistent admin login: expiry governs when NeedsRelogin is flagged (the reaper never
+                // tears a persistent session down). An image update and a FullPersistence startup recreate pass
+                // the stored date of the life they replace, past or not; every other persistent create dates
+                // its window from the sign-in time above, so no create extends the admin-configured validity.
+                expiresAt = persistentExpiresAtOverrideUtc
+                    ?? ComputePersistentExpiry(lastLoginAtUtc, _stateService.GetAdminPersistentLoginValidityDays());
+            }
+            else if (isTemporary)
+            {
+                expiresAt = createdAtUtc.AddHours(GetGuestPermissionDurationHours());
+            }
+            else
+            {
+                expiresAt = standardExpiresAt;
+            }
+
+            var session = await ConnectAndRegisterSessionAsync(
+                sessionId,
+                userId,
+                containerId,
+                containerName,
+                commandsDir,
+                responsesDir,
+                socketPath,
+                socketSecret,
+                useTcpMode,
+                tcpHostPort,
+                createdAtUtc,
+                lastLoginAtUtc,
+                expiresAt,
+                isTemporary,
+                isPersistent,
+                ipAddress,
+                userAgent,
+                networkDiagnostics,
+                isReconnect: false,
+                startupReadopt: false,
+                involuntaryRecreate: involuntaryRecreate || involuntaryReplacement,
+                cancellationToken,
+                guestStart,
+                imageChange,
+                configuredImage: imageName,
+                imageId: resolvedImageId,
+                replacedSession: replacedSession);
+
+            return session;
         }
-        catch (DockerContainerNotFoundException)
+        catch (Exception) when (guestStart is null && imageChange is null && !_stopping && !_sessions.ContainsKey(sessionId))
         {
-            _logger.LogError("Container {ContainerId} was removed before we could verify it (crashed immediately with AutoRemove). " +
-                "Image '{ImageName}' may not exist or is crashing on startup.", containerId, imageName);
-            throw new InvalidOperationException($"Container crashed immediately. Ensure image '{imageName}' exists and is properly configured.");
+            // A persistent or own-session create that ended before its session registered removes its
+            // container; an own session also removes its volumes. A persistent Start's next Start then
+            // creates a fresh one and the fresh-login guard decides about the saved login, rather than
+            // adopting this one as a reconnect that never signs in. No daemon logout, so the persistent
+            // named volume keeps that login, and the removal finishes even when this create was canceled.
+            // Guests have their own name-based cleanup, shutdown tears down its own creates, an image update
+            // adopts the container it created, and a teardown that already took the session (a person's End
+            // during the create) owns its removal. A removal Docker refuses or does not answer was
+            // logged by the helper; the create's own failure is the answer.
+            lock (_terminationSync)
+            {
+                if (_terminations.ContainsKey(sessionId))
+                    throw;
+            }
+            try
+            {
+                // A removal still in progress keeps the folder, since the container may still use it.
+                if (await RemoveContainerForceAsync(containerId, CancellationToken.None, removeVolumes: !isPersistent)
+                    != ContainerRemovalOutcome.RemovalInProgress)
+                {
+                    DeleteFailedCreateDirectory();
+                }
+            }
+            catch (ServiceUnavailableException) { }
+            throw;
         }
 
-        // Run container network diagnostics (internet connectivity and DNS resolution)
-        // This helps troubleshoot prefill issues - the container needs both:
-        // 1. Internet access to reach the service
-        // 2. DNS resolving lancache domains to your cache server
-        var networkDiagnostics = await TestContainerConnectivityAsync(containerId, containerName, isHostMode, cancellationToken);
-
-        // Manager-enforced lifetime. Guest/temporary containers are capped at
-        // createdAt + GetGuestPermissionDurationHours() so they are reaped by ProcessSessionExpiryAsync
-        // exactly when the admin-configured per-service permission duration elapses. That duration is
-        // already admin-validated (clamped 1-3h), so it is authoritative on its own - it is NOT further
-        // clamped against the generic standard session timeout backstop below (that backstop defaults to
-        // 120 minutes and would silently override any per-service duration configured above 2h, which is
-        // exactly the bug this comment used to gloss over: the container was correctly told to run for
-        // the full configured duration via PREFILL_MAX_LIFETIME_SECONDS, but the manager's own tracked
-        // expiry - and therefore the reaper and any UI countdown - was getting cut short). Admin/persistent
-        // sessions are never subject to the cap and keep the standard timeout.
-        var createdAtUtc = DateTime.UtcNow;
-        var isTemporary = sessionType == SessionType.Guest;
-        var standardExpiresAt = createdAtUtc.AddMinutes(GetSessionTimeoutMinutes());
-        DateTime expiresAt;
-        if (isPersistent)
+        void DeleteFailedCreateDirectory()
         {
-            // Persistent admin login: expiry governs when NeedsRelogin is flagged (the reaper never
-            // tears a persistent session down). A FullPersistence startup recreate passes an explicit
-            // anchor (the prior life's still-future window) so the outage does not silently extend the
-            // admin-configured validity; every other persistent create uses the configured window.
-            expiresAt = persistentExpiresAtOverrideUtc
-                ?? createdAtUtc.AddDays(_stateService.GetAdminPersistentLoginValidityDays());
+            try
+            {
+                Directory.Delete(sessionPath, true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error cleaning up session directory for {SessionId}", sessionId);
+            }
         }
-        else if (isTemporary)
-        {
-            expiresAt = createdAtUtc.AddHours(GetGuestPermissionDurationHours());
-        }
-        else
-        {
-            expiresAt = standardExpiresAt;
-        }
-
-        var session = await ConnectAndRegisterSessionAsync(
-            sessionId,
-            userId,
-            containerId,
-            containerName,
-            commandsDir,
-            responsesDir,
-            socketPath,
-            socketSecret,
-            useTcpMode,
-            tcpHostPort,
-            createdAtUtc,
-            expiresAt,
-            isTemporary,
-            isPersistent,
-            ipAddress,
-            userAgent,
-            networkDiagnostics,
-            isReconnect: false,
-            involuntaryRecreate: involuntaryRecreate || involuntaryReplacement,
-            cancellationToken,
-            guestStart,
-            imageChange,
-            configuredImage: imageName,
-            imageId: resolvedImageId);
-
-        persistentCreationResult?.Invoke(isPersistent);
-        return session;
     }
 
     /// <summary>
@@ -1009,9 +1266,9 @@ public abstract partial class PrefillDaemonServiceBase
         // silently dropped.
         => useTcpMode && tcpHostPort.HasValue
             ? new TcpDaemonClient(GetTcpHost(), tcpHostPort.Value, socketSecret, _logger)
-            { HkdfInfo = CredentialEncryptionHkdfInfo }
+            { HkdfInfo = CredentialEncryptionHkdfInfo, SignInLostStageKey = SignInLostStageKey }
             : new SocketDaemonClient(socketPath, socketSecret, _logger)
-            { HkdfInfo = CredentialEncryptionHkdfInfo };
+            { HkdfInfo = CredentialEncryptionHkdfInfo, SignInLostStageKey = SignInLostStageKey };
 
     /// <summary>
     /// Builds the in-memory <see cref="DaemonSession"/> for an already-created/running daemon container,
@@ -1036,6 +1293,7 @@ public abstract partial class PrefillDaemonServiceBase
         bool useTcpMode,
         int? tcpHostPort,
         DateTime createdAtUtc,
+        DateTime lastLoginAtUtc,
         DateTime expiresAt,
         bool isTemporary,
         bool isPersistent,
@@ -1043,12 +1301,14 @@ public abstract partial class PrefillDaemonServiceBase
         string? userAgent,
         NetworkDiagnostics? networkDiagnostics,
         bool isReconnect,
+        bool startupReadopt,
         bool involuntaryRecreate,
         CancellationToken cancellationToken,
         GuestPrefillStart? guestStart = null,
         PersistentImageChange? imageChange = null,
         string? configuredImage = null,
-        string? imageId = null)
+        string? imageId = null,
+        DaemonSession? replacedSession = null)
     {
         // Parse user agent for OS and browser info
         var (os, browser) = UserAgentParser.Parse(userAgent);
@@ -1065,6 +1325,7 @@ public abstract partial class PrefillDaemonServiceBase
             CommandsDir = commandsDir,
             ResponsesDir = responsesDir,
             CreatedAt = createdAtUtc,
+            LastLoginAt = lastLoginAtUtc,
             ExpiresAt = expiresAt,
             IsTemporary = isTemporary,
             IsPersistent = isPersistent,
@@ -1108,7 +1369,7 @@ public abstract partial class PrefillDaemonServiceBase
         };
         daemonClient.OnStatusUpdate += async (DaemonStatus status) =>
         {
-            await OnStatusChangeAsync(session, status);
+            await ApplyStatusAsync(session, status, null);
         };
         daemonClient.OnProgressUpdate += async (SocketPrefillProgress progress) =>
         {
@@ -1195,44 +1456,53 @@ public abstract partial class PrefillDaemonServiceBase
         // BEFORE the session is registered/persisted/broadcast below, so nothing - a SignalR listener
         // reacting to EventSessionCreated, a status poll - can ever observe this session (and therefore
         // attempt a login against it) until any stale login has already been erased.
+        // One read of the persistence mode for this create. The guard and the log-off mark copy both use
+        // it, so a mode change cannot keep the volume and also skip the mark.
+        bool? preserveVolumeLogin = null;
+        if (isPersistent && !isReconnect && imageChange is null)
+        {
+            preserveVolumeLogin = await ShouldPreserveVolumeLoginAsync(session, involuntaryRecreate);
+        }
+
         var volumeLoginPreserved = await ApplyFreshPersistentLoginGuardAsync(
             session,
             isPersistent,
             isReconnect,
+            startupReadopt,
             involuntaryRecreate,
-            imageChange);
+            imageChange,
+            preserveVolumeLogin);
 
         // A person's cancel of the last sign-in keeps the container signed out across a manager restart, read from
-        // the adopted container's own row, across an image update, read from the session it replaces, and across a
-        // recreate that keeps the saved login, read from the life it replaces. The witness that the daemon had
-        // reached logged-in is loaded with the mark. Loaded before registration, so no status the daemon reports
-        // can start a sign-in first.
+        // the adopted container's own row, across an image update or the replacement of an errored session, read
+        // from the memory of the session it replaces (its row can miss the last write), and across a recreate
+        // that keeps the saved login, read from the life it replaces. The witness that the daemon had reached
+        // logged-in is loaded with the mark. Loaded before registration, so no status the daemon reports can
+        // start a sign-in first.
+        // The log-off mark is read the same way and from the same place as the cancel mark, so every create that
+        // follows another life keeps a container that was logged off signed out.
         if (isReconnect)
         {
             var stored = await _sessionService.GetSessionAsync(sessionId);
             session.LoginCanceledByPerson = stored?.LoginCanceledByPerson == true;
             session.LoggedInWhilePersonCanceled = stored?.LoggedInWhilePersonCanceled == true;
+            session.SignedOut = stored?.SignedOut == true;
         }
-        else if (imageChange is not null)
+        else if ((imageChange?.Session ?? replacedSession) is { } predecessor)
         {
-            lock (imageChange.Session.PrefillLock)
+            lock (predecessor.PrefillLock)
             {
-                session.LoginCanceledByPerson = imageChange.Session.LoginCanceledByPerson;
-                session.LoggedInWhilePersonCanceled = imageChange.Session.LoggedInWhilePersonCanceled;
+                session.LoginCanceledByPerson = predecessor.LoginCanceledByPerson;
+                session.LoggedInWhilePersonCanceled = predecessor.LoggedInWhilePersonCanceled;
+                session.SignedOut = predecessor.SignedOut;
             }
         }
-        else if (volumeLoginPreserved)
+        else if (preserveVolumeLogin == true)
         {
             var stored = await _sessionService.GetLatestPersistentSessionAsync(Platform);
             session.LoginCanceledByPerson = stored?.LoginCanceledByPerson == true;
             session.LoggedInWhilePersonCanceled = stored?.LoggedInWhilePersonCanceled == true;
-        }
-
-        // The in-memory keep is filled from the stored mark before the session is registered, so a
-        // logged-in status cannot arrive first and treat the cancel as already over.
-        if (session.LoginCanceledByPerson)
-        {
-            _canceledAutomaticSignIn.TryAdd(session.Id, 0);
+            session.SignedOut = stored?.SignedOut == true;
         }
 
         // Creation gate: if shutdown began after this create started, do NOT register the session -
@@ -1240,16 +1510,20 @@ public abstract partial class PrefillDaemonServiceBase
         // session escape teardown, AND because it was never registered StopAsync cannot clean it up
         // either, stranding a running container that survives shutdown and gets adopted next startup
         // (which for KillOnRestart would violate the mode). Tear down everything the create built - the
-        // container, the session's bind-mount directory, and the client/CTS - then fail the create. No DB
-        // row exists yet; it is inserted only after registration below. A re-adopt (isReconnect) is
-        // exempt: it only runs during StartAsync, never during StopAsync.
+        // container, the session's bind-mount directory, and the client/CTS - then fail the create. A plain
+        // create has no DB row yet; it is inserted only after registration below. An image update's create
+        // wrote its row when it created the container: under KillOnRestart StopAsync's cancel of the pending
+        // change closes that row, and in the other modes the next startup re-adopt reactivates it.
         if (_stopping && !isReconnect)
         {
             // Pre-registration: this session was never in _sessions, so StopAsync's snapshot can never see
             // it - the create is its sole owner and must tear it down (wasRegistered: false).
             await RejectEscapedCreateAsync(session, involuntaryRecreate, wasRegistered: false, cancellationToken);
-            throw new InvalidOperationException(
-                $"{ServiceName} daemon is shutting down; refusing to register a new session.");
+            throw new ServiceUnavailableException(
+                $"{ServiceName} daemon is shutting down; refusing to register a new session.")
+            {
+                StageKey = "errors.prefill.shuttingDown"
+            };
         }
 
         if (guestStart != null)
@@ -1268,8 +1542,9 @@ public abstract partial class PrefillDaemonServiceBase
         // flip _stopping and take its one-time _sessions snapshot in the tiny window between that check and
         // this registration, leaving the session escaped (never visited by StopAsync). Fence (the
         // ConcurrentDictionary write already fences store/load, but be explicit) then re-read: if shutdown
-        // began, pull the just-registered session back out and tear it down by mode. No DB row exists yet -
-        // it is inserted only below.
+        // began, pull the just-registered session back out and tear it down by mode. A plain create has no
+        // DB row yet - it is inserted only below; an image update's row already exists, and StopAsync's
+        // cancel of the pending change closes it (KillOnRestart) or the startup re-adopt reactivates it.
         Interlocked.MemoryBarrier();
         if (_stopping && !isReconnect)
         {
@@ -1277,14 +1552,18 @@ public abstract partial class PrefillDaemonServiceBase
             // Reject as a registered owner (wasRegistered: true) - RejectEscapedCreateAsync tears down only
             // if it still owns the session; if shutdown already won the TryRemove it leaves the client alone.
             await RejectEscapedCreateAsync(session, involuntaryRecreate, wasRegistered: true, cancellationToken);
-            throw new InvalidOperationException(
-                $"{ServiceName} daemon is shutting down; refusing to register a new session.");
+            throw new ServiceUnavailableException(
+                $"{ServiceName} daemon is shutting down; refusing to register a new session.")
+            {
+                StageKey = "errors.prefill.shuttingDown"
+            };
         }
 
         // Persist session to database for admin visibility and orphan tracking. On reconnect the backing
-        // record was just flipped to Orphaned by MarkOrphansAsync, so reactivate it IN PLACE (reusing the
+        // record was just flipped to Orphaned by MarkOrphansAsync, and an image update wrote its new
+        // container's record when it created that container, so both reactivate it IN PLACE (reusing the
         // same unique SessionId keeps the PrefillHistory linkage) rather than inserting a duplicate.
-        if (isReconnect)
+        if (isReconnect || imageChange is not null)
         {
             await _sessionService.ReactivateSessionAsync(
                 sessionId,
@@ -1302,13 +1581,14 @@ public abstract partial class PrefillDaemonServiceBase
                 containerId,
                 containerName,
                 session.ExpiresAt,
+                session.LastLoginAt,
                 ServiceName);
-            // The new row starts unmarked. A mark carried over from the life this one replaces, or set by a person's
-            // Cancel after registration whose write found no row yet, is stored now, so a manager restart keeps it.
-            if (session.LoginCanceledByPerson)
-            {
-                await SaveLoginCanceledByPersonAsync(session);
-            }
+        }
+        // The new row starts unmarked. A mark carried over from the life this one replaces, or set by a person's
+        // Cancel after registration whose write found no row yet, is stored now, so a manager restart keeps it.
+        if (!isReconnect && (session.LoginCanceledByPerson || session.SignedOut))
+        {
+            await SaveLoginStateAsync(session);
         }
 
         if (guestStart != null)
@@ -1316,7 +1596,7 @@ public abstract partial class PrefillDaemonServiceBase
             guestStart.Registration.TrySetResult();
             GuestGate.Check(guestStart);
             if (!IsSessionLive(session))
-                throw new ForbiddenException("This prefill session was stopped.");
+                throw new ForbiddenException("This prefill session was stopped.") { StageKey = "errors.prefill.sessionStopped" };
         }
         _logger.LogInformation(
             "{Action} daemon session {SessionId} for user {UserId}",
@@ -1325,7 +1605,7 @@ public abstract partial class PrefillDaemonServiceBase
         // A re-adopted persistent container keeps its login inside its named auth volume across a
         // manager restart, but this fresh in-memory session starts at InitialAuthState
         // (NotAuthenticated for account services). Reconcile once with the daemon's LIVE status,
-        // routed through the same OnStatusChangeAsync transition every socket status push uses, so
+        // routed through the same ApplyStatusAsync transition every socket status push uses, so
         // a still-logged-in container immediately reads as Authenticated (and broadcasts
         // AuthStateChanged) unless a person's cancel is still stored, in which case it stays signed out.
         // Best-effort: an unresponsive daemon leaves the conservative NotAuthenticated default.
@@ -1333,12 +1613,13 @@ public abstract partial class PrefillDaemonServiceBase
         {
             try
             {
+                var signOutCount = session.SignOutCount;
                 var liveStatus = await daemonClient.GetStatusAsync(cancellationToken);
                 if (liveStatus is not null)
                 {
                     // A person's cancel keeps a logged-in report from signing the container in. The
                     // status is still applied so that report can arm the next connection drop.
-                    await OnStatusChangeAsync(session, liveStatus);
+                    await ApplyStatusAsync(session, liveStatus, signOutCount);
                     await RecoverRunsAsync(session, liveStatus, cancellationToken);
                 }
             }
@@ -1361,8 +1642,11 @@ public abstract partial class PrefillDaemonServiceBase
         // so a fresh Active row / EventSessionCreated can never materialize after termination completed.
         if (await RollBackCreateIfShuttingDownAsync(session, involuntaryRecreate, isReconnect, cancellationToken))
         {
-            throw new InvalidOperationException(
-                $"{ServiceName} daemon is shutting down; refusing to register a new session.");
+            throw new ServiceUnavailableException(
+                $"{ServiceName} daemon is shutting down; refusing to register a new session.")
+            {
+                StageKey = "errors.prefill.shuttingDown"
+            };
         }
 
         // Send session creation to the account holders for real-time updates
@@ -1371,32 +1655,33 @@ public abstract partial class PrefillDaemonServiceBase
         {
             GuestGate.Check(guestStart);
             if (!IsSessionLive(session))
-                throw new ForbiddenException("This prefill session was stopped.");
+                throw new ForbiddenException("This prefill session was stopped.") { StageKey = "errors.prefill.sessionStopped" };
         }
         try { await NotifyHubAsync(session, EventSessionCreated, sessionDtoCreated); }
         finally { guestStart?.Publication.TrySetResult(); }
         if (guestStart != null)
             GuestGate.Check(guestStart);
 
-        // Whenever the fresh-login guard PRESERVED a FullPersistence volume login - a startup
-        // outage-recreate, an errored-session replacement, or a manual fresh Start whose prior life
-        // was not explicitly stopped - the daemon can authenticate itself, but only does so when it
-        // receives a login command. Issue that command headlessly in the background so nobody has to
-        // click Log in for a login that already exists (the intent: an admin should never be asked to
-        // re-login while a valid stored login sits on the volume, and scheduled prefill keeps working
-        // unattended after an outage). The invariants hold because they live in the guard itself: an
-        // explicit admin stop marks the row Terminated so the guard ERASES (never fires here); guests,
-        // re-adopts, and non-FullPersistence modes make the guard return false. An unusable stored
-        // login is silently cancelled inside the attempt; no modal, notification, or challenge is ever
-        // pushed - login-modal visibility stays anchored to the user's own action.
-        if (volumeLoginPreserved)
+        // Runs only when ApplyFreshPersistentLoginGuardAsync returned true. The daemon uses its saved login only
+        // after a login command, so the command is sent headlessly and nobody is asked to sign in while a valid
+        // login sits on the volume. A saved login that fails is canceled inside the attempt with no dialog; login
+        // dialogs open only from a person's action. A re-adopted daemon that reported a drop already runs the
+        // sign-in-again retry, so no second sign-in starts here.
+        var signInAgainRunning = false;
+        if (isReconnect)
+        {
+            lock (session.PrefillLock) signInAgainRunning = session.SignInAgainAfterDrop is not null;
+        }
+        if (volumeLoginPreserved && !signInAgainRunning)
         {
             LastHeadlessSelfAuthAttempt = InvokeSafeAsync(async () =>
             {
                 // A container recreated while Steam is unreachable (after a reboot, an error or an image
                 // update during a retry) keeps trying its saved login on the same waits as a dropped sign-in.
-                // The token is the one a person's cancel of a Log in recorded during this try cancels, so
-                // the try stops instead of signing in and clearing that cancel.
+                // The try installs the retry's stop token, so a drop during it reuses that token, and a
+                // person's sign-in that takes over that retry stops this try too. A person's Cancel of a Log in
+                // waiting behind the try does not stop it; that Cancel's mark keeps the container signed out if
+                // the try signs in.
                 CancellationTokenSource? installed = null;
                 CancellationToken takeOver;
                 lock (session.PrefillLock)
@@ -1443,8 +1728,10 @@ public abstract partial class PrefillDaemonServiceBase
     /// (before registration): stops and removes the container - preserving a persistent named auth volume
     /// exactly as the normal teardown does, and deliberately WITHOUT a daemon logout so a FullPersistence
     /// volume login survives - deletes the session's command/response bind-mount directory, and disposes
-    /// the client + CTS. No DB row exists at this point (the create inserts it only after registration),
-    /// so there is nothing to flip to Terminated. Reuses the same container-removal primitive and
+    /// the client + CTS. A plain create has no DB row at this point (it inserts it only after registration),
+    /// so there is nothing to flip to Terminated; an image update's create already wrote its row, and
+    /// StopAsync's cancel of the pending change closes it (KillOnRestart) or the startup re-adopt
+    /// reactivates it (the other modes). Reuses the same container-removal primitive and
     /// directory cleanup as <see cref="TerminateSessionAsync"/>. Internal so it can be unit-tested for the
     /// directory + client/CTS teardown without standing up Docker.
     /// </summary>
@@ -1467,12 +1754,10 @@ public abstract partial class PrefillDaemonServiceBase
                 await TryBestEffortLogoutAsync(session, "create rejected at shutdown gate");
             }
 
-            // Bounded token (never CancellationToken.None on a shutdown path): an unresponsive Docker call
-            // must not block shutdown.
-            using var removeCts = new CancellationTokenSource(_containerTeardownTimeout);
+            // The gateway limits the removal, so an unresponsive Docker call cannot block shutdown.
             try
             {
-                var outcome = await RemoveContainerForceAsync(session.ContainerId, removeCts.Token, removeVolumes: !session.IsPersistent);
+                var outcome = await RemoveContainerForceAsync(session.ContainerId, CancellationToken.None, removeVolumes: !session.IsPersistent);
                 // Confirmed absent (removed now, or already gone) -> the dir is safe to delete. An in-flight
                 // removal by another sweep leaves absence unconfirmed, so retain the dir until it is.
                 containerRemoved = outcome is ContainerRemovalOutcome.Removed or ContainerRemovalOutcome.AlreadyAbsent;
@@ -1551,13 +1836,14 @@ public abstract partial class PrefillDaemonServiceBase
     /// <see cref="ApplyFreshPersistentLoginGuardAsync"/>). A dead/hung socket must never block the
     /// caller's teardown or startup flow, so every failure (timeout, transport error, or the daemon
     /// reporting failure) is swallowed and logged - callers proceed regardless. No-op for
-    /// non-persistent sessions.
+    /// non-persistent sessions. Returns whether the daemon is left holding no account: it acknowledged
+    /// the logout, or declined it because it was not signed in.
     /// </summary>
-    private async Task TryBestEffortLogoutAsync(DaemonSession session, string context)
+    private async Task<bool> TryBestEffortLogoutAsync(DaemonSession session, string context)
     {
         if (!session.IsPersistent)
         {
-            return;
+            return true;
         }
 
         try
@@ -1570,7 +1856,8 @@ public abstract partial class PrefillDaemonServiceBase
             // though the daemon was about to answer. This is linked (CancellationTokenSource.
             // CreateLinkedTokenSource in DaemonClientBase.SendCoreAsync) with LogoutWithReasonAsync's
             // own 10s->15s command timeout - keep both in sync, comfortably above the 8s budget.
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(_daemonStopBudget);
+            cts.CancelAfter(TimeSpan.FromSeconds(15));
             var outcome = await session.Client.LogoutWithReasonAsync(cts.Token);
             if (!outcome.Success && outcome.RequiresLogin)
             {
@@ -1581,46 +1868,56 @@ public abstract partial class PrefillDaemonServiceBase
                     "Best-effort logout for persistent {ServiceName} session {SessionId} ({Context}): " +
                     "daemon declined logout before authentication (older daemon image); nothing to log out",
                     ServiceName, session.Id, context);
+                return true;
             }
-            else
-            {
-                _logger.LogInformation(
-                    "Best-effort logout for persistent {ServiceName} session {SessionId} ({Context}): {Result}",
-                    ServiceName, session.Id, context, outcome.Success ? "acknowledged" : "daemon reported failure");
-            }
+            _logger.LogInformation(
+                "Best-effort logout for persistent {ServiceName} session {SessionId} ({Context}): {Result}",
+                ServiceName, session.Id, context, outcome.Success ? "acknowledged" : "daemon reported failure");
+            return outcome.Success;
         }
         catch (Exception ex)
         {
             _logger.LogInformation(ex,
                 "Best-effort logout for persistent {ServiceName} session {SessionId} ({Context}) failed; proceeding anyway",
                 ServiceName, session.Id, context);
+            return false;
         }
     }
 
     /// <summary>
-    /// Belt-and-braces guard called once, right after a persistent session's daemon socket first
-    /// connects: forces one best-effort logout for a NEWLY CREATED persistent container (never a
-    /// re-adopted one) so it can never silently inherit a stale login left in its named auth volume by
-    /// a previous life (e.g. a crash/reboot where <see cref="TerminateSessionAsync"/>'s stop-side
-    /// logout never got a chance to run). No-op for non-persistent sessions and for re-adopted
-    /// sessions - an adopted, still-running container's login IS its current life and must be
-    /// preserved. Internal (not private) so tests can exercise the decision seam directly without
-    /// standing up a real Docker container and daemon socket - see
-    /// <c>InternalsVisibleTo("LancacheManager.Tests")</c> on the containing project.
-    /// Returns true iff the guard deliberately PRESERVED a FullPersistence volume login (the skip
-    /// branch) - the caller uses that to decide whether a headless self-auth attempt makes sense
-    /// (there is a stored login on the volume worth issuing a login command for).
+    /// Called once when a persistent daemon's socket first connects. A newly created container's old volume
+    /// login is erased unless one of the cases below keeps it; a re-adopted container keeps its login. Returns
+    /// true when a saved login should be tried: a FullPersistence volume login whose stored date is ahead, an
+    /// image update whose old container was signed in or signing in, or the startup re-adopt
+    /// (<paramref name="startupReadopt"/>) outside KillOnRestart while the date is ahead. Internal so tests can
+    /// call it without Docker.
     /// </summary>
     internal async Task<bool> ApplyFreshPersistentLoginGuardAsync(
         DaemonSession session,
         bool isPersistent,
         bool isReconnect,
+        bool startupReadopt,
         bool involuntaryRecreate = false,
-        PersistentImageChange? imageChange = null)
+        PersistentImageChange? imageChange = null,
+        bool? preserveVolumeLogin = null)
     {
-        if (!isPersistent || isReconnect)
+        if (!isPersistent)
         {
             return false;
+        }
+
+        if (isReconnect)
+        {
+            // A container a restart left running can be a new daemon that never signed in (an image update's
+            // container that had not registered yet), so the startup re-adopt signs it in from the saved login
+            // while the stored date is ahead. KillOnRestart keeps no login across a restart. The other adopts
+            // never sign in: Clear stored logins adopts and then logs out.
+            if (!startupReadopt || session.ExpiresAt <= DateTime.UtcNow)
+            {
+                return false;
+            }
+            var config = _stateService.GetScheduledPrefillConfig();
+            return config != null && config.GetEffectivePersistenceMode(Platform) != PersistenceMode.KillOnRestart;
         }
 
         if (imageChange is not null)
@@ -1632,12 +1929,13 @@ public abstract partial class PrefillDaemonServiceBase
             return imageChange.Authenticated || imageChange.SigningInAgain;
         }
 
-        if (await ShouldPreserveVolumeLoginAsync(session, involuntaryRecreate))
+        if (preserveVolumeLogin ?? await ShouldPreserveVolumeLoginAsync(session, involuntaryRecreate))
         {
             _logger.LogInformation(
                 "Skipping fresh-login guard for persistent {ServiceName} session {SessionId}: FullPersistence preserves the saved volume login across a verified involuntary death (explicit recreate flag or prior session not terminated)",
                 ServiceName, session.Id);
-            return true;
+            // A past stored date keeps the login on the volume but asks a person to sign in again.
+            return session.ExpiresAt > DateTime.UtcNow;
         }
 
         _logger.LogInformation(
@@ -1696,7 +1994,8 @@ public abstract partial class PrefillDaemonServiceBase
         await _activityRegistry.ReportAsync(
             ActivityDomains.PrefillSession, session.Id, ActivityAspects.Present, present);
         await _activityRegistry.ReportAsync(
-            ActivityDomains.PrefillSession, session.Id, ActivityAspects.Downloading, present && session.IsPrefilling);
+            ActivityDomains.PrefillSession, session.Id, ActivityAspects.Downloading,
+            present && session.Runs.Values.Any(run => run.TerminalCompletedFlag == 0));
 
         await ReportPlatformActivityAsync();
     }

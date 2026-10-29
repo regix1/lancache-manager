@@ -163,6 +163,13 @@ public class DaemonStatus
     public DateTime Timestamp { get; set; }
 
     /// <summary>
+    /// When the app received this status, from a clock that never steps back. Orders two reads of the same
+    /// daemon; zero for a status that was not read from one.
+    /// </summary>
+    [JsonIgnore]
+    public long ReadStamp { get; set; }
+
+    /// <summary>
     /// Account name carried on an AuthState update rather than a status reply. Null on every status
     /// that is not an AuthState update, and null while the session is not authenticated.
     /// </summary>
@@ -327,7 +334,7 @@ public class CredentialChallenge
 
     /// <summary>
     /// Manager-side correlation only: the id of the <see cref="DaemonSession"/> this challenge was
-    /// started/resolved on. The daemon never sends this field (it is session-agnostic - see RC3);
+    /// started/resolved on. The daemon never sends this field (it is session-agnostic);
     /// the persistent login REST surface stamps it onto every
     /// challenge it returns so the frontend can pin the session a login flow belongs to and reject a
     /// challenge that would otherwise land on a replacement session. Null on any challenge parsed
@@ -387,9 +394,9 @@ public class CredentialChallenge
 /// <summary>
 /// Thrown by <see cref="IDaemonClient.ProvideCredentialAsync"/> when the daemon replies
 /// <c>Success=false</c> to a <c>provide-credential</c> command - i.e. it dropped the credential
-/// because no matching login challenge was pending for it (RC4).
-/// Before the RC4 fix the daemon masked this as <c>Success=true</c>,
-/// so a credential misrouted to the wrong session (RC3) was silently celebrated as accepted; the
+/// because no matching login challenge was pending for it.
+/// Older daemons masked this as <c>Success=true</c>,
+/// so a credential misrouted to the wrong session was silently celebrated as accepted; the
 /// manager now surfaces the drop as a real error instead of a false success.
 /// </summary>
 public sealed class DaemonCredentialRejectedException : Exception

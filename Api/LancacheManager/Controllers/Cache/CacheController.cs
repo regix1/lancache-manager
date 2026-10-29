@@ -34,7 +34,7 @@ public class CacheController : ControllerBase
     // A queued Remove all, by its scan and services. It parks on whichever service is busy and moves when
     // that one frees, so its scope does not name it and the queue leaves matching it to this map.
     // An ended id is removed when that waiting operation ends, including from the queue's completion.
-    private static readonly ConcurrentDictionary<string, Guid> _queuedRemoveAllRequests = new();
+    private static readonly ConcurrentDictionary<string, QueuedRemoveAll> _queuedRemoveAllRequests = new();
     // Taken around the dedup read and the enqueue write, so two requests at the same moment cannot both
     // miss the map and park twice. Removing an ended id does not take it: the queue completes that id
     // while a request may already hold this gate.
@@ -959,8 +959,9 @@ public class CacheController : ControllerBase
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpGet("corruption/remove-all/{operationId:guid}")]
-    public IActionResult GetRemoveAllRun(Guid operationId) =>
-        Ok(new { running = _removeAllRunIds.ContainsKey(operationId) });
+    [ProducesResponseType(typeof(RemoveAllRunResponse), StatusCodes.Status200OK)]
+    public ActionResult<RemoveAllRunResponse> GetRemoveAllRun(Guid operationId) =>
+        Ok(new RemoveAllRunResponse { Running = _removeAllRunIds.ContainsKey(operationId) });
 
     /// <summary>
     /// Removes corrupted chunks for all services at once.
@@ -1138,15 +1139,17 @@ public class CacheController : ControllerBase
                 try
                 {
                     var cancelled = false;
+                    Exception? serviceError = null;
 
                     for (var serviceIndex = 0; serviceIndex < selections.Count; serviceIndex++)
                     {
                         var selection = selections[serviceIndex];
                         bulkState.ServiceIndex = serviceIndex + 1;
                         var serviceDatasources = ResolveDatasourcesForSelection(selection, currentDatasources);
+                        var registeredOperationId = bulkState.LastOperationId;
+                        Exception? thisServiceError = null;
                         try
                         {
-                            var registeredOperationId = bulkState.LastOperationId;
                             await RunCorruptionRemovalCoreAsync(
                                 selection,
                                 serviceDatasources,
@@ -1156,24 +1159,38 @@ public class CacheController : ControllerBase
                                     firstStep.TrySetResult(operationId);
                                 },
                                 bulk: bulkState);
-                            // A refusal before this service registers never reaches the terminal count.
-                            if (bulkState.LastOperationId == registeredOperationId)
-                            {
-                                bulkState.FailedServices++;
-                            }
                         }
                         catch (OperationCanceledException)
                         {
                             cancelled = true;
                             break;
                         }
+                        catch (Exception ex)
+                        {
+                            // One service's error ends that service only; the services after it still run.
+                            serviceError ??= ex;
+                            thisServiceError = ex;
+                            _logger.LogError(ex, "[CorruptionRemoval] Removal of {Service} failed during the all-services run",
+                                selection.Service);
+                        }
+
+                        // A refusal or an error before this service registers never reaches the terminal count.
+                        if (bulkState.LastOperationId == registeredOperationId)
+                        {
+                            bulkState.FailedServices++;
+                            bulkState.UnstartedServices.Add(selection.Service);
+                            if (thisServiceError is ApiException { StageKey: { } errorKey })
+                            {
+                                bulkState.UnstartedErrorKeys.Add(errorKey);
+                            }
+                        }
                     }
 
-                    // Every service refused at its capability check, which returns before registering a step:
-                    // nothing ran, so the start reports the refusal and no summary is sent.
+                    // No service registered a step, so nothing ran: the start reports why and no summary is sent.
+                    // Without an error every service refused at its capability check.
                     if (bulkState.LastOperationId == Guid.Empty)
                     {
-                        firstStep.TrySetException(new ValidationException(
+                        firstStep.TrySetException(serviceError ?? new ValidationException(
                             "Disk-level removal needs a clear cache-key scheme for every enabled datasource")
                         {
                             StageKey = "errors.corruption.keySchemeUnavailable"
@@ -1193,6 +1210,11 @@ public class CacheController : ControllerBase
                             ["completedCount"] = processedCount,
                             ["serviceCount"] = bulkState.ServiceCount
                         };
+                        // A service that failed before the stop and has no card of its own is named on this one.
+                        if (bulkState.UnstartedServices.Count > 0)
+                        {
+                            await SetServicesFailedWarningAsync(lastOperationId, bulkState);
+                        }
                         AddReportedOperationId(context, bulkState.ReportedOperationId);
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(false, "all",
@@ -1211,29 +1233,20 @@ public class CacheController : ControllerBase
                         context["serviceCount"] = bulkState.ServiceCount;
                         // A failed service keeps its own red card. When the last service succeeded, the
                         // summary lands on its card, which ends amber instead of green.
-                        if (_operationTracker.GetOperation(lastOperationId)?.Status == OperationStatus.Completed)
-                        {
-                            await _operationStateService.SetRunWarningAsync(lastOperationId, new RunWarning(
-                                "common.notifications.warnings.servicesFailed",
-                                new Dictionary<string, object?>
-                                {
-                                    ["failedCount"] = bulkState.FailedServices,
-                                    ["serviceCount"] = bulkState.ServiceCount
-                                }));
-                        }
+                        await SetServicesFailedWarningAsync(lastOperationId, bulkState);
                         // Stopped by X after the current service failed: the services after it never ran, so the summary says
                         // where the removal stopped.
                         if (cancelled) context["completedCount"] = processedCount;
                         AddReportedOperationId(context, bulkState.ReportedOperationId);
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(false, "all",
-                                StageKey: (cancelled, cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural) switch
-                                {
-                                    (true, true) => "signalr.corruptionRemove.allStoppedWithFailuresStructural",
-                                    (true, false) => "signalr.corruptionRemove.allStoppedWithFailures",
-                                    (false, true) => "signalr.corruptionRemove.allCompleteWithFailuresStructural",
-                                    (false, false) => "signalr.corruptionRemove.allCompleteWithFailures"
-                                },
+                                StageKey: cancelled
+                                    ? cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural
+                                        ? "signalr.corruptionRemove.allStoppedWithFailuresStructural"
+                                        : "signalr.corruptionRemove.allStoppedWithFailures"
+                                    : cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural
+                                        ? "signalr.corruptionRemove.allCompleteWithFailuresStructural"
+                                        : "signalr.corruptionRemove.allCompleteWithFailures",
                                 OperationId: lastOperationId,
                                 Context: context,
                                 DetectionMethod: cachedDetection.DetectionMethod.ToWireString()));
@@ -1259,26 +1272,27 @@ public class CacheController : ControllerBase
                     // click that stored it stays on Removing after the loop has ended.
                     if (firstStep.Task.IsCompletedSuccessfully)
                     {
-                        var reportedOperationId = bulkState.ReportedOperationId != Guid.Empty
-                            ? bulkState.ReportedOperationId
-                            : firstStep.Task.Result;
                         try
                         {
-                            var context = new Dictionary<string, object?>
-                            {
-                                ["completedCount"] = bulkState.SucceededServices + bulkState.FailedServices,
-                                ["failedCount"] = bulkState.FailedServices,
-                                ["serviceCount"] = bulkState.ServiceCount
-                            };
-                            AddReportedOperationId(context, reportedOperationId);
+                            // Service errors stay inside the loop, so this catch follows a failed summary step and
+                            // the counts are final. The summary goes on the last service's card like the other endings.
+                            var lastOperationId = bulkState.LastOperationId;
+                            var context = CorruptionDetectionService.BuildRemovalContext(bulkState.Totals, "all");
+                            context["completedCount"] = bulkState.SucceededServices + bulkState.FailedServices;
+                            context["failedCount"] = bulkState.FailedServices;
+                            context["serviceCount"] = bulkState.ServiceCount;
+                            AddReportedOperationId(context, bulkState.ReportedOperationId);
                             await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                                 new CorruptionRemovalComplete(false, "all",
                                     StageKey: cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural
                                         ? "signalr.corruptionRemove.allCompleteWithFailuresStructural"
                                         : "signalr.corruptionRemove.allCompleteWithFailures",
-                                    OperationId: reportedOperationId,
+                                    OperationId: lastOperationId,
                                     DetectionMethod: cachedDetection.DetectionMethod.ToWireString(),
                                     Context: context));
+                            // Sent after the summary: a failed warning write is a way to reach this catch, and
+                            // the summary must not wait on a second try of it.
+                            await SetServicesFailedWarningAsync(lastOperationId, bulkState);
                         }
                         catch (Exception notifyEx)
                         {
@@ -1354,14 +1368,13 @@ public class CacheController : ControllerBase
             {
                 await _queuedRemoveAllGate.WaitAsync(cancellationToken);
                 gateHeld = true;
-                if (_queuedRemoveAllRequests.TryGetValue(requestKey, out var waitingId)
-                    && _operationTracker.GetOperation(waitingId)?.Status == OperationStatus.Waiting)
+                if (_queuedRemoveAllRequests.TryGetValue(requestKey, out var waiting)
+                    && _operationTracker.GetOperation(waiting.WaitingId)?.Status == OperationStatus.Waiting)
                 {
-                    _queuedRemoveAllRequests[requestKey] = waitingId;
                     removeAllWaiterRecorded = true;
                     return Accepted(new QueuedOperationResponse
                     {
-                        OperationId = waitingId,
+                        OperationId = waiting.WaitingId,
                         Queued = true,
                         AlreadyRunning = true,
                         Status = "waiting"
@@ -1370,14 +1383,21 @@ public class CacheController : ControllerBase
                 var queued = await _operationQueue.EnqueueAsync(
                     OperationType.CorruptionRemoval, blocked.Scope,
                     "Corruption Removal (all services)", StartAllCorruptionRemovalAsync, cancellationToken);
-                if (queued.Queued
-                    && _operationTracker.GetOperation(queued.OperationId)?.Status == OperationStatus.Waiting)
+                if (queued.Queued)
                 {
-                    _queuedRemoveAllRequests[requestKey] = queued.OperationId;
+                    var waitingId = queued.OperationId;
+                    _queuedRemoveAllRequests[requestKey] = new QueuedRemoveAll(
+                        waitingId,
+                        () => ReportQueuedRemoveAllEnded(waitingId, cachedDetection.DetectionMethod));
                     removeAllWaiterRecorded = true;
                     // The 202 body is this waiting id. The summary carries it too, including while
                     // promotion has not registered a service row yet.
-                    RememberRemoveAllRun(removeAllClaim, queued.OperationId);
+                    RememberRemoveAllRun(removeAllClaim, waitingId);
+                    // A waiter that ended before the write above found no entry to report its ending from.
+                    if (_operationTracker.GetOperation(waitingId)?.Status.IsTerminal() == true)
+                    {
+                        ForgetQueuedRemoveAll(waitingId);
+                    }
                 }
                 return Accepted(queued);
             }
@@ -1437,7 +1457,7 @@ public class CacheController : ControllerBase
         foreach (var entry in _queuedRemoveAllRequests)
         {
             if (entry.Key.StartsWith(prefix, StringComparison.Ordinal)
-                && _operationTracker.GetOperation(entry.Value)?.Status == OperationStatus.Waiting)
+                && _operationTracker.GetOperation(entry.Value.WaitingId)?.Status == OperationStatus.Waiting)
             {
                 return true;
             }
@@ -1491,11 +1511,14 @@ public class CacheController : ControllerBase
 
     private static void ForgetQueuedRemoveAll(Guid operationId)
     {
+        QueuedRemoveAll? ended = null;
         foreach (var entry in _queuedRemoveAllRequests)
         {
-            if (entry.Value == operationId)
+            // Removing the entry claims its report, so the queue's ending and a request that recorded
+            // its waiter late never both send it.
+            if (entry.Value.WaitingId == operationId && _queuedRemoveAllRequests.TryRemove(entry))
             {
-                _queuedRemoveAllRequests.TryRemove(entry);
+                ended = entry.Value;
             }
         }
 
@@ -1514,6 +1537,71 @@ public class CacheController : ControllerBase
         if (!runHoldsId)
         {
             _removeAllRunIds.TryRemove(operationId, out _);
+        }
+
+        ended?.ReportEnded();
+    }
+
+    // The click that stored this waiting id leaves Removing only on an "all" completion. A promotion
+    // that started the run completes the waiting row, and the run sends that completion itself.
+    private void ReportQueuedRemoveAllEnded(Guid waitingId, CorruptionDetectionMethod detectionMethod)
+    {
+        if (_operationTracker.GetOperation(waitingId) is not { Status: not OperationStatus.Completed } waiting)
+        {
+            return;
+        }
+
+        var cancelled = waiting.Status == OperationStatus.Cancelled;
+        var context = new Dictionary<string, object?>();
+        AddReportedOperationId(context, waitingId);
+        _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalComplete,
+            new CorruptionRemovalComplete(waiting.Status == OperationStatus.Skipped, "all",
+                // A refusal or a nothing-to-do ending keeps the key its waiting row already shows.
+                StageKey: cancelled ? "signalr.corruptionRemove.cancelled" : waiting.Message,
+                OperationId: waitingId,
+                DetectionMethod: detectionMethod.ToWireString(),
+                Context: context,
+                Cancelled: cancelled));
+    }
+
+    // A service that failed before it registered has no card of its own, so the warning names every such
+    // service on the last card, whichever way that card ended, and adds each reason that carried a key; the
+    // server log holds any other error. A run holds one warning per key, so several names share one warning,
+    // and its key is chosen by the count because the card's warning values reach the text as strings.
+    private async Task SetServicesFailedWarningAsync(Guid lastOperationId, BulkCorruptionRemovalState bulkState)
+    {
+        var context = new Dictionary<string, object?>
+        {
+            ["failedCount"] = bulkState.FailedServices,
+            ["serviceCount"] = bulkState.ServiceCount
+        };
+        if (bulkState.UnstartedServices.Count == 0)
+        {
+            // Every failed service has its own red card; only a green last card needs the count.
+            if (_operationTracker.GetOperation(lastOperationId)?.Status == OperationStatus.Completed)
+            {
+                await _operationStateService.SetRunWarningAsync(lastOperationId,
+                    new RunWarning("common.notifications.warnings.servicesFailed", context));
+            }
+            return;
+        }
+
+        if (bulkState.UnstartedServices.Count == 1)
+        {
+            context["service"] = bulkState.UnstartedServices[0];
+            await _operationStateService.SetRunWarningAsync(lastOperationId,
+                new RunWarning("common.notifications.warnings.serviceNotStarted", context));
+        }
+        else
+        {
+            context["services"] = string.Join(", ", bulkState.UnstartedServices);
+            await _operationStateService.SetRunWarningAsync(lastOperationId,
+                new RunWarning("common.notifications.warnings.servicesNotStarted", context));
+        }
+        foreach (var errorKey in bulkState.UnstartedErrorKeys)
+        {
+            await _operationStateService.SetRunWarningAsync(lastOperationId,
+                new RunWarning(errorKey, new Dictionary<string, object?>()));
         }
     }
 
@@ -1761,6 +1849,9 @@ public class CacheController : ControllerBase
         public int ServiceIndex; // 1-based position of the service currently running
         public int SucceededServices;
         public int FailedServices;
+        // The services that failed before they registered a step, so they have no card of their own.
+        public readonly List<string> UnstartedServices = new();
+        public readonly List<string> UnstartedErrorKeys = new();
         public bool Cancelled;
         public Guid LastOperationId;
         // The id on the 202 and on CorruptionRemovalComplete. The last service's operation is a different id.
@@ -1770,6 +1861,9 @@ public class CacheController : ControllerBase
         public int PublishedGeneration;
         public CorruptionRemovalCounts Totals { get; } = new();
     }
+
+    // A queued Remove all's waiting id, and how its request reports an ending that ran no service.
+    private sealed record QueuedRemoveAll(Guid WaitingId, Action ReportEnded);
 
     internal static StructuralRemovalCompletion ValidateStructuralRemovalCompletion(
         Dictionary<string, object?> context,
@@ -2766,6 +2860,8 @@ public class CacheController : ControllerBase
             var countToken = cts.Token;
             _ = Task.Run(async () =>
             {
+                using var watchStop = new CancellationTokenSource();
+                var watch = _cacheService.CancelUnpolledCountAsync(countOperationId, watchStop.Token);
                 try
                 {
                     var cacheFilesFound = await countAsync(
@@ -2784,12 +2880,37 @@ public class CacheController : ControllerBase
                 catch (OperationCanceledException)
                 {
                     _logger.LogInformation("Cache file count cancelled for: {Entity}", entityName);
+                    // Each ending is also kept with the count's answers: the tracker drops the
+                    // operation 10 s after it ends, and a dialog that slept asks later.
+                    _cacheService.PublishCount(new CacheManagementService.CacheFileCountState(
+                        countOperationId, null, null, null, null, "errors.cache.countStopped"));
                     _operationTracker.CompleteOperation(countOperationId, false, cancelled: true);
+                }
+                catch (ApiException refusal) when (refusal.StageKey != null)
+                {
+                    // A refusal is an expected answer; its key is what the dialog shows.
+                    _logger.LogInformation(
+                        "Cache file count refused for {Entity} with {StageKey}: {Reason}",
+                        entityName,
+                        refusal.StageKey,
+                        refusal.Message);
+                    _cacheService.PublishCount(new CacheManagementService.CacheFileCountState(
+                        countOperationId, null, null, null, null, refusal.StageKey));
+                    _operationTracker.CompleteOperation(countOperationId, false, refusal.StageKey);
                 }
                 catch (Exception ex)
                 {
+                    // The exception text stays in the log: the status answers the operation message
+                    // as a key.
                     _logger.LogError(ex, "Error counting cache files for: {Entity}", entityName);
-                    _operationTracker.CompleteOperation(countOperationId, false, ex.Message);
+                    _cacheService.PublishCount(new CacheManagementService.CacheFileCountState(
+                        countOperationId, null, null, null, null, "errors.cache.countFailed"));
+                    _operationTracker.CompleteOperation(countOperationId, false, "errors.cache.countFailed");
+                }
+                finally
+                {
+                    await watchStop.CancelAsync();
+                    await watch;
                 }
             }, CancellationToken.None);
 
@@ -2833,6 +2954,7 @@ public class CacheController : ControllerBase
         // that id off to the count that took its place, so the status is read under the running id
         // and answered under the requested one.
         var countId = _operationTracker.GetOperation(operationId, followHandoff: true)?.Id ?? operationId;
+        _cacheService.RecordCountPoll(countId);
 
         // Looked up by the caller's own count, so another count starting cannot answer for this one.
         var published = _cacheService.GetCacheFileCount(countId);
@@ -2852,6 +2974,17 @@ public class CacheController : ControllerBase
             });
         }
 
+        // A count that ended without a number answers its reason, also after the tracker dropped it.
+        if (published?.EndingKey != null)
+        {
+            return Ok(new CacheFileCountStatusResponse
+            {
+                IsProcessing = false,
+                OperationId = operationId,
+                StageKey = published.EndingKey
+            });
+        }
+
         var operation = _operationTracker.GetOperation(countId);
         if (operation != null
             && operation.Type == OperationType.CacheFileCount
@@ -2863,9 +2996,37 @@ public class CacheController : ControllerBase
                 OperationId = operationId,
                 PercentComplete = operation.PercentComplete,
                 // UpdateProgress stores the current stage key in Message, so it doubles as the
-                // i18n key the confirmation renders.
-                StageKey = string.IsNullOrWhiteSpace(operation.Message) ? null : operation.Message,
+                // i18n key the confirmation renders. A cancel writes a plain sentence there, so a
+                // stopping count answers no key and the dialog keeps its last progress line.
+                StageKey = operation.Status == OperationStatus.Cancelling
+                    || string.IsNullOrWhiteSpace(operation.Message)
+                        ? null
+                        : operation.Message,
                 Context = published?.Context
+            });
+        }
+
+        // A failed count ends with its reason key in Message, so the dialog can say why.
+        if (operation is { Type: OperationType.CacheFileCount, Status: OperationStatus.Failed })
+        {
+            return Ok(new CacheFileCountStatusResponse
+            {
+                IsProcessing = false,
+                OperationId = operationId,
+                StageKey = operation.Message
+            });
+        }
+
+        // The dialog never reads a cancel it made itself, so a cancelled count was stopped by
+        // something else: most often the server, after nothing asked for it. The key comes from
+        // the status because a queued count cancelled while waiting holds a plain sentence.
+        if (operation is { Type: OperationType.CacheFileCount, Status: OperationStatus.Cancelled })
+        {
+            return Ok(new CacheFileCountStatusResponse
+            {
+                IsProcessing = false,
+                OperationId = operationId,
+                StageKey = "errors.cache.countStopped"
             });
         }
 

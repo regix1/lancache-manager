@@ -25,91 +25,6 @@ public class PrefillCacheService
     }
 
     /// <summary>
-    /// Records that a depot has been successfully cached.
-    /// Called after a successful prefill download.
-    /// </summary>
-    /// <returns>
-    /// True when this depot was newly recorded, false when an entry already covering the same
-    /// manifest only had its timestamp refreshed, and false as well when a concurrent writer won
-    /// the insert. All three mean the row is there, so false is not a failure to report upwards.
-    /// </returns>
-    public async Task<bool> RecordCachedDepotAsync(
-        long appId,
-        long depotId,
-        ulong manifestId,
-        string? appName,
-        long totalBytes,
-        string? cachedBy)
-    {
-        await using var context = await _contextFactory.CreateDbContextAsync();
-
-        // Check if this exact depot+manifest combination already exists
-        var existing = await context.PrefillCachedDepots
-            .FirstOrDefaultAsync(d => d.DepotId == depotId && d.ManifestId == manifestId);
-
-        if (existing != null)
-        {
-            // Update the cached timestamp
-            existing.CachedAtUtc = DateTime.UtcNow;
-            existing.CachedBy = cachedBy;
-            _logger.LogDebug("Updated cache timestamp for depot {DepotId} manifest {ManifestId}",
-                depotId, manifestId);
-        }
-        else
-        {
-            // Remove any old manifests for this depot (game was updated)
-            var oldManifests = await context.PrefillCachedDepots
-                .Where(d => d.DepotId == depotId && d.ManifestId != manifestId)
-                .ToListAsync();
-
-            if (oldManifests.Any())
-            {
-                context.PrefillCachedDepots.RemoveRange(oldManifests);
-                _logger.LogInformation("Removed {Count} outdated manifests for depot {DepotId}",
-                    oldManifests.Count, depotId);
-            }
-
-            // Add new cache entry
-            context.PrefillCachedDepots.Add(new PrefillCachedDepot
-            {
-                AppId = appId,
-                DepotId = depotId,
-                ManifestId = manifestId,
-                AppName = appName,
-                TotalBytes = totalBytes,
-                CachedAtUtc = DateTime.UtcNow,
-                CachedBy = cachedBy
-            });
-
-            _logger.LogInformation("Cached depot {DepotId} for app {AppId} ({AppName}) - manifest {ManifestId}",
-                depotId, appId, appName, manifestId);
-        }
-
-        try
-        {
-            await context.SaveChangesAsync();
-        }
-        catch (DbUpdateException ex)
-        {
-            // Depot+manifest is unique, so two containers prefilling the same game both read no row
-            // and both insert; one of them loses. The row still exists and the rest of the batch
-            // still has to be written, so this is not a failure to report upwards.
-            _logger.LogDebug(ex, "Depot {DepotId} manifest {ManifestId} was recorded by another writer",
-                depotId, manifestId);
-            return false;
-        }
-
-        // Also update SteamDepotMappings so downloads can resolve game names
-        // This captures mappings that PICS doesn't provide (e.g., private branches, unusual depot structures)
-        await EnsureDepotMappingExistsAsync(context, appId, depotId, appName);
-
-        // Re-recording a depot+manifest already in the table only moves its timestamp, so every app
-        // stays on the side of the cached/not-cached line it was already on. Only the insert branch
-        // moves one across, which is what a listener needs to hear about.
-        return existing == null;
-    }
-
-    /// <summary>
     /// Ensures a depot mapping exists in SteamDepotMappings for download resolution.
     /// This is called when prefill records a cached depot, capturing mappings that PICS may not provide.
     /// </summary>
@@ -181,24 +96,24 @@ public class PrefillCacheService
     }
 
     /// <summary>
-    /// Records multiple depots as cached (batch operation after app download).
+    /// Puts back the depot mappings prefill recorded, after a PICS full replace deleted them, so the
+    /// games prefill cached keep their names. It takes no cancellation: the replace has already
+    /// committed, and stopping partway would leave those games unnamed until the next import.
     /// </summary>
-    /// <returns>True when at least one depot in the batch was newly recorded.</returns>
-    public async Task<bool> RecordCachedDepotsAsync(
-        long appId,
-        string? appName,
-        IEnumerable<(long DepotId, ulong ManifestId, long TotalBytes)> depots,
-        string? cachedBy)
+    public async Task RestoreDepotMappingsAsync()
     {
-        var recorded = false;
-
-        foreach (var (depotId, manifestId, totalBytes) in depots)
+        await using var context = await _contextFactory.CreateDbContextAsync();
+        var depots = await context.PrefillCachedDepots
+            .AsNoTracking()
+            .OrderByDescending(depot => depot.CachedAtUtc)
+            .Select(depot => new { depot.AppId, depot.DepotId, depot.AppName })
+            .ToListAsync();
+        foreach (var depot in depots.DistinctBy(depot => (depot.AppId, depot.DepotId)))
         {
-            // |= rather than a short-circuiting || so every depot is still recorded once one has been.
-            recorded |= await RecordCachedDepotAsync(appId, depotId, manifestId, appName, totalBytes, cachedBy);
+            await EnsureDepotMappingExistsAsync(context, depot.AppId, depot.DepotId, depot.AppName);
+            // A failed insert stays tracked and would be retried by every later save.
+            context.ChangeTracker.Clear();
         }
-
-        return recorded;
     }
 
     public async Task<PrefillCacheSnapshot> GetCacheSnapshotAsync(

@@ -269,8 +269,9 @@ public class PersistentLoginChallengeResumeTests
     }
 
     /// <summary>
-    /// A sign-in that finishes while the cancel is still waiting on the daemon ends signed in; when the daemon then
-    /// leaves the cancel unanswered, the session owes no challenge and is settled.
+    /// A sign-in that finishes while a person's cancel is still waiting on the daemon stays signed out under their
+    /// mark; when the daemon then leaves the cancel unanswered, the cancel still ends, and the session owes no
+    /// challenge and is settled.
     /// </summary>
     [Fact]
     public async Task AnUnansweredCancelOfASignInThatFinishedRestoresNoChallengeAsync()
@@ -301,11 +302,12 @@ public class PersistentLoginChallengeResumeTests
         await daemon.GetSessionStatusAsync(session.Id);
         client.ReleaseCancelLogin.SetResult();
 
-        await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() => cancel);
+        await cancel;
 
         Assert.Null(session.PendingLoginChallenge);
         Assert.True(session.LoginSettled);
-        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+        Assert.Equal(DaemonAuthState.NotAuthenticated, session.AuthState);
+        Assert.True(session.LoginCanceledByPerson);
     }
 
     /// <summary>
@@ -874,8 +876,6 @@ public class PersistentLoginChallengeResumeTests
         public virtual Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
             => throw new NotSupportedException("Unexpected LogoutAsync in this scenario.");
 
-        public Task CancelPrefillAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-
         public Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
@@ -883,14 +883,6 @@ public class PersistentLoginChallengeResumeTests
             => throw new NotSupportedException();
 
         public Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<PrefillResult> PrefillAsync(
-            bool all = false, bool recent = false, bool recentlyPurchased = false, int? top = null,
-            bool force = false, List<string>? operatingSystems = null, int? maxConcurrency = null,
-            List<CachedDepotInput>? cachedDepots = null, CancellationToken cancellationToken = default,
-            Guid? runId = null,
-            Action? onCommandDispatched = null)
             => throw new NotSupportedException();
 
         public Task<ClearCacheResult> ClearCacheAsync(CancellationToken cancellationToken = default)

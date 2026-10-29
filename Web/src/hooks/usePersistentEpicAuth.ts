@@ -3,8 +3,6 @@ import { usePersistentPrefillAuth } from './usePersistentPrefillAuth';
 import type { CredentialChallenge } from './usePrefillSteamAuth';
 import type { EpicAuthActions, EpicAuthState } from './useEpicMappingAuth';
 import {
-  getPersistentLoginEditAction,
-  getPersistentLoginSessionId,
   getPersistentLoginStartRequest,
   setPersistentLoginStartRequest
 } from '@components/features/management/schedules/scheduled-prefill/persistentLoginStore';
@@ -28,13 +26,7 @@ export function usePersistentEpicAuth(options: UsePersistentEpicAuthOptions = {}
   });
 
   const startLogin = useCallback(async (): Promise<CredentialChallenge | null> => {
-    const activeEditAction = getPersistentLoginEditAction('Epic');
-    const activeSessionId = getPersistentLoginSessionId('Epic');
-    const requestedStart =
-      getPersistentLoginStartRequest('Epic') ??
-      (activeEditAction && activeSessionId
-        ? { sessionId: activeSessionId, ...activeEditAction }
-        : undefined);
+    const requestedStart = getPersistentLoginStartRequest('Epic');
     coreActions.resetAuthForm();
     if (requestedStart) {
       setPersistentLoginStartRequest('Epic', requestedStart);

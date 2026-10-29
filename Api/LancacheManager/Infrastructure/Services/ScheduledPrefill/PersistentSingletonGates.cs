@@ -91,8 +91,10 @@ public static class PersistentSingletonGates
                 // Defensive: the newest running match is already registered in-memory. The caller's
                 // in-memory Active/Error checks should have short-circuited before this ever runs;
                 // treat it as nothing-to-do for adoption - but any OTHER matching container is still a
-                // leaked duplicate that must be reaped, same as the Adopt branch below. Both callers
-                // process ExtrasToRemove before switching on Action, so this still gets cleaned up.
+                // leaked duplicate that must be reaped, same as the Adopt branch below. The create and the
+                // startup re-adopt process ExtrasToRemove before switching on Action, so this still gets
+                // cleaned up; AdoptRunningPersistentSessionAsync leaves extras to them, and removes only a
+                // running container whose session was stopped.
                 var adoptedExtras = matchingContainers.Where(c => c.ID != newest.ID).ToList();
                 return new PersistentContainerDecision(PersistentContainerAction.CreateFresh, null, adoptedExtras);
             }

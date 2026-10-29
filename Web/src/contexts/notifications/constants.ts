@@ -39,6 +39,15 @@ export const OPERATION_WIRE_TYPE_TO_NOTIFICATION_TYPE: Record<string, Notificati
   unmappedFileRemoval: 'unmapped_file_removal'
 };
 
+/** Removal/clearing operation types that share the backend _cacheLock. */
+export const REMOVAL_TYPES: readonly NotificationType[] = [
+  'log_removal',
+  'game_removal',
+  'service_removal',
+  'corruption_removal',
+  'cache_clearing'
+];
+
 /**
  * Scheduled-run notification type -> the Schedules-page serviceKey that owns its display setting.
  * Closed list covering EVERY schedule card's run notifications: the buildScheduledRunEntry({ type })

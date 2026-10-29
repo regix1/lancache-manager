@@ -16,17 +16,22 @@ internal sealed class TestLancacheServerLocator : ILancacheServerLocator
     /// <summary>Counts the Docker-backed lookups, so a test can prove one was never made.</summary>
     private readonly Action? _onDetect;
 
-    public TestLancacheServerLocator(IReadOnlyList<string>? lanResolverIps = null, Action? onDetect = null)
+    /// <summary>What both Locate overloads answer; a test passes one to model a configured address that did not resolve.</summary>
+    private readonly LancacheServerLocation _location;
+
+    public TestLancacheServerLocator(IReadOnlyList<string>? lanResolverIps = null, Action? onDetect = null,
+        LancacheServerLocation? location = null)
     {
         _lanResolverIps = lanResolverIps ?? Array.Empty<string>();
         _onDetect = onDetect;
+        _location = location ?? new LancacheServerLocation();
     }
 
     public Task<LancacheServerLocation> LocateAsync(CancellationToken cancellationToken)
-        => Task.FromResult(new LancacheServerLocation());
+        => Task.FromResult(_location);
 
     public Task<LancacheServerLocation> LocateAsync(bool includeHostSideCandidates, CancellationToken cancellationToken)
-        => Task.FromResult(new LancacheServerLocation());
+        => Task.FromResult(_location);
 
     public Task<string?> DetectDnsServerIpAsync(string mode, IReadOnlyList<string>? knownCacheIps, CancellationToken cancellationToken)
         => Task.FromResult<string?>(null);

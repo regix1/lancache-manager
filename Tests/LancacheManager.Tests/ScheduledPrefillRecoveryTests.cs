@@ -33,12 +33,13 @@ public sealed class ScheduledPrefillRecoveryTests
         var task = (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
             .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(scheduler, [run, tracker, services, notifications, ScheduledPrefillConfigFactory.CreateDefault(),
-                CancellationToken.None, false])!;
+                CancellationToken.None, false, null])!;
         Assert.Equal(ScheduledPrefillServiceRunResult.Skipped, await task);
         var events = capture.Events.ToArray();
         Assert.Equal([SignalREvents.ScheduledPrefillStarted, SignalREvents.ScheduledPrefillProgress,
             SignalREvents.ScheduledPrefillCompleted], events.Select(item => item.Event));
         Assert.Equal([1L, 2L, 3L], events.Select(item => item.Value.GetProperty("eventSequence").GetInt64()));
+        Assert.Equal("signalr.scheduledPrefill.starting", events[0].Value.GetProperty("stageKey").GetString());
         Assert.All(events, item =>
         {
             Assert.Equal(run.State.Snapshot.EventEpoch, item.Value.GetProperty("eventEpoch").GetGuid());
@@ -259,6 +260,62 @@ public sealed class ScheduledPrefillRecoveryTests
         await task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    [Theory]
+    [InlineData("starting")]
+    [InlineData("recovering")]
+    [InlineData("cancelling")]
+    public async Task EachWatchedStageLineCarriesTheKeyItIsTranslatedByAsync(string from)
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        var daemonRun = await fixture.StartAsync("10");
+        using var services = new ServiceCollection().BuildServiceProvider();
+        using var scheduler = CreateScheduler(services);
+        var run = MakeRun("10") with { OperationId = daemonRun.PrefillRunId, OperationIdString = daemonRun.PrefillRunId.ToString() };
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, ScheduleNotifications>();
+        var capture = (ScheduleNotifications)(object)notifications;
+        var line = new TaskCompletionSource<(JsonElement Sent, string? Recorded)>(TaskCreationOptions.RunContinuationsAsynchronously);
+        capture.OnSend = (name, value) =>
+        {
+            // The relay's replay of the daemon's last tick carries its own key; the watch loop's line
+            // is the other one. The recorded line is read as it is sent, before a later tick replaces it.
+            if (name == SignalREvents.ScheduledPrefillProgress
+                && value.GetProperty("stageKey").GetString() is not ("signalr.scheduledPrefill.runningWithCounts"
+                    or "signalr.scheduledPrefill.downloadingGame"))
+                line.TrySetResult((value, run.State.Snapshot.StageKey));
+            return Task.CompletedTask;
+        };
+        run.State.Record("starting", "Starting scheduled prefill", "signalr.scheduledPrefill.starting", null);
+        // No daemon tick yet, so the watch loop's own line is the run's first progress line.
+        daemonRun.LastProgress = null;
+        daemonRun.Recovering = from == "recovering";
+        fixture.Session.Recovering = from == "recovering";
+        daemonRun.CancelRequested = from == "cancelling";
+        var task = (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
+            .GetMethod("WatchRunAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(scheduler, [fixture.Daemon, fixture.Session, daemonRun, run, notifications, ScheduledPrefillConfigFactory.CreateDefault()])!;
+
+        var (sent, recorded) = await line.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var stage = sent.GetProperty("stage").GetString();
+        Assert.Contains(stage, from == "starting" ? ["preparing", "running"] : new[] { from });
+        var expected = stage switch
+        {
+            "preparing" => "signalr.scheduledPrefill.preparing",
+            "recovering" => "signalr.scheduledPrefill.reconnecting",
+            "cancelling" => "signalr.scheduledPrefill.stopping",
+            _ => "signalr.scheduledPrefill.running"
+        };
+        Assert.Equal(expected, sent.GetProperty("stageKey").GetString());
+        // A browser that reloads rebuilds the card from the recorded line, so it carries the same key.
+        Assert.Equal(expected, recorded);
+
+        daemonRun.Recovering = false;
+        fixture.Session.Recovering = false;
+        fixture.Client.Set(daemonRun, from == "cancelling" ? "cancelled" : "completed", 50,
+            from == "cancelling" ? "cancelled" : "success");
+        await fixture.RefreshAsync();
+        await task.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     [Fact]
     public async Task LaterTicksUseFreeSlotsWhileEarlierSchedulesRemainActiveAsync()
     {
@@ -347,19 +404,19 @@ public sealed class ScheduledPrefillRecoveryTests
         var first = MakeRun("20", platform: platform);
         var second = MakeRun("30", platform: platform);
         var claim = typeof(ScheduledPrefillService).GetMethod("TryClaimRun", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        object?[] original = [first.ServiceConfig, services, null];
+        object?[] original = [first.ServiceConfig, null];
         Assert.True((bool)claim.Invoke(scheduler, original)!);
-        Assert.True((bool)claim.Invoke(scheduler, [second.ServiceConfig, services, null])!);
-        Assert.False((bool)claim.Invoke(scheduler, [first.ServiceConfig, services, null])!);
+        Assert.True((bool)claim.Invoke(scheduler, [second.ServiceConfig, null])!);
+        Assert.False((bool)claim.Invoke(scheduler, [first.ServiceConfig, null])!);
         var release = typeof(ScheduledPrefillService).GetMethod("ReleaseRun", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        release.Invoke(scheduler, [first.ServiceConfig.ScheduleId, original[2], false]);
-        Assert.True((bool)claim.Invoke(scheduler, [first.ServiceConfig, services, null])!);
-        release.Invoke(scheduler, [first.ServiceConfig.ScheduleId, original[2], false]);
-        Assert.False((bool)claim.Invoke(scheduler, [first.ServiceConfig, services, null])!);
+        release.Invoke(scheduler, [first.ServiceConfig.ScheduleId, original[1]]);
+        Assert.True((bool)claim.Invoke(scheduler, [first.ServiceConfig, null])!);
+        release.Invoke(scheduler, [first.ServiceConfig.ScheduleId, original[1]]);
+        Assert.False((bool)claim.Invoke(scheduler, [first.ServiceConfig, null])!);
         var method = typeof(ScheduledPrefillService).GetMethod("RunServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         Task<ScheduledPrefillServiceRunResult> StartService(ScheduledPrefillServiceRun run)
             => (Task<ScheduledPrefillServiceRunResult>)method.Invoke(scheduler,
-                [run, services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault()])!;
+                [run, services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(), null])!;
         var firstTask = StartService(first);
         var secondTask = StartService(second);
         await daemon.RefreshRunsAsync(fixture.Session.Id);
@@ -547,7 +604,7 @@ public sealed class ScheduledPrefillRecoveryTests
         var task = (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
             .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(scheduler, [serviceRun, DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>(),
-                services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(), CancellationToken.None, true])!;
+                services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(), CancellationToken.None, true, null])!;
         await fixture.RefreshAsync();
         var run = fixture.Daemon.GetRun(fixture.Session.Id, serviceRun.OperationId)!;
         fixture.Client.Set(run, "completed", succeeded ? 100 : 0, succeeded ? "success" : "skipped");
@@ -597,7 +654,7 @@ public sealed class ScheduledPrefillRecoveryTests
         var task = (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
             .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(scheduler, [serviceRun, DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>(),
-                services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(), CancellationToken.None, true])!;
+                services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(), CancellationToken.None, true, null])!;
         await daemon.RefreshRunsAsync(fixture.Session.Id);
         var run = daemon.GetRun(fixture.Session.Id, serviceRun.OperationId)!;
 
@@ -633,7 +690,7 @@ public sealed class ScheduledPrefillRecoveryTests
         var task = (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
             .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(scheduler, [serviceRun, tracker, services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(),
-                CancellationToken.None, true])!;
+                CancellationToken.None, true, null])!;
         await daemon.RefreshRunsAsync(fixture.Session.Id);
         var run = daemon.GetRun(fixture.Session.Id, serviceRun.OperationId)!;
 
@@ -649,29 +706,37 @@ public sealed class ScheduledPrefillRecoveryTests
 
     /// <summary>
     /// A run that could not start because something it needs is missing ends red with its own reason; a
-    /// run that was only put off (the container is busy) ends skipped.
+    /// run that was only put off (the container is busy) ends skipped. "noContainer" is a Docker that answers
+    /// and lists no container; "noDocker" is a Docker that cannot be reached.
     /// </summary>
     [Theory]
     [InlineData(PrefillPlatform.Steam, "noDaemon", OperationStatus.Failed, "signalr.scheduledPrefill.skippedNoDaemon")]
     [InlineData(PrefillPlatform.Steam, "noContainer", OperationStatus.Failed, "signalr.scheduledPrefill.needsPersistentContainer")]
     [InlineData(PrefillPlatform.BattleNet, "noContainer", OperationStatus.Failed, "signalr.scheduledPrefill.skippedNoContainer")]
+    [InlineData(PrefillPlatform.Steam, "noDocker", OperationStatus.Failed, "errors.prefill.dockerUnavailable")]
+    [InlineData(PrefillPlatform.BattleNet, "noDocker", OperationStatus.Failed, "errors.prefill.dockerUnavailable")]
     [InlineData(PrefillPlatform.Steam, "loggedOut", OperationStatus.Failed, "signalr.scheduledPrefill.needsPersistentLogin")]
-    [InlineData(PrefillPlatform.BattleNet, "loggedOut", OperationStatus.Failed, "signalr.scheduledPrefill.skippedContainerNotReady")]
-    [InlineData(PrefillPlatform.Steam, "busy", OperationStatus.Skipped, "signalr.scheduledPrefill.skippedAlreadyRunning")]
     public async Task ARunThatCouldNotStartEndsByItsCauseAsync(
         PrefillPlatform platform, string cause, OperationStatus status, string stageKey)
     {
-        await using var fixture = await RunFixture.CreateAsync(persistent: cause != "noContainer");
+        await using var fixture = await RunFixture.CreateAsync(persistent: cause is not ("noContainer" or "noDocker"));
         var serviceType = platform == PrefillPlatform.Steam ? typeof(SteamDaemonService) : typeof(BattleNetDaemonService);
         var registered = new ServiceCollection();
-        if (cause != "noDaemon") registered.AddSingleton(serviceType, CreateDaemon(fixture, platform));
+        if (cause != "noDaemon")
+        {
+            var daemon = CreateDaemon(fixture, platform);
+            if (cause == "noContainer")
+            {
+                typeof(PrefillDaemonServiceBase).GetField("_containerGateway", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .SetValue(daemon, new RecordingContainerGateway());
+            }
+            registered.AddSingleton(serviceType, daemon);
+        }
         using var services = registered.BuildServiceProvider();
         using var scheduler = CreateScheduler(services);
-        // Without concurrent-run support the run takes the single-container gates: the daemon's status
-        // says whether the container is signed in, and its session says whether it is already prefilling.
-        fixture.Session.Capabilities = null;
-        fixture.Client.Status = new DaemonStatus { Status = cause == "loggedOut" ? "awaiting-login" : "logged-in" };
-        fixture.Session.IsPrefilling = cause == "busy";
+        // The daemon's status says whether the container is signed in.
+        fixture.Client.Status = RunClient.Capabilities(fixture.Client.InstanceId);
+        fixture.Client.Status.Status = cause == "loggedOut" ? "awaiting-login" : "logged-in";
         var run = MakeRun("20", platform: platform);
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         Assert.True(tracker.TryRestoreOperation(run.OperationId, OperationType.ScheduledPrefill, run.State.Name,
@@ -680,10 +745,191 @@ public sealed class ScheduledPrefillRecoveryTests
         await (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
             .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(scheduler, [run, tracker, services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(),
-                CancellationToken.None, true])!;
+                CancellationToken.None, true, null])!;
 
         Assert.Equal(status, tracker.GetOperation(run.OperationId)!.Status);
         Assert.Equal(stageKey, run.State.Snapshot.StageKey);
+    }
+
+    // ---------- A Stop that ends the session under a scheduled run ----------
+    // A Stop or an image update takes the session out of the daemon before its teardown runs. A run that
+    // meets the ended session ends with the no-container reason, not as a failed daemon command.
+
+    [Theory]
+    [InlineData(PrefillPlatform.Steam, true)]
+    [InlineData(PrefillPlatform.Steam, false)]
+    [InlineData(PrefillPlatform.BattleNet, true)]
+    [InlineData(PrefillPlatform.BattleNet, false)]
+    public async Task ARunDoesNotTakeATickSessionThatAStopEndedAsync(PrefillPlatform platform, bool concurrent)
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = DaemonWithNoContainer(fixture, platform, out var daemon);
+        using var scheduler = CreateScheduler(services);
+        if (!concurrent)
+        {
+            fixture.Session.Capabilities = null;
+            fixture.Client.Status = new DaemonStatus { Status = "logged-in" };
+        }
+        var tickAdopt = Task.FromResult<DaemonSession?>(fixture.Session);
+        EndSession(daemon, fixture.Session);
+        var run = MakeRun("20", platform: platform);
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        Assert.True(tracker.TryRestoreOperation(run.OperationId, OperationType.ScheduledPrefill, run.State.Name,
+            new CancellationTokenSource(), run.State));
+
+        var result = await (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
+            .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(scheduler, [run, tracker, services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(),
+                CancellationToken.None, true, tickAdopt])!;
+
+        AssertNoContainerEnding(platform, result, run);
+        Assert.Equal(OperationStatus.Failed, tracker.GetOperation(run.OperationId)!.Status);
+        Assert.Equal(0, fixture.Client.StartCount);
+    }
+
+    [Fact]
+    public async Task AStopDuringARunsStatusReadEndsItWithNoContainerAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = DaemonWithNoContainer(fixture, PrefillPlatform.Steam, out var daemon);
+        using var scheduler = CreateScheduler(services);
+        fixture.Client.StatusRead = () =>
+        {
+            EndSession(daemon, fixture.Session);
+            return Task.FromResult<DaemonStatus?>(null);
+        };
+        var run = MakeRun("20");
+
+        var result = await StartGatedRun(scheduler, services, run, new CancellationTokenSource());
+
+        AssertNoContainerEnding(PrefillPlatform.Steam, result, run);
+        Assert.Equal(0, fixture.Client.StartCount);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AStopDuringAnOlderDaemonsStatusReadEndsItWithNoContainerAsync(bool answers)
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = DaemonWithNoContainer(fixture, PrefillPlatform.BattleNet, out var daemon);
+        using var scheduler = CreateScheduler(services);
+        fixture.Session.Capabilities = null;
+        fixture.Client.StatusRead = () =>
+        {
+            EndSession(daemon, fixture.Session);
+            return Task.FromResult<DaemonStatus?>(answers ? new DaemonStatus { Status = "logged-in" } : null);
+        };
+        var run = MakeRun("20", platform: PrefillPlatform.BattleNet);
+
+        var result = await StartGatedRun(scheduler, services, run, new CancellationTokenSource());
+
+        AssertNoContainerEnding(PrefillPlatform.BattleNet, result, run);
+        Assert.Equal(0, fixture.Client.StartCount);
+    }
+
+    [Fact]
+    public async Task AStopAfterTheDaemonAcceptedTheRunEndsItWithNoContainerAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = DaemonWithNoContainer(fixture, PrefillPlatform.BattleNet, out var daemon);
+        using var scheduler = CreateScheduler(services);
+        var client =DispatchProxy.Create<IDaemonClient, StopOnPrefillClient>();
+        var stopping = (StopOnPrefillClient)(object)client;
+        stopping.InstanceId = fixture.Client.InstanceId;
+        stopping.OnPrefill = () => EndSession(daemon, fixture.Session);
+        fixture.Session.Client = client;
+        var run = MakeRun("20", platform: PrefillPlatform.BattleNet);
+
+        var result = await StartGatedRun(scheduler, services, run, new CancellationTokenSource());
+
+        AssertNoContainerEnding(PrefillPlatform.BattleNet, result, run);
+        Assert.Equal(1, stopping.StartCount);
+    }
+
+    // A person's Start replaces an errored session without the change gate, so it can land inside the
+    // older daemon's status read. The new container is being created, so the run is skipped as busy.
+    [Fact]
+    public async Task AnOlderDaemonsStatusReadThatAStartReplacedTheSessionDuringIsSkippedAsBusyAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = DaemonWithNoContainer(fixture, PrefillPlatform.Steam, out var daemon);
+        using var scheduler = CreateScheduler(services);
+        fixture.Session.Capabilities = null;
+        var reads = 0;
+        fixture.Client.StatusRead = () =>
+        {
+            if (++reads == 2) ReplaceSession(daemon, fixture.Session);
+            return Task.FromResult<DaemonStatus?>(null);
+        };
+        var run = MakeRun("20");
+
+        var result = await StartGatedRun(scheduler, services, run, new CancellationTokenSource());
+
+        Assert.Equal(2, reads);
+        AssertBusyEnding(result, run);
+        Assert.Equal(0, fixture.Client.StartCount);
+    }
+
+    // An image update ends the session and starts the new container itself, so the run that met the
+    // ended session is skipped as busy and retried, not told to start a container.
+    [Fact]
+    public async Task ARunWhoseSessionAnImageUpdateReplacedIsSkippedAsBusyAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = DaemonWithNoContainer(fixture, PrefillPlatform.Steam, out var daemon);
+        using var scheduler = CreateScheduler(services);
+        fixture.Client.StatusRead = () =>
+        {
+            ReplaceSession(daemon, fixture.Session);
+            return Task.FromResult<DaemonStatus?>(RunClient.Capabilities(fixture.Client.InstanceId));
+        };
+        var run = MakeRun("20");
+
+        var result = await StartGatedRun(scheduler, services, run, new CancellationTokenSource());
+
+        AssertBusyEnding(result, run);
+        Assert.Equal(0, fixture.Client.StartCount);
+    }
+
+    // A live session whose admission an image update has closed refuses the run before adding it.
+    [Fact]
+    public async Task ARunRefusedWhileAnImageUpdateHoldsAdmissionIsSkippedAsBusyAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = DaemonWithNoContainer(fixture, PrefillPlatform.Steam, out _);
+        using var scheduler = CreateScheduler(services);
+        fixture.Session.AdmissionClosed = true;
+        var run = MakeRun("20");
+
+        var result = await StartGatedRun(scheduler, services, run, new CancellationTokenSource());
+
+        AssertBusyEnding(result, run);
+        Assert.Equal(0, fixture.Client.StartCount);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AnOlderDaemonsSessionThatEndedBeforeTheChangeLeaseEndsWithAKeyAsync(bool replaced)
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        using var services = DaemonWithNoContainer(fixture, PrefillPlatform.Steam, out var daemon);
+        using var scheduler = CreateScheduler(services);
+        fixture.Session.Capabilities = null;
+        fixture.Client.StatusRead = () =>
+        {
+            if (replaced) ReplaceSession(daemon, fixture.Session);
+            else EndSession(daemon, fixture.Session);
+            return Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = "logged-in" });
+        };
+        var run = MakeRun("20");
+
+        var result = await StartGatedRun(scheduler, services, run, new CancellationTokenSource());
+
+        if (replaced) AssertBusyEnding(result, run);
+        else AssertNoContainerEnding(PrefillPlatform.Steam, result, run);
+        Assert.Equal(0, fixture.Client.StartCount);
     }
 
     // ---------- Scheduled Steam run after a dropped sign-in ----------
@@ -801,26 +1047,6 @@ public sealed class ScheduledPrefillRecoveryTests
         var result = StartGatedRun(scheduler, services, serviceRun, cancel);
 
         Assert.Equal(ScheduledPrefillServiceRunResult.Cancelled, await result.WaitAsync(TimeSpan.FromSeconds(5)));
-    }
-
-    [Fact]
-    public async Task AScheduledRunOnAnotherPlatformStartsNoSignInAsync()
-    {
-        await using var fixture = await RunFixture.CreateAsync(persistent: true);
-        using var services = new ServiceCollection()
-            .AddSingleton(typeof(BattleNetDaemonService), CreateDaemon(fixture, PrefillPlatform.BattleNet))
-            .BuildServiceProvider();
-        using var scheduler = CreateScheduler(services);
-        fixture.Session.AuthState = DaemonAuthState.NotAuthenticated;
-        fixture.Session.Capabilities = null;
-        fixture.Client.Status = new DaemonStatus { Status = "awaiting-login", ErrorCode = "auth-lost" };
-        var serviceRun = MakeRun("20", platform: PrefillPlatform.BattleNet);
-
-        var result = StartGatedRun(scheduler, services, serviceRun, new CancellationTokenSource());
-        await result.WaitAsync(TimeSpan.FromSeconds(5));
-
-        Assert.Equal(0, fixture.Client.StartLoginCalls);
-        Assert.Equal("signalr.scheduledPrefill.skippedContainerNotReady", serviceRun.State.Snapshot.StageKey);
     }
 
     [Fact]
@@ -1192,6 +1418,56 @@ public sealed class ScheduledPrefillRecoveryTests
         return daemon;
     }
 
+    // One platform's daemon over the fixture's session, with a Docker that answers and lists no container.
+    private static ServiceProvider DaemonWithNoContainer(
+        RunFixture fixture, PrefillPlatform platform, out PrefillDaemonServiceBase daemon)
+    {
+        daemon = CreateDaemon(fixture, platform);
+        typeof(PrefillDaemonServiceBase).GetField("_containerGateway", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(daemon, new RecordingContainerGateway());
+        var serviceType = platform == PrefillPlatform.Steam ? typeof(SteamDaemonService) : typeof(BattleNetDaemonService);
+        return new ServiceCollection().AddSingleton(serviceType, daemon).BuildServiceProvider();
+    }
+
+    // A Stop or an image update takes the session out of the daemon before its teardown starts.
+    private static void EndSession(PrefillDaemonServiceBase daemon, DaemonSession session)
+        => ((ConcurrentDictionary<string, DaemonSession>)typeof(PrefillDaemonServiceBase)
+            .GetField("_sessions", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(daemon)!)
+            .TryRemove(session.Id, out _);
+
+    // An image update ends the old session and registers the new container's session.
+    private static void ReplaceSession(PrefillDaemonServiceBase daemon, DaemonSession session)
+    {
+        EndSession(daemon, session);
+        var replacement = new DaemonSession
+        {
+            Id = Guid.NewGuid().ToString(),
+            UserId = session.UserId,
+            IsPersistent = true,
+            Status = DaemonSessionStatus.Active,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddHours(1)
+        };
+        ((ConcurrentDictionary<string, DaemonSession>)typeof(PrefillDaemonServiceBase)
+            .GetField("_sessions", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(daemon)!)[replacement.Id] = replacement;
+    }
+
+    private static void AssertBusyEnding(ScheduledPrefillServiceRunResult result, ScheduledPrefillServiceRun run)
+    {
+        Assert.Equal(ScheduledPrefillServiceRunResult.Skipped, result);
+        Assert.Equal("signalr.scheduledPrefill.skippedContainerBusy", run.State.Snapshot.StageKey);
+    }
+
+    private static void AssertNoContainerEnding(PrefillPlatform platform, ScheduledPrefillServiceRunResult result,
+        ScheduledPrefillServiceRun run)
+    {
+        Assert.Equal(platform == PrefillPlatform.Steam
+            ? ScheduledPrefillServiceRunResult.NeedsLogin : ScheduledPrefillServiceRunResult.Unavailable, result);
+        Assert.Equal(platform == PrefillPlatform.Steam
+            ? "signalr.scheduledPrefill.needsPersistentContainer" : "signalr.scheduledPrefill.skippedNoContainer",
+            run.State.Snapshot.StageKey);
+    }
+
     private static Task<ScheduledPrefillServiceRunResult> Start(ScheduledPrefillService scheduler, RunFixture fixture,
         ScheduledPrefillServiceRun run)
         => (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
@@ -1261,7 +1537,7 @@ public sealed class ScheduledPrefillRecoveryTests
         return (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
             .GetMethod("RunAndStampServiceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(scheduler, [run, tracker, services, Notifications(), ScheduledPrefillConfigFactory.CreateDefault(),
-                CancellationToken.None, true])!;
+                CancellationToken.None, true, null])!;
     }
 
     private static void Restore(ScheduledPrefillService scheduler, ScheduledPrefillConfigDto config)
@@ -1272,6 +1548,18 @@ public sealed class ScheduledPrefillRecoveryTests
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         while (!predicate()) await Task.Delay(10, timeout.Token);
+    }
+}
+
+// A daemon that receives the prefill command while a Stop ends its session, then accepts the run.
+internal class StopOnPrefillClient : RunClient
+{
+    public Action OnPrefill { get; set; } = null!;
+
+    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+    {
+        if (targetMethod?.Name == nameof(IDaemonClient.PrefillAsync)) OnPrefill();
+        return base.Invoke(targetMethod, args);
     }
 }
 

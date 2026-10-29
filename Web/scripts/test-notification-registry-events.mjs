@@ -57,12 +57,30 @@ const evictionScanSteps = (locale) => {
     'signalr.evictionScan.scanning': evictionScan.scanning
   };
 };
+const interruptedByRestart = (locale) =>
+  JSON.parse(readFileSync(`src/i18n/locales/${locale}.json`, 'utf8')).signalr.generic
+    .interruptedByRestart;
+const genericCancelled = (locale) =>
+  JSON.parse(readFileSync(`src/i18n/locales/${locale}.json`, 'utf8')).signalr.generic.cancelled;
+const logProcessingFailures = (locale) => {
+  const { failed, failedForDatasource, failedForDatasourceWithError } = JSON.parse(
+    readFileSync(`src/i18n/locales/${locale}.json`, 'utf8')
+  ).signalr.logProcessing;
+  return {
+    'signalr.logProcessing.failed': failed,
+    'signalr.logProcessing.failedForDatasource': failedForDatasource,
+    'signalr.logProcessing.failedForDatasourceWithError': failedForDatasourceWithError
+  };
+};
 const loadLocalizedModules = async (locale) => {
   if (localizedModules.has(locale)) return localizedModules.get(locale);
   const messages =
     locale === 'zh'
       ? {
           ...evictionScanSteps('zh'),
+          ...logProcessingFailures('zh'),
+          'signalr.generic.interruptedByRestart': interruptedByRestart('zh'),
+          'signalr.generic.cancelled': genericCancelled('zh'),
           'signalr.logProcessing.progress': '处理中: {{mbProcessed}} MB / {{mbTotal}} MB',
           'signalr.logProcessing.progressSource':
             '{{datasourceName}}：处理中：{{mbProcessed}} MB / {{mbTotal}} MB',
@@ -72,6 +90,9 @@ const loadLocalizedModules = async (locale) => {
         }
       : {
           ...evictionScanSteps('en'),
+          ...logProcessingFailures('en'),
+          'signalr.generic.interruptedByRestart': interruptedByRestart('en'),
+          'signalr.generic.cancelled': genericCancelled('en'),
           'signalr.logProcessing.progress': 'Processing: {{mbProcessed}} MB of {{mbTotal}} MB',
           'signalr.logProcessing.progressSource':
             '{{datasourceName}}: Processing: {{mbProcessed}} MB of {{mbTotal}} MB',
@@ -417,7 +438,7 @@ test('the Steam auth refetch keeps its own SteamSessionError subscription', () =
   assert.match(source, /signalR\.off\('SteamSessionError', handleSteamSessionError\)/);
 });
 
-// ── The announcements and the toast bridge [18] ─────────────────────────────
+// ── The announcements and the toast bridge ─────────────────────────────
 
 test('a Steam session error is a red card that stays until closed, with no timer', () => {
   mock.timers.enable({ apis: ['setTimeout'] });
@@ -873,6 +894,179 @@ for (const status of ['completed', 'failed', 'cancelled']) {
       assert.equal(patch.message, sentences[status]);
       assert.equal(patch.error, status === 'failed' ? sentences.failed : undefined);
       assert.equal(patch.details.cancelled, status === 'cancelled' ? true : undefined);
+    });
+  }
+}
+
+for (const locale of ['en', 'zh']) {
+  test(`a terminal error sent as a key reads in ${locale}, not as the key`, async () => {
+    const localized = await loadLocalizedModules(locale);
+    const { patches, dispatchDetail } = recordPatches(undefined);
+    localized.buildCompleteHandler(
+      { type: 'cache_clearing' },
+      {},
+      dispatchDetail
+    )({
+      operationId: 'operation-1',
+      success: false,
+      status: 'failed',
+      error: 'signalr.generic.interruptedByRestart'
+    });
+    const [{ patch }] = patches;
+    const sentence = interruptedByRestart(locale);
+    assert.ok(sentence, `${locale}.json has signalr.generic.interruptedByRestart`);
+    assert.equal(patch.message, sentence);
+    assert.equal(patch.error, sentence);
+  });
+
+  test(`a log removal a restart cut short reads in ${locale}, not as the key`, async () => {
+    const localized = await loadLocalizedModules(locale);
+    const entry = localized.NOTIFICATION_REGISTRY.find(
+      (candidate) => candidate.type === 'log_removal'
+    );
+    const ending = (message) => {
+      const { patches, dispatchDetail } = recordPatches(undefined);
+      localized.buildCompleteHandler(
+        entry,
+        entry.complete,
+        dispatchDetail
+      )({
+        operationId: 'log-removal-1',
+        success: false,
+        status: 'failed',
+        cancelled: false,
+        service: 'steam',
+        message
+      });
+      return patches[0].patch;
+    };
+    // The log removal event carries its failure reason in message and has no error field.
+    const restarted = ending('signalr.generic.interruptedByRestart');
+    const sentence = interruptedByRestart(locale);
+    assert.ok(sentence, `${locale}.json has signalr.generic.interruptedByRestart`);
+    assert.equal(restarted.message, sentence);
+    assert.equal(restarted.error, sentence);
+    // A reason the server wrote as a sentence still reads as written.
+    const written = ending('The access.log file is read-only');
+    assert.equal(written.message, 'The access.log file is read-only');
+    assert.equal(written.error, 'The access.log file is read-only');
+  });
+
+  test(`a log processing run a restart cut short reads in ${locale}, as a reload shows it`, async () => {
+    const localized = await loadLocalizedModules(locale);
+    const entry = localized.NOTIFICATION_REGISTRY.find(
+      (candidate) => candidate.type === 'log_processing'
+    );
+    const ending = (message) => {
+      const { patches, dispatchDetail } = recordPatches(undefined);
+      localized.buildCompleteHandler(
+        entry,
+        entry.complete,
+        dispatchDetail
+      )({
+        operationId: 'log-processing-1',
+        success: false,
+        status: 'failed',
+        cancelled: false,
+        message,
+        entriesProcessed: 0,
+        linesProcessed: 0,
+        stageKey: null
+      });
+      return patches[0].patch;
+    };
+    // The log processing event carries its failure reason in message and has no error field.
+    const restarted = ending('signalr.generic.interruptedByRestart');
+    const sentence = interruptedByRestart(locale);
+    assert.ok(sentence, `${locale}.json has signalr.generic.interruptedByRestart`);
+    assert.equal(restarted.message, sentence);
+    assert.equal(restarted.error, sentence);
+    // A sentence the server composed reads as the generic failure line, as the reloaded card does.
+    const written = ending('Log processing failed with exit code 1');
+    assert.equal(written.message, 'signalr.generic.failed');
+    assert.equal(written.error, 'signalr.generic.failed');
+  });
+
+  test(`a log processing failure reads in ${locale} from the key and the values the server sends`, async () => {
+    const localized = await loadLocalizedModules(locale);
+    const entry = localized.NOTIFICATION_REGISTRY.find(
+      (candidate) => candidate.type === 'log_processing'
+    );
+    const texts = logProcessingFailures(locale);
+    const ending = (fields) => {
+      const { patches, dispatchDetail } = recordPatches(undefined);
+      localized.buildCompleteHandler(
+        entry,
+        entry.complete,
+        dispatchDetail
+      )({
+        operationId: 'log-processing-1',
+        success: false,
+        status: 'failed',
+        cancelled: false,
+        entriesProcessed: 0,
+        linesProcessed: 0,
+        stageKey: null,
+        ...fields
+      });
+      return patches[0].patch;
+    };
+    const plain = ending({ message: 'signalr.logProcessing.failed' });
+    assert.equal(plain.message, texts['signalr.logProcessing.failed']);
+    assert.equal(plain.error, texts['signalr.logProcessing.failed']);
+    const named = ending({
+      message: 'signalr.logProcessing.failedForDatasource',
+      datasource: 'alpha'
+    });
+    assert.equal(
+      named.message,
+      texts['signalr.logProcessing.failedForDatasource'].replace('{{datasource}}', 'alpha')
+    );
+    const withError = ending({
+      message: 'signalr.logProcessing.failedForDatasourceWithError',
+      datasource: 'alpha',
+      databaseError: 'pool timed out'
+    });
+    assert.equal(
+      withError.message,
+      texts['signalr.logProcessing.failedForDatasourceWithError']
+        .replace('{{datasource}}', 'alpha')
+        .replace('{{databaseError}}', 'pool timed out')
+    );
+    assert.equal(withError.error, withError.message);
+    // Values the sender left out never reach the person as a bare token.
+    const missing = ending({ message: 'signalr.logProcessing.failedForDatasourceWithError' });
+    assert.ok(!missing.message.includes('{{'));
+  });
+
+  for (const [type, eventPrefix, sentence] of [
+    ['log_processing', 'log-processing-1', 'Log processing was cancelled'],
+    ['log_removal', 'log-removal-1', 'Service removal for steam in access.log was cancelled']
+  ]) {
+    test(`a canceled ${type} run reads in ${locale}, not as the English sentence the server sends`, async () => {
+      const localized = await loadLocalizedModules(locale);
+      const entry = localized.NOTIFICATION_REGISTRY.find((candidate) => candidate.type === type);
+      const { patches, dispatchDetail } = recordPatches(undefined);
+      localized.buildCompleteHandler(
+        entry,
+        entry.complete,
+        dispatchDetail
+      )({
+        operationId: eventPrefix,
+        success: false,
+        status: 'cancelled',
+        cancelled: true,
+        service: 'steam',
+        message: sentence,
+        stageKey: 'signalr.logRemoval.removing',
+        context: { service: 'steam' }
+      });
+      const [{ patch }] = patches;
+      const text = genericCancelled(locale);
+      assert.ok(text, `${locale}.json has signalr.generic.cancelled`);
+      assert.equal(patch.message, text);
+      assert.equal(patch.error, undefined);
+      assert.equal(patch.details.cancelled, true);
     });
   }
 }

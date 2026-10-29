@@ -259,7 +259,7 @@ public class GameImagesController : ControllerBase
         // returns Steam's header for them. The row deciding whether to draw a banner asks by slug, so
         // a slug missing here reads as "no artwork" for a game whose banner the server would serve
         // perfectly well - which is what left Minecraft Dungeons blank while its Steam id was
-        // advertised all along. Only slugs whose Steam header is actually stored qualify. [50]
+        // advertised all along. Only slugs whose Steam header is actually stored qualify.
         foreach (var (service, slug, steamAppId) in NameKeyedSteamAppIds.SteamBackedSlugs())
         {
             if (images.ContainsKey(slug))
@@ -333,7 +333,7 @@ public class GameImagesController : ControllerBase
             // runs a pass of its own, with the Epic URL refresh, once the conflict clears.
             if (conflict != null)
             {
-                // The waiting click is drawn in the image fetch schedule's mode, as the run it starts is. [104]
+                // The waiting click is drawn in the image fetch schedule's mode, as the run it starts is.
                 return Accepted(await _operationQueue.EnqueueAsync(
                     OperationType.GameImageFetch, ConflictScope.Bulk(), "Game Image Fetch",
                     StartImageFetchAsync, cancellationToken,

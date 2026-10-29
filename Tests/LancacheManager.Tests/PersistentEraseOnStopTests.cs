@@ -3,11 +3,14 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -89,7 +92,7 @@ public class PersistentEraseOnStopTests
         var client = new ScriptedLogoutDaemonClient(succeeds: true);
         var (daemon, session) = CreateSessionWithClient(client, isPersistent: true);
 
-        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false);
+        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false, startupReadopt: false);
 
         Assert.Equal(1, client.LogoutCallCount);
     }
@@ -100,7 +103,7 @@ public class PersistentEraseOnStopTests
         var client = new ScriptedLogoutDaemonClient(succeeds: true);
         var (daemon, session) = CreateSessionWithClient(client, isPersistent: true);
 
-        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: true);
+        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: true, startupReadopt: false);
 
         Assert.Equal(0, client.LogoutCallCount);
     }
@@ -111,7 +114,7 @@ public class PersistentEraseOnStopTests
         var client = new ScriptedLogoutDaemonClient(succeeds: true);
         var (daemon, session) = CreateSessionWithClient(client, isPersistent: false);
 
-        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: false, isReconnect: false);
+        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: false, isReconnect: false, startupReadopt: false);
 
         Assert.Equal(0, client.LogoutCallCount);
     }
@@ -123,7 +126,7 @@ public class PersistentEraseOnStopTests
         var (daemon, session) = CreateSessionWithClient(client, isPersistent: true);
 
         // A dead socket on a fresh container must never block session creation from returning.
-        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false);
+        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false, startupReadopt: false);
     }
 
     [Fact]
@@ -208,6 +211,111 @@ public class PersistentEraseOnStopTests
         Assert.Throws<ObjectDisposedException>(() => _ = cts.Token); // CTS was disposed
     }
 
+    [Theory]
+    [InlineData(PersistenceMode.KillOnRestart)]
+    [InlineData(PersistenceMode.KeepAcrossRestart)]
+    [InlineData(PersistenceMode.FullPersistence)]
+    public async Task StopAsync_DaemonThatNeverAnswers_FitsInDockersStopTime(PersistenceMode mode)
+    {
+        const string containerId = "unanswered-container-id";
+        var gateway = new RecordingContainerGateway();
+        gateway.AddContainer(new FakeContainer { Id = containerId, Name = "steam-daemon-persistent", Running = true });
+        // The logout and the daemon shutdown each wait until their token ends.
+        var client = new FakeReconnectDaemonClient
+        {
+            LogoutHandler = async cancellationToken =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return true;
+            },
+            ShutdownHandler = cancellationToken => Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
+        };
+        var (daemon, session, sessionService, _) =
+            CreateModeAwareDaemon(client, isPersistent: true, CreateConfigStateService(mode), containerGateway: gateway);
+        session.ContainerId = containerId;
+        await SeedSessionRowAsync(sessionService, session);
+
+        // The host starts the stop budget when the stop begins, before it reaches any service.
+        PrefillDaemonServiceBase.BeginStopBudget([daemon]);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await daemon.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(40));
+        stopwatch.Stop();
+
+        // Docker kills the app 10 s after it asks it to stop; the logout and the daemon shutdown must end well before that.
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(9), $"The stop took {stopwatch.Elapsed.TotalSeconds:F1} s.");
+        Assert.Null(daemon.GetSession(session.Id));
+        if (mode == PersistenceMode.KillOnRestart)
+        {
+            Assert.Equal(1, client.LogoutCount);
+            Assert.Contains(gateway.Calls, call => call == $"Remove:{containerId}");
+            Assert.Equal(PrefillSessionStatus.Terminated, (await sessionService.GetSessionAsync(session.Id))!.Status);
+        }
+        else
+        {
+            Assert.Equal(0, client.LogoutCount);
+            Assert.Equal(0, gateway.DestructiveCallCount);
+            Assert.Equal(PrefillSessionStatus.Active, (await sessionService.GetSessionAsync(session.Id))!.Status);
+        }
+    }
+
+    [Theory]
+    [InlineData(PersistenceMode.KillOnRestart)]
+    [InlineData(PersistenceMode.KeepAcrossRestart)]
+    [InlineData(PersistenceMode.FullPersistence)]
+    public async Task StopAsync_TwoDaemons_FitInDockersStopTime(PersistenceMode mode)
+    {
+        // Neither daemon answers a logout or a shutdown.
+        FakeReconnectDaemonClient NewUnansweringClient() => new()
+        {
+            LogoutHandler = async cancellationToken =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return true;
+            },
+            ShutdownHandler = cancellationToken => Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
+        };
+        var firstClient = NewUnansweringClient();
+        var secondClient = NewUnansweringClient();
+        var firstGateway = new RecordingContainerGateway();
+        firstGateway.AddContainer(new FakeContainer { Id = "first-container", Name = "steam-daemon-persistent", Running = true });
+        var secondGateway = new RecordingContainerGateway();
+        secondGateway.AddContainer(new FakeContainer { Id = "second-container", Name = "steam-daemon-persistent", Running = true });
+        var (first, firstSession, firstSessions, _) =
+            CreateModeAwareDaemon(firstClient, isPersistent: true, CreateConfigStateService(mode), containerGateway: firstGateway);
+        firstSession.ContainerId = "first-container";
+        firstSession.AuthState = DaemonAuthState.Authenticated;
+        await SeedSessionRowAsync(firstSessions, firstSession);
+        var (second, secondSession, secondSessions, _) =
+            CreateModeAwareDaemon(secondClient, isPersistent: true, CreateConfigStateService(mode), containerGateway: secondGateway);
+        secondSession.ContainerId = "second-container";
+        await SeedSessionRowAsync(secondSessions, secondSession);
+
+        // The host stops the daemon registered later, then the one registered first.
+        PrefillDaemonServiceBase.BeginStopBudget(new IHostedService[] { second, first });
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        await second.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(40));
+        await first.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(40));
+        stopwatch.Stop();
+
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(9), $"The stop took {stopwatch.Elapsed.TotalSeconds:F1} s.");
+        Assert.Null(first.GetSession(firstSession.Id));
+        Assert.Null(second.GetSession(secondSession.Id));
+        if (mode == PersistenceMode.KillOnRestart)
+        {
+            Assert.Equal(1, firstClient.LogoutCount);
+            Assert.Equal(1, secondClient.LogoutCount);
+            Assert.Contains(firstGateway.Calls, call => call == "Remove:first-container");
+            Assert.Contains(secondGateway.Calls, call => call == "Remove:second-container");
+        }
+        else
+        {
+            Assert.Equal(0, firstClient.LogoutCount);
+            Assert.Equal(0, secondClient.LogoutCount);
+            Assert.Equal(0, firstGateway.DestructiveCallCount);
+            Assert.Equal(0, secondGateway.DestructiveCallCount);
+        }
+    }
+
     [Fact]
     public async Task StopAsync_NullConfig_TerminatesAsKillOnRestartWithWarning()
     {
@@ -239,7 +347,7 @@ public class PersistentEraseOnStopTests
         var (daemon, session, _, _) =
             CreateModeAwareDaemon(client, isPersistent: true, CreateConfigStateService(PersistenceMode.FullPersistence));
 
-        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false, involuntaryRecreate: true);
+        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false, startupReadopt: false, involuntaryRecreate: true);
 
         Assert.Equal(0, client.LogoutCallCount); // explicit involuntary recreate preserves the volume login
     }
@@ -254,7 +362,7 @@ public class PersistentEraseOnStopTests
             CreateModeAwareDaemon(client, isPersistent: true, CreateConfigStateService(PersistenceMode.FullPersistence));
         await SeedPriorPersistentRowAsync(sessionService, priorStatus);
 
-        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false);
+        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false, startupReadopt: false);
 
         Assert.Equal(0, client.LogoutCallCount); // last life ended involuntarily -> preserve the login
     }
@@ -269,7 +377,7 @@ public class PersistentEraseOnStopTests
             CreateModeAwareDaemon(client, isPersistent: true, CreateConfigStateService(PersistenceMode.FullPersistence));
         await SeedPriorPersistentRowAsync(sessionService, PrefillSessionStatus.Terminated);
 
-        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false);
+        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false, startupReadopt: false);
 
         Assert.Equal(1, client.LogoutCallCount);
     }
@@ -281,7 +389,7 @@ public class PersistentEraseOnStopTests
         var (daemon, session, _, _) =
             CreateModeAwareDaemon(client, isPersistent: true, CreateConfigStateService(PersistenceMode.FullPersistence));
 
-        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false);
+        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false, startupReadopt: false);
 
         Assert.Equal(1, client.LogoutCallCount); // no evidence of involuntary death -> safe-default erase
     }
@@ -296,7 +404,7 @@ public class PersistentEraseOnStopTests
             CreateModeAwareDaemon(client, isPersistent: true, CreateConfigStateService(mode));
         await SeedPriorPersistentRowAsync(sessionService, PrefillSessionStatus.Orphaned);
 
-        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false);
+        await daemon.ApplyFreshPersistentLoginGuardAsync(session, isPersistent: true, isReconnect: false, startupReadopt: false);
 
         Assert.Equal(1, client.LogoutCallCount); // only FullPersistence ever preserves; others always erase
     }
@@ -348,7 +456,7 @@ public class PersistentEraseOnStopTests
         Assert.Null(daemon.GetSession(session.Id));
 
         // Without the guard this authenticated-status event would broadcast an auth-state change.
-        await InvokePrivateHandlerAsync(daemon, "OnStatusChangeAsync", session, new DaemonStatus { Status = "logged-in" });
+        await InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session, new DaemonStatus { Status = "logged-in" }, null);
 
         Assert.Equal(0, notifications.InvocationCount);
     }
@@ -798,39 +906,6 @@ public class PersistentEraseOnStopTests
         Assert.Equal(0, notifications.InvocationCount); // hub mirror fenced after the subscriber fan-out
     }
 
-    [Fact]
-    public async Task NotifyPrefillProgressAsync_TerminalState_SessionTornDown_FiresNoBroadcasts()
-    {
-        var (daemon, _, _, notifications) = CreateModeAwareDaemon(
-            new RecordingDaemonClient(), isPersistent: true, CreateConfigStateService(PersistenceMode.KeepAcrossRestart));
-        var deadSession = BuildDeadSession();
-        deadSession.IsPrefilling = true;
-        deadSession.CurrentAppId = "440";
-        deadSession.CurrentAppName = "TF2"; // match progress so appInfoChanged is false (skip the accepted-unfenced app transition)
-        deadSession.PrefillState = PrefillState.Downloading;
-        var progress = new PrefillProgress { State = "completed", CurrentAppId = "440", CurrentAppName = "TF2" };
-
-        await InvokePrivateHandlerAsync(daemon, "NotifyPrefillProgressAsync", deadSession, progress);
-
-        Assert.Equal(0, notifications.InvocationCount);                     // history + terminal broadcasts fenced
-        Assert.NotEqual(PrefillState.Completed, deadSession.PrefillState);  // terminal transition never ran
-    }
-
-    [Fact]
-    public async Task NotifyPrefillProgressAsync_AppCompleted_SessionTornDown_FiresNoBroadcasts()
-    {
-        var (daemon, _, _, notifications) = CreateModeAwareDaemon(
-            new RecordingDaemonClient(), isPersistent: true, CreateConfigStateService(PersistenceMode.KeepAcrossRestart));
-        var deadSession = BuildDeadSession();
-        deadSession.CurrentAppId = "440";
-        deadSession.CurrentAppName = "TF2"; // match progress so appInfoChanged is false (skip the accepted-unfenced app transition)
-        var progress = new PrefillProgress { State = "app_completed", CurrentAppId = "440", CurrentAppName = "TF2", Result = "Success" };
-
-        await InvokePrivateHandlerAsync(daemon, "NotifyPrefillProgressAsync", deadSession, progress);
-
-        Assert.Equal(0, notifications.InvocationCount); // app-completed history + progress broadcasts fenced
-    }
-
     // A session that is NOT registered in _sessions - it has been torn down, or a fire-and-forget callback
     // escaped the bounded teardown drain. IsSessionLive returns false for it, so every post-await fence in the
     // notification funnels must short-circuit before any durable write / broadcast. No subscribers, so a
@@ -933,7 +1008,7 @@ public class PersistentEraseOnStopTests
         // Real in-memory DB row so a detach can be proven to LEAVE it Active while a terminate flips it
         // to Terminated. Container id/name are placeholders (no Docker in this harness).
         await sessionService.CreateSessionAsync(
-            session.Id, session.UserId, $"container-{session.Id}", $"name-{session.Id}", session.ExpiresAt, "Steam");
+            session.Id, session.UserId, $"container-{session.Id}", $"name-{session.Id}", session.ExpiresAt, DateTime.UtcNow, "Steam");
     }
 
     private static IStateService CreateNullStateService()
@@ -957,7 +1032,7 @@ public class PersistentEraseOnStopTests
         var priorId = Guid.NewGuid().ToString("N")[..16];
         await sessionService.CreateSessionAsync(
             priorId, ScheduledPrefillConstants.DeriveSystemUserId(), $"container-{priorId}", "steam-daemon-persistent",
-            DateTime.UtcNow.AddDays(30), "Steam");
+            DateTime.UtcNow.AddDays(30), DateTime.UtcNow, "Steam");
 
         switch (status)
         {
@@ -1006,7 +1081,7 @@ public class PersistentEraseOnStopTests
         };
     }
 
-    // Invokes a private daemon event handler (OnStatusChangeAsync / OnProgressChangeAsync) directly, so a
+    // Invokes a private daemon event handler (ApplyStatusAsync / OnProgressChangeAsync) directly, so a
     // test can prove the post-detach guard early-returns for a session no longer in _sessions. Production
     // wires these off the socket read loop, which a session-injection harness bypasses.
     // Flips the private volatile _stopping flag so a test can pin "host shutdown has begun" deterministically

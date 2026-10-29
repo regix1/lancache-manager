@@ -281,7 +281,7 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
 
     /// <summary>Never constructed: the sign-in harness builds the service uninitialized, so the base arguments are unused.</summary>
     private sealed class ExpiredPhoneApprovalService()
-        : SteamKit2Service(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!)
+        : SteamKit2Service(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!)
     {
         internal override Task<CredentialsAuthPollOutcome> PollCredentialsAuthAsync(
             string username, string password, string? twoFactorCode, string? emailCode,

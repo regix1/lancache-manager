@@ -349,7 +349,8 @@ public sealed class SteamAuthStatusTests
                 Proxy<ISignalRNotificationService>(),
                 webApi,
                 storage,
-                Proxy<IUnifiedOperationTracker>());
+                Proxy<IUnifiedOperationTracker>(),
+                null!);
         }
 
         public SteamAuthController NewController(SteamKit2Service steamKit, StateService state)

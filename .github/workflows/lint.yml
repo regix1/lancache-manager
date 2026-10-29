@@ -88,7 +88,9 @@ jobs:
 
     # Same credentials as the backend job above: db.rs defaults to the lancache/lancache
     # pair when no DATABASE_URL is set, and the test step below points at this service
-    # using that same pair.
+    # using that same pair. The database tests skip unless LANCACHE_TEST_DATABASE_URL is set,
+    # so the test step sets it to this service; each test creates its own schema in that
+    # database.
     services:
       postgres:
         image: postgres:17
@@ -117,3 +119,4 @@ jobs:
         run: cargo test --no-fail-fast
         env:
           DATABASE_URL: postgres://lancache:lancache@127.0.0.1:5432/lancache
+          LANCACHE_TEST_DATABASE_URL: postgres://lancache:lancache@127.0.0.1:5432/lancache

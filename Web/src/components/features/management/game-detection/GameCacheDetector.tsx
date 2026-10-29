@@ -193,6 +193,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [countAttempt, setCountAttempt] = useState(0);
   const [unmappedRemovalError, setUnmappedRemovalError] = useState<string | null>(null);
   const [unmappedRemoving, setUnmappedRemoving] = useState(false);
+  // The game and service removal dialogs: the request in flight, and why the server refused it.
+  const [removalConfirming, setRemovalConfirming] = useState(false);
+  const [removalError, setRemovalError] = useState<string | null>(null);
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [scanType, setScanType] = useState<'full' | 'incremental' | 'load' | null>(null);
   const datasources = config.dataSources;
@@ -622,22 +625,35 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       });
       return;
     }
+    setRemovalError(null);
     setGameToRemove(game);
   };
 
+  // The dialog closes only once the server accepts the removal; a refusal stays inside it with its
+  // reason, and the removal's card shows the progress from there.
   const confirmRemoval = async () => {
-    if (!gameToRemove) return;
+    if (!gameToRemove || removalConfirming) return;
 
-    // Close modal immediately - progress shown via notifications
     const game = gameToRemove;
-    setGameToRemove(null);
-    await runTrackedGameRemoval({
-      game,
-      notifyError,
-      t,
-      scheduleRemovalRefresh,
-      onDataRefresh
-    });
+    let refused = false;
+    setRemovalConfirming(true);
+    try {
+      await runTrackedGameRemoval({
+        game,
+        notifyError: (_message: string, err?: unknown) => {
+          refused = true;
+          setRemovalError(getErrorMessage(err));
+        },
+        t,
+        scheduleRemovalRefresh,
+        onDataRefresh
+      });
+    } finally {
+      setRemovalConfirming(false);
+    }
+    if (!refused) {
+      setGameToRemove((current) => (current === game ? null : current));
+    }
   };
 
   const handleServiceRemoveClick = (service: ServiceCacheInfo) => {
@@ -650,6 +666,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       });
       return;
     }
+    setRemovalError(null);
     setServiceToRemove(service);
   };
 
@@ -720,11 +737,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           setCacheFileBytes(status.bytesFound);
           setCountedUnmappedServices(status.unmappedServices ?? []);
         } else {
+          // A failed count answers with its reason key; the last progress key is not a reason.
+          setCountStage(
+            status.stageKey ? { key: status.stageKey, context: status.context ?? {} } : null
+          );
           setCountFailed(true);
         }
       } catch (err) {
         console.error('[GameCacheDetector] Cache file count failed:', err);
         if (!stopped) {
+          setCountStage(null);
           setCountFailed(true);
         }
       }
@@ -760,6 +782,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       (err: unknown) => {
         console.error('[GameCacheDetector] Could not start the cache file count:', err);
         if (!stopped) {
+          setCountStage(null);
           setCountFailed(true);
         }
       }
@@ -776,9 +799,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   // Translated at render rather than inside the effect, so switching language cannot restart a
   // walk that has been running for minutes.
-  const countStatusMessage = countFailed
-    ? t('modals.cacheRemoval.countFailed')
-    : translateRecoveryStage(countStage?.key, countStage?.context, 'modals.cacheRemoval.counting');
+  const countStatusMessage = translateRecoveryStage(
+    countStage?.key,
+    countStage?.context,
+    countFailed ? 'modals.cacheRemoval.countFailed' : 'modals.cacheRemoval.counting'
+  );
 
   // The caps are the figures the person just read, so the server deletes nothing beyond them. The
   // dialog closes only when the server accepts; a refusal stays inside it with its reason.
@@ -797,18 +822,28 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   };
 
   const confirmServiceRemoval = async () => {
-    if (!serviceToRemove) return;
+    if (!serviceToRemove || removalConfirming) return;
 
-    // Close modal immediately - progress shown via notifications
     const service = serviceToRemove;
-    setServiceToRemove(null);
-    await runTrackedServiceRemoval({
-      service,
-      notifyError,
-      t,
-      scheduleRemovalRefresh,
-      onDataRefresh
-    });
+    let refused = false;
+    setRemovalConfirming(true);
+    try {
+      await runTrackedServiceRemoval({
+        service,
+        notifyError: (_message: string, err?: unknown) => {
+          refused = true;
+          setRemovalError(getErrorMessage(err));
+        },
+        t,
+        scheduleRemovalRefresh,
+        onDataRefresh
+      });
+    } finally {
+      setRemovalConfirming(false);
+    }
+    if (!refused) {
+      setServiceToRemove((current) => (current === service ? null : current));
+    }
   };
 
   // Expand/Collapse all handler
@@ -1446,6 +1481,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         target={gameToRemove ? { type: 'game', data: gameToRemove } : null}
         onClose={() => setGameToRemove(null)}
         onConfirm={confirmRemoval}
+        onRetry={countFailed ? () => setCountAttempt(countAttempt + 1) : undefined}
         fileCount={cacheFileCount ?? undefined}
         fileBytes={cacheFileBytes}
         statusMessage={countStatusMessage}
@@ -1455,6 +1491,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // reader how much is about to go; not having it is a reason to warn, not to refuse.
         confirmDisabled={cacheFileCount === null && !countFailed}
         confirmBusy={cacheFileCount === null && !countFailed}
+        confirming={removalConfirming}
+        error={removalError}
       />
 
       {/* Service Removal Confirmation Modal */}
@@ -1462,6 +1500,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         target={serviceToRemove ? { type: 'service', data: serviceToRemove } : null}
         onClose={() => setServiceToRemove(null)}
         onConfirm={confirmServiceRemoval}
+        onRetry={countFailed ? () => setCountAttempt(countAttempt + 1) : undefined}
         fileCount={cacheFileCount ?? undefined}
         fileBytes={cacheFileBytes}
         statusMessage={countStatusMessage}
@@ -1471,6 +1510,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // reader how much is about to go; not having it is a reason to warn, not to refuse.
         confirmDisabled={cacheFileCount === null && !countFailed}
         confirmBusy={cacheFileCount === null && !countFailed}
+        confirming={removalConfirming}
+        error={removalError}
       />
 
       {/* Unmapped Files Removal Confirmation Modal */}
@@ -1484,6 +1525,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         services={countedUnmappedServices}
         failed={countFailed}
         statusMessage={countStatusMessage}
+        failureReason={countFailed && countStage !== null ? countStatusMessage : null}
         confirming={unmappedRemoving}
         error={unmappedRemovalError}
       />

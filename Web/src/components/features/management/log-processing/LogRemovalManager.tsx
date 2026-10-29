@@ -12,7 +12,7 @@ import { getServiceDisplayName } from '@utils/serviceDisplayName';
 import { getErrorMessage } from '@utils/error';
 import { useNotifications } from '@contexts/notifications';
 import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
-import type { NotificationType } from '@contexts/notifications/types';
+import { REMOVAL_TYPES } from '@contexts/notifications/constants';
 import { useBulkRemoval, type LogBatchEntry } from '@contexts/BulkRemovalContext';
 import { useConfig } from '@contexts/useConfig';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -42,14 +42,6 @@ import { getNginxReopenGate } from '@utils/nginxReopenAvailability';
 import { useSectionExpanded } from '@hooks/useSectionExpanded';
 
 // Main services that should always be shown first
-const OTHER_REMOVAL_BUSY_TYPES: NotificationType[] = [
-  'cache_clearing',
-  'game_removal',
-  'service_removal',
-  'corruption_removal',
-  'log_removal'
-];
-
 const MAIN_SERVICES = [
   'steam',
   'epicgames',
@@ -214,9 +206,10 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     setSectionExpanded((prev) => !prev)
   );
 
-  // Derive active log removal from the server's run list
+  // Derive active log removal from the server's run list. A canceling run still names the service
+  // it is removing, and every datasource's row for that service shows it; a waiting one names none.
   const activeLogRemovalNotification = runs.find(
-    (n) => n.type === 'log_removal' && n.status === 'running'
+    (n) => n.type === 'log_removal' && (n.status === 'running' || n.status === 'cancelling')
   );
   const activeLogRemoval =
     (activeLogRemovalNotification?.details?.service as string | null) ?? null;
@@ -233,9 +226,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     status: ['cancelling']
   });
   const logRemovalRowBusy = isLogRemovalActive || isLogRemovalCancelling;
-  const logRemovalActiveReason = logRemovalRowBusy ? t('management.logRemoval.removalRunning') : '';
+  // A Clear the server has not listed yet disables the same controls, so it gives the same reason.
+  const logRemovalActiveReason =
+    logRemovalRowBusy || anyServiceRemovalPending ? t('management.logRemoval.removalRunning') : '';
   const activeOtherRemoval = runs.find(
-    (n) => OTHER_REMOVAL_BUSY_TYPES.includes(n.type) && n.status === 'running'
+    (n) => REMOVAL_TYPES.includes(n.type) && n.status === 'running'
   );
   const otherRemovalTitleKey = activeOtherRemoval
     ? NOTIFICATION_TITLE_KEYS[activeOtherRemoval.type]
@@ -248,13 +243,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       : '';
   const selectAllLogRemovalBusy =
     isLogRemovalActive || isLogRemovalCancelling || isBatchRunning || anyServiceRemovalPending;
-  const selectAllDisabled =
-    mockMode || authMode !== 'authenticated' || selectAllLogRemovalBusy || isAnyRemovalRunning;
+  // Another kind of removal does not block selecting: Remove selected queues behind it, so Select
+  // all stays open like the row checkboxes.
+  const selectAllDisabled = mockMode || authMode !== 'authenticated' || selectAllLogRemovalBusy;
   const selectAllDisabledReason = selectAllLogRemovalBusy
     ? t('management.logRemoval.removalRunning')
-    : isAnyRemovalRunning
-      ? otherRemovalReason
-      : '';
+    : '';
 
   useEffect(() => {
     if (!hasInitiallyLoaded) {
@@ -518,7 +512,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     authMode !== 'authenticated' ||
     !selectedNginxReopenGate.available ||
     isUnmappedRemovalRunning ||
-    isLogRemovalActive ||
+    logRemovalRowBusy ||
     anyServiceRemovalPending ||
     isBatchRunning;
 
@@ -712,25 +706,21 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                 authMode !== 'authenticated' ||
                                 !ds.logsWritable ||
                                 isBatchRunning;
-                              const selectionDisabledReason = selectionDisabled
-                                ? logRemovalRowBusy
-                                  ? t('management.logRemoval.removalRunning')
-                                  : ''
-                                : '';
                               // Selecting stays open during an unmapped removal; only the
                               // removal itself is refused by the server.
                               const rowDisabled =
                                 selectionDisabled ||
                                 isUnmappedRemovalRunning ||
                                 !nginxReopenGate.available;
+                              // The row being removed shows its spinner and label, never a reason.
+                              const rowRemoving =
+                                activeLogRemoval === service || isServiceRemovalPending(key);
                               return (
                                 <ServiceRow
                                   key={key}
                                   service={service}
                                   count={ds.serviceCounts[service] || 0}
-                                  isRemoving={
-                                    activeLogRemoval === service || isServiceRemovalPending(key)
-                                  }
+                                  isRemoving={rowRemoving}
                                   isDisabled={rowDisabled}
                                   onClick={() => handleRemoveServiceLogs(ds.datasource, service)}
                                   clearLabel={t('management.logRemoval.buttons.clear')}
@@ -745,18 +735,20 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                     name: getServiceDisplayName(service)
                                   })}
                                   selectDisabled={selectionDisabled}
-                                  selectDisabledReason={selectionDisabledReason}
+                                  selectDisabledReason={selectAllDisabledReason}
                                   clearTooltip={
-                                    !ds.logsWritable
-                                      ? t('management.directoryNotice.logsReadOnlyTitle')
-                                      : isUnmappedRemovalRunning
-                                        ? unmappedRemovalReason
-                                        : logRemovalActiveReason ||
-                                          (nginxReopenGate.messageKey
-                                            ? nginxReopenMessage
-                                            : isBareMetalLayout
-                                              ? t('management.logRemoval.bareMetal.clearTooltip')
-                                              : '')
+                                    rowRemoving
+                                      ? ''
+                                      : !ds.logsWritable
+                                        ? t('management.directoryNotice.logsReadOnlyTitle')
+                                        : isUnmappedRemovalRunning
+                                          ? unmappedRemovalReason
+                                          : logRemovalActiveReason ||
+                                            (nginxReopenGate.messageKey
+                                              ? nginxReopenMessage
+                                              : isBareMetalLayout
+                                                ? t('management.logRemoval.bareMetal.clearTooltip')
+                                                : '')
                                   }
                                 />
                               );

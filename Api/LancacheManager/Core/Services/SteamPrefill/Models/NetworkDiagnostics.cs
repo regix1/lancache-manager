@@ -21,11 +21,15 @@ public class DnsTestResult
 /// </summary>
 public class NetworkDiagnostics
 {
-    public bool InternetConnectivity { get; set; }
+    /// <summary>
+    /// Whether the container reached the internet. Null when Docker did not answer and the test
+    /// did not run. False when the test ran and the container could not reach the internet.
+    /// </summary>
+    public bool? InternetConnectivity { get; set; }
 
     /// <summary>
-    /// Why the container could not reach the internet. Null whenever
-    /// <see cref="InternetConnectivity"/> is true.
+    /// Why the container could not reach the internet. Null when
+    /// <see cref="InternetConnectivity"/> is true, and null when the test did not run.
     /// </summary>
     public string? InternetConnectivityError { get; set; }
 
@@ -54,6 +58,12 @@ public class NetworkDiagnostics
     public string? InternetConnectivityIpv6Error { get; set; }
 
     public List<DnsTestResult> DnsResults { get; set; } = new();
+
+    /// <summary>
+    /// True when every configured DNS domain was tested. False when Docker stopped
+    /// answering before that sweep finished, including when earlier domains were stored.
+    /// </summary>
+    public bool DnsFinished { get; set; }
     public DateTime TestedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>

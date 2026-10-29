@@ -347,7 +347,7 @@
         "logRemoval": "日志移除",
         "serviceRemoval": "服务缓存移除",
         "gameRemoval": "游戏缓存移除",
-        "corruptionRemoval": "可疑缓存文件移除",
+        "corruptionRemoval": "缓存损坏清理",
         "corruptionDetection": "损坏扫描",
         "databaseReset": "数据库重置",
         "depotMapping": "仓库映射",
@@ -378,7 +378,7 @@
       "cacheFilesDeleted": "已删除 {{formattedCount}} 个缓存文件",
       "cacheFilesDeleted_other": "已删除 {{formattedCount}} 个缓存文件",
       "cancelCacheClearing": "取消缓存清理",
-      "cancelCorruptionRemoval": "取消可疑缓存文件移除",
+      "cancelCorruptionRemoval": "取消缓存损坏清理",
       "cancelCorruptionDetection": "取消损坏扫描",
       "cancelDepotMapping": "取消仓库映射",
       "cancelGameDetection": "取消游戏检测",
@@ -429,6 +429,8 @@
         "datasourcesNotRepaired": "修复已完成，但跳过了以下数据源，因为它们已被移除或文件夹已更改：{{datasources}}。",
         "cacheScansSkipped": "修复已完成，但由于日志布局已更改，未重新检查以下数据源的缓存：{{datasources}}。当每个日志文件夹只包含一种布局时，下一次驱逐扫描会检查它们。",
         "servicesFailed": "{{serviceCount}} 个服务中有 {{failedCount}} 个失败，并保留各自的红色卡片；其他服务已完成。",
+        "serviceNotStarted": "{{serviceCount}} 个服务中有 {{failedCount}} 个失败。{{service}} 在移除开始前就已失败，因此没有自己的卡片；错误记录在服务器日志中。",
+        "servicesNotStarted": "{{serviceCount}} 个服务中有 {{failedCount}} 个失败。{{services}} 在移除开始前就已失败，因此都没有自己的卡片；它们的错误记录在服务器日志中。",
         "datasourcesFailed": "以下数据源未完成：{{datasources}}。其他已完成的工作均已保留。",
         "databaseErrorAfterSaving": "保存了 {{entriesSaved}} 条记录后，数据库错误中止了本次运行：{{error}}。下一次运行将从中止处继续读取。",
         "logPurgeProgramMissing": "下载记录已删除，但由于此安装缺少日志清理程序，其日志行仍保留在以下数据源中：{{datasources}}。从头重新读取这些日志可能会使其恢复。",
@@ -462,7 +464,7 @@
       },
       "operationWaitingCancelled": "已在等待队列中取消",
       "willQueueBehindCurrent": "将在当前操作完成后开始",
-      "corruptedChunksRemoved": "可疑缓存文件已成功移除",
+      "corruptedChunksRemoved": "缓存损坏清理已完成",
       "filesDeleted": "已删除 {{formattedCount}} 个文件",
       "filesDeleted_other": "已删除 {{formattedCount}} 个文件",
       "failedTimesInRow": "连续失败 {{formattedCount}} 次。",
@@ -2349,7 +2351,7 @@
           "events": "所有事件及其下载关联都会被删除。",
           "userSessions": "所有设备都会被登出并清除，Steam、Epic、Xbox 和预填充登录也会一并清除，每个人都需要重新认证。",
           "clientGroups": "所有客户端组及其成员都会被删除。",
-          "prefillSessions": "所有预填充会话都会被删除。",
+          "prefillSessions": "预填充会话及其历史记录都会被删除。仍在运行的容器会保留自己的条目和正在进行的运行，每个平台也会保留其最新持久容器的条目。",
           "bannedPrefillUsers": "被封禁的预填充用户会被解封，可以再次预填充。",
           "epicGameMappings": "Epic 游戏将显示为\"未知\"，直到重新建立映射。",
           "epicCdnPatterns": "在重新获取 CDN 模式之前，Epic 游戏检测可能无法工作。",
@@ -2874,26 +2876,30 @@
         "aboutTitle": "关于",
         "methodsTitle": "该选择哪种方式",
         "structuralWhen": "直接读取文件，只报告能够证实的损坏。想要确切结论时使用。",
-        "repeatedMissWhen": "根据反复未命中缓存的下载来推断可疑文件。覆盖更广，但属于线索而非证据。",
+        "repeatedMissWhen": "根据反复未命中缓存的下载来标记文件。覆盖更广，但属于线索而非证据。",
         "scanModesTitle": "结构扫描模式",
         "vsOthersTitle": "此扫描不涵盖的内容",
         "vsOthers": "此扫描查找的是损坏。一个文件可能完好无损，却没有任何游戏或服务认领它，那种情况由游戏缓存检测扫描的“未映射”部分列出。下载记录的文件已经丢失，则由驱逐扫描负责。"
       },
       "title": "损坏检测与移除",
       "titleShort": "损坏检测与移除",
-      "summary": "查找结构无效的缓存文件或重复 MISS 嫌疑项，并仅移除已保存扫描验证过的精确路径。",
+      "summary": "查找结构无效的缓存文件或重复 MISS 已标记文件，并仅移除已保存扫描验证过的精确路径。",
       "scanningMessage": "正在扫描日志，查找仍在磁盘上却反复缓存未命中的文件…对于大型日志文件，可能需要几分钟。",
       "scanningRepeatedMissMessage": "正在扫描日志，查找仍在磁盘上却反复缓存未命中的文件…对于大型日志文件，可能需要几分钟。",
       "scanningStructuralMessage": "正在检查 nginx 缓存头、有效负载偏移和权威有效负载长度…仅标记已证实的结构故障。",
       "loadingCachedData": "正在加载已缓存的扫描数据…",
+      "checkingPermissions": "正在检查缓存和日志文件夹权限，暂不可用。",
+      "cacheRemovalRunning": "缓存移除正在运行，暂时无法使用。请在其完成后重试。",
+      "removalActive": "{{operation}}正在运行或等待中，暂时无法使用。请在其完成后重试。",
+      "nothingSelected": "请先选择至少一个服务。",
       "loadingDetails": "正在加载已存储的证据…",
       "removeAllServices": "全部移除",
       "removeAllInvalid": "移除所有无效文件",
-      "removeAllSuspects": "移除所有嫌疑项",
+      "removeAllSuspects": "移除所有已标记文件",
       "removeSelectedInvalid": "移除所选无效文件",
-      "removeSelectedSuspects": "移除所选嫌疑项",
+      "removeSelectedSuspects": "移除所选已标记文件",
       "removeInvalid": "移除无效文件",
-      "removeSuspect": "移除嫌疑项",
+      "removeSuspect": "移除已标记文件",
       "removing": "正在移除…",
       "runScan": "运行扫描",
       "runAgain": "再次运行",
@@ -2916,8 +2922,8 @@
       "repeatedMissBadge": "重复 MISS",
       "observedAt": "观察时间：",
       "observedWindow": "{{first}}–{{last}}",
-      "suspectCount": "{{formattedCount}} 个可疑文件",
-      "suspectCount_other": "{{formattedCount}} 个可疑文件",
+      "suspectCount": "{{formattedCount}} 个已标记文件",
+      "suspectCount_other": "{{formattedCount}} 个已标记文件",
       "flaggedCount": "{{formattedCount}} 个已标记文件",
       "flaggedCount_other": "{{formattedCount}} 个已标记文件",
       "expandDetails": "显示 {{service}} 的已标记文件",
@@ -2940,7 +2946,7 @@
         "repeatedMiss": {
           "label": "重复 MISS",
           "shortLabel": "重复 MISS",
-          "description": "使用重复出现的成功 MISS 响应，启发式识别仍在磁盘上的可疑文件。"
+          "description": "使用重复出现的成功 MISS 响应，启发式标记仍在磁盘上的文件。"
         },
         "structural": {
           "label": "结构完整性",
@@ -3027,7 +3033,7 @@
         "noCorrupted": {
           "structuralTitle": "未发现结构无效的缓存文件",
           "structuralSubtitle": "有歧义、不受支持或正在变化的文件被跳过，而未被标记为损坏。",
-          "repeatedMissTitle": "未发现重复 MISS 嫌疑项",
+          "repeatedMissTitle": "未发现重复 MISS 已标记文件",
           "repeatedMissSubtitle": "仍在磁盘上的文件均未达到所选的重复 MISS 阈值。"
         },
         "noCachedData": {
@@ -3050,35 +3056,35 @@
         "unsafeDetails": "无法安全显示已保存的扫描证据。请运行新扫描。"
       },
       "modal": {
-        "title": "移除可疑缓存文件",
+        "title": "移除已标记缓存文件",
         "confirmRemove": "移除此扫描为 {{service}} 验证的精确缓存路径？",
         "removalSummaryStructural": "将删除匹配的缓存文件及其保存的扫描记录。扫描后发生变化的文件会被跳过，且此操作无法撤销。",
         "removalSummaryRepeatedMiss": "将删除匹配的缓存文件及其日志和数据库记录。已经不存在的文件会被跳过，且此操作无法撤销。",
         "removalScopeService": "最多删除 {{service}} 的 {{count}} 个文件。",
         "removalScopeAllServices": "将依次处理每个受影响的服务。",
         "deleteCacheAndLogs": "删除缓存和日志",
-        "removeAllTitle": "移除所有可疑缓存文件",
-        "confirmRemoveAll": "移除 {{services}} 个服务中的 {{candidates}} 个可疑缓存文件？",
-        "confirmRemoveSelected": "移除 {{services}} 个所选服务中的 {{candidates}} 个可疑缓存文件？",
-        "removeAllConfirm": "移除所有嫌疑项",
+        "removeAllTitle": "移除所有已标记缓存文件",
+        "confirmRemoveAll": "移除 {{services}} 个服务中的 {{candidates}} 个已标记缓存文件？",
+        "confirmRemoveSelected": "移除 {{services}} 个所选服务中的 {{candidates}} 个已标记缓存文件？",
+        "removeAllConfirm": "移除所有已标记文件",
         "structuralTitle": "移除无效缓存文件",
-        "repeatedMissTitle": "移除重复 MISS 嫌疑项",
+        "repeatedMissTitle": "移除重复 MISS 已标记文件",
         "confirmRemoveStructural": "移除为 {{service}} 找到的无效缓存文件？",
-        "confirmRemoveRepeatedMiss": "移除为 {{service}} 找到的重复 MISS 嫌疑项？",
+        "confirmRemoveRepeatedMiss": "移除为 {{service}} 找到的重复 MISS 已标记文件？",
         "removeAllStructuralTitle": "移除所有无效缓存文件",
-        "removeAllRepeatedMissTitle": "移除所有重复 MISS 嫌疑项",
+        "removeAllRepeatedMissTitle": "移除所有重复 MISS 已标记文件",
         "removeSelectedStructuralTitle": "移除所选无效缓存文件",
-        "removeSelectedRepeatedMissTitle": "移除所选重复 MISS 嫌疑项",
+        "removeSelectedRepeatedMissTitle": "移除所选重复 MISS 已标记文件",
         "confirmRemoveAllStructural": "移除 {{services}} 个服务中的 {{candidates}} 个无效缓存文件？",
-        "confirmRemoveAllRepeatedMiss": "移除 {{services}} 个服务中的 {{candidates}} 个重复 MISS 嫌疑项？",
+        "confirmRemoveAllRepeatedMiss": "移除 {{services}} 个服务中的 {{candidates}} 个重复 MISS 已标记文件？",
         "confirmRemoveSelectedStructural": "移除 {{services}} 个所选服务中的 {{candidates}} 个无效缓存文件？",
-        "confirmRemoveSelectedRepeatedMiss": "移除 {{services}} 个所选服务中的 {{candidates}} 个重复 MISS 嫌疑项？",
+        "confirmRemoveSelectedRepeatedMiss": "移除 {{services}} 个所选服务中的 {{candidates}} 个重复 MISS 已标记文件？",
         "removeInvalidFiles": "移除无效文件",
-        "removeSuspects": "移除嫌疑项",
+        "removeSuspects": "移除已标记文件",
         "removeAllStructuralConfirm": "移除所有无效文件",
-        "removeAllRepeatedMissConfirm": "移除所有嫌疑项",
+        "removeAllRepeatedMissConfirm": "移除所有已标记文件",
         "removeSelectedStructuralConfirm": "移除无效文件（{{count}} 个服务）",
-        "removeSelectedRepeatedMissConfirm": "移除嫌疑项（{{count}} 个服务）"
+        "removeSelectedRepeatedMissConfirm": "移除已标记文件（{{count}} 个服务）"
       },
       "history": {
         "help": {
@@ -3224,6 +3230,8 @@
       "logsInUse": "日志处理或“从末尾开始”计数正在读取日志，暂时无法使用。请在其完成后重试。",
       "resetRunning": "日志位置重置正在运行，暂时无法使用。请在其完成后重试。",
       "resetRunningUnknown": "在服务器报告日志位置重置是否正在运行之前，暂时无法使用。",
+      "repositionLoading": "在日志位置和文件夹权限加载完成之前，暂时无法使用。",
+      "processStarting": "正在发送处理请求，暂时无法使用。请在处理开始后重试。",
       "noLogLines": "此数据源没有可处理的日志行。",
       "layout": {
         "bareMetal": "裸机",
@@ -4330,8 +4338,6 @@
               "authPathsPersistent": "持久容器用于所有平台的游戏库浏览和游戏选择。启动容器并在其中登录，是计划预填充唯一需要的登录。"
             },
             "errors": {
-              "editSessionLoading": "计划预填充的编辑会话数据仍在加载中。",
-              "cleanupPending": "无法清理之前的容器更改。请重试此操作。",
               "recordAction": "无法更新此计划。",
               "sharedSettings": "无法保存共享容器设置。"
             },
@@ -5014,7 +5020,7 @@
       "signInExpired": "登录已过期",
       "loginTimeRemaining": "{{time}} 后过期",
       "loginAttemptExpired": "登录尝试已过期",
-      "needsRelogin": "登录已过期，请重新登录。",
+      "needsRelogin": "登录已过期。请先退出登录，再重新登录。",
       "actions": {
         "start": "启动容器",
         "stop": "停止容器"
@@ -5111,6 +5117,7 @@
       "ipv6NotDetected": "未检测到 IPv6",
       "ipv6Detected": "检测到 IPv6",
       "notTested": "未测试",
+      "checksDidNotFinish": "部分检查未完成",
       "notResolved": "未解析",
       "trySetting": "尝试设置",
       "inDockerCompose": "在您的 docker-compose.yml 中",
@@ -5151,7 +5158,6 @@
       "etaMinutesSeconds": "{{minutes}}分 {{seconds}}秒",
       "etaHoursMinutes": "{{hours}}小时 {{minutes}}分",
       "failedCount": "（{{count}} 个失败）",
-      "startingMessage": "正在连接守护进程...",
       "cancelling": "正在取消..."
     },
     "duration": {
@@ -5165,10 +5171,6 @@
       "hoursMinutes": "{{hours}}小时 {{minutes}}分",
       "minutesSeconds": "{{minutes}}分 {{seconds}}秒",
       "seconds": "{{seconds}}秒"
-    },
-    "completion": {
-      "title": "下载完成",
-      "message": "预填充在 {{duration}} 内完成"
     },
     "sections": {
       "prefillOptions": "预填充选项",
@@ -5308,6 +5310,7 @@
       "failedConnect": "连接预填充服务失败",
       "failedCreateSession": "创建会话失败",
       "sessionExpired": "会话已过期",
+      "sessionErrored": "此预填充会话遇到问题。请开始新会话以继续。",
       "unableEstimateSize": "无法估算大小",
       "saveSelectionFailed": "保存游戏选择失败",
       "saveServiceSelectionFailed": "无法保存您的服务选择以供下次使用。",
@@ -5324,6 +5327,10 @@
       "message": "此预填充会话已过期。开始新会话以继续使用 {{service}} 预填充。",
       "startNew": "开始新会话"
     },
+    "sessionErrored": {
+      "title": "会话出错",
+      "message": "此预填充会话遇到问题，无法再运行预填充。开始新会话以继续使用 {{service}} 预填充。"
+    },
     "log": {
       "loginSuccess": "已成功登录 {{service}}",
       "credentialsRequired": "需要 {{service}} 凭据",
@@ -5337,13 +5344,6 @@
       "gamesCached": "{{count}} 个游戏已在 lancache 中缓存",
       "gamesCached_other": "{{count}} 个游戏已在 lancache 中缓存",
       "unnamedApp": "应用 {{appId}}",
-      "gameDownloaded": "{{gameName}} - 已下载 {{size}}",
-      "gameAlreadyUpToDate": "{{gameName}} - 已是最新",
-      "summaryDownloaded_one": "已下载 {{count}} 个游戏（{{size}}）",
-      "summaryDownloaded_other": "已下载 {{count}} 个游戏（{{size}}）",
-      "summaryAlreadyUpToDate_one": "{{count}} 个游戏已是最新",
-      "summaryAlreadyUpToDate_other": "{{count}} 个游戏已是最新",
-      "summary": "摘要：{{parts}}",
       "failedLoadLibrary": "加载游戏库失败",
       "noGamesSelected": "未选择游戏。请先使用\"选择应用\"选择要预填充的游戏。",
       "startingPrefillSelected": "正在开始预填充 {{count}} 个选定应用...",
@@ -5353,7 +5353,6 @@
       "startingPrefillRecentPurchased": "正在开始预填充最近购买的游戏...",
       "startingPrefillTop": "正在开始预填充前 50 个热门游戏...",
       "startingPrefillForce": "正在开始强制预填充（重新下载）...",
-      "prefillFailed": "预填充失败",
       "clearingTempCache": "正在清除临时缓存...",
       "tempCacheCleared": "临时缓存已清除",
       "failedClearCache": "清除缓存失败",
@@ -5374,13 +5373,10 @@
       "removeFromCacheSharedFiles": "未移除 {{game}} 的任何内容，因为它的文件与另一个游戏共享",
       "removeFromCacheFailed": "无法将 {{game}} 从已缓存列表中移除",
       "sessionEnded": "会话已结束：{{reason}}",
+      "sessionEndedOnServer": "会话已在服务器上结束。",
       "statusMessage": "状态：{{message}}",
-      "prefillStarted": "预填充操作已开始",
-      "prefillCompleted": "预填充在 {{duration}} 内完成",
-      "prefillCancelled": "预填充操作已取消",
       "connectionLostReconnecting": "连接丢失，正在重新连接...",
       "reconnected": "已重新连接到服务器",
-      "prefillCompletedWhileDisconnected": "断开连接时预填充已完成（{{duration}}）",
       "reconnectingExistingSession": "正在重新连接到现有会话...",
       "sessionDetail": "会话：{{id}}",
       "reconnectedExistingSession": "已重新连接到现有会话",
@@ -5388,7 +5384,6 @@
       "sessionExpiresIn": "会话在 {{time}} 后过期",
       "alreadyLoggedIn": "已登录 {{service}}",
       "loginPrompt": "请登录 {{service}} 以开始预填充",
-      "prefillCompletedWhileAway": "离开时预填充已完成（{{duration}}）",
       "creatingSession": "正在创建预填充会话...",
       "connectedExistingSession": "已连接到现有会话",
       "sessionCreated": "会话已成功创建",
@@ -5741,7 +5736,7 @@
       "summaryGameCounted": "将删除 {{formattedCount}} 个缓存文件（{{size}}），即此游戏当前在磁盘上的全部文件，同时删除其日志条目和下载记录。此操作无法撤销。",
       "summaryServiceCounted": "将删除 {{formattedCount}} 个缓存文件（{{size}}），即此服务当前在磁盘上的全部文件，同时删除此服务的所有日志条目和下载记录。此操作无法撤销。",
       "counting": "正在统计将要删除的缓存文件。对于较大的服务，这需要几分钟。",
-      "countFailed": "无法统计缓存文件，因此没有可供确认的数字。请关闭此窗口后重试。",
+      "countFailed": "无法统计缓存文件，因此没有可供确认的数字。请重试统计，或关闭此窗口稍后再试。",
       "summaryEvicted": "将移除 {{count}} 条下载记录及其日志条目，涉及约 {{size}} 的历史下载。不会删除任何缓存文件，也不会检查这些文件是否仍在磁盘上。此操作无法撤销。",
       "depotScope": "涉及 {{count}} 个仓库。",
       "depotScope_other": "涉及 {{count}} 个仓库。",
@@ -7510,7 +7505,10 @@
       "complete": "操作完成",
       "cancelled": "操作已取消",
       "skipped": "操作已跳过",
-      "nothingToDo": "没有需要处理的内容"
+      "nothingToDo": "没有需要处理的内容",
+      "interruptedByRestart": "操作因应用重启而中断",
+      "stoppedWithoutProgress": "已连续 30 分钟没有进度且未占用 CPU 时间，因此已被停止。请确认缓存和日志文件夹可以访问，然后点击重试。",
+      "nativeProcessesStillRunning": "上一个任务的程序仍在运行，修复等待后已停止。请在该程序退出后点击重试。"
     },
     "cacheClear": {
       "initializing": "正在初始化缓存清理...",
@@ -7560,8 +7558,8 @@
           "hoursMinutes": "{{hours}} 小时 {{minutes}} 分钟"
         }
       },
-      "complete": "损坏扫描完成：发现 {{count}} 个可疑文件。",
-      "completeRepeatedMiss": "重复 MISS 扫描完成：发现 {{count}} 个可疑文件。",
+      "complete": "损坏扫描完成：发现 {{count}} 个已标记文件。",
+      "completeRepeatedMiss": "重复 MISS 扫描完成：发现 {{count}} 个已标记文件。",
       "completeStructural": "结构扫描完成：发现 {{count}} 个无效缓存文件。",
       "completeStructuralFull": "全面结构扫描完成：发现 {{count}} 个无效缓存文件，增量基线已刷新。",
       "completeStructuralIncremental": "增量结构扫描完成：发现 {{count}} 个无效缓存文件。",
@@ -7570,33 +7568,33 @@
       "failed": "损坏扫描失败：{{errorDetail}}"
     },
     "corruptionRemove": {
-      "starting": "开始移除 {{service}} 的可疑缓存文件",
+      "starting": "开始为 {{service}} 进行缓存损坏清理",
       "startingStructural": "开始移除 {{service}} 的无效缓存文件",
-      "startingService": "正在移除 {{service}} 的可疑缓存文件（第 {{serviceIndex}}/{{serviceCount}} 个）",
+      "startingService": "正在移除 {{service}} 的已标记缓存文件（第 {{serviceIndex}}/{{serviceCount}} 个）",
       "startingStructuralService": "正在移除 {{service}} 的无效缓存文件（第 {{serviceIndex}}/{{serviceCount}} 个）",
-      "noChunksFoundService": "未发现 {{service}} 的可疑缓存文件，无需移除",
+      "noChunksFoundService": "未发现 {{service}} 的已标记缓存文件，无需移除",
       "filteringLogs": "正在过滤日志文件",
       "filteringFile": "正在过滤文件 {{fileIndex}}/{{totalFiles}}",
       "logsPartial": "{{service}} 的日志清理未全部完成：已移除 {{logLines}} 行，随后有 {{permissionErrors}} 个文件无法修改。数据库记录已保留以便重试。",
-      "removingCacheFiles": "正在移除 {{totalFiles}} 个可疑缓存文件",
+      "removingCacheFiles": "正在移除 {{totalFiles}} 个已标记缓存文件",
       "removingCacheFile": "正在移除已验证的缓存文件 {{fileIndex}}/{{totalFiles}}",
-      "deletingDb": "正在删除与已移除嫌疑项关联的数据库记录",
-      "scanningFiles": "正在扫描 {{totalFiles}} 个日志文件查找可疑缓存文件…",
-      "complete": "已为 {{service}} 移除 {{count}} 个可疑缓存文件（删除了 {{files}} 个缓存文件、{{logLines}} 行日志、{{downloads}} 条下载记录、{{logEntries}} 条日志条目）",
+      "deletingDb": "正在删除与已移除的已标记文件关联的数据库记录",
+      "scanningFiles": "正在扫描 {{totalFiles}} 个日志文件查找已标记缓存文件…",
+      "complete": "已为 {{service}} 移除 {{count}} 个已标记缓存文件（删除了 {{files}} 个缓存文件、{{logLines}} 行日志、{{downloads}} 条下载记录、{{logEntries}} 条日志条目）",
       "completeStructural": "已处理 {{service}} 的 {{count}} 个无效缓存文件（删除 {{files}} 个、{{alreadyMissing}} 个已不存在、{{healed}} 个现已有效）",
-      "success": "已成功移除 {{service}} 的已验证可疑缓存文件",
+      "success": "已成功移除 {{service}} 中经过验证的已标记缓存文件",
       "successStructural": "已成功移除 {{service}} 重新验证过的无效缓存文件",
       "cancelled": "操作已被取消。",
-      "allComplete": "已完成 {{serviceCount}} 个服务的可疑缓存文件移除：移除 {{count}} 个可疑文件（{{files}} 个缓存文件、{{logLines}} 行日志、{{logEntries}} 条数据库条目）",
+      "allComplete": "已完成 {{serviceCount}} 个服务的缓存损坏清理：移除 {{count}} 个已标记文件（{{files}} 个缓存文件、{{logLines}} 行日志、{{logEntries}} 条数据库条目）",
       "allCompleteStructural": "已完成 {{serviceCount}} 个服务的无效缓存文件移除：删除 {{files}} 个文件、{{alreadyMissing}} 个已不存在、{{healed}} 个现已有效",
-      "allCompleteWithFailures": "可疑缓存文件移除已完成，{{serviceCount}} 个服务中有 {{failedCount}} 个失败。已移除 {{count}} 个可疑文件（{{files}} 个缓存文件、{{logLines}} 行日志）",
+      "allCompleteWithFailures": "缓存损坏清理已完成，{{serviceCount}} 个服务中有 {{failedCount}} 个失败。已移除 {{count}} 个已标记文件（{{files}} 个缓存文件、{{logLines}} 行日志）",
       "allCompleteWithFailuresStructural": "无效缓存文件移除已完成，{{serviceCount}} 个服务中有 {{failedCount}} 个失败。删除 {{files}} 个文件，{{alreadyMissing}} 个已不存在，{{healed}} 个现已有效",
-      "allStoppedWithFailures": "可疑缓存文件移除在处理 {{completedCount}}/{{serviceCount}} 个服务后停止，其中 {{failedCount}} 个失败。已移除 {{count}} 个可疑文件（{{files}} 个缓存文件、{{logLines}} 行日志）",
+      "allStoppedWithFailures": "缓存损坏清理在处理 {{completedCount}}/{{serviceCount}} 个服务后停止，其中 {{failedCount}} 个失败。已移除 {{count}} 个已标记文件（{{files}} 个缓存文件、{{logLines}} 行日志）",
       "allStoppedWithFailuresStructural": "无效缓存文件移除在处理 {{completedCount}}/{{serviceCount}} 个服务后停止，其中 {{failedCount}} 个失败。删除 {{files}} 个文件，{{alreadyMissing}} 个已不存在，{{healed}} 个现已有效",
-      "allCancelled": "可疑缓存文件移除已取消，已处理 {{completedCount}}/{{serviceCount}} 个服务",
+      "allCancelled": "缓存损坏清理已取消，已处理 {{completedCount}}/{{serviceCount}} 个服务",
       "allCancelledStructural": "无效缓存文件移除已取消，已处理 {{completedCount}}/{{serviceCount}} 个服务",
       "error": {
-        "fatal": "可疑缓存文件移除失败：{{errorDetail}}"
+        "fatal": "缓存损坏清理失败：{{errorDetail}}"
       },
       "failed": {
         "generic": "操作失败。请查看服务器日志了解详情。"
@@ -7779,6 +7777,11 @@
       "refreshingSummary": "正在刷新缓存文件检测摘要...",
       "complete": "扫描完成: 已处理 {{totalProcessed}}，已淘汰 {{totalEvicted}}，已取消淘汰 {{totalUnEvicted}}",
       "cancelled": "淘汰扫描已取消",
+      "stoppedBySystem": "扫描在完成前停止，很可能是容器内存不足。请为容器分配更多内存后重新运行扫描。",
+      "repairStopped": "此任务之后的缓存检查在完成前停止，很可能是容器内存不足。请为容器分配更多内存，然后点击重试。",
+      "repairFailed": "此任务之后的缓存检查失败。原因见服务器日志。请点击重试。",
+      "noFolderChecked": "没有可检查的缓存文件夹。每个文件夹都缺失、为空或无法读取。",
+      "capabilityRefused": "扫描未运行：某个数据源无法将缓存文件对应到下载，或没有启用任何数据源。服务器日志中有原因。",
       "error": {
         "fatal": "淘汰扫描失败: {{errorDetail}}"
       }
@@ -7916,7 +7919,10 @@
       "complete": "处理完成",
       "completedEntries": "成功处理了 {{entriesProcessed}} 条条目",
       "completedDetail": "在 {{elapsed}} 分钟内从 {{linesProcessed}} 行中成功处理了 {{entriesProcessed}} 条条目。",
-      "recoveryDetail": "已处理 {{entriesProcessed}} 条条目"
+      "recoveryDetail": "已处理 {{entriesProcessed}} 条条目",
+      "failed": "日志处理失败",
+      "failedForDatasource": "数据源 {{datasource}} 的日志处理失败",
+      "failedForDatasourceWithError": "数据源 {{datasource}} 的日志处理失败：{{databaseError}}"
     },
     "logProcessor": {
       "starting": "开始日志处理...",
@@ -8024,13 +8030,16 @@
     "scheduledPrefill": {
       "skippedNoDaemon": "此服务没有注册的守护进程",
       "skippedNoContainer": "没有正在运行的持久容器。请先启动持久容器，再设置计划。",
-      "skippedContainerNotReady": "持久容器正在运行，但尚未就绪。此平台无需登录，请等待容器启动完成。",
-      "skippedAlreadyRunning": "预填充已在进行中",
+      "skippedContainerBusy": "持久容器正忙",
       "skippedOverlap": "另一个计划正在使用此平台。本次尝试已跳过，未加入队列。",
       "needsPersistentContainer": "没有正在运行的持久容器。请先启动持久容器并在其中登录，再设置计划。",
       "needsPersistentLogin": "持久容器正在运行，但尚未登录。请登录后再次运行，或等待下一次计划尝试。",
       "reusingContainer": "正在复用持久容器",
       "failedToStart": "预填充启动失败",
+      "starting": "正在启动计划预填充",
+      "preparing": "正在准备预填充",
+      "reconnecting": "正在等待预填充守护进程重新连接",
+      "stopping": "正在停止预填充",
       "running": "预填充进行中",
       "runningWithCounts": "预填充进行中（{{completed}}/{{total}} 个游戏）",
       "downloadingGame": "正在下载 {{game}}（{{completed}}/{{total}} 个游戏）",
@@ -8052,7 +8061,15 @@
       "runAllSkipped": "所有已启用的服务均被跳过"
     },
     "prefillSession": {
-      "superseded": "已被新的预填充操作取代"
+      "superseded": "已被新的预填充操作取代",
+      "stopped": "会话已停止",
+      "expired": "会话已过期",
+      "serviceShutdown": "服务已关闭",
+      "banned": "已被管理员封禁",
+      "stoppedByAdmin": "已被管理员停止",
+      "endedByUser": "已由启动者结束",
+      "accessEnded": "访问已结束",
+      "imageUpdated": "容器镜像已更新"
     },
     "statusCheck": {
       "dnsTimeout": "DNS 查询超时",
@@ -8105,7 +8122,9 @@
       "credentialsRejected": "用户名或密码不符合要求。"
     },
     "cache": {
-      "readOnly": "无法清除缓存：缓存目录为只读。这通常是 docker-compose.yml 中 PUID/PGID 设置不正确导致的。LANCache 容器被配置为以 UID/GID {{uidGid}} 运行（通过 PUID/PGID 环境变量配置）。"
+      "readOnly": "无法清除缓存：缓存目录为只读。这通常是 docker-compose.yml 中 PUID/PGID 设置不正确导致的。LANCache 容器被配置为以 UID/GID {{uidGid}} 运行（通过 PUID/PGID 环境变量配置）。",
+      "countFailed": "统计因错误而停止，因此没有可供确认的数字。请重试；详情请查看服务器日志。",
+      "countStopped": "统计在完成前被停止，因此没有可供确认的数字。请重试统计。"
     },
     "clientGroups": {
       "nicknameTaken": "已存在使用此昵称的客户端组",
@@ -8211,17 +8230,33 @@
     },
     "prefill": {
       "banned": "您已被禁止使用预填充功能。",
-      "containerBusy": "现有的 {{service}} 持久容器仍在移除或重启中。请稍后重试。",
+      "containerBusy": "现有的 $t(errors.prefill.serviceNames.{{service}}) 持久容器仍在移除或重启中。请稍后重试。",
+      "containerRemovalFailed": "Docker 未能移除 $t(errors.prefill.serviceNames.{{service}}) 容器。",
+      "containerExitedOnStart": "预填充守护进程启动后立即停止。请检查预填充守护进程镜像，然后重试。",
+      "serviceNames": {
+        "Steam": "Steam",
+        "Epic": "Epic Games",
+        "Xbox": "Xbox",
+        "battlenet": "Battle.net",
+        "riot": "Riot",
+        "BattleNet": "Battle.net",
+        "Riot": "Riot"
+      },
+      "prefillRunning": "此容器正在运行预填充。请等待其完成后再登录。",
       "loginInProgress": "会话 {{sessionId}} 已有一次登录尝试正在进行中。",
-      "dockerUnavailable": "Docker 未运行或无法访问。请启动 Docker Desktop 后重试。",
-      "daemonShuttingDown": "{{service}} 守护进程正在关闭，现在无法停止持久会话 {{sessionId}}。其登录会被保留，以便下次启动时重新接管；管理器重启后请再次停止它。",
-      "editCleanupWaiting": "编辑会话清理正在等待持久容器启动完成，之后才能释放会话 {{sessionId}}。",
-      "noRunningSession": "服务 '{{service}}' 没有正在运行的持久会话",
+      "dockerUnavailable": "Docker 未运行或无法连接。请启动 Docker，或将 /var/run/docker.sock 挂载到 LANCache Manager 容器中，然后重试。",
+      "accessEnded": "会话访问权限已失效。",
+      "sessionStopped": "此预填充会话已被停止。",
+      "cleanupInProgress": "预填充清理正在进行中。请在完成后重试。",
+      "daemonShuttingDown": "$t(errors.prefill.serviceNames.{{service}}) 守护进程正在关闭，现在无法停止持久会话 {{sessionId}}。其登录会被保留，以便下次启动时重新接管；管理器重启后请再次停止它。",
+      "noRunningSession": "$t(errors.prefill.serviceNames.{{service}}) 没有正在运行的持久会话",
       "sessionReplaced": "此持久会话已被新的会话替换。请重新启动。",
       "logoutBeforeSavedLogin": "请先退出当前账户，再使用您保存的登录信息。",
-      "statusUnavailable": "无法检查容器登录状态。请重试。",
+      "heldAccountNotLoggedOut": "无法让容器退出已取消登录所留下的账户。请重试。",
       "requestFailed": "预填充守护进程无法完成此请求。请重试。",
+      "ownedGamesTimedOut": "服务未能及时返回游戏列表。请重试。",
       "runLimit": "预填充守护进程没有可用的运行名额。",
+      "daemonOutdated": "此预填充守护进程镜像版本过旧，与当前版本的 LANCache Manager 不兼容。请停止容器，然后在 LANCache Manager 中重新启动，以使用最新镜像。如果您在 LANCache Manager 的环境设置中固定了预填充镜像标签，请先将其改为当前版本的标签。",
       "operationConflict": "此操作标识符已用于另一项预填充。",
       "operationNotFound": "守护进程已不再保留此预填充操作。",
       "instanceChanged": "预填充守护进程已重启，之前的运行已中断。",
@@ -8230,8 +8265,15 @@
       "startUnavailable": "容器无法启动预填充。请重试。",
       "gameDownloadFailed": "此游戏未完成下载。",
       "signInLost": "服务账户在完成前已退出登录。常驻容器可能会使用已保存的登录信息自行重新登录。如果仍未登录，请重新登录，然后再次运行。",
+      "loginRequired": "服务账户已退出登录。请重新登录，然后再次运行。",
       "gameDetailsUnavailable": "服务未返回此游戏的详细信息。",
-      "runNotFound": "此运行记录已不再保存，无法显示失败的游戏。"
+      "runNotFound": "此运行记录已不再保存，无法显示失败的游戏。",
+      "cleanupIncomplete": "预填充清理未完成。请重试此操作。",
+      "terminateAllIncomplete": "部分预填充会话无法结束。请重试此操作。",
+      "banSavedCleanupIncomplete": "封禁已保存，但预填充清理未完成。请重试此操作。",
+      "validityDatesNotSaved": "有效期已保存，但重新登录日期未更新。请再次保存以完成。",
+      "lancacheIpUnresolved": "Prefill__LancacheIp 中设置的 LANCache 地址无法解析为 IP 地址。请检查该设置，然后重试。",
+      "shuttingDown": "LANCache Manager 正在关闭，无法启动新的预填充会话。请在其重新启动后重试。"
     },
     "rateLimit": {
       "tooManyRequests": "来自此地址的请求过多。请等待限制重置后重试。"

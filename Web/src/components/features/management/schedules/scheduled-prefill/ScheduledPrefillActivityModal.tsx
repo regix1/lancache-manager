@@ -21,7 +21,6 @@ import {
   getPrefillRunReasonKey,
   isPrefillRunActive,
   prefillRunKey,
-  supportsConcurrentPrefill,
   type PrefillRun,
   type PrefillRunFailedGame
 } from '@components/features/prefill/hooks/prefillTypes';
@@ -71,7 +70,7 @@ function ScheduledPrefillRecentRun({ run, serviceKey }: ScheduledPrefillRecentRu
     ? run.scheduleName
     : t('prefill.runs.name', { id: run.runId.slice(0, 8) });
   const serviceName = t(`prefill.persistent.services.${serviceKey}`);
-  const reasonKey = getPrefillRunReasonKey(snapshot.reason);
+  const reasonKey = getPrefillRunReasonKey(snapshot.reason, serviceKey);
   // FinishRunAsync turns a completed run with failed games into `failed` and keeps the daemon's
   // (empty) reason, so a failed run without a reason finished with only some games failed.
   const result =
@@ -295,12 +294,6 @@ export function ScheduledPrefillActivityModal({
   const recentRuns = runs
     .filter(({ run }) => !isPrefillRunActive(run))
     .sort((a, b) => b.run.snapshot.startedAt.localeCompare(a.run.snapshot.startedAt));
-  // A daemon without concurrent runs reports one download on the container and no run list.
-  const oldDaemonServices = services.filter((serviceKey) => {
-    const container = containers.containersByServiceKey.get(serviceKey);
-    return container?.isPrefilling === true && !supportsConcurrentPrefill(container);
-  });
-  const runningCount = activeRuns.length + oldDaemonServices.length;
   const filterOptions = [
     { value: 'all', label: t(`${baseKey}.activity.allServices`) },
     ...SCHEDULED_PREFILL_SERVICE_RUN_ORDER.map((serviceKey) => ({
@@ -366,79 +359,15 @@ export function ScheduledPrefillActivityModal({
                     <h3 className="flex items-center gap-2 font-semibold text-themed-primary">
                       {t(`${baseKey}.activity.runningNow`)}
                       <Badge variant="neutral" className="badge-count">
-                        {formatCount(runningCount)}
+                        {formatCount(activeRuns.length)}
                       </Badge>
                     </h3>
-                    {runningCount === 0 ? (
+                    {activeRuns.length === 0 ? (
                       <p className="text-sm text-themed-muted">
                         {t(`${baseKey}.activity.noRunning`)}
                       </p>
                     ) : (
                       <ul className="scheduled-prefill-activity-runs__list">
-                        {oldDaemonServices.map((serviceKey) => {
-                          const container = containers.containersByServiceKey.get(serviceKey);
-                          const platformUi = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
-                          const ServiceIcon = platformUi.icon;
-                          const serviceName = t(`prefill.persistent.services.${serviceKey}`);
-                          // The cancel handler keys an old daemon's download by the container's runId.
-                          const runId = container?.runId;
-                          const canceling = runId
-                            ? containers.cancellingRunIds.includes(runId)
-                            : false;
-                          const runError = runId ? containers.runErrors[runId] : undefined;
-                          return (
-                            <li
-                              key={serviceKey}
-                              className={`scheduled-prefill-activity-runs__row scheduled-prefill-activity-runs__running ${platformUi.rowClassName}`}
-                            >
-                              <div className="scheduled-prefill-activity-runs__header flex flex-wrap items-start gap-3">
-                                <span
-                                  className="icon-box scheduled-prefill-schedule-table__service-icon"
-                                  aria-hidden="true"
-                                >
-                                  <ServiceIcon size={18} />
-                                </span>
-                                <p className="flex-1 min-w-[7rem] font-medium text-themed-primary break-words">
-                                  {serviceName}
-                                </p>
-                              </div>
-                              {typeof container?.currentAppName === 'string' &&
-                                container.currentAppName !== '' && (
-                                  <p className="text-sm text-themed-primary break-words">
-                                    {container.currentAppName}
-                                  </p>
-                                )}
-                              <p className="scheduled-prefill-activity-runs__meta tabular-nums">
-                                {t(`${baseKey}.persistentContainer.downloadProgressGeneric`, {
-                                  bytes: formatBytes(container?.totalBytesTransferred ?? 0)
-                                })}
-                              </p>
-                              {canceling && (
-                                <span
-                                  className="scheduled-prefill-activity-runs__meta flex items-center gap-1"
-                                  role="status"
-                                >
-                                  <LoadingSpinner inline size="xs" />
-                                  {t(`${baseKey}.activity.canceling`)}
-                                </span>
-                              )}
-                              {runError && <Alert color="red">{runError}</Alert>}
-                              <Button
-                                type="button"
-                                variant="filled"
-                                color="stop"
-                                className="scheduled-prefill-activity-runs__cancel"
-                                onClick={() =>
-                                  void containers.handleCancelPersistentDownload(serviceKey)
-                                }
-                                disabled={disabled || canceling}
-                                aria-label={t('prefill.runs.cancel', { name: serviceName })}
-                              >
-                                {t('common.cancel')}
-                              </Button>
-                            </li>
-                          );
-                        })}
                         {activeRuns.map(({ run, serviceKey }) => {
                           const container = containers.containersByServiceKey.get(serviceKey);
                           const platformUi = SCHEDULED_PREFILL_PLATFORM_UI[serviceKey];
@@ -519,12 +448,12 @@ export function ScheduledPrefillActivityModal({
                                           ...clock,
                                           forceYear: false
                                         })
-                                      })}{' '}
-                                      ·{' '}
-                                      {t(`${baseKey}.activity.slot`, {
-                                        slot,
-                                        limit: container?.maxConcurrentRuns ?? 1
                                       })}
+                                      {typeof container?.maxConcurrentRuns === 'number' &&
+                                        ` · ${t(`${baseKey}.activity.slot`, {
+                                          slot,
+                                          limit: container?.maxConcurrentRuns
+                                        })}`}
                                     </span>
                                     {canceling && (
                                       <span className="flex items-center gap-1" role="status">

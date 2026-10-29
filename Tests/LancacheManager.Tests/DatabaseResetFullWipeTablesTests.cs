@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
@@ -7,6 +8,8 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -108,7 +111,7 @@ public sealed class DatabaseResetFullWipeTablesTests
             steamKit2Service: null!,
             xboxCatalogMappingService: null!,
             epicMappingService: null!,
-            serviceProvider: null!,
+            serviceProvider: new ServiceCollection().BuildServiceProvider(),
             cacheManagementService: null!,
             stateRepository: null!,
             datasourceService: null!,
@@ -142,6 +145,63 @@ public sealed class DatabaseResetFullWipeTablesTests
             "EvictionScanCheckpoints",
             Assert.IsType<string>(cleared.Context["tableName"]));
         Assert.Equal(2, Assert.IsType<int>(cleared.Context["count"]));
+    }
+
+    // An app role that is not a superuser may not set session_replication_role, so the reset must
+    // send no such statement.
+    [Fact]
+    public async Task ResetSendsOnlyStatementsAnOrdinaryRoleMayRunAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.ClientGroups.Add(new ClientGroup
+            {
+                Nickname = "Living Room",
+                Members = { new ClientGroupMember { ClientIp = "192.0.2.20" } }
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var recorder = new CommandRecorder();
+        var recordedOptions = new DbContextOptionsBuilder<AppDbContext>(database.Options)
+            .AddInterceptors(recorder)
+            .Options;
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        await using var serviceContext = new AppDbContext(database.Options);
+        var service = new DatabaseService(
+            serviceContext,
+            DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>(),
+            NullLogger<DatabaseService>.Instance,
+            pathResolver: null!,
+            dbContextFactory: new TestDbContextFactory(recordedOptions),
+            steamKit2Service: null!,
+            xboxCatalogMappingService: null!,
+            epicMappingService: null!,
+            serviceProvider: new ServiceCollection().BuildServiceProvider(),
+            cacheManagementService: null!,
+            stateRepository: null!,
+            datasourceService: null!,
+            operationTracker: tracker);
+        var operationId = tracker.RegisterOperation(
+            OperationType.DatabaseReset,
+            "Database reset",
+            new CancellationTokenSource());
+        var reset = typeof(DatabaseService).GetMethod(
+            "DoResetAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+
+        await ((Task)reset.Invoke(
+            service,
+            [operationId, new List<string> { "ClientGroups" }, false, CancellationToken.None])!);
+
+        Assert.Equal(OperationStatus.Completed, tracker.GetOperation(operationId)!.Status);
+        Assert.Contains(recorder.Commands, command => command.Contains("DELETE FROM \"ClientGroups\"", StringComparison.Ordinal));
+        Assert.DoesNotContain(recorder.Commands, command => command.Contains("session_replication_role", StringComparison.OrdinalIgnoreCase));
+        await using var verify = new AppDbContext(database.Options);
+        Assert.Empty(await verify.ClientGroupMembers.AsNoTracking().ToListAsync());
     }
 
     [Fact]
@@ -219,5 +279,20 @@ public sealed class DatabaseResetFullWipeTablesTests
 
         var root = directory?.FullName ?? throw new DirectoryNotFoundException("Repository root not found");
         return File.ReadAllText(Path.Combine([root, "Api", "LancacheManager", .. segments]));
+    }
+
+    private sealed class CommandRecorder : DbCommandInterceptor
+    {
+        public List<string> Commands { get; } = [];
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData commandEvent,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            Commands.Add(command.CommandText);
+            return base.NonQueryExecutingAsync(command, commandEvent, result, cancellationToken);
+        }
     }
 }

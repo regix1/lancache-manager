@@ -198,6 +198,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
             id={id}
             role={ariaLabel ? 'group' : undefined}
             aria-label={ariaLabel}
+            data-closing={closing ? '' : undefined}
             className={`am-dropdown absolute ${width} ${className} bg-themed-secondary themed-border-radius-sm shadow-xl overflow-hidden border border-themed-primary z-[85] ${
               closing
                 ? 'animate-[dropdownSlideOut_0.14s_ease-in_forwards]'

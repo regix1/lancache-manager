@@ -43,6 +43,15 @@ internal sealed class TestableSteamDaemonService : SteamDaemonService
             : CacheStatus(appIds, expiresAtUtc, cancellationToken);
     }
 
+    public int RunDownloadedCalls { get; private set; }
+    public Func<Task>? RunDownloaded { get; set; }
+
+    protected override Task OnRunDownloadedAsync()
+    {
+        RunDownloadedCalls++;
+        return RunDownloaded?.Invoke() ?? Task.CompletedTask;
+    }
+
     public Task<CacheStatusResult> GetStringStatusAsync(
         string sessionId,
         List<string> appIds,

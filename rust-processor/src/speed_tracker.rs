@@ -64,6 +64,9 @@ struct SpeedLogEntry {
     source_root: PathBuf,
     datasources: Vec<String>,
     transport_delay_secs: f64,
+    /// Set when the poll that read this line came within the activity floor of the source's
+    /// previous catch-up to end of file, so the line was written within the floor of its read.
+    read_on_time: bool,
 }
 
 #[derive(Serialize)]
@@ -257,6 +260,7 @@ fn parse_speed_entry(
         source_root: source.root.clone(),
         datasources: source.datasources.clone(),
         transport_delay_secs: 0.0,
+        read_on_time: false,
     })
 }
 
@@ -276,6 +280,9 @@ struct SourceState {
     // and observation delay, so silence between polls cannot be mistaken for buffering.
     cadence_ring: [f64; CADENCE_SAMPLES],
     cadence_head: usize,
+    // Start of the last poll that left no unread bytes. Every unread line was written after it, so
+    // a later read within the activity floor of it reads only lines that are still live.
+    caught_up_at: NaiveDateTime,
 }
 
 impl SourceState {
@@ -283,13 +290,14 @@ impl SourceState {
     /// This is both the seed-to-EOF state (first successful observation) and the rotation reset;
     /// the rotation path carries the learned cadence over afterwards, since a rotation resets file
     /// offsets but not the log's delivery cadence.
-    fn anchored(position: u64) -> Self {
+    fn anchored(position: u64, caught_up_at: NaiveDateTime) -> Self {
         Self {
             checkpoint: position,
             scan: position,
             discarding: false,
             cadence_ring: [0.0; CADENCE_SAMPLES],
             cadence_head: 0,
+            caught_up_at,
         }
     }
 
@@ -364,12 +372,8 @@ impl FlowState {
         game_name: Option<String>,
         game_app_id: Option<u32>,
         window_secs: i64,
-    ) -> Option<Self> {
+    ) -> Self {
         let active_until = entry.timestamp + chrono::Duration::seconds(MAX_WINDOW_SECONDS);
-        if active_until <= entry.observed_at {
-            return None;
-        }
-
         let measured_until = entry.timestamp + chrono::Duration::seconds(window_secs);
         let mut state = Self {
             datasources: entry.datasources.clone(),
@@ -386,7 +390,7 @@ impl FlowState {
             measurements: VecDeque::new(),
         };
         state.record_measurement(entry, window_secs);
-        Some(state)
+        state
     }
 
     fn record(
@@ -617,6 +621,8 @@ impl SpeedTracker {
 
     fn read_new_entries(&mut self, source: &TrackedSource) -> Result<()> {
         let log_path = &source.path;
+        // Taken before the stat, so every byte past the size it reports was written after it.
+        let polled_at = Utc::now().naive_utc();
 
         // Size snapshot at entry. A source we cannot stat (absent or unreadable) stays in the
         // explicit UNINITIALIZED state: we neither seed nor read it, so it is never conflated with
@@ -638,8 +644,10 @@ impl SpeedTracker {
                     log_path.display(),
                     current_size
                 );
-                self.file_positions
-                    .insert(log_path.clone(), SourceState::anchored(current_size));
+                self.file_positions.insert(
+                    log_path.clone(),
+                    SourceState::anchored(current_size, polled_at),
+                );
                 return Ok(());
             }
         };
@@ -651,7 +659,7 @@ impl SpeedTracker {
             // Reset only the file offsets. Rotation swaps the file, not nginx's flush
             // configuration, so the source's delivery cadence is unchanged; carrying the learned
             // ring over stops the first download after logrotate from re-learning (and re-dipping).
-            let mut rotated = SourceState::anchored(0);
+            let mut rotated = SourceState::anchored(0, state.caught_up_at);
             rotated.cadence_ring = state.cadence_ring;
             rotated.cadence_head = state.cadence_head;
             rotated
@@ -671,6 +679,7 @@ impl SpeedTracker {
         // No unscanned bytes this poll: either no new data at all, or we already scanned every
         // available byte of an in-progress over-limit record and are waiting for its newline.
         if current_size <= state.scan {
+            state.caught_up_at = polled_at;
             self.file_positions.insert(log_path.clone(), state);
             return Ok(());
         }
@@ -776,6 +785,17 @@ impl SpeedTracker {
                     }
                 }
             }
+        }
+
+        // A stalled loop or a backlog left by the poll budget reads lines written long before
+        // this read, so only a read within the floor of the previous catch-up is on time.
+        let read_on_time =
+            observed_at - state.caught_up_at < chrono::Duration::seconds(MAX_WINDOW_SECONDS);
+        for entry in self.entries.iter_mut().skip(before) {
+            entry.read_on_time = read_on_time;
+        }
+        if filled as u64 == pending {
+            state.caught_up_at = polled_at;
         }
 
         self.file_positions.insert(log_path.clone(), state);
@@ -952,10 +972,11 @@ impl SpeedTracker {
         for entry in entries {
             if let Some(state) = self.flows.get_mut(&key) {
                 state.record(&entry, game_name.clone(), game_app_id, window_secs);
-            } else if let Some(state) =
-                FlowState::new(&entry, game_name.clone(), game_app_id, window_secs)
-            {
-                self.flows.insert(key.clone(), state);
+            } else {
+                self.flows.insert(
+                    key.clone(),
+                    FlowState::new(&entry, game_name.clone(), game_app_id, window_secs),
+                );
             }
         }
     }
@@ -973,6 +994,16 @@ impl SpeedTracker {
                 continue;
             }
             entry.timestamp = entry.timestamp.min(now);
+            // A log host whose clock runs behind writes lines that read as already finished. A line
+            // read on time was written within the activity floor of its read, so it is a live
+            // completion and counts at the time it was read. A line read after a stall keeps its
+            // own time, because it may have finished long before the read.
+            if entry.read_on_time
+                && entry.timestamp + chrono::Duration::seconds(MAX_WINDOW_SECONDS)
+                    <= entry.observed_at
+            {
+                entry.timestamp = entry.observed_at;
+            }
             entry.service = entry.service.trim().to_ascii_lowercase();
             if entry.depot_id.is_some() {
                 depot_entries.push(entry);
@@ -1891,6 +1922,7 @@ mod tests {
             source_root: PathBuf::from("test-root"),
             datasources: vec!["test".to_string()],
             transport_delay_secs: 0.0,
+            read_on_time: true,
         }
     }
 
@@ -1916,6 +1948,7 @@ mod tests {
             source_root: PathBuf::from(root),
             datasources: vec![datasource.to_string()],
             transport_delay_secs: 0.0,
+            read_on_time: true,
         }
     }
 
@@ -2769,7 +2802,7 @@ mod tests {
     #[test]
     fn source_transport_uses_batch_evidence_without_inter_delivery_silence() {
         let base = Utc::now().naive_utc();
-        let mut state = SourceState::anchored(0);
+        let mut state = SourceState::anchored(0, base);
         state.record_delivery(base, base, base);
         state.record_delivery(
             base + Duration::seconds(40),
@@ -2806,8 +2839,7 @@ mod tests {
             Some("Windows Update".to_string()),
             None,
             WINDOW_SECONDS,
-        )
-        .expect("new flow");
+        );
         let active_until = state.active_until;
         state.record(
             &flow_entry(base, base, "10.0.0.6", "wsus", "root-a", "Primary", 2000),
@@ -2844,24 +2876,6 @@ mod tests {
         assert_eq!(
             state.active_until, active_until,
             "out-of-order evidence does not renew activity"
-        );
-        assert!(
-            FlowState::new(
-                &flow_entry(
-                    base,
-                    base + Duration::seconds(MAX_WINDOW_SECONDS),
-                    "10.0.0.6",
-                    "wsus",
-                    "root-a",
-                    "Primary",
-                    1000,
-                ),
-                Some("Windows Update".to_string()),
-                None,
-                WINDOW_SECONDS,
-            )
-            .is_none(),
-            "a delayed completion whose candidate has ended cannot resurrect a flow"
         );
     }
 
@@ -2912,6 +2926,31 @@ mod tests {
         assert_eq!(snapshot.entries_in_window, 1);
     }
 
+    // A log host whose clock runs behind still shows its downloads: a line read now that carries a
+    // time twenty seconds old is new to the tail, so it counts at the time it was read.
+    #[tokio::test]
+    async fn completion_behind_the_activity_floor_counts_at_its_read_time() {
+        let base = Utc::now();
+        let mut tracker = lazy_tracker(Vec::new());
+        tracker.entries.push_back(flow_entry(
+            (base - Duration::seconds(20)).naive_utc(),
+            base.naive_utc(),
+            "10.0.0.7",
+            "uplay",
+            "root-a",
+            "Primary",
+            1000,
+        ));
+
+        let snapshot = tracker.calculate_snapshot(base).await;
+        assert_eq!(snapshot.game_speeds.len(), 1);
+        let game = &snapshot.game_speeds[0];
+        assert_eq!(game.client_ip, "10.0.0.7");
+        assert_eq!(game.total_bytes, 1000);
+        assert_eq!(game.last_seen_utc, snapshot.timestamp_utc);
+        assert_eq!(snapshot.entries_in_window, 1);
+    }
+
     // A buffered bare-metal log delivers five seconds of completions in one flush. Every sample
     // between flushes must report the true rate, not a spike followed by zeros, while the
     // snapshot keeps the two-second base window the server and the browser require.
@@ -2930,7 +2969,7 @@ mod tests {
                 .file_positions
                 .get(&source)
                 .copied()
-                .unwrap_or_else(|| SourceState::anchored(0));
+                .unwrap_or_else(|| SourceState::anchored(0, base.naive_utc()));
             let delay = state.record_delivery(
                 first.naive_utc(),
                 flushed_at.naive_utc(),
@@ -2999,7 +3038,7 @@ mod tests {
     async fn game_rate_is_the_sum_of_its_source_rates() {
         let mut tracker = lazy_tracker(Vec::new());
         let base = Utc::now();
-        let mut state = SourceState::anchored(0);
+        let mut state = SourceState::anchored(0, base.naive_utc());
         state.record_delivery(
             (base - Duration::milliseconds(4900)).naive_utc(),
             base.naive_utc(),
@@ -3180,7 +3219,7 @@ mod tests {
         let mut tracker = lazy_tracker(Vec::new());
         let base = Utc::now().naive_utc();
         let first = base - Duration::seconds(40);
-        let mut state = SourceState::anchored(0);
+        let mut state = SourceState::anchored(0, base);
         state.record_delivery(first, first, first);
         state.record_delivery(base, base, base);
         tracker
@@ -3304,8 +3343,7 @@ mod tests {
         entry.observed_at = base;
         entry.source_root = PathBuf::from("root-a");
         entry.datasources = vec!["Primary".to_string()];
-        let state = FlowState::new(&entry, None, None, WINDOW_SECONDS)
-            .expect("unresolved depot starts a live flow");
+        let state = FlowState::new(&entry, None, None, WINDOW_SECONDS);
         let first_seen = state.first_seen;
         let active_until = state.active_until;
         let old_key = FlowKey {
@@ -3443,5 +3481,67 @@ mod tests {
             .expect("source state after rotation")
             .measured_cadence();
         assert_eq!(after, learned);
+    }
+
+    // After the loop stalls past the activity floor, the lines written during the stall keep their
+    // own times: the speed covers only the window, and a download that ended during the stall stays
+    // ended. A behind-clock line read on time still counts at its read time.
+    #[tokio::test]
+    async fn lines_read_after_a_stall_keep_their_own_time() {
+        let tmp = tempfile::tempdir().unwrap();
+        let access = tmp.path().join("access.log");
+        std::fs::write(&access, b"").unwrap();
+        let tracked = discover_tracked_sources(&[("test".to_string(), tmp.path().to_path_buf())]);
+        let mut tracker = lazy_tracker(tracked.clone());
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        let line_at = |client_ip: &str, ts: NaiveDateTime| {
+            format!(
+                "[wsus] {client_ip} / - - - [{ts}] \"GET /content/file.bin HTTP/1.1\" 200 1000 \"-\" \"BITS\" \"HIT\" \"download.windowsupdate.com\" \"-\"\n",
+                ts = ts.format("%d/%b/%Y:%H:%M:%S +0000")
+            )
+        };
+
+        // Move the last catch-up back past the activity floor instead of sleeping through it.
+        tracker
+            .file_positions
+            .get_mut(&tracked[0].path)
+            .expect("source state after the first read")
+            .caught_up_at -= Duration::seconds(MAX_WINDOW_SECONDS + 1);
+
+        let base = Utc::now().naive_utc();
+        let mut stalled = line_at("10.0.0.21", base - Duration::seconds(40));
+        for seconds in (0..=60i64).rev() {
+            stalled.push_str(&line_at("10.0.0.20", base - Duration::seconds(seconds)));
+        }
+        append_bytes(&access, stalled.as_bytes());
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        let snapshot = tracker.calculate_snapshot(Utc::now()).await;
+        assert!(snapshot
+            .game_speeds
+            .iter()
+            .all(|game| game.client_ip != "10.0.0.21"));
+        let streaming = snapshot
+            .game_speeds
+            .iter()
+            .find(|game| game.client_ip == "10.0.0.20")
+            .expect("the download still running after the stall");
+        assert!(streaming.total_bytes > 0);
+        assert!(streaming.total_bytes <= 15_000);
+
+        append_bytes(
+            &access,
+            line_at("10.0.0.22", Utc::now().naive_utc() - Duration::seconds(20)).as_bytes(),
+        );
+        tracker.read_new_entries(&tracked[0]).unwrap();
+
+        let snapshot = tracker.calculate_snapshot(Utc::now()).await;
+        let behind = snapshot
+            .game_speeds
+            .iter()
+            .find(|game| game.client_ip == "10.0.0.22")
+            .expect("a behind-clock line read on time");
+        assert_eq!(behind.total_bytes, 1000);
     }
 }

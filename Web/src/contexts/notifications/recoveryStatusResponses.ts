@@ -188,6 +188,10 @@ export interface OperationStatusResponse {
   nextOperationId?: string | null;
   nextStatus?: OperationStatus | null;
   error?: string | null;
+  /** The datasource a failed log processing run stopped on; the values its error key's text names. */
+  failedDatasource?: string | null;
+  /** The database error that stopped that datasource, when there was one. */
+  databaseError?: string | null;
 }
 
 export interface CacheSizeScanStatusResponse {

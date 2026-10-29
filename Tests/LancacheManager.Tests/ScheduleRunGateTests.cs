@@ -1140,7 +1140,7 @@ public class ScheduleRunGateTests
     }
 
     // Run All starts runs on a person's request but counts as automatic, so Manual only draws its
-    // runs as background rows. [67]
+    // runs as background rows.
     [Theory]
     [InlineData(NotificationMode.All, true)]
     [InlineData(NotificationMode.Manual, false)]
@@ -1473,7 +1473,7 @@ public class ScheduleRunGateTests
     }
 
     // A schedule that takes no second run (scheduled prefill) refuses the extra Run Now, but the
-    // pending Run All run still becomes the person's own run. [103]
+    // pending Run All run still becomes the person's own run.
     [Fact]
     public async Task RunNowAfterRunAll_WithoutFollowUps_TurnsThePendingRunIntoACard()
     {
@@ -1542,7 +1542,7 @@ public class ScheduleRunGateTests
     [Fact]
     public async Task RefusalAtPromotion_CompletesAsSkippedRatherThanFailedAsync()
     {
-        var (status, row) =
+        var (status, row, _) =
             await PromoteWithStartFailureAsync(new DownloadInProgressException(DownloadReason));
 
         Assert.Equal(OperationStatus.Skipped, status.Status);
@@ -1691,10 +1691,36 @@ public class ScheduleRunGateTests
     [Fact]
     public async Task RealFailureAtPromotion_StillCompletesAsFailedAsync()
     {
-        var (status, _) = await PromoteWithStartFailureAsync(new InvalidOperationException("the worker broke"));
+        var (status, row, tracker) = await PromoteWithStartFailureAsync(new InvalidOperationException("the worker broke"));
 
         Assert.Equal(OperationStatus.Failed, status.Status);
-        Assert.Equal("the worker broke", status.Message);
+        Assert.Equal("signalr.generic.failed", status.Message);
+        Assert.Equal("the worker broke", row.Error);
+        // The schedule history and the operation endpoint show the same reason as the run row.
+        Assert.Equal("the worker broke", ScheduleExecutionTestService.Create().Capture(status, "gameDetection").Detail);
+        var controller = new OperationsController(
+            tracker,
+            new OperationCancellationService(tracker, new ProcessManager(NullLogger<ProcessManager>.Instance),
+                OperationConflictTestServices.Owner, NullLogger<OperationCancellationService>.Instance),
+            OperationConflictTestServices.Owner);
+        var response = Assert.IsType<OperationStatusResponse>(
+            Assert.IsType<OkObjectResult>(controller.GetOperationStatus(status.Id).Result).Value);
+        Assert.Equal("the worker broke", response.Error);
+    }
+
+    [Fact]
+    public async Task KeyedRefusalAtPromotion_ShowsItsKeyAsTheErrorAsync()
+    {
+        var (status, row, _) = await PromoteWithStartFailureAsync(
+            new ValidationException("Cannot remove corrupted chunks: cache directory is read-only (/cache)")
+            {
+                StageKey = "errors.corruption.datasourceNotWritable"
+            });
+
+        Assert.Equal(OperationStatus.Failed, status.Status);
+        Assert.Equal("errors.corruption.datasourceNotWritable", status.Message);
+        // The card draws the key in the reader's language; the server's sentence would be a second, English line.
+        Assert.Equal("errors.corruption.datasourceNotWritable", row.Error);
     }
 
     [Fact]
@@ -1703,7 +1729,7 @@ public class ScheduleRunGateTests
         // A write-permission re-check on a wrong PUID or PGID, and a datasource that cannot map
         // logical objects, both throw the base ValidationException at promotion. Reporting those as
         // skips would leave a misconfigured install doing nothing and saying nothing.
-        var (status, row) =
+        var (status, row, _) =
             await PromoteWithStartFailureAsync(new ValidationException("Cannot write to the cache directory"));
 
         Assert.Equal(OperationStatus.Failed, status.Status);
@@ -1715,9 +1741,9 @@ public class ScheduleRunGateTests
     /// <summary>
     /// Parks a request behind a live operation, then finishes the blocker so the queue promotes the
     /// waiter and its start delegate throws <paramref name="startFailure"/>. Returns the waiting
-    /// operation's terminal state and its row.
+    /// operation's terminal state, its row and the tracker that holds it.
     /// </summary>
-    private static async Task<(OperationInfo Status, OperationRun Row)>
+    private static async Task<(OperationInfo Status, OperationRun Row, UnifiedOperationTracker Tracker)>
         PromoteWithStartFailureAsync(Exception startFailure)
     {
         var tracker = CreateRealTracker();
@@ -1747,7 +1773,7 @@ public class ScheduleRunGateTests
             var waiting = tracker.GetOperation(queued.OperationId);
             if (waiting is not null && waiting.Status.IsTerminal())
             {
-                return (waiting, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId));
+                return (waiting, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId), tracker);
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(25));
@@ -1790,7 +1816,7 @@ public class ScheduleRunGateTests
         Assert.Equal(OperationStatus.Skipped, tracker.GetOperation(explained)!.Status);
         Assert.Equal(DownloadReason, tracker.GetOperation(explained)!.Message);
         // A skip with no reason stores the translated nothing-to-do key, so a reloaded card reads the
-        // same words in the reader's language. [105]
+        // same words in the reader's language.
         Assert.Equal(ScheduledRunReporter.NothingToDoStageKey, tracker.GetOperation(bare)!.Message);
     }
 

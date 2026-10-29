@@ -368,10 +368,6 @@
       order: 1;
     }
 
-    .prefill-layout--running .prefill-sec-completion {
-      order: 2;
-    }
-
     .prefill-layout--running .prefill-sec-progress {
       order: 3;
     }

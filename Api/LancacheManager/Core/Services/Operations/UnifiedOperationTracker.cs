@@ -212,7 +212,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             return true;
         }
 
-        // core-7: the tracker did NOT adopt this CTS (the ID was already in use). The tracker is the
+        // The tracker did NOT adopt this CTS (the ID was already in use). The tracker is the
         // single disposer ONLY for CTSs it adopts; an un-adopted CTS stays owned by the caller, which
         // disposes it in its restore false-branch (see RestoreInterruptedOperations / IUnifiedOperationTracker docs).
         _logger.LogWarning("Failed to restore operation: {Name} (ID: {Id}) - ID already registered", name, operationId);
@@ -419,7 +419,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         }
         catch (ObjectDisposedException)
         {
-            // P2-C: the operation completed concurrently and CompleteOperation disposed the CTS.
+            // The operation completed concurrently and CompleteOperation disposed the CTS.
             // The op is already terminal — cancellation is a benign no-op.
             // The operation reached a terminal state while we were cancelling, so the request
             // stopped nothing the caller could still see.
@@ -896,7 +896,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
         // A kept ending stays tracked, so the run list still returns it after a reload or
         // reconnect, until someone closes its card (CloseRun reaps it).
-        if (!keep) ScheduleReaper(operationId); // core-2: delayed cleanup, see ScheduleReaper
+        if (!keep) ScheduleReaper(operationId); // delayed cleanup, see ScheduleReaper
     }
 
     /// <summary>
@@ -919,7 +919,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     }
 
     /// <summary>
-    /// core-2: removes the operation (and its entity-index entries) after a short delay so final
+    /// Removes the operation (and its entity-index entries) after a short delay so final
     /// status queries can still observe the terminal state. The removal body is wrapped in try/catch
     /// and runs on <see cref="TaskScheduler.Default"/> so it cannot leak unobserved exceptions.
     /// </summary>
@@ -1068,7 +1068,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             ReadVisibility(operation),
             operation.PercentComplete,
             operation.Message,
-            operation.Status == OperationStatus.Failed ? operation.Message : null,
+            // Only a run that kept its error text apart from a keyed message sets the detail; every other run's error is its message.
+            operation.Status == OperationStatus.Failed ? operation.ErrorDetail ?? operation.Message : null,
             operation.BlockedByName,
             operation.BlockedByType?.ToWireString(),
             operation.BlockedByTarget,
@@ -1103,7 +1104,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             // structural scan too, because the scan service compares them for its identity.
             operation.ScanMode is null ? operation.ScanThreshold : null,
             operation.ScanMode is null ? operation.ScanLookbackDays : null,
-            operation.WaitingForDownload);
+            operation.WaitingForDownload,
+            operation.FailedDatasource,
+            operation.DatabaseError);
     }
 
     /// <summary>

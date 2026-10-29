@@ -1,6 +1,6 @@
 # API Reference
 
-The web UI runs entirely on LANCache Manager's own HTTP API, so anything you can click, you can script. There are 285 endpoints across six groups.
+The web UI runs entirely on LANCache Manager's own HTTP API, so anything you can click, you can script. There are 283 endpoints across six groups.
 
 ## Download the endpoint list
 
@@ -57,17 +57,17 @@ Reads need nothing more than the jar. A request that changes something (`POST`, 
 
 !!! note "The endpoints that answer without a session"
 
-    Twenty-three of the 285 have to work before a caller has credentials: signing in, guest-mode configuration, first-run setup, password recovery, game artwork, the version banner, and the container health probe. They are marked **public** in the downloadable reference, and the rest are marked **requires a signed-in session**.
+    Twenty-three of the 283 have to work before a caller has credentials: signing in, guest-mode configuration, first-run setup, password recovery, game artwork, the version banner, and the container health probe. They are marked **public** in the downloadable reference, and the rest are marked **requires a signed-in session**.
 
 ## What is in each group
 
 | Group | Endpoints | What it covers |
 |---|---:|---|
-| Access | 64 | Signing in, sessions, accounts, API keys, guest mode, per-user settings |
+| Access | 65 | Signing in, sessions, accounts, API keys, guest mode, per-user settings |
 | Cache and Games | 58 | Cached content, game and depot identification, corruption scans, artwork |
 | Clients | 10 | Cache clients, client groups, hostname mappings |
 | Downloads and Reporting | 40 | Download history, dashboard figures, statistics, speeds, events, logs |
-| Prefill | 64 | Steam, Epic, Battle.net, Riot and Xbox prefill daemons and their schedules |
+| Prefill | 62 | Steam, Epic, Battle.net, Riot and Xbox prefill daemons and their schedules |
 | System | 48 | Service health, metrics, database maintenance, migrations, background operations |
 
 ## A few calls to start with

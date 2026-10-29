@@ -3,6 +3,7 @@ using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -277,7 +278,8 @@ public sealed class ScheduledPrefillConfigControllerTests
         test.Tracker.BeforeRegister = () => registrations++;
         var method = typeof(ScheduledPrefillService).GetMethod("RunDueServicesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         await (Task)method.Invoke(test.Runtime, [new List<ScheduledPrefillServiceConfigDto> { schedule }, stale,
-            CancellationToken.None, new RunNotice(NotificationMode.All, RunTrigger.Scheduled)])!;
+            CancellationToken.None, new RunNotice(NotificationMode.All, RunTrigger.Scheduled),
+            new Dictionary<PrefillPlatform, Task<DaemonSession?>>()])!;
         Assert.Equal(0, registrations);
     }
 

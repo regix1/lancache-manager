@@ -71,68 +71,11 @@ public static class ScheduledPrefillRunGates
             : $"No running persistent container for {serviceId}";
 
     /// <summary>
-    /// Reason attached to an anonymous platform's skip when its container is running but has not
-    /// reported ready. Battle.net and Riot have no sign-in, so the logged-out wording above would be
-    /// telling the user to do something that does not exist for them.
-    /// </summary>
-    public const string ContainerNotReadyReason =
-        "The persistent container is running but has not reported ready yet. This platform needs no login - wait for the container to finish starting.";
-
-    /// <summary>
     /// No-container reason for an anonymous platform. Same situation as the reason produced by
     /// <see cref="TryGetRunnablePersistentSession"/>, minus the instruction to log in.
     /// </summary>
     public const string NoContainerReason =
         "No running persistent container. Start the persistent container before scheduling.";
-
-    /// <summary>
-    /// Top-level message for an anonymous platform whose container is running but not ready. The
-    /// no-container case is worded the same for every platform, so it stays on
-    /// <see cref="BuildNeedsLoginMessage"/>; only the running-but-unusable case needs to drop the
-    /// login language.
-    /// </summary>
-    public static string BuildNotReadyMessage(PrefillPlatform serviceId) =>
-        $"Persistent container for {serviceId} is not ready yet";
-
-    /// <summary>
-    /// Returns true when a scheduled run for this platform should defer. The only session that can
-    /// defer it is the persistent container the run has already resolved, asked one question: is it
-    /// itself prefilling, i.e. is a prior run still going? A temporary or guest container is a
-    /// separate entity with its own container and its own download, so whether it is active or
-    /// prefilling says nothing about whether this platform's scheduled run can proceed.
-    /// Classification is by <see cref="DaemonSession.IsPersistent"/> and never by
-    /// <see cref="DaemonSession.UserId"/>: a persistent container re-adopted on a manager restart
-    /// falls back to an empty owner id when its Docker label is missing, which would otherwise read
-    /// as somebody else's session and block the scheduler's own container forever. [13][14][15][16]
-    /// </summary>
-    /// <paramref name="skipStageKey"/> names the same reason as an i18n key, so the notification
-    /// card can read in the operator's language; <paramref name="skipMessage"/> stays English for
-    /// the server log.
-    public static bool ShouldSkipForBusySessions(
-        DaemonSession? persistentSession,
-        out string skipMessage,
-        out string skipStageKey)
-    {
-        if (persistentSession?.Capabilities?.SupportsConcurrentPrefill == true)
-        {
-            var busy = persistentSession.Recovering || persistentSession.AdmissionClosed
-                || persistentSession.Runs.Values.Count(run => run.TerminalCompletedFlag != 2)
-                    >= persistentSession.Capabilities.MaxConcurrentRuns;
-            skipMessage = busy ? "The prefill daemon has no available run slots" : string.Empty;
-            skipStageKey = busy ? "errors.prefill.runLimit" : string.Empty;
-            return busy;
-        }
-        if (persistentSession is { Status: DaemonSessionStatus.Active, IsPersistent: true, IsPrefilling: true })
-        {
-            skipMessage = "A prefill is already in progress";
-            skipStageKey = "signalr.scheduledPrefill.skippedAlreadyRunning";
-            return true;
-        }
-
-        skipMessage = string.Empty;
-        skipStageKey = string.Empty;
-        return false;
-    }
 
     /// <summary>
     /// True when at least one per-service config is enabled. Used as an early-exit gate so the
@@ -297,7 +240,7 @@ public static class ScheduledPrefillRunGates
     /// Stopping one platform says nothing about the platforms that ran beside it, so a stopped
     /// service is counted on its own and never inflates the skipped or failed totals. Extracted as a
     /// pure function because the run's whole classification hangs on it and the orchestrator it used
-    /// to live inside needs a daemon, a tracker and a notification hub before it can be driven. [10]
+    /// to live inside needs a daemon, a tracker and a notification hub before it can be driven.
     /// </summary>
     public static ScheduledPrefillRunTally TallyRunResults(IEnumerable<ScheduledPrefillServiceRunResult> results)
     {
@@ -378,7 +321,7 @@ public readonly record struct ScheduledPrefillRunTally(
     /// True when the run as a whole should report as stopped rather than as a success or a failure.
     /// One platform being stopped must not bury four siblings that prefilled to completion, so the
     /// run only claims to have been stopped when nothing reached
-    /// <see cref="ScheduledPrefillServiceRunResult.Ran"/>. [8]
+    /// <see cref="ScheduledPrefillServiceRunResult.Ran"/>.
     /// </summary>
     public bool ReportsCancelled => Cancelled > 0 && Ran == 0;
 }

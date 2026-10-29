@@ -8,34 +8,26 @@ namespace LancacheManager.Core.Interfaces;
 /// container lifecycle (create / start / stop / kill / remove / inspect / list, volume + image + exec
 /// operations) can be driven by a recording fake in tests, letting the startup reconcile orchestration
 /// (cleanup -&gt; re-adopt -&gt; recreate) be exercised end-to-end without a live Docker daemon. Each
-/// operation maps one-to-one onto the corresponding <c>DockerClient</c> call it replaced, so the
-/// production adapter is a pure delegation with no behavior change. Docker.DotNet request/response
+/// operation maps one-to-one onto a <c>DockerClient</c> call. A call Docker does not answer in time
+/// throws <see cref="DockerTimeoutException"/>; a cancel of the caller's own token still surfaces as a
+/// cancel. Docker.DotNet request/response
 /// models are intentionally passed through unchanged - this is an extract-delegate seam, not a
 /// domain-model abstraction.
 /// </summary>
 public interface IPrefillContainerGateway : IDisposable
 {
     /// <summary>
-    /// True once <see cref="Connect"/> has established an underlying client and it has not been dropped by
-    /// <see cref="Reset"/>. Mirrors the previous <c>_dockerClient != null</c> availability check that gated
-    /// every operation.
+    /// True once <see cref="ConnectAsync"/> has connected a client whose version check answered. Every
+    /// other operation needs it.
     /// </summary>
     bool IsAvailable { get; }
 
     /// <summary>
-    /// Creates the underlying Docker client for the given engine endpoint. Synchronous, matching the
-    /// previous <c>new DockerClientConfiguration(uri).CreateClient()</c>; the connection is not verified
-    /// here (callers probe with <see cref="GetVersionAsync"/>).
+    /// Creates a Docker client for the given engine endpoint and checks it with the version call. The
+    /// client is kept, and <see cref="IsAvailable"/> turns true, only when the version answers; a failed
+    /// check throws and leaves the gateway as it was.
     /// </summary>
-    void Connect(Uri dockerUri);
-
-    /// <summary>
-    /// Drops the underlying client so <see cref="IsAvailable"/> becomes false. Used on the connect-probe
-    /// failure paths that previously set <c>_dockerClient = null</c>, disabling the feature for this run.
-    /// </summary>
-    void Reset();
-
-    Task<VersionResponse> GetVersionAsync(CancellationToken cancellationToken);
+    Task<VersionResponse> ConnectAsync(Uri dockerUri, CancellationToken cancellationToken);
 
     Task<IList<ContainerListResponse>> ListContainersAsync(ContainersListParameters parameters, CancellationToken cancellationToken);
 
@@ -64,4 +56,14 @@ public interface IPrefillContainerGateway : IDisposable
     Task<MultiplexedStream> StartAndAttachContainerExecAsync(string execId, bool tty, CancellationToken cancellationToken);
 
     Task<ContainerExecInspectResponse> InspectContainerExecAsync(string execId, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// A short Docker call that Docker did not answer within the gateway's limit. It says nothing about the
+/// container the call named, so a caller never removes, erases or caches anything because of it; an HTTP
+/// request answers it as Docker being unavailable.
+/// </summary>
+public sealed class DockerTimeoutException : TimeoutException
+{
+    public DockerTimeoutException(string message, Exception innerException) : base(message, innerException) { }
 }

@@ -9,15 +9,61 @@ public class DaemonSession
 {
     public System.Collections.Concurrent.ConcurrentDictionary<Guid, DaemonRun> Runs { get; } = new();
     public DaemonStatus? Capabilities { get; set; }
-    public bool Recovering { get; set; }
+    private bool _recovering;
+
+    /// <summary>
+    /// A page can read a change written here before any session update carries it, so a change clears
+    /// <see cref="LastRecoveryUpdate"/> and the next recovery pass sends its update. Written under
+    /// <see cref="PrefillLock"/>, so a change cannot fall between a session update's check and its record.
+    /// </summary>
+    public bool Recovering
+    {
+        get => _recovering;
+        set
+        {
+            lock (PrefillLock)
+            {
+                if (_recovering == value) return;
+                _recovering = value;
+                RecoveringChanges++;
+                LastRecoveryUpdate = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// How many times <see cref="Recovering"/> changed, under <see cref="PrefillLock"/>. A session update is recorded
+    /// as every page's state only when this did not move while it was sent: a page that opened in between may hold
+    /// the other value even when the flag changed back.
+    /// </summary>
+    public long RecoveringChanges { get; private set; }
     public bool AdmissionClosed { get; set; }
+
+    /// <summary>
+    /// A stop of this session is in progress. <see cref="Status"/> reads Error meanwhile so every guard refuses
+    /// new work; the session's wire status reads Terminated instead.
+    /// </summary>
+    public bool IsStopping { get; set; }
+
+    /// <summary>
+    /// The daemon did not acknowledge the cancel that cleaned up a failed sign-in, so it may still be in that
+    /// sign-in; the next interactive login cancels it first.
+    /// </summary>
+    public bool LoginCancelUnconfirmed { get; set; }
     public bool LoginSettled { get; set; } = true;
     public bool PreserveLoginExpiry { get; set; }
     public SemaphoreSlim RecoveryWork { get; } = new(1, 1);
     public DateTime NextRecoveryAtUtc { get; set; }
-    public DaemonRun? CurrentRun => Runs.Values.Where(run => run.TerminalCompletedFlag != 2)
-        .OrderBy(run => run.Snapshot.StartedAt).ThenBy(run => run.PrefillRunId).FirstOrDefault()
-        ?? Runs.Values.OrderByDescending(run => run.CompletedAtUtc).ThenBy(run => run.PrefillRunId).FirstOrDefault();
+
+    /// <summary>
+    /// A recovery pass found <see cref="RecoveryWork"/> taken and skipped a daemon read that may be newer than the
+    /// holder's, so another pass with a fresh read follows. Cleared by the pass that reads next.
+    /// </summary>
+    public bool RecoveryRequested { get; set; }
+    public string? LastRecoveryUpdate { get; set; }
+
+    /// <summary>Sends one session update at a time, so each page receives them in the order they are recorded.</summary>
+    public SemaphoreSlim SessionUpdateSend { get; } = new(1, 1);
     public string Id { get; init; } = string.Empty;
     public Guid UserId { get; init; }
     public string ContainerId { get; set; } = string.Empty;
@@ -29,17 +75,6 @@ public class DaemonSession
     public DaemonSessionStatus Status { get; set; } = DaemonSessionStatus.Active;
     public string? ErrorMessage { get; set; }
     public DaemonAuthState AuthState { get; set; } = DaemonAuthState.NotAuthenticated;
-    private bool _isPrefilling = false;
-    public bool IsPrefilling { get => Runs.IsEmpty ? _isPrefilling : Runs.Values.Any(run => run.TerminalCompletedFlag != 2); set => _isPrefilling = value; }
-
-    /// <summary>
-    /// Identifies the current or most recently completed prefill on this session. A new start replaces
-    /// it before the session enters the prefilling state, allowing cancel requests to reject a stale run.
-    /// </summary>
-    private Guid? _prefillRunId = null;
-    public Guid? PrefillRunId { get => CurrentRun?.PrefillRunId ?? _prefillRunId; set => _prefillRunId = value; }
-    private Guid? _prefillScheduleId = null;
-    public Guid? PrefillScheduleId { get => CurrentRun is { } run ? run.PrefillScheduleId : _prefillScheduleId; set => _prefillScheduleId = value; }
 
     /// <summary>
     /// The daemon's real "Login failed: &lt;reason&gt;" text from the most recent
@@ -154,10 +189,20 @@ public class DaemonSession
     internal bool LoggedInWhilePersonCanceled { get; set; }
 
     /// <summary>
-    /// Lets one write of <see cref="LoginCanceledByPerson"/> and <see cref="LoggedInWhilePersonCanceled"/>
-    /// to the session's row run at a time.
+    /// The daemon reported this signed-in persistent container signed out without the drop code, as Steam, Epic
+    /// and Xbox do when the account is logged off, or a person's Log out of it landed, so the automatic sign-in with
+    /// the saved login skips it. Set and read under <see cref="PrefillLock"/>; the person's next accepted Log in clears
+    /// it. Stored on the session's row, so a manager restart or a recreate keeps it, and copied to the session that
+    /// replaces this one after an image update or an error.
     /// </summary>
-    internal SemaphoreSlim LoginCanceledByPersonWrites { get; } = new(1, 1);
+    internal bool SignedOut { get; set; }
+
+    /// <summary>
+    /// Lets one write of the session's login state (<see cref="LoginCanceledByPerson"/>,
+    /// <see cref="LoggedInWhilePersonCanceled"/>, <see cref="SignedOut"/>, <see cref="LastLoginAt"/> and
+    /// <see cref="ExpiresAt"/>) to its row run at a time.
+    /// </summary>
+    internal SemaphoreSlim LoginStateWrites { get; } = new(1, 1);
 
     /// <summary>
     /// The automatic sign-in with the saved login has sent its login and not ended yet, so a cancel it meets is not a
@@ -167,10 +212,16 @@ public class DaemonSession
     internal bool SigningInAutomatically { get; set; }
 
     /// <summary>
-    /// How many signed-in states were applied to this session, under <see cref="PrefillLock"/>. A retry
+    /// How many times this session changed into signed in, under <see cref="PrefillLock"/>. A retry
     /// that sees it move while it waits returns, because something else signed the session in.
     /// </summary>
     internal int SignInCount { get; set; }
+
+    /// <summary>
+    /// How many times this session changed out of signed in, under <see cref="PrefillLock"/>. A status read
+    /// takes it before the read, and a signed-in answer is not applied when it moved meanwhile.
+    /// </summary>
+    internal int SignOutCount { get; set; }
 
     /// <summary>Blocks a new daemon login until the current cancel command has settled.</summary>
     public bool LoginCanceling { get; set; }
@@ -201,69 +252,17 @@ public class DaemonSession
     /// </summary>
     public SemaphoreSlim LoginLock { get; } = new(1, 1);
 
-    /// <summary>
-    /// High-level lifecycle state of the current/last prefill run. Driven by the terminal
-    /// socket state (not the start ack), so it stays <see cref="PrefillState.Downloading"/>
-    /// for the duration of the real download.
-    /// </summary>
-    private PrefillState _prefillState = PrefillState.Idle;
-    public PrefillState PrefillState { get => CurrentRun?.PrefillState ?? _prefillState; set => _prefillState = value; }
-
-    /// <summary>
-    /// The latest live <see cref="PrefillProgress"/> snapshot broadcast for this session,
-    /// retained so a client that connects/refreshes/reconnects mid-prefill can immediately
-    /// re-hydrate the progress bar without waiting for the next periodic tick. Set on every
-    /// progress tick in NotifyPrefillProgressAsync (before broadcasting) and cleared by the
-    /// terminal funnel. Null when no prefill is in flight.
-    /// </summary>
-    private PrefillProgress? _lastProgress = null;
-    public PrefillProgress? LastProgress { get => CurrentRun is { } run ? run.LastProgress : _lastProgress; set => _lastProgress = value; }
-
-    /// <summary>
-    /// UTC ticks of the last progress tick that transferred new bytes (i.e. where
-    /// <see cref="TotalBytesTransferred"/> increased), or 0 when no prefill clock is set.
-    /// Stored as a plain <see cref="long"/> field (not a <c>DateTime?</c> property) so the
-    /// stall watchdog on the cleanup-timer thread and the socket/progress thread can read and
-    /// write it atomically via <see cref="System.Threading.Volatile"/>; a torn read of the
-    /// multi-field <c>DateTime?</c> struct could otherwise mis-fire the watchdog. Seeded when a
-    /// prefill starts, advanced only on byte-increasing ticks, and reset to 0 by the terminal
-    /// funnel so a completed/failed session is never re-flagged.
-    /// </summary>
-    public long LastProgressTicksUtc;
-
-    /// <summary>
-    /// Snapshot of <see cref="TotalBytesTransferred"/> at the last byte-increasing tick.
-    /// Used by the stall watchdog to detect zero-progress prefill sessions.
-    /// </summary>
-    public long LastProgressBytes { get; set; }
-
-    /// <summary>
-    /// Per-run terminal ownership: 0 = running, 1 = publishing/cleaning up, 2 = settled.
-    /// Only an admitted new run resets this flag.
-    /// </summary>
-    public int TerminalCompletedFlag;
-
     public object PrefillLock { get; } = new();
-    public SemaphoreSlim PrefillWork { get; } = new(1, 1);
-    /// <summary>Localized reason for the last failed run. Null when no keyed failure exists.</summary>
-    public string? ErrorStageKey { get; set; }
 
-    /// <summary>
-    /// Monotonic tick counter, stamped via <see cref="System.Threading.Interlocked.Increment(ref long)"/>
-    /// on entry to NotifyPrefillProgressAsync and carried on the in-process progress push.
-    ///
-    /// Socket events are dispatched fire-and-forget, so two progress handlers can be in flight at
-    /// once and an app-transition tick (which awaits history/database work) can be overtaken by a
-    /// later downloading tick. A consumer that must not render progress backwards compares this
-    /// sequence and discards anything older than what it has already applied.
-    /// </summary>
-    public long ProgressSequence;
-
-    private DateTime? _prefillStartedAt = null;
-    public DateTime? PrefillStartedAt { get => CurrentRun?.Snapshot.StartedAt.UtcDateTime ?? _prefillStartedAt; set => _prefillStartedAt = value; }
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
     public DateTime? EndedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
+
+    /// <summary>
+    /// When the login was last signed in; <see cref="ExpiresAt"/> of a persistent session is this time plus the
+    /// admin-configured validity days. Read only by the writers of that date.
+    /// </summary>
+    public DateTime LastLoginAt { get; set; }
 
     /// <summary>
     /// True when this session is a guest/temporary container subject to the manager-enforced,
@@ -307,38 +306,6 @@ public class DaemonSession
     public string? Username { get; set; }
 
     /// <summary>
-    /// Current prefill progress info for admin visibility
-    /// </summary>
-    private string? _currentAppId = null;
-    public string? CurrentAppId { get => CurrentRun is { } run ? run.CompletedAtUtc.HasValue ? null : run.Snapshot.CurrentItem?.AppId : _currentAppId; set => _currentAppId = value; }
-    private string? _currentAppName = null;
-    public string? CurrentAppName { get => CurrentRun is { } run ? run.CompletedAtUtc.HasValue ? null : run.Snapshot.CurrentItem?.Name : _currentAppName; set => _currentAppName = value; }
-
-    /// <summary>
-    /// Previous app ID for tracking history transitions
-    /// </summary>
-    public string? PreviousAppId { get; set; }
-    public string? PreviousAppName { get; set; }
-
-    /// <summary>
-    /// Total bytes transferred during this session (cumulative across all games)
-    /// This includes completed games + current game progress for real-time display
-    /// </summary>
-    private long _totalBytesTransferred = 0;
-    public long TotalBytesTransferred { get => CurrentRun?.Snapshot.BytesTransferred ?? _totalBytesTransferred; set => _totalBytesTransferred = value; }
-
-    /// <summary>
-    /// Bytes from completed games (used to calculate TotalBytesTransferred)
-    /// </summary>
-    public long CompletedBytesTransferred { get; set; }
-
-    /// <summary>
-    /// Current app's bytes downloaded (tracked before transition to record final values)
-    /// </summary>
-    public long CurrentBytesDownloaded { get; set; }
-    public long CurrentTotalBytes { get; set; }
-
-    /// <summary>
     /// Client connection info for admin visibility
     /// </summary>
     public string? IpAddress { get; init; }
@@ -351,22 +318,6 @@ public class DaemonSession
     /// Network diagnostics results (internet connectivity and DNS resolution tests)
     /// </summary>
     public NetworkDiagnostics? NetworkDiagnostics { get; set; }
-
-    /// <summary>
-    /// Last prefill completion result - used for background completion detection
-    /// when client was disconnected during prefill
-    /// </summary>
-    private DateTime? _lastPrefillCompletedAt = null;
-    public DateTime? LastPrefillCompletedAt { get => CurrentRun is { } run ? run.CompletedAtUtc : _lastPrefillCompletedAt; set => _lastPrefillCompletedAt = value; }
-    private int? _lastPrefillDurationSeconds;
-    public int? LastPrefillDurationSeconds
-    {
-        get => CurrentRun is { } run ? run.CompletedAtUtc.HasValue
-            ? (int)(run.Snapshot.UpdatedAt - run.Snapshot.StartedAt).TotalSeconds : null : _lastPrefillDurationSeconds;
-        set => _lastPrefillDurationSeconds = value;
-    }
-    private string? _lastPrefillStatus = null;
-    public string? LastPrefillStatus { get => CurrentRun is { } run ? run.CompletedAtUtc.HasValue ? run.Snapshot.State : null : _lastPrefillStatus; set => _lastPrefillStatus = value; }
 
     public IDaemonClient Client { get; set; } = null!;
 

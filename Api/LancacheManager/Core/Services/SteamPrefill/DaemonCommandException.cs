@@ -15,7 +15,7 @@ public sealed class DaemonCommandException : ServiceUnavailableException
     {
         ErrorCode = errorCode is "auth-lost" or "game-details-unavailable" or "run-limit"
             or "operation-conflict" or "operation-not-found" or "instance-changed"
-            or "ambiguous-operation" or "outcome-unknown" ? errorCode : null;
+            or "ambiguous-operation" or "outcome-unknown" or "daemon-outdated" ? errorCode : null;
         RequiresLogin = requiresLogin || ErrorCode == "auth-lost";
         StageKey = RequiresLogin
             ? loginStageKey
@@ -27,8 +27,8 @@ public sealed class DaemonCommandException : ServiceUnavailableException
     {
         if (errorCode == "auth-lost" || requiresLogin)
         {
-            return loginStageKey == "errors.prefill.signInLost"
-                ? "The service account was signed out before this finished. An always-on container may sign in again by itself with its saved login. If it is still signed out, log in again, then run it again."
+            return loginStageKey == "errors.prefill.loginRequired"
+                ? "The service account is signed out. Log in again, then run it again."
                 : "Steam is no longer signed in. Sign in again, then retry the prefill.";
         }
 
@@ -42,6 +42,7 @@ public sealed class DaemonCommandException : ServiceUnavailableException
                 "instance-changed" => "The prefill daemon restarted. Its previous runs were interrupted.",
                 "ambiguous-operation" => "Choose which prefill run to cancel.",
                 "outcome-unknown" => "The outcome of this prefill could not be recovered.",
+                "daemon-outdated" => "The prefill daemon image is too old for this version. Stop the container and start it again from LANCache Manager, or update a pinned image tag.",
                 _ => "The prefill daemon could not complete the request. Try again."
             };
     }
@@ -54,6 +55,7 @@ public sealed class DaemonCommandException : ServiceUnavailableException
         "instance-changed" => "errors.prefill.instanceChanged",
         "ambiguous-operation" => "errors.prefill.ambiguousOperation",
         "outcome-unknown" => "errors.prefill.outcomeUnknown",
+        "daemon-outdated" => "errors.prefill.daemonOutdated",
         _ => null
     };
 }

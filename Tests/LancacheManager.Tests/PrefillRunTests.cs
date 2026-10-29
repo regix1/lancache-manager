@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
 using System.Reflection;
 using LancacheManager.Controllers;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -46,7 +48,7 @@ public sealed class PrefillRunTests
         Assert.Equal("cancelled", (await second.Completion.Task).Snapshot.State);
         Assert.Equal(10, first.Snapshot.BytesTransferred);
         Assert.Equal(30, third.Snapshot.BytesTransferred);
-        Assert.True(fixture.Session.IsPrefilling);
+        Assert.Contains(fixture.Session.Runs.Values, run => run.TerminalCompletedFlag != 2);
     }
 
     [Theory]
@@ -74,6 +76,44 @@ public sealed class PrefillRunTests
         Assert.Equal(cached ? 1 : 0, await context.PrefillCachedDepots.CountAsync());
     }
 
+    [Theory]
+    [InlineData("success", 1)]
+    [InlineData("failed", 0)]
+    public async Task OnlyANewCacheRecordBroadcastsACacheChangeAsync(string result, int broadcasts)
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        var run = await fixture.StartAsync("10");
+        fixture.Client.Set(run, "completed", 100, result);
+        var page = fixture.Client.Pages[run.PrefillRunId];
+        fixture.Client.Pages[run.PrefillRunId] = page with
+        {
+            Items = [page.Items[0] with
+            {
+                Depots = [new DepotManifestProgressInfo { DepotId = 11, ManifestId = 12, TotalBytes = 100 }]
+            }]
+        };
+
+        await fixture.RefreshAsync();
+
+        Assert.Equal(broadcasts, fixture.Recorder.Invocations.Count(call =>
+            call.Method == nameof(ISignalRNotificationService.NotifyAllAsync)
+            && call.Args.Length > 0 && call.Args[0] as string == SignalREvents.PrefillCacheChanged));
+    }
+
+    [Fact]
+    public async Task ADaemonRunLimitRefusalIsAnAlreadyRunningConflictAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        fixture.Client.StartRefusal = "run-limit";
+
+        await Assert.ThrowsAsync<PrefillAlreadyRunningException>(
+            () => fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["10"]));
+
+        var run = Assert.Single(fixture.Session.Runs.Values);
+        Assert.Equal("failed", run.Snapshot.State);
+        Assert.Equal("run-limit", run.Snapshot.Reason);
+    }
+
     [Fact]
     public async Task CachedResultDoesNotRestoreClearedRecordsAsync()
     {
@@ -81,7 +121,19 @@ public sealed class PrefillRunTests
         var cache = new PrefillCacheService(new TestDbContextFactory(fixture.Options),
             NullLogger<PrefillCacheService>.Instance);
         await cache.RecordCachedAppAsync(PrefillPlatform.Steam, "10", "Game", 100, null);
-        await cache.RecordCachedDepotsAsync(10, "Game", [(11, 12, 100)], null);
+        await using (var seed = new AppDbContext(fixture.Options))
+        {
+            seed.PrefillCachedDepots.Add(new PrefillCachedDepot
+            {
+                AppId = 10,
+                DepotId = 11,
+                ManifestId = 12,
+                AppName = "Game",
+                TotalBytes = 100,
+                CachedAtUtc = DateTime.UtcNow
+            });
+            await seed.SaveChangesAsync();
+        }
         var run = await fixture.StartAsync("10");
         Assert.Single(fixture.Client.CachedDepots!);
         await cache.ClearAppCacheAsync(PrefillPlatform.Steam, "10");
@@ -144,6 +196,58 @@ public sealed class PrefillRunTests
     }
 
     [Fact]
+    public async Task ARunThatDownloadedAGameRunsTheNameMatchOnce()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        var daemon = (TestableSteamDaemonService)fixture.Daemon;
+
+        async Task EndRunAsync(string appId, string itemResult)
+        {
+            var run = await fixture.StartAsync(appId);
+            fixture.Client.Set(run, "completed", 100, itemResult);
+            await fixture.RefreshAsync();
+            await run.Completion.Task;
+        }
+
+        await EndRunAsync("10", "already_cached");
+        await EndRunAsync("20", "skipped");
+        Assert.Equal(0, daemon.RunDownloadedCalls);
+        await EndRunAsync("30", "success");
+        Assert.Equal(1, daemon.RunDownloadedCalls);
+    }
+
+    [Fact]
+    public async Task ANameMatchThatThrowsLeavesTheRunEnded()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        var daemon = (TestableSteamDaemonService)fixture.Daemon;
+
+        async Task<(DaemonRun Run, List<(string Method, object? First)> Calls)> EndRunAsync(string appId)
+        {
+            var before = fixture.Recorder.Invocations.Count;
+            var run = await fixture.StartAsync(appId);
+            fixture.Client.Set(run, "completed", 100, "success");
+            await fixture.RefreshAsync();
+            await run.Completion.Task;
+            var calls = fixture.Recorder.Invocations.GetRange(before, fixture.Recorder.Invocations.Count - before)
+                .Select(call => (call.Method, call.Args[0])).ToList();
+            return (run, calls);
+        }
+
+        var first = await EndRunAsync("10");
+        daemon.RunDownloaded = () => throw new InvalidOperationException("The name match failed.");
+        var second = await EndRunAsync("20");
+
+        Assert.Equal(2, daemon.RunDownloadedCalls);
+        Assert.Equal("completed", first.Run.Snapshot.State);
+        Assert.Equal(first.Run.Snapshot.State, second.Run.Snapshot.State);
+        Assert.Equal(2, first.Run.TerminalCompletedFlag);
+        Assert.Equal(2, second.Run.TerminalCompletedFlag);
+        Assert.NotEmpty(first.Calls);
+        Assert.Equal(first.Calls, second.Calls);
+    }
+
+    [Fact]
     public async Task StalledRunDrainAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
@@ -152,7 +256,7 @@ public sealed class PrefillRunTests
         first.LastProgressTicksUtc = DateTime.UtcNow.AddMinutes(-10).Ticks;
         fixture.Client.CompleteCancellation = false;
         Assert.True(await fixture.Daemon.FailStalledSessionAsync(fixture.Session, first.PrefillRunId,
-            DateTime.UtcNow, TimeSpan.FromMinutes(3), "Stalled"));
+            DateTime.UtcNow, TimeSpan.FromMinutes(3)));
         Assert.False(first.Completion.Task.IsCompleted);
         Assert.False(second.CancelRequested);
         fixture.Client.Set(first, "cancelled", 5, "cancelled");
@@ -163,34 +267,6 @@ public sealed class PrefillRunTests
     }
 
     [Fact]
-    public async Task EditRunCancellationAsync()
-    {
-        await using var fixture = await RunFixture.CreateAsync(persistent: true);
-        var first = await fixture.StartAsync("10");
-        var sibling = await fixture.StartAsync("20");
-        var edit = fixture.Daemon.PersistentEditSessionGate.BeginEditAction("edit-a", "download-a",
-            PersistentPrefillEditActionKind.Prefill, fixture.Session.Id);
-        edit.ConfirmEffect(PersistentPrefillEditResourceKind.Prefill, first.PrefillRunId);
-        edit.Complete(PersistentPrefillEditActionOutcome.Succeeded);
-        using var services = new ServiceCollection().AddSingleton(fixture.Daemon).BuildServiceProvider();
-        var controller = new PersistentPrefillController(services, null!, null!,
-            NullLogger<PersistentPrefillController>.Instance);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        var result = await controller.CleanupEditSessionAsync(new PersistentPrefillEditSessionCleanupRequest
-        {
-            EditSessionId = "edit-a",
-            CleanupId = "cleanup-a",
-            Services = [new PersistentPrefillEditSessionCleanupServiceRequest
-                { Service = PrefillPlatform.Steam, BaselineSessionId = fixture.Session.Id, BaselineSelectedAppIds = [] }]
-        }, timeout.Token);
-        Assert.IsType<OkResult>(result);
-        Assert.Equal([first.PrefillRunId], fixture.Client.Cancelled);
-        Assert.False(sibling.CancelRequested);
-        Assert.Same(fixture.Session, fixture.Daemon.GetActivePersistentSession());
-        Assert.Equal(DaemonAuthState.Authenticated, fixture.Session.AuthState);
-    }
-
-    [Fact]
     public async Task WatchdogOwnershipAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
@@ -198,7 +274,7 @@ public sealed class PrefillRunTests
         await run.PrefillWork.WaitAsync();
         run.LastProgressTicksUtc = DateTime.UtcNow.AddMinutes(-10).Ticks;
         var stalled = fixture.Daemon.FailStalledSessionAsync(fixture.Session, run.PrefillRunId,
-            DateTime.UtcNow, TimeSpan.FromMinutes(3), "Stalled");
+            DateTime.UtcNow, TimeSpan.FromMinutes(3));
         Assert.False(stalled.IsCompleted);
         run.LastProgressTicksUtc = DateTime.UtcNow.Ticks;
         run.PrefillWork.Release();
@@ -214,8 +290,8 @@ public sealed class PrefillRunTests
         var first = await fixture.StartAsync("10");
         var second = await fixture.StartAsync("20");
         var third = await fixture.StartAsync("30");
-        await DaemonTestMethods.InvokePrivateHandlerAsync(fixture.Daemon, "OnStatusChangeAsync", fixture.Session,
-            new DaemonStatus { Status = "awaiting-login" });
+        await DaemonTestMethods.InvokePrivateHandlerAsync(fixture.Daemon, "ApplyStatusAsync", fixture.Session,
+            new DaemonStatus { Status = "awaiting-login" }, null);
         Assert.Equal(3, fixture.Client.Cancelled.Count);
         foreach (var run in new[] { first, second, third })
         {
@@ -223,7 +299,7 @@ public sealed class PrefillRunTests
             Assert.Equal("auth-lost", run.Snapshot.Reason);
             Assert.True(run.LastProgress!.RequiresLogin);
         }
-        Assert.False(fixture.Session.IsPrefilling);
+        Assert.DoesNotContain(fixture.Session.Runs.Values, run => run.TerminalCompletedFlag != 2);
     }
 
     [Fact]
@@ -233,8 +309,8 @@ public sealed class PrefillRunTests
         var run = await fixture.StartAsync("10");
         fixture.Client.CompleteCancellation = false;
         await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, run.PrefillRunId);
-        await DaemonTestMethods.InvokePrivateHandlerAsync(fixture.Daemon, "OnStatusChangeAsync", fixture.Session,
-            new DaemonStatus { Status = "awaiting-login" });
+        await DaemonTestMethods.InvokePrivateHandlerAsync(fixture.Daemon, "ApplyStatusAsync", fixture.Session,
+            new DaemonStatus { Status = "awaiting-login" }, null);
         Assert.Null(run.CancelReason);
         fixture.Client.Set(run, "cancelled", 5, "cancelled");
         await fixture.RefreshAsync();
@@ -246,31 +322,204 @@ public sealed class PrefillRunTests
         Assert.Null(saved.Reason);
     }
 
-    [Theory]
-    [InlineData("operationProgress")]
-    [InlineData("inlineSelection")]
-    [InlineData("targetedCancel")]
-    [InlineData("concurrentPrefill")]
-    [InlineData("activeOperations")]
-    public void MissingRequiredFeatureKeepsExclusiveMode(string feature)
+    [Fact]
+    public async Task EachHistorySaveThatChangedAGameSendsTheHistoryUpdate()
     {
-        var status = RunClient.Capabilities(Guid.NewGuid().ToString());
-        Assert.True(status.SupportsConcurrentPrefill);
-        status.Features!.Remove(feature);
-        Assert.False(status.SupportsConcurrentPrefill);
+        await using var fixture = await RunFixture.CreateAsync();
+        var run = await fixture.StartAsync("10");
+        List<(string Method, object?[] Args)> Updates() => fixture.Recorder.Invocations.Where(call =>
+            call.Method == nameof(ISignalRNotificationService.NotifyAllAsync)
+            && call.Args.Length > 1 && call.Args[0] as string == SignalREvents.PrefillHistoryUpdated).ToList();
+        var before = Updates().Count;
+
+        fixture.Client.Set(run, "downloading", 50, "downloading");
+        await fixture.RefreshAsync();
+        var afterChange = Updates();
+        Assert.Equal(before + 1, afterChange.Count);
+        var historyEvent = afterChange[^1].Args[1]!;
+        Assert.Equal(fixture.Session.Id, historyEvent.GetType().GetProperty("sessionId")!.GetValue(historyEvent));
+
+        await fixture.RefreshAsync();
+        Assert.Equal(before + 1, Updates().Count);
+
+        fixture.Client.Set(run, "completed", 100, "success");
+        await fixture.RefreshAsync();
+        Assert.Equal(before + 2, Updates().Count);
+    }
+
+    [Fact]
+    public async Task AStatusWithoutProtocolTwoRefusesStartWithTheOutdatedKey()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        fixture.Session.Capabilities = null;
+        fixture.Client.Status = new DaemonStatus { Status = "logged-in" };
+
+        var refusal = await Assert.ThrowsAsync<DaemonCommandException>(
+            () => fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["10"]));
+
+        Assert.Equal("daemon-outdated", refusal.ErrorCode);
+        Assert.Equal("errors.prefill.daemonOutdated", refusal.StageKey);
+        Assert.Empty(fixture.Session.Runs);
+        Assert.Equal(DaemonSessionStatus.Active, fixture.Session.Status);
+        Assert.Equal(0, fixture.Client.StartCount);
+    }
+
+    [Fact]
+    public async Task AFailedFirstStatusReadRefusesStartWithoutARun()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        fixture.Session.Capabilities = null;
+        fixture.Client.Offline = true;
+
+        var refusal = await Assert.ThrowsAsync<DaemonCommandException>(
+            () => fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["10"]));
+
+        Assert.Equal("errors.prefill.requestFailed", refusal.StageKey);
+        Assert.Empty(fixture.Session.Runs);
+        Assert.Equal(0, fixture.Client.StartCount);
+    }
+
+    [Fact]
+    public async Task AnOldStatusOnceReadRefusesLaterStartsWithoutReadingAgain()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        fixture.Session.Capabilities = null;
+        await fixture.Daemon.RecoverRunsAsync(fixture.Session, new DaemonStatus { Status = "logged-in" }, CancellationToken.None);
+        var reads = 0;
+        fixture.Client.StatusRead = () =>
+        {
+            reads++;
+            return Task.FromResult<DaemonStatus?>(FreshStatus(fixture));
+        };
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var refusal = await Assert.ThrowsAsync<DaemonCommandException>(
+                () => fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["10"]));
+            Assert.Equal("daemon-outdated", refusal.ErrorCode);
+        }
+
+        Assert.Equal(0, reads);
+        Assert.False(fixture.Session.Recovering);
+        Assert.Empty(fixture.Session.Runs);
+    }
+
+    [Fact]
+    public async Task AFirstStartBeforeAnyStatusReadStartsARun()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        fixture.Session.Capabilities = null;
+        // A started run schedules its own background refresh, so only the reads made before the run exists count.
+        var readsBeforeTheRun = 0;
+        fixture.Client.StatusRead = () =>
+        {
+            if (fixture.Session.Runs.IsEmpty) readsBeforeTheRun++;
+            return Task.FromResult<DaemonStatus?>(FreshStatus(fixture));
+        };
+
+        var started = await fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["10"]);
+
+        Assert.Equal(1, readsBeforeTheRun);
+        Assert.NotNull(fixture.Session.Capabilities);
+        Assert.Equal(started.RunId, Assert.Single(fixture.Session.Runs.Values).PrefillRunId);
+    }
+
+    [Fact]
+    public async Task AFirstStartWhoseReadLeavesNoCapabilitiesFailsAsARequestFailure()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        var session = fixture.Session;
+        session.Capabilities = null;
+        var answer = new TaskCompletionSource<DaemonStatus?>();
+        fixture.Client.StatusRead = () => answer.Task;
+        await session.RecoveryWork.WaitAsync();
+        Task<PrefillResult> start;
+        try
+        {
+            start = fixture.Daemon.PrefillAsync(session.Id, appIds: ["10"]);
+            answer.SetResult(FreshStatus(fixture));
+
+            // Another pass holds the lease and applies its own read, so this Start has to wait for it.
+            Assert.False(start.IsCompleted);
+        }
+        finally { session.RecoveryWork.Release(); }
+
+        var refusal = await Assert.ThrowsAsync<DaemonCommandException>(() => start.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.Equal("errors.prefill.requestFailed", refusal.StageKey);
+        Assert.Empty(session.Runs);
+    }
+
+    [Fact]
+    public async Task AFirstStartAfterAnImageReplaceClosedAdmissionIsBusy()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        var session = fixture.Session;
+        session.Capabilities = null;
+        await session.RecoveryWork.WaitAsync();
+        Task<PrefillResult> start;
+        try
+        {
+            start = fixture.Daemon.PrefillAsync(session.Id, appIds: ["10"]);
+            var deadline = DateTime.UtcNow.AddSeconds(10);
+            while (!session.RecoveryRequested && DateTime.UtcNow < deadline)
+                await Task.Delay(10);
+            Assert.True(session.RecoveryRequested, "The Start never reached its wait for the recovery lease.");
+            // An image replace closes admission while it holds the lease, and releases it without a read.
+            session.AdmissionClosed = true;
+        }
+        finally { session.RecoveryWork.Release(); }
+
+        var refusal = await Assert.ThrowsAsync<DaemonCommandException>(() => start.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.Equal("outcome-unknown", refusal.ErrorCode);
+        Assert.Empty(session.Runs);
+    }
+
+    [Fact]
+    public async Task AFirstStartAppliesTheSignInStateItReads()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        fixture.Session.AuthState = DaemonAuthState.NotAuthenticated;
+        fixture.Session.Capabilities = null;
+
+        await fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["10"]);
+
+        Assert.Single(fixture.Session.Runs);
+        Assert.Equal(DaemonAuthState.Authenticated, fixture.Session.AuthState);
+    }
+
+    [Fact]
+    public async Task AFailedStatusReadOnAnIdleSessionLeavesItReady()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        fixture.Client.Offline = true;
+
+        Assert.Null(await fixture.Daemon.GetSessionStatusAsync(fixture.Session.Id));
+
+        Assert.False(fixture.Session.Recovering);
+        fixture.Client.Offline = false;
+        Assert.NotNull((await fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["10"])).RunId);
+    }
+
+    private static DaemonStatus FreshStatus(RunFixture fixture)
+    {
+        var status = RunClient.Capabilities(fixture.Client.InstanceId);
+        status.ReadStamp = System.Diagnostics.Stopwatch.GetTimestamp();
+        return status;
     }
 
     [Theory]
-    [InlineData("legacy", false, 1)]
-    [InlineData("partial", false, 1)]
-    [InlineData("malformed-instance", false, 1)]
-    [InlineData("missing-instance", false, 1)]
-    [InlineData("missing-inventory", false, 1)]
-    [InlineData("invalid-run-limit", false, 1)]
-    [InlineData("invalid-request-limit", false, 1)]
+    [InlineData("legacy", false, null)]
+    [InlineData("partial", false, null)]
+    [InlineData("malformed-instance", false, null)]
+    [InlineData("missing-instance", false, null)]
+    [InlineData("missing-inventory", false, null)]
+    [InlineData("invalid-run-limit", false, null)]
+    [InlineData("invalid-request-limit", false, null)]
     [InlineData("valid-limit-one", true, 1)]
     [InlineData("valid", true, 3)]
-    public async Task SessionCapabilitiesAsync(string scenario, bool concurrent, int expectedLimit)
+    public async Task SessionCapabilitiesAsync(string scenario, bool concurrent, int? expectedLimit)
     {
         foreach (var persistent in new[] { false, true })
         {
@@ -292,7 +541,7 @@ public sealed class PrefillRunTests
             Assert.Equal(concurrent, status.SupportsConcurrentPrefill);
 
             IReadOnlyList<string> features;
-            int limit;
+            int? limit;
             if (persistent)
             {
                 using var services = new ServiceCollection().AddSingleton(fixture.Daemon).BuildServiceProvider();
@@ -320,6 +569,28 @@ public sealed class PrefillRunTests
                 Assert.Empty(features);
         }
     }
+
+    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(10);
+
+    [Fact]
+    public async Task ARefusedStartNamesItsReasonByKeyAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        // Every run slot the daemon offers is taken.
+        await fixture.StartAsync("10");
+        await fixture.StartAsync("20");
+        await fixture.StartAsync("30");
+        var controller = new SteamDaemonController(fixture.Daemon,
+            NullLogger<SteamDaemonController>.Instance, stateService: null!, userPreferencesService: null!);
+        var httpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        httpContext.Items["Session"] = new UserSession { Id = fixture.Session.UserId, SessionType = SessionType.Admin };
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var error = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
+            () => controller.StartPrefillAsync(fixture.Session.Id, new StartPrefillRequest { All = true }));
+
+        Assert.Equal("prefill.log.alreadyRunning", error.StageKey);
+    }
 }
 
 internal sealed class RunFixture : IAsyncDisposable
@@ -327,18 +598,20 @@ internal sealed class RunFixture : IAsyncDisposable
     private readonly TestDatabase? _database;
     public DbContextOptions<AppDbContext> Options { get; }
     public SteamDaemonService Daemon { get; }
+    public RecordingNotificationProxy Recorder { get; }
     public DaemonSession Session { get; }
     public RunClient Client { get; }
     public PrefillSessionService History { get; }
 
-    private RunFixture(TestDatabase? database = null, bool persistent = false)
+    private RunFixture(TestDatabase? database = null, bool persistent = false, TimeProvider? cacheStatusClock = null)
     {
         _database = database;
         Options = database?.Options ?? new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"prefill_runs_{Guid.NewGuid():N}")
             .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning)).Options;
-        var created = PrefillCacheChangeTests.NewDaemon(Options);
+        var created = PrefillCacheChangeTests.NewDaemon(Options, cacheStatusClock);
         Daemon = created.Daemon;
+        Recorder = created.Recorder;
         Session = persistent ? new DaemonSession
         {
             Id = created.Session.Id,
@@ -349,8 +622,6 @@ internal sealed class RunFixture : IAsyncDisposable
             ExpiresAt = DateTime.UtcNow.AddHours(1)
         } : created.Session;
         created.Daemon.InjectSession(Session);
-        Session.IsPrefilling = false;
-        Session.PrefillRunId = null;
         Session.AuthState = DaemonAuthState.Authenticated;
         var client = DispatchProxy.Create<IDaemonClient, RunClient>();
         Client = (RunClient)(object)client;
@@ -359,9 +630,10 @@ internal sealed class RunFixture : IAsyncDisposable
         History = new PrefillSessionService(new TestDbContextFactory(Options), NullLogger<PrefillSessionService>.Instance);
     }
 
-    public static async Task<RunFixture> CreateAsync(bool relational = false, bool persistent = false)
+    public static async Task<RunFixture> CreateAsync(bool relational = false, bool persistent = false,
+        TimeProvider? cacheStatusClock = null)
     {
-        var fixture = new RunFixture(relational ? await TestDatabase.CreateAsync() : null, persistent);
+        var fixture = new RunFixture(relational ? await TestDatabase.CreateAsync() : null, persistent, cacheStatusClock);
         await using var context = new AppDbContext(fixture.Options);
         await context.Database.EnsureCreatedAsync();
         context.PrefillSessions.Add(new PrefillSession
@@ -415,6 +687,9 @@ internal class RunClient : NullReturningProxy
     /// <summary>When true, a login command makes the daemon report its logged-in capabilities.</summary>
     public bool SignInOnStartLogin { get; set; }
     public bool LoseAcknowledgement { get; set; }
+
+    /// <summary>When set, a Start is refused with this error code.</summary>
+    public string? StartRefusal { get; set; }
     public bool OmitInventory { get; set; }
     public bool CompleteCancellation { get; set; } = true;
     public bool Offline { get; set; }
@@ -471,6 +746,7 @@ internal class RunClient : NullReturningProxy
             if (Status is not null) return Task.FromResult<DaemonStatus?>(Status);
             if (Offline) return Task.FromResult<DaemonStatus?>(null);
             var status = Capabilities(InstanceId);
+            status.ReadStamp = System.Diagnostics.Stopwatch.GetTimestamp();
             if (!OmitInventory)
             {
                 status.ActiveOperations = Pages.Values.Where(page => page.Operation.State is not ("completed" or "failed" or "cancelled"))
@@ -488,6 +764,8 @@ internal class RunClient : NullReturningProxy
         if (targetMethod?.Name == nameof(IDaemonClient.PrefillAsync) && args?[0] is Guid id)
         {
             StartCount++;
+            if (StartRefusal is not null)
+                return Task.FromResult(new PrefillResult { Success = false, ErrorCode = StartRefusal });
             var options = (DaemonRunOptions)args[2]!;
             CachedDepots = (List<CachedDepotInput>?)args[3];
             var snapshot = new DaemonRunSnapshot

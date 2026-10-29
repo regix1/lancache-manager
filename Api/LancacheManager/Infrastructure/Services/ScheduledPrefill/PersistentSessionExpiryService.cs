@@ -79,7 +79,7 @@ public sealed class PersistentSessionExpiryService : ScheduledBackgroundService
                 return;
             }
 
-            var result = await daemon.ProcessSessionExpiryAsync(nowUtc);
+            var result = await daemon.ProcessSessionExpiryAsync(nowUtc, stoppingToken);
 
             if (result.FlaggedNeedsRelogin > 0 || result.Terminated > 0 || result.StalledFailed > 0 || result.AbandonedLoginsCancelled > 0)
             {

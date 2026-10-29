@@ -307,6 +307,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
+            data-closing={closing ? '' : undefined}
             className={`msd-dropdown absolute z-[250] ${dropdownWidth || ''} themed-border-radius-sm overflow-hidden bg-themed-secondary border border-themed-primary motion-reduce:animate-none ${
               closing
                 ? position.openUpward
