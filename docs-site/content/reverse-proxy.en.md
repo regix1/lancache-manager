@@ -3,7 +3,7 @@
 LANCache Manager runs fine behind nginx. HTTPS is recommended.
 
 !!! tip
-    Fronting the manager with a proxy? Also set `Security__KnownProxyNetworks` (see [Security](configuration-reference.md#security)) so client IPs are reported correctly.
+    When a proxy sits in front of the manager, also set `Security__KnownProxyNetworks` (see [Security](configuration-reference.md#security)) so client IPs are reported correctly.
 
 ### Single origin (recommended)
 

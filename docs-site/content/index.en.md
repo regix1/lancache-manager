@@ -19,7 +19,7 @@ It also acts on the cache. Prefill Steam, Epic, Battle.net, Riot, and Xbox games
 | If you want to | Read |
 |---|---|
 | Get it running | [Quick Start](quick-start.md) |
-| Choose how people sign in | [Access and sign-in](sign-in.md) |
+| Choose how users sign in | [Access and sign-in](sign-in.md) |
 | Move up from an older version | [Upgrading](upgrading.md) |
 | See what each page does | [What You Get](what-you-get.md) |
 | Prefill games before an event | [Prefill](prefill.md) |

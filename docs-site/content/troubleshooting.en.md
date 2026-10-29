@@ -17,7 +17,7 @@ Point `LanCache__LogPath` at the directory holding `access.log` (e.g. `/logs`); 
 2. `LanCache__LogPath` points at the file at that *container* path (`/logs/access.log`).
 3. The file is readable from inside the container: `docker exec -it lancache-manager cat /logs/access.log | head`.
 
-Network shares (NFS/SMB) are fine. A trailing `+` in `ls -la` output (e.g. `-rw-r--r--+`) is just an NFS ACL marker - it does **not** block reads. If `cat` prints the file, permissions are not the problem and the configured path is what to check.
+Network shares (NFS/SMB) are fine. A trailing `+` in `ls -la` output (e.g. `-rw-r--r--+`) is an NFS ACL marker. It does **not** block reads. If `cat` prints the file, permissions are not the problem and the configured path is what to check.
 
 ### Cache size / disk usage isn't showing on the dashboard
 
@@ -25,7 +25,7 @@ Network shares (NFS/SMB) are fine. A trailing `+` in `ls -la` output (e.g. `-rw-
 
 A standard lancache (monolithic) layout nests the content one level down. If you mount your cache data directory to `/cache`, the actual folders usually live at `/cache/cache` - so set `LanCache__CachePath=/cache/cache`. Point it one level too high and the dashboard shows the drive but reports no cache usage. Network-mounted (NFS/SMB) caches behave the same.
 
-Verify what's actually at the path:
+Check what is at the path:
 
 ```bash
 docker exec -it lancache-manager ls /cache

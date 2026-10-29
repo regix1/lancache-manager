@@ -1,6 +1,11 @@
 # 裸机版 LANCache { #bare-metal }
 
-[zeropingheroes/lancache-bare-metal](https://github.com/zeropingheroes/lancache-bare-metal) 直接在宿主机上运行缓存的 nginx（不使用 Docker）。它将按服务拆分的日志文件（`steam-access.log`、`blizzard-access.log`、`epicgames-access.log`、`riot-access.log`、`windows-update-access.log`、`fallback-access.log`）写入 `/srv/lancache/logs/http/`，使用不带服务标签的 `http-detailed` 格式。LANCache Manager 原生支持这种布局：挂载日志和缓存目录即可看到流量，无需改动 nginx 配置。
+[zeropingheroes/lancache-bare-metal](https://github.com/zeropingheroes/lancache-bare-metal) 直接在宿主机上运行缓存的 nginx（不使用 Docker）。
+
+- 它为每个服务写一个日志文件到 `/srv/lancache/logs/http/`：`steam-access.log`、`blizzard-access.log`、`epicgames-access.log`、`riot-access.log`、`windows-update-access.log` 和 `fallback-access.log`。
+- 日志使用不带服务标签的 `http-detailed` 格式。
+
+LANCache Manager 可直接读取这种布局。挂载日志和缓存目录即可看到流量，无需改动 nginx 配置。
 
 ### 完整 Compose 示例
 
@@ -74,6 +79,11 @@ set $cacheidentifier steam;   # 各站点分别为 blizzard / epicgames / riot /
 access_log /srv/lancache/logs/http/access.log cachelog;
 ```
 
-执行 `sudo nginx -s reload`（或 `systemctl reload nginx`）重新加载，并按上文挂载 `/srv/lancache/logs/http`。**有一个警告，而且很重要。** 合并日志会让 LANCache Manager 把该环境识别为标准容器安装，但磁盘上的文件仍然带着裸机缓存键，因此移除游戏和损坏扫描会按并不存在的键去查找文件。只要旧的按服务日志仍与合并日志并存，LANCache Manager 看到的就是相互矛盾的证据，会直接拒绝这些功能。无论哪种情况，清空整个缓存都仍然可用。请勿在打过补丁的缓存上移除游戏或进行损坏扫描。
+执行 `sudo nginx -s reload`（或 `systemctl reload nginx`）重新加载，并按上文挂载 `/srv/lancache/logs/http`。
+
+!!! warning "请勿在打过补丁的缓存上移除游戏或进行损坏扫描"
+    - 使用合并日志时，LANCache Manager 会把该环境视为标准容器安装。磁盘上的文件仍使用裸机缓存键，因此移除游戏和损坏扫描会查找并不存在的文件。
+    - 只要旧的按服务日志仍与合并日志并存，LANCache Manager 会拒绝这些功能。
+    - **清空缓存**在任何情况下都可用。
 
 -----

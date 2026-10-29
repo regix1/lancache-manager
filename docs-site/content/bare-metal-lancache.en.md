@@ -1,6 +1,11 @@
 # Bare-Metal LANCache { #bare-metal }
 
-[zeropingheroes/lancache-bare-metal](https://github.com/zeropingheroes/lancache-bare-metal) runs the cache's nginx directly on the host instead of in Docker. It writes per-service log files (`steam-access.log`, `blizzard-access.log`, `epicgames-access.log`, `riot-access.log`, `windows-update-access.log`, `fallback-access.log`) to `/srv/lancache/logs/http/`, in an `http-detailed` format with no service tag. LANCache Manager reads this layout natively: mount the log and cache directories and traffic appears, with no nginx changes needed.
+[zeropingheroes/lancache-bare-metal](https://github.com/zeropingheroes/lancache-bare-metal) runs the cache's nginx directly on the host instead of in Docker.
+
+- It writes one log file per service to `/srv/lancache/logs/http/`: `steam-access.log`, `blizzard-access.log`, `epicgames-access.log`, `riot-access.log`, `windows-update-access.log`, and `fallback-access.log`.
+- The logs use an `http-detailed` format with no service tag.
+
+LANCache Manager reads this layout as-is. Mount the log and cache directories and traffic appears. No nginx changes are needed.
 
 ### Full Compose example
 
@@ -66,7 +71,7 @@ So **Xbox prefill is not supported on a bare-metal cache**. A session will run t
 
 ### Alternative: switch bare-metal to the standard log format
 
-Prefer the container-style combined log? Patch the bare-metal nginx config instead. Add the standard format to the `http {}` block of `nginx.conf`:
+To use the container-style combined log instead, patch the bare-metal nginx config. Add the standard format to the `http {}` block of `nginx.conf`:
 
 ```nginx
 log_format cachelog '[$cacheidentifier] $remote_addr / $http_x_forwarded_for - - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$upstream_cache_status" "$host" "$http_range"';
@@ -81,6 +86,11 @@ set $cacheidentifier steam;   # blizzard / epicgames / riot / wsus per site
 access_log /srv/lancache/logs/http/access.log cachelog;
 ```
 
-Reload with `sudo nginx -s reload` (or `systemctl reload nginx`) and mount `/srv/lancache/logs/http` as above. **One warning, and it matters.** The combined log makes LANCache Manager read the install as a standard container, but the files on disk still carry bare-metal cache keys, so game removal and corruption scans look for files under keys that do not exist. While the old per-service logs are still present alongside the combined log, LANCache Manager sees mixed evidence and refuses those features outright. Clearing the whole cache keeps working either way. Do not remove games or scan for corruption on a patched cache.
+Reload with `sudo nginx -s reload` (or `systemctl reload nginx`) and mount `/srv/lancache/logs/http` as above.
+
+!!! warning "Do not remove games or scan for corruption on a patched cache"
+    - With the combined log, LANCache Manager treats the install as a standard container. The files on disk still use bare-metal cache keys, so game removal and corruption scans look for files that do not exist.
+    - While the old per-service logs sit next to the combined log, LANCache Manager refuses those features.
+    - **Clear Cache** works either way.
 
 -----

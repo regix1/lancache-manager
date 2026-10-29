@@ -3,7 +3,7 @@
 LANCache Manager 可以在 nginx 后面正常运行。建议使用 HTTPS。
 
 !!! tip
-    在管理器前面架设了代理？记得同时设置 `Security__KnownProxyNetworks`（见[安全](configuration-reference.md#security)），这样客户端 IP 才能被正确报告。
+    在管理器前面使用代理时，还需设置 `Security__KnownProxyNetworks`（见[安全](configuration-reference.md#security)），这样客户端 IP 才能被正确报告。
 
 ### 单一来源（推荐）
 

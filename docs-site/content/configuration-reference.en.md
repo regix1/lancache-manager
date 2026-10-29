@@ -61,7 +61,7 @@ Not every `/metrics` setting has an environment variable. The update interval, t
 | **Account** | Signed-in access to the app. Sees and manages every other Account. Cannot see the Primary account or its sessions. | Browse downloads, change own settings |
 | **Guest** | View access through a guest session. Prefill is separate: Primary or an Account can grant it per platform, including for one session. | Browse downloads, stats, events, client data |
 
-To give someone access without sharing an account:
+To give a user access without sharing an account:
 
 1. On the **Users** page, make sure guest logins are **Unlocked**.
 2. Your guest clicks **Continue as Guest** on the sign-in screen.
@@ -72,7 +72,7 @@ Every page and action needs a signed-in account or a guest session. The exceptio
 
 - `/metrics` is public unless you set `Security__RequireAuthForMetrics=true`.
 - The `/health` liveness probe always answers.
-- Sign-in and first-run setup must be public so people can reach them.
+- Sign-in and first-run setup must be public so users can reach them.
 
 ### Prefill settings { #prefill-config }
 
@@ -136,7 +136,7 @@ If you run more than one cache instance or split services across drives, see [Mu
 
 ### Complete annotated Compose example { #complete-compose }
 
-Prefer one file that lists everything? The example below is a complete, working compose file. The active lines match Quick Start; every optional setting is present but commented, with its default and when it matters, so copying it is safe.
+The example below is a complete, working compose file. The active lines match Quick Start; every optional setting is present but commented, with its default and when it matters, so copying it is safe.
 
 <details markdown>
 <summary><strong>Complete annotated Compose example</strong> - every supported variable</summary>

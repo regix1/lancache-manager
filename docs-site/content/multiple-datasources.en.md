@@ -1,6 +1,6 @@
 # Multiple Datasources { #multiple-datasources }
 
-Most people run a single LANCache instance and never touch this section. You only need it if services are split across cache directories, or if several LANCache servers should combine into one dashboard.
+Most users run a single LANCache instance and never touch this section. You only need it if services are split across cache directories, or if several LANCache servers should combine into one dashboard.
 
 A "datasource" is a paired log + cache directory. Each one is processed and tracked separately, then aggregated in the dashboard and downloads views.
 
@@ -107,7 +107,12 @@ Native installations read app configuration and environment variables when the p
 
 Log ingestion, status views, and other read-only operations remain separate from destructive log changes. Cache-only clearing also remains available when it does not rewrite logs. Before any physical work, a destructive action checks every eligible selected log target. The settings GET is advisory: it does not lock files or signal writers.
 
-Docker Desktop testing on native Windows showed that a live bind-mounted log can stay attached to the old file across a replacement. This observed deployment limit does not mean every Windows filesystem lacks atomic rename. LANCache Manager denies this combination because the current implementation cannot guarantee safe publication and writer reopen for a verified Docker writer. Use a Linux Manager with the same mounts, or use a static log source, for destructive log changes.
+On Docker Desktop for Windows, a live bind-mounted log can stay attached to the old file after the file is replaced. LANCache Manager cannot safely swap the file under that writer, so it refuses this combination.
+
+For log changes that rewrite the file, use one of these instead:
+
+- LANCache Manager on Linux with the same mounts.
+- A static log source that nothing is still writing to.
 
 `Enabled=true` selects a datasource for current reads, scans, and file changes. `sourceCount` reports the number of log streams found inside that one datasource; it is not a datasource count. An explicit list in which every entry is disabled has zero enabled datasources and does not create a default row.
 

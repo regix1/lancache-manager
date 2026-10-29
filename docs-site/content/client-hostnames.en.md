@@ -2,7 +2,7 @@
 
 **Management → Clients** has a **Client Hostnames** setting. Turn on **Show client hostnames** and, wherever the page would show a raw address like `172.16.2.111`, it shows a name instead, if your network's DNS server can supply one.
 
-This page explains what the setting actually asks for, why a DNS rewrite alone usually isn't enough to satisfy it, and how to make your DNS server answer the question it's asking.
+This page explains what the setting asks for, why a DNS rewrite alone usually isn't enough to satisfy it, and how to make your DNS server answer the question it's asking.
 
 ## What the toggle does
 
@@ -68,7 +68,7 @@ Check the forward direction:
 nslookup test.lan
 ```
 
-Check the reverse direction, which is the one this feature actually needs:
+Check the reverse direction, which is the one this feature needs:
 
 ```bash
 nslookup -type=PTR 111.2.16.172.in-addr.arpa
@@ -78,7 +78,7 @@ If the first command returns an address and the second returns something like "N
 
 ## The port-53 redirect trap
 
-Some routers redirect every DNS request on the network to one server, no matter which server a device is actually configured to use. If your router does this, pointing a device at a different DNS server changes nothing: every device gets identical answers from the same hijacked resolver regardless of its settings.
+Some routers redirect every DNS request on the network to one server, no matter which server a device is configured to use. If your router does this, pointing a device at a different DNS server changes nothing: every device gets identical answers from the same hijacked resolver regardless of its settings.
 
 A quick way to check: query a DNS server address that doesn't exist anywhere on your network.
 

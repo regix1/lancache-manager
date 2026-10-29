@@ -1,6 +1,6 @@
 # Prefill { #prefill-steam--epic }
 
-Prefill downloads games into your cache *before* people connect. When guests show up, every install reads from your cache instead of the public internet - full LAN speed, no bandwidth bottleneck.
+Prefill downloads games into your cache *before* users connect. When guests show up, every install reads from your cache instead of the public internet - full LAN speed, no bandwidth bottleneck.
 
 Steam, Epic, Battle.net, Riot, and Xbox each run in their own container, so you can prefill all of them at the same time without them interfering. Progress streams live to the UI.
 
@@ -34,7 +34,7 @@ The flow is the same on every platform:
 3. Click **Select Apps**
 4. Click **Prefill Selected**, then **Start Download**
 
-That's it. Leave it running - when guests arrive, everything's cached.
+Leave the session running. When guests arrive, the games are already cached.
 
 !!! note
     Prefill builds on community daemons:
@@ -47,7 +47,7 @@ That's it. Leave it running - when guests arrive, everything's cached.
 
 ### Importing Steam App IDs
 
-Have a list of App IDs from `steam-lancache-prefill` or somewhere else? Skip the library browser:
+To prefill a list of App IDs from `steam-lancache-prefill` or another source, import them instead of using the library browser:
 
 1. Click **Select Apps**
 2. Click **Import App IDs**
@@ -60,7 +60,7 @@ Have a list of App IDs from `steam-lancache-prefill` or somewhere else? Skip the
 The dialog tells you how many games were added, how many were already selected, and how many IDs aren't in your Steam library (those aren't added to your selection).
 
 !!! tip
-    **Coming from `steam-lancache-prefill`?** Open `selectedAppsToPrefill.json` and paste the contents straight into the import field - the JSON array is parsed as-is.
+    **From `steam-lancache-prefill`:** open `selectedAppsToPrefill.json` and paste its contents into the import field. The JSON array is read as-is.
 
 ### Scheduled Prefill { #scheduled-prefill }
 
@@ -125,7 +125,7 @@ The rest of the Schedules page works the same way for every background service -
 
 ### Network setup { #prefill-network }
 
-**Most installs need zero config.** If you run the standard `lancache` + `lancache-dns` containers, lancache-manager auto-detects them and prefill works without further setup.
+**Most installs need no setup.** If you run the standard `lancache` + `lancache-dns` containers, lancache-manager auto-detects them and prefill works without further setup.
 
 If your DNS isn't a stock `lancache-dns` (you use AdGuard Home, Pi-hole, public DNS, etc.) or your routing is unusual, set one env var and you're done:
 
@@ -151,7 +151,7 @@ Full descriptions and defaults for `Prefill__LancacheIp`, `Prefill__LancacheDnsI
     | `LancacheIp` | The **cache server** (`lancachenet/monolithic`, or any HTTP cache) | HTTP / 80 | Holds the actual cached game files |
     | `LancacheDnsIp` | The **DNS server** (`lancachenet/lancache-dns`, AdGuard Home, Pi-hole, etc.) | DNS / 53 | Translates `lancache.steamcontent.com` into the cache's IP |
 
-    Think of a small town: the **cache** is the library where the books live, and the **DNS server** is the information booth you ask for directions. They can share a building (same IP, different ports) but they do different jobs. Setting `LancacheIp` walks straight to the library, which is why DNS stops mattering for cache traffic.
+    The two can share one IP on different ports, but they do different jobs. Setting `LancacheIp` sends cache traffic straight to the cache server, so DNS no longer matters for that traffic.
 
 !!! important
     `LANCACHE_IP` only redirects CDN chunk traffic, which is all lancache caches anyway. Steam (`api.steampowered.com`) and Epic (`*.epicgames.com`) auth and manifest endpoints still use normal DNS, and are unaffected.
@@ -202,7 +202,7 @@ Each prefill session runs a connectivity test on startup and writes the result t
 
 If the resolved IP is a public address (Steam's real CDN IPs look like `162.254.x.x`), traffic is bypassing your cache. Set `Prefill__LancacheIp` and restart the session.
 
-??? tip "How routing works (advanced) — which path a request takes"
+??? tip "How routing works (advanced): which path a request takes"
 
     ```mermaid
     ---

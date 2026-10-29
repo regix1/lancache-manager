@@ -42,7 +42,7 @@ Then:
 
    On first start the key is also printed in the container logs. Later restarts only print a hint; use the file.
 
-2. Open `http://localhost:8080`. Setup asks how people should sign in, then asks for the API key. That choice is covered in [Access and sign-in](sign-in.md).
+2. Open `http://localhost:8080`. Setup asks how users should sign in, then asks for the API key. That choice is covered in [Access and sign-in](sign-in.md).
 3. A setup wizard opens on first run. It checks your mount permissions, sets up Steam depot mapping, and then processes existing cache logs so downloads show real game names and cover art. You can step back through it at any point.
 
 The wizard itself only runs once, but its steps stay available afterwards: re-import history with **Process All** in the **Actions** menu on the **Log Processing** card (**Management → Logs & Cache**), and refresh depot mapping with **Run Now** on **Steam Game Mapping** (**Management → Schedules**).

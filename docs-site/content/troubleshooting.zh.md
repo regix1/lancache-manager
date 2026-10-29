@@ -17,7 +17,7 @@
 2. `LanCache__LogPath` 指向该*容器内*路径下的文件（`/logs/access.log`）。
 3. 该文件在容器内可读：`docker exec -it lancache-manager cat /logs/access.log | head`。
 
-网络共享（NFS/SMB）没有问题。`ls -la` 输出末尾的 `+`（例如 `-rw-r--r--+`）只是 NFS 的 ACL 标记——它**不会**阻止读取。如果 `cat` 能打印出文件内容，那问题就不在权限，应该检查的是所配置的路径。
+网络共享（NFS/SMB）没有问题。`ls -la` 输出末尾的 `+`（例如 `-rw-r--r--+`）是 NFS 的 ACL 标记。它**不会**阻止读取。如果 `cat` 能打印出文件内容，那问题就不在权限，应该检查的是所配置的路径。
 
 ### 仪表板没有显示缓存大小 / 磁盘占用
 
@@ -25,7 +25,7 @@
 
 标准的 lancache（monolithic）布局会把内容嵌套在下一层。如果你把缓存数据目录挂载到 `/cache`，实际的哈希文件夹通常位于 `/cache/cache`——这时应设置 `LanCache__CachePath=/cache/cache`。如果指向的层级过高，仪表板会显示这个驱动器，但报告的缓存用量为零。网络挂载（NFS/SMB）的缓存行为相同。
 
-确认该路径下实际存在什么：
+检查该路径下有什么：
 
 ```bash
 docker exec -it lancache-manager ls /cache

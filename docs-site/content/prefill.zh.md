@@ -1,6 +1,6 @@
 # 预填充 { #prefill-steam--epic }
 
-预填充会在人们连接*之前*把游戏下载进你的缓存。等客人到场时，每次安装都从你的缓存读取，而不是走公共互联网——满速 LAN，没有带宽瓶颈。
+预填充会在用户连接*之前*把游戏下载进你的缓存。等客人到场时，每次安装都从你的缓存读取，而不是走公共互联网——满速 LAN，没有带宽瓶颈。
 
 Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，因此你可以同时预填充所有平台而互不干扰。进度会实时推送到 UI。
 
@@ -33,7 +33,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 3. 点击**选择应用**
 4. 点击**预填充已选**，然后点击**开始下载**
 
-就这么简单。让它继续运行——等客人到达时，一切都已经缓存好了。
+保持会话运行。客人到达时，游戏已经缓存好了。
 
 !!! note
     预填充构建在社区守护进程之上：
@@ -46,7 +46,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 
 ### 导入 Steam App ID
 
-手头有来自 `steam-lancache-prefill` 或其他地方的 App ID 列表？可以跳过库浏览器：
+要预填充来自 `steam-lancache-prefill` 或其他来源的 App ID 列表，可以直接导入，而不使用库浏览器：
 
 1. 点击**选择应用**
 2. 点击**导入应用 ID**
@@ -59,7 +59,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 对话框会告诉你添加了多少个游戏、有多少已经在选中列表中、以及有多少 ID 不在你的 Steam 游戏库中（这些不会被加入你的选择）。
 
 !!! tip
-    **从 `steam-lancache-prefill` 迁移过来？** 打开 `selectedAppsToPrefill.json`，把内容直接粘贴到导入框中——JSON 数组会按原样解析。
+    **从 `steam-lancache-prefill` 迁移：** 打开 `selectedAppsToPrefill.json`，把内容粘贴到导入框中。JSON 数组会按原样读取。
 
 ### 计划预填充 { #scheduled-prefill }
 
@@ -150,7 +150,7 @@ Steam、Epic 或 Xbox 的登录只能由保存它的 LANCache 账号再次使用
     | `LancacheIp` | **缓存服务器**（`lancachenet/monolithic`，或任何 HTTP 缓存） | HTTP / 80 | 保存实际的缓存游戏文件 |
     | `LancacheDnsIp` | **DNS 服务器**（`lancachenet/lancache-dns`、AdGuard Home、Pi-hole 等） | DNS / 53 | 把 `lancache.steamcontent.com` 转换成缓存的 IP |
 
-    想象一座小镇：**缓存**是存放书的图书馆，**DNS 服务器**是你问路的问讯处。两者可以在同一栋楼里（同一个 IP，不同端口），但做的是不同的工作。设置 `LancacheIp` 相当于径直走向图书馆，所以 DNS 对缓存流量不再有影响。
+    两者可以共用一个 IP、使用不同端口，但做的是不同的工作。设置 `LancacheIp` 会让缓存流量直接发往缓存服务器，因此 DNS 不再影响这部分流量。
 
 !!! important
     `LANCACHE_IP` 只重定向 CDN 分块流量，而这本来就是 lancache 唯一会缓存的内容。Steam（`api.steampowered.com`）和 Epic（`*.epicgames.com`）的认证与清单端点仍然使用正常 DNS，不受影响。

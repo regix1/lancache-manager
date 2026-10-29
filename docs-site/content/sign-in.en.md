@@ -1,10 +1,10 @@
 # Access and sign-in { #sign-in }
 
-On first run you choose how people get in. An upgraded install asks you to confirm the choice once; your accounts, cache, and prefill settings are kept. Change it later at **Users → Accounts → Access and sign-in**.
+On first run you choose how users sign in. An upgraded install asks you to confirm the choice once; your accounts, cache, and prefill settings are kept. Change it later at **Users → Accounts → Access and sign-in**.
 
 ## The five modes
 
-| Mode | People enter | Good for |
+| Mode | Users enter | Good for |
 |---|---|---|
 | Username and password | Username and password | Most setups |
 | API key, username and password | API key, then username and password | An extra check on the sign-in screen |
@@ -53,15 +53,15 @@ There is no central sign-in service. You register an application with each provi
 
 ### Set it up
 
-1. Open the app at the address people will use to reach it. The callback URLs are built from that address.
+1. Open the app at the address users will use to reach it. The callback URLs are built from that address.
 2. Copy the **Sign-in callback URL** and the **Test callback URL** into the provider's application registration. You never open them yourself.
 3. Click **Test connection**. It runs a real sign-in.
     - If it passes, the account you signed in with is linked to the primary administrator and the settings go live.
     - If it fails, nothing changes, so a working setup is never broken by a bad attempt.
 
-### Allowing other people
+### Allowing other users
 
-You allow people by their account ID from the provider, not by email address or display name.
+You allow users by their account ID from the provider, not by email address or display name.
 
 | Provider | ID format |
 |---|---|

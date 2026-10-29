@@ -28,7 +28,7 @@ Four view modes: **Compact**, **Card**, **Normal**, and **Retro**. **Hit** and *
 <em>Clients - which devices use the cache, and how well it serves each one</em>
 </div>
 
-Open it when you want to know which machines pull the most and whether their installs actually hit the cache.
+Open it when you want to know which machines pull the most and whether their installs hit the cache.
 
 ### Users
 
@@ -48,7 +48,7 @@ This is where guest access and signed-in accounts live: watch **Sessions**, use 
 <em>Events - download activity and LAN events on a calendar</em>
 </div>
 
-Planning a LAN party? Put it on the calendar and see download activity in date context.
+Add LAN parties to the calendar to see download activity by date.
 
 ### Status Check { #status-check }
 
@@ -58,7 +58,7 @@ Planning a LAN party? Put it on the calendar and see download activity in date c
 <em>Status Check - verify DNS, cache reachability, and recent download routing</em>
 </div>
 
-The Status Check tab (Management → Status Check) answers "is my LANCache actually working?" without touching a terminal. It checks that game domains resolve to your cache, that the cache answers, and that recent downloads really went through it - per domain, in plain language.
+The Status Check tab (Management → Status Check) checks whether your LANCache is working, without a terminal. It checks that game domains resolve to your cache, that the cache answers, and that recent downloads really went through it - per domain, in plain language.
 
 <details markdown>
 <summary><strong>Why "From this device" cannot confirm the cache, and how to fix it</strong></summary>
@@ -78,7 +78,7 @@ location /lancache-heartbeat {
 }
 ```
 
-`Access-Control-Expose-Headers` is the line people miss. Without it the request succeeds and the header is still unreadable, so the card stays on that result. `*` is safe here: the probe sends no cookies or credentials, and the response carries nothing but the node name.
+`Access-Control-Expose-Headers` is the line most often missed. Without it the request succeeds and the header is still unreadable, so the card stays on that result. `*` is safe here: the probe sends no cookies or credentials, and the response carries nothing but the node name.
 
 Two caveats:
 
