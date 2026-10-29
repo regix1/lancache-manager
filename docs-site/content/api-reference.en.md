@@ -24,36 +24,85 @@ The raw OpenAPI document is at **`/openapi/v1.json`**, and also requires a signe
 
 ## Authenticating
 
-Sign in once, keep the cookie jar, and use the jar for everything after that:
+Scripts sign in once and send the session cookie with every request after that. The API key on its own does not sign a script in.
+
+!!! warning "Changed in v1.10.6: `X-Api-Key` alone returns `401` on most routes"
+    Before v1.10.6, sending `X-Api-Key` signed a request in as an administrator on every endpoint. A script that still polls `/api/cache` or `/api/dashboard/batch` with only that header gets `401` after the upgrade. Switch it to the sign-in steps below.
+
+### Where the API key still works
+
+| Route | How the key is sent |
+|---|---|
+| `GET /scalar` and `GET /openapi/v1.json` | `X-Api-Key` header |
+| `/metrics`, when `Security:RequireAuthForMetrics` is on | `X-Api-Key` header. Prometheus scrapers need no change. |
+| `POST /api/setup/credentials`, `POST /api/setup/external` | `X-Api-Key` header |
+| `POST /api/account-setup/first-admin`, `POST /api/account-setup/open-main-admin-recovery`, `POST /api/account-setup/recover-main-admin` | `apiKey` field in the request body |
+| Every other route | Not accepted. The route answers `401`. |
+
+The setup and recovery calls keep the key because they must work before any account can sign in.
+
+### Why the key no longer signs scripts in
+
+- The key is one shared secret for the whole install, and it appears in the container log when it is created or rotated.
+- A request that carried only the key left no session, so the app had no record of who made it.
+- A leaked key could not be taken back from one caller. The only fix was to regenerate it, which affects every user.
+- A signed-in session is listed under **Users → Sessions** and can be ended there on its own.
+
+### Signing in from a script
+
+What the sign-in call needs depends on the access mode (see [Access and sign-in](sign-in.md)):
+
+| Access mode | Body for `POST /api/auth/login` |
+|---|---|
+| Username and password | `username`, `password` |
+| API key, username and password | `apiKey`, `username`, `password` |
+| Unauthenticated | `username`, `password` of the primary administrator only |
+| API key and single sign-on | Not available. The call is refused. |
+| Single sign-on | Not available. The call is refused. |
+
+In the two single sign-on modes, a script has no way to sign in.
+
+The steps, for **API key, username and password**:
+
+1. Request an antiforgery token. Signing in changes state, so it needs one.
+2. Sign in and save the cookies to a file.
+3. Send that cookie file with every later request.
 
 ```bash
-# Take an antiforgery token first. Signing in changes something, so it needs one too.
+# 1. Antiforgery token
 curl -c jar.txt http://cache.lan:8080/api/auth/status
 
-# Sign in. This body is for API key, username and password.
-# Username and password mode omits apiKey. Single sign-on does not use this call.
+# 2. Sign in. In Username and password mode, leave out apiKey.
 curl -b jar.txt -c jar.txt -X POST http://cache.lan:8080/api/auth/login \
   -H 'Content-Type: application/json' \
   -H "X-Antiforgery-Token: $(awk '/LancacheManager.Antiforgery/ {print $7}' jar.txt)" \
   -d "{\"apiKey\":\"$LANCACHE_KEY\",\"username\":\"operator\",\"password\":\"$LANCACHE_PASSWORD\"}"
 
-# Then read with the cookie jar.
+# 3. Read with the cookie file
 curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 ```
 
-Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`. **Regenerate API Key** under **Management → Settings** replaces it. Later container logs print only a hint; the full key is written to the logs only when it is first created or rotated. The username and password are those of an account created in the app.
+Replace `operator`, `$LANCACHE_KEY`, and `$LANCACHE_PASSWORD` with an account created in the app and its password. The last command returns the dashboard data as JSON.
 
-If the main administrator password is lost, run `./data/scripts/reset-main-admin-password.sh` on the host. [Password Recovery](password-recovery.md) covers that script and the `open-main-admin-recovery` and `recover-main-admin` requests used for troubleshooting; neither endpoint needs a signed-in session or antiforgery token.
+### Requests that change something
 
-Reads need nothing more than the jar. A request that changes something (`POST`, `PUT`, `PATCH`, `DELETE`) also needs an antiforgery token: call `GET /api/auth/status` with the same jar, take the value of the `LancacheManager.Antiforgery` cookie it sets, and send it back as an `X-Antiforgery-Token` header. That is why the sign-in above starts with the status call. The token belongs to the session it was issued to, and signing in gives you a new one, so call the status endpoint again before your first write.
+Reads need only the cookie file. `POST`, `PUT`, `PATCH`, and `DELETE` also need an antiforgery token:
 
-!!! warning "`X-Api-Key` on its own is not a way into the API"
+1. Call `GET /api/auth/status` with the same cookie file.
+2. Take the value of the `LancacheManager.Antiforgery` cookie it sets.
+3. Send that value in an `X-Antiforgery-Token` header.
 
-    The header opens `/scalar` and `/openapi/v1.json`, and nothing else. Every other endpoint answers `401` to a request whose only credential is that header, so a script that polls something like `/api/cache` or `/api/dashboard/batch` with it stops working the moment you upgrade.
+The token belongs to one session, and signing in starts a new session. Request a fresh token after you sign in, before the first write.
 
-    Five setup calls still read the key themselves, because they have to answer before anyone can sign in: `POST /api/setup/credentials` and `POST /api/setup/external` take it in the `X-Api-Key` header; `POST /api/account-setup/first-admin`, `POST /api/account-setup/open-main-admin-recovery`, and `POST /api/account-setup/recover-main-admin` take it in the request body.
+### Getting the key
 
-    `/metrics` is unchanged as well. It has its own setting, `Security:RequireAuthForMetrics`, and when that is on it still takes the key in the header, so Prometheus scrapers need no change.
+```bash
+docker exec lancache-manager cat /data/security/api_key.txt
+```
+
+- **Regenerate API Key** under **Management → Settings** replaces the key. The old key stops working.
+- The full key appears in the container log only when it is created or rotated. Later starts print only a hint.
+- If the primary administrator password is lost, run `./data/scripts/reset-main-admin-password.sh` on the host. See [Password Recovery](password-recovery.md).
 
 !!! note "The endpoints that answer without a session"
 

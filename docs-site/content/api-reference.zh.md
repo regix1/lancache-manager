@@ -24,36 +24,85 @@ Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡
 
 ## 身份验证
 
-先登录一次并保存 Cookie，之后的所有调用都使用这个 Cookie 文件：
+脚本先登录一次，之后的每个请求都带上会话 Cookie。仅凭 API 密钥无法让脚本登录。
+
+!!! warning "v1.10.6 起的变化：仅带 `X-Api-Key` 的请求在大多数路由上返回 `401`"
+    v1.10.6 之前，带上 `X-Api-Key` 的请求会以管理员身份通过所有端点。升级后，仍只用该请求头轮询 `/api/cache` 或 `/api/dashboard/batch` 的脚本会收到 `401`。请改用下面的登录步骤。
+
+### API 密钥仍然有效的位置
+
+| 路由 | 密钥的传递方式 |
+|---|---|
+| `GET /scalar` 和 `GET /openapi/v1.json` | `X-Api-Key` 请求头 |
+| `/metrics`（开启 `Security:RequireAuthForMetrics` 时） | `X-Api-Key` 请求头。Prometheus 抓取端无需改动。 |
+| `POST /api/setup/credentials`、`POST /api/setup/external` | `X-Api-Key` 请求头 |
+| `POST /api/account-setup/first-admin`、`POST /api/account-setup/open-main-admin-recovery`、`POST /api/account-setup/recover-main-admin` | 请求体中的 `apiKey` 字段 |
+| 其他所有路由 | 不接受，返回 `401` |
+
+初始化和恢复调用保留密钥，因为它们必须在任何账户能登录之前就可用。
+
+### 为什么密钥不再让脚本登录
+
+- 密钥是整个实例共用的一个密钥，在创建或轮换时会出现在容器日志中。
+- 只带密钥的请求不会留下会话，应用无法记录是谁发出的。
+- 泄露的密钥无法单独从某个调用方收回。唯一的办法是重新生成，这会影响所有用户。
+- 已登录的会话会列在**用户 → 会话**中，并可以单独结束。
+
+### 从脚本登录
+
+登录调用需要的内容取决于访问模式（见[访问与登录](sign-in.md)）：
+
+| 访问模式 | `POST /api/auth/login` 的请求体 |
+|---|---|
+| 用户名和密码 | `username`、`password` |
+| API 密钥、用户名和密码 | `apiKey`、`username`、`password` |
+| 免认证访问 | 仅限主管理员的 `username`、`password` |
+| API 密钥和单点登录 | 不可用，调用会被拒绝 |
+| 单点登录 | 不可用，调用会被拒绝 |
+
+在两种单点登录模式下，脚本无法登录。
+
+以 **API 密钥、用户名和密码** 模式为例：
+
+1. 获取防伪令牌。登录会修改状态，因此也需要它。
+2. 登录，并把 Cookie 保存到文件。
+3. 之后的每个请求都带上这个 Cookie 文件。
 
 ```bash
-# 先取一个防伪令牌。登录本身也会修改数据，同样需要它。
+# 1. 防伪令牌
 curl -c jar.txt http://cache.lan:8080/api/auth/status
 
-# 登录。下面的请求体对应「API 密钥、用户名和密码」。
-# 「用户名和密码」模式不传 apiKey。单点登录不使用这个调用。
+# 2. 登录。「用户名和密码」模式不传 apiKey。
 curl -b jar.txt -c jar.txt -X POST http://cache.lan:8080/api/auth/login \
   -H 'Content-Type: application/json' \
   -H "X-Antiforgery-Token: $(awk '/LancacheManager.Antiforgery/ {print $7}' jar.txt)" \
   -d "{\"apiKey\":\"$LANCACHE_KEY\",\"username\":\"operator\",\"password\":\"$LANCACHE_PASSWORD\"}"
 
-# 之后用 Cookie 文件读取数据。
+# 3. 用 Cookie 文件读取数据
 curl -b jar.txt http://cache.lan:8080/api/dashboard/batch
 ```
 
-使用 `docker exec lancache-manager cat /data/security/api_key.txt` 获取密钥。**管理 → 设置**中的**重新生成 API 密钥**会替换它。之后的容器日志只打印提示，完整密钥仅在首次创建或轮换时写入日志。用户名和密码来自在应用中创建的账户。
+把 `operator`、`$LANCACHE_KEY` 和 `$LANCACHE_PASSWORD` 换成在应用中创建的账户及其密码。最后一条命令会以 JSON 返回仪表板数据。
 
-如果主管理员密码丢失，请在主机上运行 `./data/scripts/reset-main-admin-password.sh`。[密码恢复](password-recovery.md)说明该脚本以及用于排查的 `open-main-admin-recovery` 和 `recover-main-admin` 请求；这两个端点都不需要已登录会话或防伪令牌。
+### 会修改数据的请求
 
-读取数据只需要这个 Cookie 文件。会修改数据的请求（`POST`、`PUT`、`PATCH`、`DELETE`）还需要一个防伪令牌：用同一个 Cookie 文件调用 `GET /api/auth/status`，取出它设置的 `LancacheManager.Antiforgery` Cookie 的值，再作为 `X-Antiforgery-Token` 请求头发回。上面的登录之所以先调用状态端点，正是这个原因。令牌与签发它的会话绑定，而登录会换成一个新会话，所以在发出第一个写请求之前要再调用一次状态端点。
+读取只需要 Cookie 文件。`POST`、`PUT`、`PATCH` 和 `DELETE` 还需要防伪令牌：
 
-!!! warning "仅凭 `X-Api-Key` 已经无法调用 API"
+1. 用同一个 Cookie 文件调用 `GET /api/auth/status`。
+2. 取出它设置的 `LancacheManager.Antiforgery` Cookie 的值。
+3. 把该值放在 `X-Antiforgery-Token` 请求头中发送。
 
-    该请求头只能打开 `/scalar` 和 `/openapi/v1.json`，其他一概不行。对于只带这一个凭据的请求，其余端点一律返回 `401`，所以升级之后，用它轮询 `/api/cache` 或 `/api/dashboard/batch` 之类端点的脚本会立即失效。
+令牌属于某一个会话，而登录会开始一个新会话。登录之后、第一个写请求之前，请重新获取令牌。
 
-    仍有五个初始化调用自行读取密钥，因为它们必须在任何人登录之前就能应答：`POST /api/setup/credentials` 和 `POST /api/setup/external` 从 `X-Api-Key` 请求头读取；`POST /api/account-setup/first-admin`、`POST /api/account-setup/open-main-admin-recovery` 和 `POST /api/account-setup/recover-main-admin` 从请求体读取。
+### 获取密钥
 
-    `/metrics` 同样没有变化。它有自己的设置 `Security:RequireAuthForMetrics`，开启后仍然从请求头读取密钥，因此 Prometheus 抓取端无需改动。
+```bash
+docker exec lancache-manager cat /data/security/api_key.txt
+```
+
+- **管理 → 设置**中的**重新生成 API 密钥**会替换密钥，旧密钥随即失效。
+- 完整密钥只在创建或轮换时出现在容器日志中，之后的启动只打印提示。
+- 如果主管理员密码丢失，请在主机上运行 `./data/scripts/reset-main-admin-password.sh`。见[密码恢复](password-recovery.md)。
 
 !!! note "无需会话即可应答的端点"
 
