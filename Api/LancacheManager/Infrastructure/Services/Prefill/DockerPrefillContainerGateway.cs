@@ -67,6 +67,9 @@ public sealed class DockerPrefillContainerGateway : IPrefillContainerGateway
     public Task<IList<ContainerListResponse>> ListContainersAsync(ContainersListParameters parameters, CancellationToken cancellationToken)
         => WithinLimitAsync(limitedToken => Client.Containers.ListContainersAsync(parameters, limitedToken), cancellationToken);
 
+    public Task<IList<NetworkResponse>> ListNetworksAsync(CancellationToken cancellationToken)
+        => WithinLimitAsync(limitedToken => Client.Networks.ListNetworksAsync(new NetworksListParameters(), limitedToken), cancellationToken);
+
     public Task<CreateContainerResponse> CreateContainerAsync(CreateContainerParameters parameters, CancellationToken cancellationToken)
         => WithinLimitAsync(limitedToken => Client.Containers.CreateContainerAsync(parameters, limitedToken), cancellationToken);
 

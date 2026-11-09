@@ -106,18 +106,18 @@ pub fn parse_http_byte_range(raw: &str) -> Option<ObservedByteRange> {
     (start <= end).then_some(ObservedByteRange::Inclusive { start, end })
 }
 
-/// Align an inclusive observed range to every containing 1 MiB nginx slice, including both
-/// endpoint slices. Arithmetic and unreasonably large mappings fail closed.
-pub fn aligned_slice_ranges(range: &ObservedByteRange) -> Option<Vec<(u64, u64)>> {
+/// Align an inclusive observed range to every containing nginx slice of `slice_size` bytes,
+/// including both endpoint slices. Arithmetic and unreasonably large mappings fail closed.
+pub fn aligned_slice_ranges(range: &ObservedByteRange, slice_size: u64) -> Option<Vec<(u64, u64)>> {
     let ObservedByteRange::Inclusive { start, end } = range else {
         return Some(Vec::new());
     };
 
-    let first_start = (start / DEFAULT_SLICE_SIZE) * DEFAULT_SLICE_SIZE;
-    let last_start = (end / DEFAULT_SLICE_SIZE) * DEFAULT_SLICE_SIZE;
+    let first_start = start.checked_div(slice_size)? * slice_size;
+    let last_start = (end / slice_size) * slice_size;
     let count = last_start
         .checked_sub(first_start)?
-        .checked_div(DEFAULT_SLICE_SIZE)?
+        .checked_div(slice_size)?
         .checked_add(1)?;
     let count = usize::try_from(count).ok()?;
     if count > MAX_PROBE_CHUNKS {
@@ -126,22 +126,24 @@ pub fn aligned_slice_ranges(range: &ObservedByteRange) -> Option<Vec<(u64, u64)>
 
     let mut ranges = Vec::with_capacity(count);
     for index in 0..count {
-        let offset = (index as u64).checked_mul(DEFAULT_SLICE_SIZE)?;
+        let offset = (index as u64).checked_mul(slice_size)?;
         let slice_start = first_start.checked_add(offset)?;
-        let slice_end = slice_start.checked_add(DEFAULT_SLICE_SIZE - 1)?;
+        let slice_end = slice_start.checked_add(slice_size - 1)?;
         ranges.push((slice_start, slice_end));
     }
     Some(ranges)
 }
 
 /// Resolve an observed request to its exact nginx cache-key path(s). A range maps to each
-/// containing physical slice. A range-less request retains the no-range and `::noslice`
-/// alternatives because the access log alone cannot distinguish those locations.
+/// containing physical slice of the URL's `slice_size`. A range-less request retains the
+/// no-range and `::noslice` alternatives because the access log alone cannot distinguish those
+/// locations, and ignores `slice_size`.
 pub fn physical_slices_for_request(
     cache_dir: &Path,
     service: &str,
     raw_url: &str,
     raw_http_range: &str,
+    slice_size: u64,
 ) -> Option<RequestSliceMapping> {
     let observed_range = parse_http_byte_range(raw_http_range)?;
     let normalized_uri = nginx_cache_uri(raw_url).into_owned();
@@ -158,7 +160,7 @@ pub fn physical_slices_for_request(
                 exact_path: calculate_cache_path_noslice(cache_dir, &service, &normalized_uri),
             },
         ],
-        ObservedByteRange::Inclusive { .. } => aligned_slice_ranges(&observed_range)?
+        ObservedByteRange::Inclusive { .. } => aligned_slice_ranges(&observed_range, slice_size)?
             .into_iter()
             .map(|(start, end)| PhysicalCacheSlice {
                 kind: CacheSliceKind::Ranged { start, end },
@@ -1020,52 +1022,57 @@ pub fn cache_key_base_of(key: &str) -> &str {
     key
 }
 
+/// The cache files one URL walk found, and the slice size its ranged files use: None when no
+/// first slice was found at any size tried.
+pub struct UrlCacheFiles<T> {
+    pub files: Vec<T>,
+    pub slice_size: Option<u64>,
+}
+
 /// Enumerate every EXISTING bare-metal cache file for (service, url), with its
 /// expected literal key. Mirrors the monolithic walk shape: the unsliced key is
-/// probed first, then (for sliced vhosts) 1 MiB slice keys with the same
-/// consecutive-miss-bounded walk that tolerates partial-eviction holes.
+/// probed first, then (for sliced vhosts) the slice keys at the URL's own slice size
+/// with the same consecutive-miss-bounded walk that tolerates partial-eviction holes.
+/// A file that cannot be checked is an error, never counted as absent.
 #[allow(dead_code)]
 pub fn existing_bare_metal_keyed_paths_for_url(
     cache_dir: &Path,
     service: &str,
     url: &str,
-) -> Vec<KeyedCachePath> {
+    slice_sizes: &[u64],
+) -> io::Result<UrlCacheFiles<KeyedCachePath>> {
     let Some(base) = bare_metal_object_key_base(service, url) else {
-        return Vec::new();
+        return Ok(UrlCacheFiles {
+            files: Vec::new(),
+            slice_size: None,
+        });
     };
-    let mut hits: Vec<KeyedCachePath> = Vec::new();
+    let mut files: Vec<KeyedCachePath> = Vec::new();
 
     let unsliced_path = hash_to_path(cache_dir, &calculate_md5(&base));
-    if unsliced_path.exists() {
-        hits.push(KeyedCachePath {
+    if cache_file_presence(cache_dir, &unsliced_path)? {
+        files.push(KeyedCachePath {
             path: unsliced_path,
             key: base.clone(),
         });
     }
 
     if !bare_metal_service_slices(service) {
-        return hits;
+        return Ok(UrlCacheFiles {
+            files,
+            slice_size: None,
+        });
     }
 
-    let mut consecutive_misses = 0usize;
-    let mut chunk = 0usize;
-    while chunk < MAX_OBJECT_CHUNKS {
-        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
-        let key = format!("{}bytes={}-{}", base, start, chunk_end(start));
-        let path = hash_to_path(cache_dir, &calculate_md5(&key));
-        if path.exists() {
-            hits.push(KeyedCachePath { path, key });
-            consecutive_misses = 0;
-        } else {
-            consecutive_misses += 1;
-            if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
-                break;
-            }
-        }
-        chunk += 1;
-    }
-
-    hits
+    let (slices, slice_size) = walk_ranged_slices(&base, slice_sizes, |key| {
+        let path = cache_path_for_digest(cache_dir, calculate_md5_digest(key));
+        Ok::<_, io::Error>(cache_file_presence(cache_dir, &path)?.then(|| KeyedCachePath {
+            path,
+            key: key.to_string(),
+        }))
+    })?;
+    files.extend(slices);
+    Ok(UrlCacheFiles { files, slice_size })
 }
 
 /// Index twin of [`existing_bare_metal_keyed_paths_for_url`]: yields the md5-hex
@@ -1074,6 +1081,7 @@ pub fn existing_bare_metal_keyed_paths_for_url(
 pub fn existing_bare_metal_keyed_hashes_for_url<F>(
     service: &str,
     url: &str,
+    slice_sizes: &[u64],
     mut exists: F,
 ) -> Vec<(String, String)>
 where
@@ -1093,35 +1101,23 @@ where
         return hits;
     }
 
-    let mut consecutive_misses = 0usize;
-    let mut chunk = 0usize;
-    while chunk < MAX_OBJECT_CHUNKS {
-        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
-        let key = format!("{}bytes={}-{}", base, start, chunk_end(start));
-        let hash = calculate_md5(&key);
-        if exists(&hash) {
-            hits.push((hash, key));
-            consecutive_misses = 0;
-        } else {
-            consecutive_misses += 1;
-            if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
-                break;
-            }
-        }
-        chunk += 1;
-    }
-
+    let Ok((slices, _)) = walk_ranged_slices(&base, slice_sizes, |key| {
+        let hash = calculate_md5(key);
+        Ok::<_, std::convert::Infallible>(exists(&hash).then(|| (hash, key.to_string())))
+    });
+    hits.extend(slices);
     hits
 }
 
 /// Digest twin of the keyed walks for index-based probes: every bare-metal cache-key
-/// md5 digest that could hold (service, url), unsliced first, then up to `max_chunks`
-/// 1 MiB slices for the sliced vhosts. Empty for services without a stock vhost.
+/// md5 digest that could hold (service, url), unsliced first, then the slices of every
+/// candidate slice size for the sliced vhosts. Empty for services without a stock vhost.
 #[allow(dead_code)]
 pub fn bare_metal_digest_candidates_iter(
     service: &str,
     url: &str,
     max_chunks: usize,
+    slice_sizes: &[u64],
 ) -> Box<dyn Iterator<Item = u128>> {
     let Some(base) = bare_metal_object_key_base(service, url) else {
         return Box::new(std::iter::empty());
@@ -1130,90 +1126,83 @@ pub fn bare_metal_digest_candidates_iter(
     if !bare_metal_service_slices(service) {
         return Box::new(std::iter::once(unsliced));
     }
-    let slices = (0..max_chunks).map(move |chunk| {
-        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
-        calculate_md5_digest(&format!("{}bytes={}-{}", base, start, chunk_end(start)))
-    });
+    let slices = chunk_ranges_for_probe(max_chunks, slice_sizes)
+        .into_iter()
+        .map(move |(start, end)| calculate_md5_digest(&format!("{}bytes={}-{}", base, start, end)));
     Box::new(std::iter::once(unsliced).chain(slices))
 }
 
 /// u128-digest twin of [`existing_bare_metal_keyed_hashes_for_url`] for the digest-indexed
-/// deletion walks: (digest, expected key) for every candidate the probe accepts.
+/// deletion walks: (digest, expected key) for every candidate the probe accepts. A probe
+/// error stops the walk and is returned.
 #[allow(dead_code)]
-pub fn existing_bare_metal_keyed_digests_for_url<F>(
+pub fn existing_bare_metal_keyed_digests_for_url<F, E>(
     service: &str,
     url: &str,
+    slice_sizes: &[u64],
     mut exists: F,
-) -> Vec<(u128, String)>
+) -> Result<UrlCacheFiles<(u128, String)>, E>
 where
-    F: FnMut(u128) -> bool,
+    F: FnMut(u128) -> Result<bool, E>,
 {
     let Some(base) = bare_metal_object_key_base(service, url) else {
-        return Vec::new();
+        return Ok(UrlCacheFiles {
+            files: Vec::new(),
+            slice_size: None,
+        });
     };
-    let mut hits: Vec<(u128, String)> = Vec::new();
+    let mut files: Vec<(u128, String)> = Vec::new();
 
     let unsliced = calculate_md5_digest(&base);
-    if exists(unsliced) {
-        hits.push((unsliced, base.clone()));
+    if exists(unsliced)? {
+        files.push((unsliced, base.clone()));
     }
 
     if !bare_metal_service_slices(service) {
-        return hits;
+        return Ok(UrlCacheFiles {
+            files,
+            slice_size: None,
+        });
     }
 
-    let mut consecutive_misses = 0usize;
-    let mut chunk = 0usize;
-    while chunk < MAX_OBJECT_CHUNKS {
-        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
-        let key = format!("{}bytes={}-{}", base, start, chunk_end(start));
-        let digest = calculate_md5_digest(&key);
-        if exists(digest) {
-            hits.push((digest, key));
-            consecutive_misses = 0;
-        } else {
-            consecutive_misses += 1;
-            if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
-                break;
-            }
-        }
-        chunk += 1;
-    }
-
-    hits
+    let (slices, slice_size) = walk_ranged_slices(&base, slice_sizes, |key| {
+        let digest = calculate_md5_digest(key);
+        Ok(exists(digest)?.then(|| (digest, key.to_string())))
+    })?;
+    files.extend(slices);
+    Ok(UrlCacheFiles { files, slice_size })
 }
 
 /// Scheme dispatcher for deletion enumeration: every existing on-disk candidate for
 /// (service, url) plus, under bare-metal, the literal key each candidate must prove
 /// it holds before a caller may delete it. Monolithic candidates carry None and keep
 /// their shipped delete-without-header-read behavior.
-/// A file it cannot prove gone (see `cache_file_presence`) is a candidate too.
+/// A file it cannot prove present or gone (see `cache_file_presence`) is an error, so the
+/// removal stops before it deletes anything rather than guess the URL's slice size.
 #[allow(dead_code)]
 pub fn existing_keyed_paths_for_url_with_scheme(
     scheme: CacheKeyScheme,
     cache_dir: &Path,
     service: &str,
     url: &str,
-) -> Vec<(PathBuf, Option<String>)> {
-    // A removal must count a file it cannot prove gone, so only a provably missing file drops out.
-    let may_exist = |digest: u128| {
-        !matches!(
-            cache_file_presence(cache_dir, &cache_path_for_digest(cache_dir, digest)),
-            Ok(false)
-        )
-    };
-    match scheme {
-        CacheKeyScheme::Monolithic => existing_cache_digests_for_url(service, url, may_exist)
+    slice_sizes: &[u64],
+) -> io::Result<Vec<(PathBuf, Option<String>)>> {
+    let presence =
+        |digest: u128| cache_file_presence(cache_dir, &cache_path_for_digest(cache_dir, digest));
+    Ok(match scheme {
+        CacheKeyScheme::Monolithic => existing_cache_digests_for_url(service, url, slice_sizes, presence)?
+            .files
             .into_iter()
             .map(|digest| (cache_path_for_digest(cache_dir, digest), None))
             .collect(),
         CacheKeyScheme::BareMetal => {
-            existing_bare_metal_keyed_digests_for_url(service, url, may_exist)
+            existing_bare_metal_keyed_digests_for_url(service, url, slice_sizes, presence)?
+                .files
                 .into_iter()
                 .map(|(digest, key)| (cache_path_for_digest(cache_dir, digest), Some(key)))
                 .collect()
         }
-    }
+    })
 }
 
 /// Read the literal `KEY: <value>` line embedded in an nginx cache file's header.
@@ -1225,10 +1214,11 @@ pub fn existing_keyed_paths_for_url_with_scheme(
 /// under the bare-metal scheme.
 pub fn read_cache_file_key(path: &Path) -> Option<String> {
     let mut file = std::fs::File::open(path).ok()?;
-    read_cache_file_key_from_reader(&mut file)
+    read_cache_file_key_from_reader(&mut file).ok().flatten()
 }
 
-fn read_cache_file_key_from_reader<R: std::io::Read>(reader: &mut R) -> Option<String> {
+/// `Ok(None)` when the file holds no complete, valid `KEY:` line; a read error is returned.
+fn read_cache_file_key_from_reader<R: std::io::Read>(reader: &mut R) -> io::Result<Option<String>> {
     use std::io::ErrorKind;
 
     const MARKER_SCAN_BYTES: usize = 8192;
@@ -1244,7 +1234,7 @@ fn read_cache_file_key_from_reader<R: std::io::Read>(reader: &mut R) -> Option<S
             Ok(0) => break,
             Ok(n) => filled += n,
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
-            Err(_) => return None,
+            Err(error) => return Err(error),
         }
     }
     let haystack = &buf[..filled];
@@ -1257,10 +1247,10 @@ fn read_cache_file_key_from_reader<R: std::io::Read>(reader: &mut R) -> Option<S
             loop {
                 if let Some(value_end) = value.iter().position(|&b| b == b'\n') {
                     value.truncate(value_end);
-                    return String::from_utf8(value).ok();
+                    return Ok(String::from_utf8(value).ok());
                 }
                 if value.len() > MAX_KEY_BYTES {
-                    return None;
+                    return Ok(None);
                 }
 
                 let old_len = value.len();
@@ -1269,19 +1259,155 @@ fn read_cache_file_key_from_reader<R: std::io::Read>(reader: &mut R) -> Option<S
                 let read_len = (MAX_KEY_BYTES + 1 - old_len).min(MARKER_SCAN_BYTES);
                 value.resize(old_len + read_len, 0);
                 match reader.read(&mut value[old_len..]) {
-                    Ok(0) => return None,
+                    Ok(0) => return Ok(None),
                     Ok(n) => value.truncate(old_len + n),
                     Err(error) if error.kind() == ErrorKind::Interrupted => {
                         value.truncate(old_len);
                         continue;
                     }
-                    Err(_) => return None,
+                    Err(error) => return Err(error),
                 }
             }
         }
         idx += 1;
     }
-    None
+    Ok(None)
+}
+
+/// Value of a binary's `--slice-size` argument: `auto` reads the size from the cache files (None),
+/// a positive byte count is the size the cache is configured with.
+pub fn parse_slice_size_arg(raw: &str) -> Result<Option<u64>, String> {
+    if raw == "auto" {
+        return Ok(None);
+    }
+    match raw.parse::<u64>() {
+        Ok(bytes) if bytes > 0 => Ok(Some(bytes)),
+        _ => Err(format!(
+            "slice size must be `auto` or a positive byte count, got `{raw}`"
+        )),
+    }
+}
+
+/// How many cache files the Auto slice-size sample reads a `KEY:` header from.
+///
+/// nginx names each file by the md5 of its key, so the first files a directory walk meets are a
+/// uniform draw over every object in the cache. 64 finds a slice size that 5% of the files use with
+/// 96% probability, and one that 10% use with 99.9%, for 64 header reads of at most 8 KiB each.
+/// Every URL also tries each power of two from 1 MiB to 64 MiB, so the sample only has to find a
+/// size outside that set, which a cache normally uses for all of its files.
+pub const SLICE_SAMPLE_FILES: usize = 64;
+
+/// What the Auto slice-size sample read: the range lengths its `KEY:` headers name, most common
+/// first, and how many files it opened.
+pub struct SliceSizeSample {
+    pub sizes: Vec<u64>,
+    pub files_opened: usize,
+}
+
+/// Reads the `KEY:` header of up to `SLICE_SAMPLE_FILES` cache files under `cache_dir`.
+pub fn sample_slice_sizes(cache_dir: &Path) -> io::Result<SliceSizeSample> {
+    let files = cache_root_walk(cache_dir, |_| {})
+        .parallelism(jwalk::Parallelism::Serial)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry.file_type().is_file()
+                && entry
+                    .file_name()
+                    .to_str()
+                    .and_then(parse_cache_file_digest)
+                    .is_some()
+        })
+        .map(|entry| entry.path());
+    slice_sizes_from_files(files, |path: &Path| std::fs::File::open(path))
+}
+
+/// The sample over `files`, opened through `open`. A file that is gone when opened, or holds no
+/// complete `KEY:` line, is skipped; any other open or read error is returned.
+fn slice_sizes_from_files<I, R, F>(files: I, mut open: F) -> io::Result<SliceSizeSample>
+where
+    I: IntoIterator<Item = PathBuf>,
+    R: io::Read,
+    F: FnMut(&Path) -> io::Result<R>,
+{
+    let mut counts: Vec<(u64, usize)> = Vec::new();
+    let mut files_opened = 0usize;
+    let mut keyed_files = 0usize;
+    for path in files {
+        let mut reader = match open(&path) {
+            Ok(reader) => reader,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(sample_error(&path, error)),
+        };
+        files_opened += 1;
+        let key = read_cache_file_key_from_reader(&mut reader)
+            .map_err(|error| sample_error(&path, error))?;
+        let Some(key) = key else {
+            continue;
+        };
+        keyed_files += 1;
+        let range_length = key.rfind("bytes=").and_then(|idx| {
+            match parse_http_byte_range(&key[idx..]) {
+                Some(ObservedByteRange::Inclusive { start, end }) => Some(end - start + 1),
+                _ => None,
+            }
+        });
+        if let Some(size) = range_length {
+            match counts.iter_mut().find(|(seen, _)| *seen == size) {
+                Some((_, count)) => *count += 1,
+                None => counts.push((size, 1)),
+            }
+        }
+        if keyed_files >= SLICE_SAMPLE_FILES {
+            break;
+        }
+    }
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    Ok(SliceSizeSample {
+        sizes: counts.into_iter().map(|(size, _)| size).collect(),
+        files_opened,
+    })
+}
+
+fn sample_error(path: &Path, error: io::Error) -> io::Error {
+    io::Error::new(
+        error.kind(),
+        format!("could not read the slice size from {}: {}", path.display(), error),
+    )
+}
+
+/// The slice sizes one run tries for every URL, most likely first: the manual size when set,
+/// then each sampled size, then 1 MiB.
+pub fn cache_slice_sizes(manual: Option<u64>, sampled: &[u64]) -> Vec<u64> {
+    let mut sizes: Vec<u64> = Vec::new();
+    for size in manual
+        .into_iter()
+        .chain(sampled.iter().copied())
+        .chain(std::iter::once(DEFAULT_SLICE_SIZE))
+    {
+        if !sizes.contains(&size) {
+            sizes.push(size);
+        }
+    }
+    sizes
+}
+
+/// The slice-size list for a run over `cache_dir`: the manual size when set, then the sizes the
+/// cache files carry, then 1 MiB. A manual size never replaces the sample, because files written
+/// before the setting changed keep their own size. A sample read error is returned so a run that
+/// deletes files can stop before it starts.
+pub fn slice_sizes_for_run(cache_dir: &Path, manual: Option<u64>) -> io::Result<Vec<u64>> {
+    let sample = sample_slice_sizes(cache_dir)?;
+    Ok(cache_slice_sizes(manual, &sample.sizes))
+}
+
+/// [`slice_sizes_for_run`] for a run that deletes nothing: a sample read error is logged and the
+/// run goes on with the sizes every URL tries anyway.
+pub fn slice_sizes_for_scan(cache_dir: &Path, manual: Option<u64>) -> Vec<u64> {
+    slice_sizes_for_run(cache_dir, manual).unwrap_or_else(|error| {
+        eprintln!("warning: {error}; trying the manual and standard slice sizes only");
+        cache_slice_sizes(manual, &[])
+    })
 }
 
 /// Pre-mutation verification for bare-metal deletions: does the file's embedded
@@ -1328,16 +1454,17 @@ where
 /// Lazily yields the md5-hex cache-key hashes probed for (service, url) — exactly the
 /// file-name components of `cache_path_candidates_for_probe`, in the same order, without
 /// constructing any paths. Lazy so callers doing set-membership checks can early-exit
-/// on the first hit instead of always hashing all `max_chunks + 2` candidates.
+/// on the first hit instead of always hashing every candidate.
 ///
-/// Order: `[no_range, noslice, chunk0, chunk1, ...]`. The `::noslice` candidate matches the
-/// lancache `@noslice` location's `$cacheidentifier$uri::noslice` key (literal suffix, no byte
-/// range) so the probe also finds noslice-cached content.
+/// Order: `[no_range, noslice, ranged slices of each candidate size]`. The `::noslice` candidate
+/// matches the lancache `@noslice` location's `$cacheidentifier$uri::noslice` key (literal suffix,
+/// no byte range) so the probe also finds noslice-cached content.
 #[allow(dead_code)]
 pub fn cache_hash_candidates_iter(
     service: &str,
     url: &str,
     max_chunks: usize,
+    slice_sizes: &[u64],
 ) -> impl Iterator<Item = String> {
     let service = service_name_lowercase(service);
     // Transform the stored URL into nginx's `$uri` once so every candidate md5 (no-range +
@@ -1349,7 +1476,7 @@ pub fn cache_hash_candidates_iter(
     std::iter::once(no_range_hash)
         .chain(std::iter::once(noslice_hash))
         .chain(
-            chunk_ranges_for_probe(max_chunks)
+            chunk_ranges_for_probe(max_chunks, slice_sizes)
                 .into_iter()
                 .map(move |(start, end)| {
                     calculate_md5(&format!("{}{}bytes={}-{}", service, url, start, end))
@@ -1358,19 +1485,25 @@ pub fn cache_hash_candidates_iter(
 }
 
 #[allow(dead_code)]
-pub fn cache_hash_candidates_for_probe(service: &str, url: &str, max_chunks: usize) -> Vec<String> {
-    cache_hash_candidates_iter(service, url, max_chunks).collect()
+pub fn cache_hash_candidates_for_probe(
+    service: &str,
+    url: &str,
+    max_chunks: usize,
+    slice_sizes: &[u64],
+) -> Vec<String> {
+    cache_hash_candidates_iter(service, url, max_chunks, slice_sizes).collect()
 }
 
 /// Digest twin of [`cache_hash_candidates_iter`]: yields the same candidates in the same order
 /// as u128 digests. Reuses one key buffer across the ranged candidates, so probing allocates
 /// nothing per candidate (the String form allocated a format! input plus a 32-byte hex String
-/// for each of up to `max_chunks + 2` candidates - billions of allocations across a full scan).
+/// for each candidate - billions of allocations across a full scan).
 #[allow(dead_code)]
 pub fn cache_digest_candidates_iter(
     service: &str,
     url: &str,
     max_chunks: usize,
+    slice_sizes: &[u64],
 ) -> impl Iterator<Item = u128> {
     use std::fmt::Write;
 
@@ -1383,7 +1516,7 @@ pub fn cache_digest_candidates_iter(
     std::iter::once(no_range)
         .chain(std::iter::once(noslice))
         .chain(
-            chunk_ranges_for_probe(max_chunks)
+            chunk_ranges_for_probe(max_chunks, slice_sizes)
                 .into_iter()
                 .map(move |(start, end)| {
                     key_buf.clear();
@@ -1394,69 +1527,50 @@ pub fn cache_digest_candidates_iter(
 }
 
 /// Digest twin of [`existing_cache_hashes_for_url`]: collects every EXISTING slice digest for
-/// (service, url) with the same consecutive-miss-bounded walk, allocating no per-candidate
-/// strings. Same coverage and safety guarantees.
+/// (service, url) with the same consecutive-miss-bounded walk at the URL's own slice size. A probe
+/// error stops the walk and is returned.
 #[allow(dead_code)]
-pub fn existing_cache_digests_for_url<F>(service: &str, url: &str, mut exists: F) -> Vec<u128>
+pub fn existing_cache_digests_for_url<F, E>(
+    service: &str,
+    url: &str,
+    slice_sizes: &[u64],
+    mut exists: F,
+) -> Result<UrlCacheFiles<u128>, E>
 where
-    F: FnMut(u128) -> bool,
+    F: FnMut(u128) -> Result<bool, E>,
 {
-    use std::fmt::Write;
-
     let service = service_name_lowercase(service);
     let url = nginx_cache_uri(url).into_owned();
-    let mut hits: Vec<u128> = Vec::new();
+    let mut files: Vec<u128> = Vec::new();
 
-    let no_range = calculate_md5_digest(&format!("{}{}", service, url));
-    if exists(no_range) {
-        hits.push(no_range);
+    let base = format!("{}{}", service, url);
+    let no_range = calculate_md5_digest(&base);
+    if exists(no_range)? {
+        files.push(no_range);
     }
-    let noslice = calculate_md5_digest(&format!("{}{}::noslice", service, url));
-    if exists(noslice) {
-        hits.push(noslice);
-    }
-
-    let mut key_buf = String::with_capacity(service.len() + url.len() + 40);
-    let mut consecutive_misses = 0usize;
-    let mut chunk = 0usize;
-    while chunk < MAX_OBJECT_CHUNKS {
-        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
-        key_buf.clear();
-        let _ = write!(
-            key_buf,
-            "{}{}bytes={}-{}",
-            service,
-            url,
-            start,
-            chunk_end(start)
-        );
-        let digest = calculate_md5_digest(&key_buf);
-        if exists(digest) {
-            hits.push(digest);
-            consecutive_misses = 0;
-        } else {
-            consecutive_misses += 1;
-            if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
-                break;
-            }
-        }
-        chunk += 1;
+    let noslice = calculate_md5_digest(&format!("{}::noslice", base));
+    if exists(noslice)? {
+        files.push(noslice);
     }
 
-    hits
+    let (slices, slice_size) = walk_ranged_slices(&base, slice_sizes, |key| {
+        let digest = calculate_md5_digest(key);
+        Ok(exists(digest)?.then_some(digest))
+    })?;
+    files.extend(slices);
+    Ok(UrlCacheFiles { files, slice_size })
 }
 
 /// Maximum run of CONSECUTIVE absent slices tolerated by the collect-all detection walk before it
 /// concludes the object is fully enumerated and stops. A range-served object (Blizzard `/tpr/` TACT
-/// archive, Riot bundle) occupies MANY contiguous 1 MiB slices, but partial eviction can punch
+/// archive, Riot bundle) occupies MANY contiguous slices, but partial eviction can punch
 /// small holes; this gap tolerance lets the walk bridge those holes and keep counting later slices
 /// instead of stopping at the first miss (which is what the old single-slice `.find_map` did).
 ///
 /// PERFORMANCE: this only bounds the PRESENT case (a real multi-slice object). For a genuine
-/// all-miss URL the walk stops after exactly this many index probes (no `no_range`/`noslice` hit and
-/// chunk 0 absent ⇒ at most `CONSECUTIVE_MISS_LIMIT` index lookups, each O(1) on the index / one
-/// `stat` on the fs path), so the incremental/eviction all-miss cost stays tightly bounded and never
-/// walks to `MAX_OBJECT_CHUNKS`.
+/// all-miss URL the walk stops after one first-slice probe per candidate slice size plus this many
+/// index probes (each O(1) on the index / one `stat` on the fs path), so the incremental/eviction
+/// all-miss cost stays tightly bounded and never walks to `MAX_OBJECT_CHUNKS`.
 #[allow(dead_code)]
 pub const CONSECUTIVE_MISS_LIMIT: usize = 8;
 
@@ -1464,16 +1578,22 @@ pub const CONSECUTIVE_MISS_LIMIT: usize = 8;
 /// WHOLE on-disk object regardless of the URL's logged `bytes_served`.
 ///
 /// Detection's `bytes_served` is `MAX(LogEntries.BytesServed)` per (service, url); for a range-served
-/// object each log row is ONE ~1 MiB range, so MAX can be a single slice and a size-derived chunk
-/// count would undercount. Instead we walk chunk indices 0,1,2,… and collect every present slice,
-/// stopping only after `CONSECUTIVE_MISS_LIMIT` consecutive absences (tolerating partial-eviction
-/// holes) and never past `MAX_OBJECT_CHUNKS` (the perf ceiling). Over-enumeration is SAFE because we
-/// only retain candidates that ACTUALLY EXIST — non-existent slices are skipped, not counted.
+/// object each log row is ONE slice-sized range, so MAX can be a single slice and a size-derived chunk
+/// count would undercount. Instead we walk chunk indices 0,1,2,… at the URL's own slice size and
+/// collect every present slice, stopping only after `CONSECUTIVE_MISS_LIMIT` consecutive absences
+/// (tolerating partial-eviction holes) and never past `MAX_OBJECT_CHUNKS` (the perf ceiling).
+/// Over-enumeration is SAFE because we only retain candidates that ACTUALLY EXIST — non-existent
+/// slices are skipped, not counted.
 ///
 /// Always probes the `no_range` + `::noslice` keys first (they have no byte range), then the ranged
 /// slices. Returns the file_name-hash strings that hit (callers map them back to paths via `index`).
 #[allow(dead_code)]
-pub fn existing_cache_hashes_for_url<F>(service: &str, url: &str, mut exists: F) -> Vec<String>
+pub fn existing_cache_hashes_for_url<F>(
+    service: &str,
+    url: &str,
+    slice_sizes: &[u64],
+    mut exists: F,
+) -> Vec<String>
 where
     F: FnMut(&str) -> bool,
 {
@@ -1482,78 +1602,54 @@ where
     let mut hits: Vec<String> = Vec::new();
 
     // Range-less keys first: `$cacheidentifier$uri` and `$cacheidentifier$uri::noslice`.
-    let no_range = calculate_md5(&format!("{}{}", service, url));
+    let base = format!("{}{}", service, url);
+    let no_range = calculate_md5(&base);
     if exists(&no_range) {
         hits.push(no_range);
     }
-    let noslice = calculate_md5(&format!("{}{}::noslice", service, url));
+    let noslice = calculate_md5(&format!("{}::noslice", base));
     if exists(&noslice) {
         hits.push(noslice);
     }
 
-    // Ranged slices: walk 0,1,2,… collecting every present 1 MiB slice. Stop after a run of
-    // CONSECUTIVE_MISS_LIMIT absences (bridges partial-eviction holes) or at MAX_OBJECT_CHUNKS.
-    let mut consecutive_misses = 0usize;
-    let mut chunk = 0usize;
-    while chunk < MAX_OBJECT_CHUNKS {
-        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
-        let hash = calculate_md5(&format!(
-            "{}{}bytes={}-{}",
-            service,
-            url,
-            start,
-            chunk_end(start)
-        ));
-        if exists(&hash) {
-            hits.push(hash);
-            consecutive_misses = 0;
-        } else {
-            consecutive_misses += 1;
-            if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
-                break;
-            }
-        }
-        chunk += 1;
-    }
-
+    let Ok((slices, _)) = walk_ranged_slices(&base, slice_sizes, |key| {
+        let hash = calculate_md5(key);
+        Ok::<_, std::convert::Infallible>(exists(&hash).then_some(hash))
+    });
+    hits.extend(slices);
     hits
 }
 
 /// Filesystem twin of [`existing_cache_hashes_for_url`]: collect EVERY cache-file PATH that EXISTS
 /// on disk for (service, url), covering the whole object via the same consecutive-miss-bounded walk.
 /// Used by the incremental (no-index) detection path. Same coverage and safety guarantees.
+/// A file that cannot be checked is an error, never counted as absent.
 #[allow(dead_code)]
-pub fn existing_cache_paths_for_url(cache_dir: &Path, service: &str, url: &str) -> Vec<PathBuf> {
+pub fn existing_cache_paths_for_url(
+    cache_dir: &Path,
+    service: &str,
+    url: &str,
+    slice_sizes: &[u64],
+) -> io::Result<UrlCacheFiles<PathBuf>> {
     let service = service_name_lowercase(service);
-    let mut hits: Vec<PathBuf> = Vec::new();
+    let mut files: Vec<PathBuf> = Vec::new();
 
     let no_range = calculate_cache_path_no_range(cache_dir, &service, url);
-    if no_range.exists() {
-        hits.push(no_range);
+    if cache_file_presence(cache_dir, &no_range)? {
+        files.push(no_range);
     }
     let noslice = calculate_cache_path_noslice(cache_dir, &service, url);
-    if noslice.exists() {
-        hits.push(noslice);
+    if cache_file_presence(cache_dir, &noslice)? {
+        files.push(noslice);
     }
 
-    let mut consecutive_misses = 0usize;
-    let mut chunk = 0usize;
-    while chunk < MAX_OBJECT_CHUNKS {
-        let start = chunk as u64 * DEFAULT_SLICE_SIZE;
-        let path = calculate_cache_path(cache_dir, &service, url, start, chunk_end(start));
-        if path.exists() {
-            hits.push(path);
-            consecutive_misses = 0;
-        } else {
-            consecutive_misses += 1;
-            if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
-                break;
-            }
-        }
-        chunk += 1;
-    }
-
-    hits
+    let base = format!("{}{}", service, nginx_cache_uri(url));
+    let (slices, slice_size) = walk_ranged_slices(&base, slice_sizes, |key| {
+        let path = cache_path_for_digest(cache_dir, calculate_md5_digest(key));
+        Ok::<_, io::Error>(cache_file_presence(cache_dir, &path)?.then_some(path))
+    })?;
+    files.extend(slices);
+    Ok(UrlCacheFiles { files, slice_size })
 }
 
 #[allow(dead_code)]
@@ -1562,13 +1658,15 @@ pub fn cache_path_candidates_for_probe(
     service: &str,
     url: &str,
     max_chunks: usize,
+    slice_sizes: &[u64],
 ) -> Vec<PathBuf> {
     let service = service_name_lowercase(service);
-    let mut paths = Vec::with_capacity(max_chunks + 2);
+    let ranges = chunk_ranges_for_probe(max_chunks, slice_sizes);
+    let mut paths = Vec::with_capacity(ranges.len() + 2);
     paths.push(calculate_cache_path_no_range(cache_dir, &service, url));
     paths.push(calculate_cache_path_noslice(cache_dir, &service, url));
 
-    for (start, end) in chunk_ranges_for_probe(max_chunks) {
+    for (start, end) in ranges {
         paths.push(calculate_cache_path(cache_dir, &service, url, start, end));
     }
 
@@ -1595,11 +1693,106 @@ pub fn cache_path_candidates_for_bytes(
     paths
 }
 
-fn chunk_ranges_for_probe(max_chunks: usize) -> Vec<(u64, u64)> {
-    (0..max_chunks)
-        .map(|chunk| {
-            let start = chunk as u64 * DEFAULT_SLICE_SIZE;
-            (start, chunk_end(start))
+/// Every slice size a URL is tried at: `slice_sizes` in order, then each power of two from 1 MiB
+/// to 64 MiB not already listed, so a file of a common size the run did not expect is still found.
+fn slice_size_candidates(slice_sizes: &[u64]) -> Vec<u64> {
+    let mut sizes: Vec<u64> = Vec::new();
+    for size in slice_sizes
+        .iter()
+        .copied()
+        .chain((0..7).map(|shift| DEFAULT_SLICE_SIZE << shift))
+    {
+        if !sizes.contains(&size) {
+            sizes.push(size);
+        }
+    }
+    sizes
+}
+
+/// The slice size of one object: the first of `slice_sizes`, then of the powers of two from 1 MiB
+/// to 64 MiB, whose first slice `first_slice_exists` reports; `slice_sizes`' first entry (1 MiB
+/// when it is empty) when no first slice exists, so an object whose first slice was evicted is
+/// still read at the size the run expects. Returns the size and whether a first slice was found;
+/// a probe error is returned.
+pub fn resolve_slice_size<E, F>(
+    slice_sizes: &[u64],
+    mut first_slice_exists: F,
+) -> Result<(u64, bool), E>
+where
+    F: FnMut(u64) -> Result<bool, E>,
+{
+    let candidates = slice_size_candidates(slice_sizes);
+    for &size in &candidates {
+        if first_slice_exists(size)? {
+            return Ok((size, true));
+        }
+    }
+    Ok((candidates[0], false))
+}
+
+/// Walks the ranged slices of the object whose cache key is `key_base` at the size
+/// [`resolve_slice_size`] finds: slices 1,2,… after the first, until `CONSECUTIVE_MISS_LIMIT`
+/// absences in a row. A `probe` error stops the walk and is returned.
+fn walk_ranged_slices<T, E, F>(
+    key_base: &str,
+    slice_sizes: &[u64],
+    mut probe: F,
+) -> Result<(Vec<T>, Option<u64>), E>
+where
+    F: FnMut(&str) -> Result<Option<T>, E>,
+{
+    use std::fmt::Write;
+
+    let mut key = String::with_capacity(key_base.len() + 48);
+    let mut hits: Vec<T> = Vec::new();
+    let (size, found) = resolve_slice_size(slice_sizes, |size| {
+        key.clear();
+        let _ = write!(key, "{}bytes=0-{}", key_base, size - 1);
+        let hit = probe(&key)?;
+        let found = hit.is_some();
+        hits.extend(hit);
+        Ok(found)
+    })?;
+    let resolved = found.then_some(size);
+
+    let mut consecutive_misses = usize::from(!found);
+    for chunk in 1..MAX_OBJECT_CHUNKS as u64 {
+        // A slice that starts or ends past u64 cannot exist, so the walk ends there.
+        let Some((start, end)) = chunk
+            .checked_mul(size)
+            .and_then(|start| Some((start, start.checked_add(size - 1)?)))
+        else {
+            break;
+        };
+        key.clear();
+        let _ = write!(key, "{}bytes={}-{}", key_base, start, end);
+        match probe(&key)? {
+            Some(hit) => {
+                hits.push(hit);
+                consecutive_misses = 0;
+            }
+            None => {
+                consecutive_misses += 1;
+                if consecutive_misses >= CONSECUTIVE_MISS_LIMIT {
+                    break;
+                }
+            }
+        }
+    }
+    Ok((hits, resolved))
+}
+
+/// The ranges probed for a URL by the candidate iterators, which cannot stat a first slice to learn
+/// the URL's size: the slices of every candidate size in turn. Each size covers the bytes
+/// `max_chunks` 1 MiB slices cover and never more than `max_chunks` slices, so the all-miss cost is
+/// about twice the 1 MiB-only cost.
+fn chunk_ranges_for_probe(max_chunks: usize, slice_sizes: &[u64]) -> Vec<(u64, u64)> {
+    let covered = max_chunks as u64 * DEFAULT_SLICE_SIZE;
+    slice_size_candidates(slice_sizes)
+        .into_iter()
+        .flat_map(|size| {
+            let chunks = covered.div_ceil(size).min(max_chunks as u64);
+            (0..chunks).map(move |chunk| (chunk * size, chunk * size + size - 1))
         })
         .collect()
 }
@@ -1914,21 +2107,30 @@ mod tests {
     #[test]
     fn inclusive_alignment_handles_single_bytes_and_exact_boundaries() {
         assert_eq!(
-            aligned_slice_ranges(&ObservedByteRange::Inclusive { start: 0, end: 0 }),
+            aligned_slice_ranges(
+                &ObservedByteRange::Inclusive { start: 0, end: 0 },
+                DEFAULT_SLICE_SIZE
+            ),
             Some(vec![(0, 1_048_575)])
         );
         assert_eq!(
-            aligned_slice_ranges(&ObservedByteRange::Inclusive {
+            aligned_slice_ranges(
+                &ObservedByteRange::Inclusive {
                 start: 1_048_575,
                 end: 1_048_576,
-            }),
+                },
+                DEFAULT_SLICE_SIZE
+            ),
             Some(vec![(0, 1_048_575), (1_048_576, 2_097_151)])
         );
         assert_eq!(
-            aligned_slice_ranges(&ObservedByteRange::Inclusive {
+            aligned_slice_ranges(
+                &ObservedByteRange::Inclusive {
                 start: u64::MAX,
                 end: u64::MAX,
-            }),
+                },
+                DEFAULT_SLICE_SIZE
+            ),
             Some(vec![(u64::MAX - (DEFAULT_SLICE_SIZE - 1), u64::MAX)]),
             "the final representable slice ends exactly at u64::MAX"
         );
@@ -1942,6 +2144,7 @@ mod tests {
             "blizzard",
             "/tpr/sc1live/data/c9/7e/c97e6071294fb69f542c57874d8433c5",
             "bytes=0-99699",
+            DEFAULT_SLICE_SIZE,
         )
         .expect("first vector");
         assert_eq!(first.slices.len(), 1);
@@ -1960,6 +2163,7 @@ mod tests {
             "blizzard",
             "/tpr/zeus/data/c1/94/c1942d6badb10a911d3e617bac1e7be0",
             "bytes=26380013-32837297",
+            DEFAULT_SLICE_SIZE,
         )
         .expect("mid-object vector");
         let actual: Vec<String> = middle
@@ -2001,7 +2205,13 @@ mod tests {
     fn no_range_mapping_keeps_no_range_and_noslice_alternatives() {
         let cache_dir = Path::new("/cache");
         let mapping =
-            physical_slices_for_request(cache_dir, "Steam", "/depot/1/chunk/a?token=ignored", "-")
+            physical_slices_for_request(
+                cache_dir,
+                "Steam",
+                "/depot/1/chunk/a?token=ignored",
+                "-",
+                DEFAULT_SLICE_SIZE,
+            )
                 .expect("no-range mapping");
         assert_eq!(mapping.normalized_uri, "/depot/1/chunk/a");
         assert_eq!(mapping.observed_range, ObservedByteRange::NoRange);
@@ -2106,9 +2316,15 @@ mod tests {
         let cache_dir = Path::new("/cache");
 
         for (service, url) in cases {
-            let paths =
-                cache_path_candidates_for_probe(cache_dir, service, url, DEFAULT_MAX_CHUNKS);
-            let hashes = cache_hash_candidates_for_probe(service, url, DEFAULT_MAX_CHUNKS);
+            let paths = cache_path_candidates_for_probe(
+                cache_dir,
+                service,
+                url,
+                DEFAULT_MAX_CHUNKS,
+                &[DEFAULT_SLICE_SIZE],
+            );
+            let hashes =
+                cache_hash_candidates_for_probe(service, url, DEFAULT_MAX_CHUNKS, &[DEFAULT_SLICE_SIZE]);
 
             assert_eq!(
                 paths.len(),
@@ -2152,9 +2368,11 @@ mod tests {
         let service = "steam";
         let url = "/depot/1/chunk/aa?ver=2";
         let hex: Vec<String> =
-            cache_hash_candidates_iter(service, url, DEFAULT_MAX_CHUNKS).collect();
+            cache_hash_candidates_iter(service, url, DEFAULT_MAX_CHUNKS, &[DEFAULT_SLICE_SIZE])
+                .collect();
         let digests: Vec<u128> =
-            cache_digest_candidates_iter(service, url, DEFAULT_MAX_CHUNKS).collect();
+            cache_digest_candidates_iter(service, url, DEFAULT_MAX_CHUNKS, &[DEFAULT_SLICE_SIZE])
+                .collect();
         assert_eq!(hex.len(), digests.len());
         for (h, d) in hex.iter().zip(&digests) {
             assert_eq!(parse_cache_file_digest(h), Some(*d));
@@ -2238,15 +2456,19 @@ mod tests {
         let service = "blizzard";
         let url = "/tpr/x//archive%41?q=1";
         let member: std::collections::HashSet<String> =
-            cache_hash_candidates_for_probe(service, url, 12)
+            cache_hash_candidates_for_probe(service, url, 12, &[DEFAULT_SLICE_SIZE])
                 .into_iter()
                 .skip(1)
                 .step_by(3)
                 .collect();
-        let hex_hits = existing_cache_hashes_for_url(service, url, |h| member.contains(h));
-        let digest_hits = existing_cache_digests_for_url(service, url, |d| {
-            member.contains(&format!("{:032x}", d))
+        let hex_hits = existing_cache_hashes_for_url(service, url, &[DEFAULT_SLICE_SIZE], |h| {
+            member.contains(h)
         });
+        let Ok(digest_hits) =
+            existing_cache_digests_for_url(service, url, &[DEFAULT_SLICE_SIZE], |d| {
+                Ok::<_, std::convert::Infallible>(member.contains(&format!("{:032x}", d)))
+            });
+        let digest_hits = digest_hits.files;
         let hex_as_digests: Vec<u128> = hex_hits
             .iter()
             .map(|h| parse_cache_file_digest(h).expect("hex hit must parse"))
@@ -2262,13 +2484,20 @@ mod tests {
     /// lazy iterator while the equivalence test above exercises the Vec form).
     #[test]
     fn hash_candidates_iter_matches_vec_form() {
+        let one_mib = [DEFAULT_SLICE_SIZE];
         let collected: Vec<String> =
-            cache_hash_candidates_iter("steam", "/depot/1/chunk/aa", DEFAULT_MAX_CHUNKS).collect();
-        let eager =
-            cache_hash_candidates_for_probe("steam", "/depot/1/chunk/aa", DEFAULT_MAX_CHUNKS);
+            cache_hash_candidates_iter("steam", "/depot/1/chunk/aa", DEFAULT_MAX_CHUNKS, &one_mib)
+                .collect();
+        let eager = cache_hash_candidates_for_probe(
+            "steam",
+            "/depot/1/chunk/aa",
+            DEFAULT_MAX_CHUNKS,
+            &one_mib,
+        );
         assert_eq!(collected, eager);
-        // no_range + noslice + MAX_CHUNKS ranged slices.
-        assert_eq!(collected.len(), DEFAULT_MAX_CHUNKS + 2);
+        // no_range + noslice + MAX_CHUNKS 1 MiB slices + the same 100 MiB at 2, 4, 8, 16, 32
+        // and 64 MiB (50 + 25 + 13 + 7 + 4 + 2 slices).
+        assert_eq!(collected.len(), DEFAULT_MAX_CHUNKS + 2 + 101);
     }
 
     /// The probe must include the `@noslice` location's key:
@@ -2286,7 +2515,8 @@ mod tests {
             nginx_cache_uri(url)
         ));
 
-        let hashes = cache_hash_candidates_for_probe(service, url, DEFAULT_MAX_CHUNKS);
+        let hashes =
+            cache_hash_candidates_for_probe(service, url, DEFAULT_MAX_CHUNKS, &[DEFAULT_SLICE_SIZE]);
         assert!(
             hashes.contains(&expected_noslice),
             "probe candidates must contain the ::noslice key {} for ({}, {})",
@@ -2378,8 +2608,156 @@ mod tests {
             })
             .collect();
 
-        let hits = existing_cache_digests_for_url(service, url, |digest| present.contains(&digest));
-        assert_eq!(hits.len(), PRESENT_SLICES);
+        let Ok(hits) = existing_cache_digests_for_url(service, url, &[DEFAULT_SLICE_SIZE], |digest| {
+            Ok::<_, std::convert::Infallible>(present.contains(&digest))
+        });
+        assert_eq!(hits.files.len(), PRESENT_SLICES);
+        assert_eq!(hits.slice_size, Some(DEFAULT_SLICE_SIZE));
+    }
+
+    fn slice_digests(url: &str, slice_size: u64, count: u64) -> Vec<u128> {
+        (0..count)
+            .map(|chunk| {
+                let start = chunk * slice_size;
+                calculate_md5_digest(&format!(
+                    "steam{url}bytes={start}-{}",
+                    start + slice_size - 1
+                ))
+            })
+            .collect()
+    }
+
+    fn walk_present(present: &HashSet<u128>, url: &str, slice_sizes: &[u64]) -> (usize, Option<u64>) {
+        let Ok(hits) = existing_cache_digests_for_url("steam", url, slice_sizes, |digest| {
+            Ok::<_, std::convert::Infallible>(present.contains(&digest))
+        });
+        (hits.files.len(), hits.slice_size)
+    }
+
+    #[test]
+    fn each_url_is_walked_at_the_slice_size_its_own_files_use() {
+        let eight_mib = 8 * DEFAULT_SLICE_SIZE;
+        let present: HashSet<u128> = slice_digests("/depot/eight", eight_mib, 3)
+            .into_iter()
+            .chain(slice_digests("/depot/one", DEFAULT_SLICE_SIZE, 2))
+            .collect();
+
+        assert_eq!(
+            walk_present(&present, "/depot/eight", &[DEFAULT_SLICE_SIZE]),
+            (3, Some(eight_mib))
+        );
+        assert_eq!(
+            walk_present(&present, "/depot/one", &[DEFAULT_SLICE_SIZE]),
+            (2, Some(DEFAULT_SLICE_SIZE))
+        );
+        // A manual 8 MiB size still finds a URL cached at 1 MiB.
+        assert_eq!(
+            walk_present(&present, "/depot/one", &[eight_mib, DEFAULT_SLICE_SIZE]),
+            (2, Some(DEFAULT_SLICE_SIZE))
+        );
+    }
+
+    #[test]
+    fn a_slice_size_that_is_not_a_power_of_two_is_found_only_when_listed() {
+        let ten_mib = 10 * DEFAULT_SLICE_SIZE;
+        let present: HashSet<u128> = slice_digests("/depot/ten", ten_mib, 2).into_iter().collect();
+
+        assert_eq!(
+            walk_present(&present, "/depot/ten", &[DEFAULT_SLICE_SIZE]),
+            (0, None)
+        );
+        assert_eq!(
+            walk_present(&present, "/depot/ten", &[ten_mib, DEFAULT_SLICE_SIZE]),
+            (2, Some(ten_mib))
+        );
+    }
+
+    #[test]
+    fn a_failed_file_check_stops_the_walk() {
+        let mut checks = 0usize;
+        let result = existing_cache_digests_for_url("steam", "/depot/x", &[DEFAULT_SLICE_SIZE], |_| {
+            checks += 1;
+            Err::<bool, &str>("stat failed")
+        });
+
+        assert_eq!(result.err(), Some("stat failed"));
+        assert_eq!(checks, 1);
+    }
+
+    #[test]
+    fn slice_size_argument_is_auto_or_a_positive_byte_count() {
+        assert_eq!(parse_slice_size_arg("auto"), Ok(None));
+        assert_eq!(parse_slice_size_arg("8388608"), Ok(Some(8 * DEFAULT_SLICE_SIZE)));
+        assert!(parse_slice_size_arg("0").is_err());
+        assert!(parse_slice_size_arg("-1").is_err());
+        assert!(parse_slice_size_arg("8M").is_err());
+    }
+
+    #[test]
+    fn slice_size_sample_skips_gone_and_unkeyed_files_and_counts_range_lengths() {
+        let keyed = |range: &str| format!("header\nKEY: steam/depot/a{range}\n").into_bytes();
+        let files = ["gone", "plain", "eight-a", "one", "eight-b"].map(PathBuf::from);
+
+        let sample = slice_sizes_from_files(files, |path: &Path| {
+            match path.to_str().unwrap() {
+                "gone" => Err(io::Error::from(io::ErrorKind::NotFound)),
+                "plain" => Ok(io::Cursor::new(b"no key line".to_vec())),
+                "one" => Ok(io::Cursor::new(keyed("bytes=0-1048575"))),
+                _ => Ok(io::Cursor::new(keyed("bytes=0-8388607"))),
+            }
+        })
+        .unwrap();
+
+        assert_eq!(sample.sizes, vec![8 * DEFAULT_SLICE_SIZE, DEFAULT_SLICE_SIZE]);
+        assert_eq!(sample.files_opened, 4);
+    }
+
+    #[test]
+    fn a_manual_slice_size_leads_the_sampled_sizes_and_1_mib_closes_the_list() {
+        let root = tempfile::tempdir().unwrap();
+        let ten_mib = 10 * DEFAULT_SLICE_SIZE;
+        let eight_mib = 8 * DEFAULT_SLICE_SIZE;
+        let url = "/depot/1/chunk/eight";
+        let path = calculate_cache_path(root.path(), "steam", url, 0, eight_mib - 1);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            format!("\0\nKEY: steam{url}bytes=0-{}\n", eight_mib - 1),
+        )
+        .unwrap();
+
+        assert_eq!(
+            slice_sizes_for_run(root.path(), Some(ten_mib)).unwrap(),
+            vec![ten_mib, eight_mib, DEFAULT_SLICE_SIZE]
+        );
+        assert_eq!(
+            slice_sizes_for_run(root.path(), None).unwrap(),
+            vec![eight_mib, DEFAULT_SLICE_SIZE]
+        );
+    }
+
+    struct FailingRead;
+
+    impl io::Read for FailingRead {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("read failed"))
+        }
+    }
+
+    #[test]
+    fn slice_size_sample_returns_open_and_read_errors() {
+        let open_error = slice_sizes_from_files([PathBuf::from("locked")], |_: &Path| {
+            Err::<FailingRead, _>(io::Error::from(io::ErrorKind::PermissionDenied))
+        })
+        .err()
+        .unwrap();
+        assert_eq!(open_error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(open_error.to_string().contains("locked"));
+
+        let read_error = slice_sizes_from_files([PathBuf::from("broken")], |_: &Path| Ok(FailingRead))
+            .err()
+            .unwrap();
+        assert!(read_error.to_string().contains("read failed"));
     }
 
     use std::borrow::Cow;
@@ -2509,7 +2887,7 @@ mod tests {
         }
 
         // The all-slice existence walk (what removal now uses) must find EVERY written slice.
-        let found = existing_cache_paths_for_url(cache_dir, service, url);
+        let found = existing_cache_paths_for_url(cache_dir, service, url, &[DEFAULT_SLICE_SIZE]).unwrap().files;
         assert_eq!(
             found.len(),
             written.len(),
@@ -2653,9 +3031,12 @@ mod bare_metal_key_tests {
         .collect();
 
         let hits =
-            existing_bare_metal_keyed_hashes_for_url("blizzard", "/tpr/wow/data/ab/cd/ef", |h| {
-                present.contains(h)
-            });
+            existing_bare_metal_keyed_hashes_for_url(
+                "blizzard",
+                "/tpr/wow/data/ab/cd/ef",
+                &[DEFAULT_SLICE_SIZE],
+                |h| present.contains(h),
+            );
         let keys: Vec<&str> = hits.iter().map(|(_, k)| k.as_str()).collect();
         assert_eq!(
             keys,
@@ -2665,10 +3046,16 @@ mod bare_metal_key_tests {
 
     #[test]
     fn unknown_service_enumerates_nothing() {
-        let hits = existing_bare_metal_keyed_hashes_for_url("nintendo", "/x", |_| true);
+        let hits =
+            existing_bare_metal_keyed_hashes_for_url("nintendo", "/x", &[DEFAULT_SLICE_SIZE], |_| true);
         assert!(hits.is_empty());
         let tmp = tempfile::tempdir().unwrap();
-        assert!(existing_bare_metal_keyed_paths_for_url(tmp.path(), "nintendo", "/x").is_empty());
+        assert!(
+            existing_bare_metal_keyed_paths_for_url(tmp.path(), "nintendo", "/x", &[DEFAULT_SLICE_SIZE])
+                .unwrap()
+                .files
+                .is_empty()
+        );
     }
 
     #[test]
@@ -2775,7 +3162,9 @@ mod bare_metal_key_tests {
         };
 
         assert_eq!(
-            read_cache_file_key_from_reader(&mut reader).as_deref(),
+            read_cache_file_key_from_reader(&mut reader)
+                .unwrap()
+                .as_deref(),
             Some(expected.as_str())
         );
     }

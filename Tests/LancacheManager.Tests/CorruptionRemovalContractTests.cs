@@ -2553,7 +2553,7 @@ public sealed class CorruptionRemovalContractTests
             Queue = new OperationQueueService(Tracker, Checker, NullLogger<OperationQueueService>.Instance);
             Controller = new CacheController(cache, null!, Detection, NullLogger<CacheController>.Instance,
                 paths, notifications, rust, nginx, Tracker, sources, contexts, null!,
-                Checker, Queue, capability, CacheScanGateHarness.Idle(), null!, _operationStateService);
+                Checker, Queue, capability, CacheScanGateHarness.Idle(), null!, _operationStateService, State);
         }
 
         public async Task<bool> RunAsync(string service = "steam", object? bulk = null)

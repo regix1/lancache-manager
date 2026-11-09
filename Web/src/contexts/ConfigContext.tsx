@@ -26,7 +26,6 @@ interface ConfigLoadError {
 interface CredentialsResponse {
   success: boolean;
   message: string;
-  error?: string;
 }
 
 interface PostgresPasswordRecoveryProps {
@@ -81,16 +80,14 @@ const PostgresPasswordRecovery: React.FC<PostgresPasswordRecoveryProps> = ({ onS
           { method: 'POST', headers: { 'X-Api-Key': apiKey.trim() } }
         )
       );
-      const data: CredentialsResponse = await response.json();
+      // A refusal throws here and carries its i18n key to getErrorMessage below.
+      await ApiService.handleResponse<CredentialsResponse>(response);
 
-      if (response.ok && data.success) {
-        setApiKey('');
-        setPassword('');
-        setSavedMessage(data.message || t('app.configError.recovery.saved'));
-        onSaved();
-      } else {
-        setFailureMessage(data.error || data.message || t('app.configError.recovery.failed'));
-      }
+      // A key or password retyped while the request ran stays in its box.
+      setApiKey((current) => (current === apiKey ? '' : current));
+      setPassword((current) => (current === password ? '' : current));
+      setSavedMessage(t('app.configError.recovery.saved'));
+      onSaved();
     } catch (err: unknown) {
       setFailureMessage(getErrorMessage(err));
     } finally {
@@ -138,7 +135,6 @@ const PostgresPasswordRecovery: React.FC<PostgresPasswordRecoveryProps> = ({ onS
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 placeholder={t('app.configError.recovery.apiKeyPlaceholder')}
-                disabled={isSaving}
               />
             )}
           </FormField>
@@ -155,7 +151,6 @@ const PostgresPasswordRecovery: React.FC<PostgresPasswordRecoveryProps> = ({ onS
                 onChange={(event) => setUsername(event.target.value)}
                 placeholder={t('app.configError.recovery.usernamePlaceholder')}
                 autoComplete="username"
-                disabled={isSaving}
               />
             )}
           </FormField>
@@ -172,7 +167,6 @@ const PostgresPasswordRecovery: React.FC<PostgresPasswordRecoveryProps> = ({ onS
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder={t('app.configError.recovery.passwordPlaceholder')}
                 autoComplete="new-password"
-                disabled={isSaving}
               />
             )}
           </FormField>

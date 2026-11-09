@@ -1,3 +1,4 @@
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
@@ -72,7 +73,7 @@ public sealed class ActiveInWindowFilterTests
             .Where(d => d.StartTimeUtc >= evt.CreatedAtUtc)
             .Select(d => d.Id)
             .ToListAsync();
-        var service = new EventsService(context, NullLogger<EventsService>.Instance);
+        var service = new EventsService(context, NullLogger<EventsService>.Instance, SeparatedPrefillState());
 
         var count = await service.AutoTagActiveEventsAsync();
         var tagged = await context.EventDownloads
@@ -84,6 +85,37 @@ public sealed class ActiveInWindowFilterTests
         Assert.Equal(new[] { 11L }, oldPredicate);
         Assert.Equal(2, count);
         Assert.Equal(new[] { 10L, 11L }, tagged);
+    }
+
+    [Fact]
+    public async Task EventDownloadsLeaveOutPrefillDownloadsWhenPrefillTrafficIsSeparated()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = database.Factory.CreateDbContext();
+        var now = DateTime.UtcNow;
+        context.Events.Add(new Event
+        {
+            Id = 2,
+            Name = "LAN Party",
+            StartTimeUtc = now.AddHours(-1),
+            EndTimeUtc = now.AddHours(1),
+            CreatedAtUtc = now.AddHours(-1),
+            ColorIndex = 1
+        });
+        var prefill = Row(40, "prefill", now.AddMinutes(-20), now.AddMinutes(-10));
+        prefill.IsPrefill = true;
+        context.Downloads.AddRange(prefill, Row(41, "player", now.AddMinutes(-20), now.AddMinutes(-10)));
+        context.EventDownloads.AddRange(
+            new EventDownload { EventId = 2, DownloadId = 40, TaggedAtUtc = now },
+            new EventDownload { EventId = 2, DownloadId = 41, TaggedAtUtc = now });
+        await context.SaveChangesAsync();
+        var service = new EventsService(context, NullLogger<EventsService>.Instance, SeparatedPrefillState());
+
+        var inWindow = await service.GetEventDownloadsAsync(2, taggedOnly: false);
+        var tagged = await service.GetEventDownloadsAsync(2, taggedOnly: true);
+
+        Assert.Equal(new[] { 41L }, inWindow.Select(d => d.Id));
+        Assert.Equal(new[] { 41L }, tagged.Select(d => d.Id));
     }
 
     [Fact]
@@ -167,6 +199,13 @@ public sealed class ActiveInWindowFilterTests
             clients,
             StringComparison.Ordinal);
     }
+
+    // A Hide prefill rule for any address and every service.
+    private static IStateService SeparatedPrefillState() =>
+        CacheScanGateHarness.CreateProxy<IStateService>((method, _) =>
+            method.Name == nameof(IStateService.GetHiddenPrefillRules)
+                ? new List<ClientExclusionRule> { CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Hide) }
+                : throw new NotSupportedException(method.Name));
 
     private static long UnixSeconds(DateTime value) =>
         new DateTimeOffset(value, TimeSpan.Zero).ToUnixTimeSeconds();

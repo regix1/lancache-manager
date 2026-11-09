@@ -20,6 +20,7 @@ using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -183,7 +184,6 @@ public sealed class EndpointAuthorizationContractTests
         "GameImagesController.GetEpicHeaderImage",
         "GameImagesController.GetNameKeyedHeaderImage",
         "GameImagesController.GetCacheVersion",
-        "GameImagesController.GetAvailableImageIds",
         "SetupController.SetCredentials",
         "SetupController.SetExternalCredentials",
         "SystemController.GetConfig",
@@ -331,6 +331,8 @@ public sealed class EndpointAuthorizationContractTests
         "SystemController.UpdateSetupStatus",
         "SystemController.IsRsyncAvailable",
         "SystemController.SetCacheDeleteMode",
+        "SystemController.GetCacheSliceSize",
+        "SystemController.SetCacheSliceSize",
         "SystemController.SetRefreshRate",
         "SystemController.SetDefaultGuestRefreshRate",
         "SystemController.SetGuestRefreshRateLock",
@@ -1583,8 +1585,18 @@ internal sealed class EndpointAuthorizationHost : IDisposable
             Environment.SetEnvironmentVariable("Security__EnableAuthentication", authenticationEnabled.ToString());
             Directory.SetCurrentDirectory(_temporaryRoot);
 
+            // The booted app runs on the developer's machine, so the real gateway and the real docker
+            // command would kill and remove that machine's prefill containers and login volumes.
             _application = new WebApplicationFactory<SetupController>()
-                .WithWebHostBuilder(builder => builder.UseContentRoot(apiRoot));
+                .WithWebHostBuilder(builder => builder
+                    .UseContentRoot(apiRoot)
+                    .ConfigureTestServices(services =>
+                    {
+                        services.AddSingleton<IPrefillContainerGatewayFactory, UnavailableContainerGatewayFactory>();
+                        services.AddSingleton<
+                            LancacheManager.Infrastructure.Services.NginxLogRotationService,
+                            NoCommandNginxLogRotationService>();
+                    }));
 
             EnsureDatabase(_application);
             _application.Services.GetRequiredService<LancacheManager.Infrastructure.Services.StateService>()
@@ -1843,4 +1855,26 @@ internal sealed class EndpointAuthorizationHost : IDisposable
     }
 
     private sealed record PathState(string RelativePath, long Length, DateTime LastWriteTimeUtc, bool IsDirectory);
+}
+
+/// <summary>
+/// The nginx log service with every command answered as "not found", the way a machine with no docker
+/// command answers, so a booted test host never probes or signals the machine's real nginx container.
+/// </summary>
+internal sealed class NoCommandNginxLogRotationService : LancacheManager.Infrastructure.Services.NginxLogRotationService
+{
+    public NoCommandNginxLogRotationService(
+        Microsoft.Extensions.Logging.ILogger<LancacheManager.Infrastructure.Services.NginxLogRotationService> logger,
+        Microsoft.Extensions.Configuration.IConfiguration configuration,
+        LancacheManager.Infrastructure.Utilities.ProcessManager processManager,
+        IPathResolver pathResolver)
+        : base(logger, configuration, processManager, pathResolver)
+    {
+    }
+
+    protected override Task<LancacheManager.Infrastructure.Utilities.ProcessCommandResult> RunProcessAsync(
+        System.Diagnostics.ProcessStartInfo start,
+        string label,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new LancacheManager.Infrastructure.Utilities.ProcessCommandResult { ExitCode = 127 });
 }

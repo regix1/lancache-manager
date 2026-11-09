@@ -61,4 +61,10 @@ public class CachedGameDetection
     /// Backfilled on migration: set to true where CacheFilesFound = 0.
     /// </summary>
     public bool IsEvicted { get; set; } = false;
+
+    /// <summary>
+    /// Cache slice sizes detected for this game, in bytes, comma-separated ascending
+    /// (for example "1048576" or "1048576,8388608").
+    /// </summary>
+    public string? SliceSizes { get; set; }
 }

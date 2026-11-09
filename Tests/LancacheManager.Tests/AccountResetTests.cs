@@ -1,5 +1,4 @@
 using System.Data.Common;
-using System.Reflection;
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
@@ -387,15 +386,14 @@ public sealed class AccountResetTests
             context.UserAccounts.AddRange(Account(Guid.NewGuid(), true), Account(files.Owner.AccountId!.Value));
             await context.SaveChangesAsync();
         }
-        var failures = typeof(StateService).GetField("_consecutiveFailures", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        failures.SetValue(files.State, 6);
+        files.State.FailWrites = true;
         await Assert.ThrowsAsync<LancacheManager.Middleware.ServiceUnavailableException>(() => RunAsync(database, files));
         await using (var context = database.Factory.CreateDbContext())
         {
             Assert.Null((await context.AccountResets.SingleAsync()).CompletedAtUtc);
             Assert.Equal(2, await context.UserAccounts.CountAsync());
         }
-        failures.SetValue(files.State, 0);
+        files.State.FailWrites = false;
         await RunAsync(database, files);
     }
 

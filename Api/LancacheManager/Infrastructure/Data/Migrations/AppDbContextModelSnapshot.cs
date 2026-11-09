@@ -314,6 +314,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<string>("Service")
                         .HasColumnType("text");
 
+                    b.Property<string>("SliceSizes")
+                        .HasColumnType("text");
+
                     b.Property<decimal>("TotalSizeBytes")
                         .HasColumnType("numeric(20,0)");
 
@@ -485,6 +488,11 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     b.Property<bool>("IsEvicted")
                         .HasColumnType("boolean");
+
+                    b.Property<bool>("IsPrefill")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<string>("LastUrl")
                         .HasColumnType("text");
@@ -1041,6 +1049,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     b.Property<bool>("CancelRequested")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("ClientAddressesJson")
+                        .HasColumnType("text");
 
                     b.Property<DateTime?>("CompletedAtUtc")
                         .HasColumnType("timestamp with time zone");

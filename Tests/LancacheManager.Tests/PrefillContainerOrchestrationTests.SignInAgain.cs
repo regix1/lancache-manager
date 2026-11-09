@@ -857,7 +857,7 @@ public sealed partial class PrefillContainerOrchestrationTests
 
         var refusal = await Assert.ThrowsAsync<ConflictException>(() => s.Daemon.StartLoginAsync(s.Session.Id));
 
-        Assert.Equal("errors.prefill.sessionReplaced", refusal.StageKey);
+        Assert.Equal("prefill.errors.sessionErrored", refusal.StageKey);
         Assert.Equal(s.StartsBeforeDrop, client.StartLoginCallCount);
     }
 
@@ -1750,7 +1750,7 @@ public sealed partial class PrefillContainerOrchestrationTests
 
         client.ReleaseCancelLogin.SetResult();
         var refusal = await Assert.ThrowsAsync<ConflictException>(() => login.WaitAsync(TestTimeout));
-        Assert.Equal("prefill.persistent.loginNotCanceled", refusal.StageKey);
+        Assert.Equal("errors.prefill.loginCancelUnconfirmed", refusal.StageKey);
 
         Assert.True(s.Session.LoginCanceledByPerson);
         Assert.True(await s.StoredCancelAsync());
@@ -1853,7 +1853,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         var loginId = Guid.NewGuid();
         var refusal = await Assert.ThrowsAsync<ConflictException>(
             () => s.Daemon.StartPersistentLoginAsync(s.Session.Id, null, () => { }, Guid.NewGuid(), loginId: loginId));
-        Assert.Equal("errors.prefill.sessionReplaced", refusal.StageKey);
+        Assert.Equal("prefill.errors.sessionErrored", refusal.StageKey);
         Assert.False(await s.Daemon.CancelLoginAsync(s.Session.Id, loginId: loginId));
 
         Assert.False(s.Session.LoginCanceledByPerson);
@@ -2202,7 +2202,7 @@ public sealed partial class PrefillContainerOrchestrationTests
     [Fact]
     public async Task APersonsCancelDuringStartupHeadlessKeepsTheContainerSignedOutAsync()
     {
-        var client = new ScriptedLoginDaemonClient { HoldStartLogin = true };
+        var client = new ScriptedLoginDaemonClient { HoldStartLogin = true, HoldCancelLogin = true };
         var (_, daemon, _, _) = SetupRecreateScenario(DateTime.UtcNow.AddDays(30), clientFactory: () => client);
         try
         {
@@ -2212,10 +2212,13 @@ public sealed partial class PrefillContainerOrchestrationTests
             var loginId = Guid.NewGuid();
             var persons = daemon.StartPersistentLoginAsync(session.Id, null, () => { }, Guid.NewGuid(), loginId: loginId);
             await WaitForRecordedLoginAsync(session, loginId);
+            // The Log in took over: the startup sign-in is ending its login, and the Log in waits for it.
+            await client.CancelLoginEntered.Task.WaitAsync(TestTimeout);
 
             Assert.False(await daemon.CancelLoginAsync(session.Id, loginId: loginId));
             Assert.True(session.LoginCanceledByPerson);
 
+            client.ReleaseCancelLogin.TrySetResult();
             client.ReleaseStartLogin.TrySetResult();
             await daemon.LastHeadlessSelfAuthAttempt!.WaitAsync(TestTimeout);
             await Record.ExceptionAsync(() => persons);
@@ -2234,7 +2237,7 @@ public sealed partial class PrefillContainerOrchestrationTests
     public async Task AnUnconfirmedStartupCancelOfALoggedInDaemonStaysSignedOutAsync()
     {
         var loggedIn = 0;
-        var client = new ScriptedLoginDaemonClient { HoldStartLogin = true, CancelAcknowledged = false };
+        var client = new ScriptedLoginDaemonClient { HoldStartLogin = true, HoldCancelLogin = true, CancelAcknowledged = false };
         client.StatusHandler = _ => Task.FromResult<DaemonStatus?>(new DaemonStatus
         {
             Type = "status",
@@ -2250,9 +2253,11 @@ public sealed partial class PrefillContainerOrchestrationTests
             var loginId = Guid.NewGuid();
             var persons = daemon.StartPersistentLoginAsync(session.Id, null, () => { }, Guid.NewGuid(), loginId: loginId);
             await WaitForRecordedLoginAsync(session, loginId);
+            await client.CancelLoginEntered.Task.WaitAsync(TestTimeout);
             Interlocked.Exchange(ref loggedIn, 1);
 
             Assert.False(await daemon.CancelLoginAsync(session.Id, loginId: loginId));
+            client.ReleaseCancelLogin.TrySetResult();
             client.ReleaseStartLogin.TrySetResult();
             await daemon.LastHeadlessSelfAuthAttempt!.WaitAsync(TestTimeout);
             await Record.ExceptionAsync(() => persons);
@@ -2275,6 +2280,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         var client = new ScriptedLoginDaemonClient
         {
             HoldStartLogin = true,
+            HoldCancelLogin = true,
             CancelAcknowledged = false
         };
         client.StatusHandler = _ => Task.FromResult<DaemonStatus?>(new DaemonStatus
@@ -2292,8 +2298,10 @@ public sealed partial class PrefillContainerOrchestrationTests
             var loginId = Guid.NewGuid();
             var persons = daemon.StartPersistentLoginAsync(session.Id, null, () => { }, Guid.NewGuid(), loginId: loginId);
             await WaitForRecordedLoginAsync(session, loginId);
+            await client.CancelLoginEntered.Task.WaitAsync(TestTimeout);
 
             Assert.False(await daemon.CancelLoginAsync(session.Id, loginId: loginId));
+            client.ReleaseCancelLogin.TrySetResult();
             client.ReleaseStartLogin.TrySetResult();
             await daemon.LastHeadlessSelfAuthAttempt!.WaitAsync(TestTimeout);
             await Record.ExceptionAsync(() => persons);
@@ -2315,7 +2323,7 @@ public sealed partial class PrefillContainerOrchestrationTests
     {
         var readsAfterRelease = 0;
         var settleReadsFail = 0;
-        var client = new ScriptedLoginDaemonClient { HoldStartLogin = true, CancelAcknowledged = false };
+        var client = new ScriptedLoginDaemonClient { HoldStartLogin = true, HoldCancelLogin = true, CancelAcknowledged = false };
         var signedOut = new DaemonStatus
         {
             Type = "status",
@@ -2345,9 +2353,11 @@ public sealed partial class PrefillContainerOrchestrationTests
             var loginId = Guid.NewGuid();
             var persons = daemon.StartPersistentLoginAsync(session.Id, null, () => { }, Guid.NewGuid(), loginId: loginId);
             await WaitForRecordedLoginAsync(session, loginId);
+            await client.CancelLoginEntered.Task.WaitAsync(TestTimeout);
 
             Assert.False(await daemon.CancelLoginAsync(session.Id, loginId: loginId));
             Interlocked.Exchange(ref settleReadsFail, 1);
+            client.ReleaseCancelLogin.TrySetResult();
             client.ReleaseStartLogin.TrySetResult();
             await daemon.LastHeadlessSelfAuthAttempt!.WaitAsync(TestTimeout);
             await Record.ExceptionAsync(() => persons);
@@ -2557,7 +2567,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         var refused = await Assert.ThrowsAsync<ConflictException>(
             () => s.Daemon.StartPersistentLoginAsync(s.Session.Id, TimeSpan.FromSeconds(30), () => { }, owner));
 
-        Assert.Equal("prefill.persistent.loginNotCanceled", refused.StageKey);
+        Assert.Equal("errors.prefill.loginCancelUnconfirmed", refused.StageKey);
         Assert.False(s.Session.LoginCanceledByPerson);
         Assert.False(await s.StoredCancelAsync());
         Assert.False(ScheduledPrefillRunGates.PersonCanceledSignIn(s.Session));

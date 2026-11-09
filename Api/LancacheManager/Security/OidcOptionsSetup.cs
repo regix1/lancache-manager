@@ -45,7 +45,9 @@ public sealed class OidcOptionsSetup : IConfigureNamedOptions<OpenIdConnectOptio
         // nonce, state, and a short-lived server-generated client assertion instead.
         options.UsePkce = kind != LoginKind.Apple;
         options.RequireHttpsMetadata = true;
-        options.ProtocolValidator.RequireStateValidation = true;
+        // The handler validates state itself through its state format and correlation cookie and never
+        // fills the validator's State, so the validator's own state check always fails.
+        options.ProtocolValidator.RequireStateValidation = false;
         options.MapInboundClaims = false;
         options.SaveTokens = false;
         options.GetClaimsFromUserInfoEndpoint = false;

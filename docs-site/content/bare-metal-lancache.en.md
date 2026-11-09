@@ -61,7 +61,7 @@ Everything log-based and disk-based, for the five services bare-metal caches:
 - **Logs:** per-service log counts, log removal, and deleting log files.
 - **Disk:** game and service removal, repeated-miss corruption scanning, eviction tracking, and clearing the whole cache. Every deletion double-checks the file's own embedded cache key first.
 
-**A note on hit rates:** Blizzard and Windows Update downloads arrive in 1 MB slices, and nginx logs the cache status of only the first slice. Their hit/miss ratio is therefore an approximation (byte counts stay exact). Container installs slice the same way, so this is not bare-metal specific.
+**A note on hit rates:** Blizzard and Windows Update downloads arrive in slices of your install's `CACHE_SLICE_SIZE` (1 MiB by default; see [Cache slice size](configuration-reference.md#cache-slice-size)), and nginx logs the cache status of only the first slice. Their hit/miss ratio is therefore an approximation (byte counts stay exact). Container installs slice the same way, so this is not bare-metal specific.
 
 ### What doesn't: Xbox
 

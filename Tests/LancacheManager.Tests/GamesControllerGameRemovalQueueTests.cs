@@ -240,7 +240,8 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             capabilityService: null!,
             cacheScanGate: CacheScanGateHarness.Idle(),
             cacheSizeScan: null!,
-            operationStateService: null!);
+            operationStateService: null!,
+            stateService: null!);
 
         var body = Assert.IsType<AllActiveRemovalsResponse>(Assert.IsType<OkObjectResult>(controller.GetAllActiveRemovals()).Value);
 
@@ -713,7 +714,9 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
         var registrations = new ServiceCollection()
             .AddSingleton<CacheManagementService>(_ => manager!)
             .AddSingleton(datasources)
-            .AddSingleton(capability);
+            .AddSingleton(capability)
+            // A log reset forgets the marking record; no prefill rule is saved here, so it never reads rows.
+            .AddSingleton(new PrefillSessionService(contextFactory: null!, NullLogger<PrefillSessionService>.Instance));
         if (producerType.HasValue)
         {
             // A log step deletes rows with set-based deletes, which need a relational database.
@@ -838,7 +841,8 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             capabilityService: _capability,
             cacheScanGate: CacheScanGateHarness.Idle(),
             cacheSizeScan: null!,
-            operationStateService: Owner);
+            operationStateService: Owner,
+            stateService: new StateService(NullLogger<StateService>.Instance, paths, null!, null!));
     }
 
     internal RemovalOperationConfig<(int Files, long Bytes)> CreateConfig(

@@ -48,7 +48,7 @@ Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡
 - 泄露的密钥无法单独从某个调用方收回。唯一的办法是重新生成，这会影响所有用户。
 - 已登录的会话会列在**用户 → 会话**中，并可以单独结束。
 
-### 从脚本登录
+### 从脚本登录 { #signing-in-from-a-script }
 
 登录调用需要的内容取决于访问模式（见[访问与登录](sign-in.md)）：
 
@@ -57,10 +57,10 @@ Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡
 | 用户名和密码 | `username`、`password` |
 | API 密钥、用户名和密码 | `apiKey`、`username`、`password` |
 | 免认证访问 | 仅限主管理员的 `username`、`password` |
-| API 密钥和单点登录 | 不可用，调用会被拒绝 |
-| 单点登录 | 不可用，调用会被拒绝 |
+| API 密钥和单点登录 | 仅限主管理员的 `apiKey`、`username`、`password` |
+| 单点登录 | 仅限主管理员的 `username`、`password` |
 
-在两种单点登录模式下，脚本无法登录。
+在两种单点登录模式下，只有主管理员的本地密码有效。其他账户会被拒绝，返回 `401`。
 
 以 **API 密钥、用户名和密码** 模式为例：
 

@@ -139,6 +139,7 @@ public sealed class IntegrationCancellationTests
         var start = await service.GetAuthorizationUrl(fixture.Owner);
 
         await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
+        await SignInMappingEndsAsync(service);
 
         var run = Assert.Single(tracker.GetRuns().Runs);
         Assert.Equal("completed", run.Status);
@@ -152,7 +153,7 @@ public sealed class IntegrationCancellationTests
     public async Task AnEpicSignInWhoseWindowRunsOutBeforeTheAccountIsSavedEndsRedAsync()
     {
         using var fixture = new IntegrationFixture();
-        using var http = new HttpClient(new EpicSignInHandler { HangCatalog = true });
+        using var http = new HttpClient(new EpicSignInHandler { HangExchange = true });
         using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
         using var service = NewEpicService(fixture, http, services, tracker);
@@ -164,10 +165,14 @@ public sealed class IntegrationCancellationTests
             service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId)
                 .WaitAsync(TimeSpan.FromSeconds(20)));
 
+        // The window ended during the code exchange, before the account was saved and before any run existed.
         Assert.Equal("errors.integration.attemptExpired", refused.StageKey);
-        var run = Assert.Single(tracker.GetRuns().Runs);
-        Assert.Equal("failed", run.Status);
-        Assert.Equal("errors.integration.attemptExpired", run.Error);
+        Assert.Empty(tracker.GetRuns().Runs);
+        Assert.False(service.IsAuthenticated);
+        var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
+        Assert.NotNull(ending);
+        Assert.Equal(OperationStatus.Failed, ending.Status);
+        Assert.Equal("errors.integration.attemptExpired", ending.StageKey);
     }
 
     [Fact]
@@ -188,10 +193,15 @@ public sealed class IntegrationCancellationTests
 
         await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId)
             .WaitAsync(TimeSpan.FromSeconds(20));
+        await SignInMappingEndsAsync(service);
 
+        // The window ended during the save: the account stays signed in, and the window ends the mapping after it.
         var run = Assert.Single(tracker.GetRuns().Runs);
-        Assert.Equal("completed", run.Status);
+        Assert.Equal("cancelled", run.Status);
         Assert.True(service.IsAuthenticated);
+        var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
+        Assert.NotNull(ending);
+        Assert.Equal(OperationStatus.Completed, ending.Status);
     }
 
     [Fact]
@@ -204,6 +214,7 @@ public sealed class IntegrationCancellationTests
         using var service = NewEpicService(fixture, http, services, tracker);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
         await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
+        await SignInMappingEndsAsync(service);
         // The state the sign-in's cleanup leaves between disposing its source and clearing the field.
         var disposed = new CancellationTokenSource();
         disposed.Dispose();
@@ -226,6 +237,7 @@ public sealed class IntegrationCancellationTests
         var start = await service.GetAuthorizationUrl(fixture.Owner);
 
         await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
+        await SignInMappingEndsAsync(service);
 
         var run = Assert.Single(tracker.GetRuns().Runs);
         Assert.Equal("completed", run.Status);
@@ -257,19 +269,27 @@ public sealed class IntegrationCancellationTests
         using var service = NewEpicService(fixture, http, services, tracker);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
 
-        var signIn = service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
-        // A sign-in the X did not reach is still held by the server; releasing it lets the test read how it ended.
-        if (await Task.WhenAny(signIn, Task.Delay(TimeSpan.FromSeconds(10))) != signIn) release.TrySetResult();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => signIn.WaitAsync(TimeSpan.FromSeconds(20)));
+        await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
+        // A mapping the X did not reach is still held by the server; releasing it lets the test read how it ended.
+        try
+        {
+            await SignInMappingEndsAsync(service, TimeSpan.FromSeconds(10));
+        }
+        catch (Xunit.Sdk.XunitException)
+        {
+            release.TrySetResult();
+            await SignInMappingEndsAsync(service);
+        }
 
         Assert.True(pressed);
         Assert.Equal("cancelled", Assert.Single(tracker.GetRuns().Runs).Status);
-        Assert.False(service.IsAuthenticated);
+        // The account was saved before the mapping started, so the X stops the mapping and keeps the sign-in.
+        Assert.True(service.IsAuthenticated);
         var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
         Assert.NotNull(ending);
         Assert.Equal(start.AttemptId, ending.AttemptId);
-        Assert.Equal(OperationStatus.Cancelled, ending.Status);
-        Assert.Equal("errors.integration.attemptExpired", ending.StageKey);
+        Assert.Equal(OperationStatus.Completed, ending.Status);
+        Assert.Equal("signalr.epicMapping.completed", ending.StageKey);
     }
 
     [Fact]
@@ -287,10 +307,11 @@ public sealed class IntegrationCancellationTests
         ((SlowLastCollectionState)(object)state).OnWrite = () =>
             tracker.CancelOperation(Assert.Single(tracker.GetRuns().Runs).OperationId);
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId)
-                .WaitAsync(TimeSpan.FromSeconds(20)));
+        await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId)
+            .WaitAsync(TimeSpan.FromSeconds(20));
+        await SignInMappingEndsAsync(service);
 
+        Assert.Equal("cancelled", Assert.Single(tracker.GetRuns().Runs).Status);
         Assert.True(service.IsAuthenticated);
         var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
         Assert.NotNull(ending);
@@ -374,6 +395,7 @@ public sealed class IntegrationCancellationTests
         var start = await service.GetAuthorizationUrl(fixture.Owner);
 
         await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
+        await SignInMappingEndsAsync(service);
 
         var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
         Assert.NotNull(ending);
@@ -608,12 +630,14 @@ public sealed class IntegrationCancellationTests
         using var service = NewEpicService(fixture, http, services, tracker);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
 
-        await Assert.ThrowsAnyAsync<Exception>(() =>
-            service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId)
-                .WaitAsync(TimeSpan.FromSeconds(20)));
+        await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId)
+            .WaitAsync(TimeSpan.FromSeconds(20));
+        await SignInMappingEndsAsync(service);
 
+        // The account was saved before the catalog read, so a timeout ends the mapping red and keeps the sign-in.
         var run = Assert.Single(tracker.GetRuns().Runs);
         Assert.Equal("failed", run.Status);
+        Assert.True(service.IsAuthenticated);
     }
 
     [Fact]
@@ -631,6 +655,7 @@ public sealed class IntegrationCancellationTests
             .Invoke(service, [CancellationToken.None, signedOut])!;
         var start = await service.GetAuthorizationUrl(fixture.Owner);
         await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
+        await SignInMappingEndsAsync(service);
         var scheduled = new RunNotice(NotificationMode.Manual, RunTrigger.Scheduled);
         var refreshed = await RefreshAsync(service, tracker,
             () => service.TryStartRefresh(CancellationToken.None, RunTrigger.Scheduled, scheduled));
@@ -642,6 +667,20 @@ public sealed class IntegrationCancellationTests
         Assert.Same(scheduled, notices[refreshed]);
         Assert.Equal(NotificationMode.Manual, notices[direct].Mode);
         Assert.Equal(RunTrigger.Manual, notices[direct].Trigger);
+    }
+
+    // The mapping after a sign-in's save runs in the background and holds the session lock and the processing flag until it ends.
+    private static async Task SignInMappingEndsAsync(EpicMappingService service, TimeSpan? limit = null)
+    {
+        var processing = typeof(EpicMappingService).GetField("_processingLogin", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var sessionLock = (SemaphoreSlim)typeof(EpicMappingService)
+            .GetField("_sessionLock", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(service)!;
+        var deadline = DateTime.UtcNow + (limit ?? TimeSpan.FromSeconds(20));
+        while (processing.GetValue(service) is not null || sessionLock.CurrentCount == 0)
+        {
+            Assert.True(DateTime.UtcNow < deadline, "the sign-in mapping did not end");
+            await Task.Delay(20);
+        }
     }
 
     // Starts one refresh, waits for it to end, and returns the id of the run it registered.
@@ -714,12 +753,14 @@ public sealed class IntegrationCancellationTests
         private int _assetReads;
 
         public bool HangCatalog { get; init; }
+        public bool HangExchange { get; init; }
         public bool FailCdn { get; init; }
         public Func<CancellationToken, Task>? AtCdnRead { get; init; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             if (HangCatalog && request.Method != HttpMethod.Post) await Task.Delay(Timeout.Infinite, cancellationToken);
+            if (HangExchange && request.Method == HttpMethod.Post) await Task.Delay(Timeout.Infinite, cancellationToken);
             if (request.RequestUri!.AbsolutePath.EndsWith("/launcher/api/public/assets/Windows", StringComparison.Ordinal)
                 && Interlocked.Increment(ref _assetReads) == 2)
             {

@@ -15,6 +15,9 @@ public static class SignalREvents
     // Client Hostnames
     public const string ClientHostnamesChanged = "ClientHostnamesChanged";
 
+    // Prefill traffic separation turned on or off
+    public const string PrefillTrafficSettingChanged = "PrefillTrafficSettingChanged";
+
     // Events
     public const string EventCreated = "EventCreated";
     public const string EventUpdated = "EventUpdated";
@@ -150,6 +153,8 @@ public static class SignalREvents
     public const string AllowedTimeFormatsChanged = "AllowedTimeFormatsChanged";
     public const string DefaultGuestPreferencesChanged = "DefaultGuestPreferencesChanged";
     public const string DefaultGuestThemeChanged = "DefaultGuestThemeChanged";
+    // Carries no payload: the receiver re-reads GET /api/system/cache-slice-size.
+    public const string CacheSliceSizeChanged = "CacheSliceSizeChanged";
 
     // Auth / Guest Mode
     public const string GuestModeLockChanged = "GuestModeLockChanged";

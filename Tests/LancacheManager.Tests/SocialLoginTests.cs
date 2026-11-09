@@ -6,7 +6,6 @@ using System.Security.Claims;
 using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -14,10 +13,10 @@ using LancacheManager.Security;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -88,6 +87,7 @@ public sealed class SocialLoginTests : IDisposable
                 access,
                 signIns,
                 new OptionsCache<OAuthOptions>(),
+                TimeProvider.System,
                 NullLogger<GitHubEvents>.Instance);
 
             await events.TicketReceived(context);
@@ -473,6 +473,7 @@ public sealed class SocialLoginTests : IDisposable
             service,
             signInService: null!,
             new OptionsCache<OAuthOptions>(),
+            TimeProvider.System,
             NullLogger<GitHubEvents>.Instance);
 
         await events.CreatingTicket(context);
@@ -817,6 +818,178 @@ public sealed class SocialLoginTests : IDisposable
         Assert.NotNull(method);
         Assert.NotNull(method.GetCustomAttribute<EnableRateLimitingAttribute>());
         Assert.Equal(ignoresAntiforgery, method.GetCustomAttribute<IgnoreAntiforgeryTokenAttribute>() is not null);
+    }
+
+    [Theory]
+    [InlineData(LoginKind.CustomOidc, false)]
+    [InlineData(LoginKind.CustomOidc, true)]
+    [InlineData(LoginKind.Google, false)]
+    [InlineData(LoginKind.Google, true)]
+    [InlineData(LoginKind.Microsoft, false)]
+    [InlineData(LoginKind.Microsoft, true)]
+    [InlineData(LoginKind.Apple, false)]
+    [InlineData(LoginKind.Apple, true)]
+    public void TheProtocolValidatorAcceptsACallbackWithACodeAndState(LoginKind kind, bool setup)
+    {
+        var options = new OpenIdConnectOptions();
+        new OidcOptionsSetup(NewAccessService()).Configure(AccessService.GetScheme(kind, setup), options);
+
+        options.ProtocolValidator.ValidateAuthenticationResponse(new OpenIdConnectProtocolValidationContext
+        {
+            ProtocolMessage = new OpenIdConnectMessage { Code = "c", State = "s" }
+        });
+    }
+
+    private static readonly TimeSpan SignInTimeout = TimeSpan.FromMinutes(15);
+    private static readonly DateTimeOffset FailureTime = new(2026, 11, 3, 12, 0, 0, TimeSpan.Zero);
+
+    private static string CodeFor(Exception? failure, AuthenticationProperties? properties = null)
+        => OidcEvents.FailureCode(failure, properties, SignInTimeout, FailureTime);
+
+    [Fact]
+    public void AnUnreachableSignInServiceAnswersConnection()
+    {
+        Assert.Equal("connection", CodeFor(new AuthenticationFailureException("failed", new HttpRequestException("down"))));
+        Assert.Equal("connection", CodeFor(new IOException("reset")));
+    }
+
+    [Theory]
+    [InlineData("identity")]
+    [InlineData("expired")]
+    public void ATypedFailureAnswersItsOwnCode(string code)
+    {
+        Assert.Equal(code, CodeFor(new SignInFailureException(code, "typed")));
+    }
+
+    [Fact]
+    public void AnInvalidNonceAndAnInvalidStateAnswerState()
+    {
+        Assert.Equal("state", CodeFor(new OpenIdConnectProtocolInvalidNonceException("nonce")));
+        Assert.Equal("state", CodeFor(new OpenIdConnectProtocolInvalidStateException("state")));
+    }
+
+    [Theory]
+    [InlineData(14, "authentication")]
+    [InlineData(16, "expired")]
+    public void ACorrelationFailureIsExpiredOnlyAfterTheSignInTimeLimit(int minutesOld, string expected)
+    {
+        var properties = new AuthenticationProperties { IssuedUtc = FailureTime.AddMinutes(-minutesOld) };
+
+        Assert.Equal(expected, CodeFor(new AuthenticationFailureException("Correlation failed."), properties));
+    }
+
+    [Fact]
+    public void AFailureWithNoStartTimeAnswersAuthentication()
+    {
+        var failure = new AuthenticationFailureException("Correlation failed.");
+
+        Assert.Equal("authentication", CodeFor(failure, new AuthenticationProperties()));
+        Assert.Equal("authentication", CodeFor(failure));
+        Assert.Equal(
+            "authentication",
+            CodeFor(new AuthenticationFailureException("Unable to unprotect the message.State.")));
+    }
+
+    [Fact]
+    public void ASignInWhoseSettingsChangedMidwayFailsWithTheStateCode()
+    {
+        var service = NewAccessService();
+        var pending = Stage(service, LoginKind.CustomOidc, AccountMode.Oidc);
+        var properties = new AuthenticationProperties();
+        properties.Items["access_revision"] = (pending.Revision - 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        properties.Items["access_setup"] = "true";
+        properties.Items["access_owner"] = "false";
+        properties.Items["login_id"] = "customOidc";
+        var scheme = new AuthenticationScheme(
+            AccessService.OidcSetupScheme,
+            AccessService.OidcSetupScheme,
+            typeof(OpenIdConnectHandler));
+        var context = new TokenValidatedContext(
+            new DefaultHttpContext(),
+            scheme,
+            new OpenIdConnectOptions(),
+            new ClaimsPrincipal(),
+            properties);
+        var events = new OidcEvents(
+            service,
+            signInService: null!,
+            new OptionsCache<OpenIdConnectOptions>(),
+            TimeProvider.System,
+            NullLogger<OidcEvents>.Instance);
+
+        events.TokenValidated(context);
+
+        var failure = Assert.IsType<SignInFailureException>(context.Result?.Failure);
+        Assert.Equal("state", failure.Code);
+    }
+
+    [Fact]
+    public async Task BothCallbackHandlersRedirectAnOldCorrelationFailureAsExpired()
+    {
+        var access = NewAccessService();
+        var clock = new CacheStatusClock(FailureTime);
+        var failure = new AuthenticationFailureException("Correlation failed.");
+
+        foreach (var github in new[] { false, true })
+        {
+            var properties = new AuthenticationProperties { IssuedUtc = FailureTime.AddMinutes(-16) };
+            properties.Items["access_revision"] = "1";
+            var httpContext = new DefaultHttpContext();
+            var scheme = new AuthenticationScheme("test", "test", typeof(OAuthHandler<OAuthOptions>));
+            RemoteAuthenticationOptions options = github ? new OAuthOptions() : new OpenIdConnectOptions();
+            var context = new RemoteFailureContext(httpContext, scheme, options, failure) { Properties = properties };
+
+            if (github)
+            {
+                await new GitHubEvents(
+                    access,
+                    signInService: null!,
+                    new OptionsCache<OAuthOptions>(),
+                    clock,
+                    NullLogger<GitHubEvents>.Instance).RemoteFailure(context);
+            }
+            else
+            {
+                await new OidcEvents(
+                    access,
+                    signInService: null!,
+                    new OptionsCache<OpenIdConnectOptions>(),
+                    clock,
+                    NullLogger<OidcEvents>.Instance).RemoteFailure(context);
+            }
+
+            Assert.Equal("/?oidcError=expired", httpContext.Response.Headers.Location.ToString());
+        }
+    }
+
+    [Fact]
+    public void TheChallengeStampsItsStartAndTheStampSurvivesTheStateRoundTrip()
+    {
+        var configuration = Configuration(databaseSetupPending: true);
+        var service = new AccessService(CreateState(), configuration, dbContextFactory: null!);
+        var pending = Stage(service, LoginKind.CustomOidc, AccountMode.Oidc);
+        var challenges = new OidcChallengeStore(TimeProvider.System);
+        var controller = new AccessController(
+            service,
+            new ApiKeyService(NullLogger<ApiKeyService>.Instance, configuration, pathResolver: null!),
+            new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
+            challenges,
+            new OptionsCache<OpenIdConnectOptions>(),
+            new OptionsCache<OAuthOptions>())
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+        var before = DateTimeOffset.UtcNow;
+
+        var challenge = Assert.IsType<ChallengeResult>(controller.GetOidcChallenge(
+            challenges.Create(pending.Revision, setup: true, loginId: "customOidc")));
+
+        var issued = Assert.IsType<DateTimeOffset>(challenge.Properties?.IssuedUtc);
+        // The framework stores the stamp with one-second precision.
+        Assert.InRange(issued, before.AddSeconds(-1), DateTimeOffset.UtcNow);
+        var format = new PropertiesDataFormat(new EphemeralDataProtectionProvider().CreateProtector("state"));
+        var restored = format.Unprotect(format.Protect(challenge.Properties!));
+        Assert.Equal(issued, restored?.IssuedUtc);
     }
 
     private OidcSettings Stage(

@@ -38,11 +38,19 @@ public sealed class SteamDepotOwnerMappingTests
             null,
             [new DepotManifestProgressInfo { DepotId = 1770481, ManifestId = 4625979481897414804, TotalBytes = 1 }]);
 
-        await using var verification = new AppDbContext(options);
-        var mappings = await verification.SteamDepotMappings
-            .Where(mapping => mapping.DepotId == 1770481)
-            .OrderBy(mapping => mapping.AppId)
-            .ToListAsync();
+        // The depot mapping is written in the background after the cache rows commit.
+        List<SteamDepotMapping> mappings;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while (true)
+        {
+            await using var verification = new AppDbContext(options);
+            mappings = await verification.SteamDepotMappings
+                .Where(mapping => mapping.DepotId == 1770481)
+                .OrderBy(mapping => mapping.AppId)
+                .ToListAsync();
+            if (mappings.Count == 2) break;
+            await Task.Delay(50, deadline.Token);
+        }
 
         Assert.Equal(2, mappings.Count);
         Assert.Equal(1770480, Assert.Single(mappings, mapping => mapping.IsOwner).AppId);
@@ -133,6 +141,50 @@ public sealed class SteamDepotOwnerMappingTests
         var game = Assert.Single(await verification.CachedGameDetections.ToListAsync());
         Assert.Equal(1770480, game.GameAppId);
         Assert.Equal("VTOL VR: AH-94", game.GameName);
+    }
+
+    [Fact]
+    public async Task UnknownGameResolution_KeepsTheSliceSizesOfBothRows()
+    {
+        var options = NewOptions();
+        await using (var context = new AppDbContext(options))
+        {
+            context.SteamDepotMappings.Add(new SteamDepotMapping
+            {
+                DepotId = 1770481,
+                AppId = 1770480,
+                AppName = "VTOL VR: AH-94",
+                IsOwner = true,
+                Source = "SteamKit2-PICS"
+            });
+            context.CachedGameDetections.AddRange(
+                new CachedGameDetection
+                {
+                    GameAppId = 1770480,
+                    GameName = "VTOL VR: AH-94",
+                    DepotIdsJson = JsonSerializer.Serialize(new[] { 1770480u }),
+                    SliceSizes = "1048576"
+                },
+                new CachedGameDetection
+                {
+                    GameAppId = 1770481,
+                    GameName = "Unknown Game (Depot 1770481)",
+                    DepotIdsJson = JsonSerializer.Serialize(new[] { 1770481u }),
+                    SliceSizes = "8388608"
+                });
+            await context.SaveChangesAsync();
+        }
+
+        var service = new UnknownGameResolutionService(
+            new TestDbContextFactory(options),
+            NullLogger<UnknownGameResolutionService>.Instance);
+
+        await service.ResolveUnknownGamesAsync(CancellationToken.None);
+
+        await using var verification = new AppDbContext(options);
+        var game = Assert.Single(await verification.CachedGameDetections.ToListAsync());
+        Assert.Equal(1770480, game.GameAppId);
+        Assert.Equal("1048576,8388608", game.SliceSizes);
     }
 
     /// <summary>

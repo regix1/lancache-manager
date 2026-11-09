@@ -1,3 +1,5 @@
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Services;
@@ -7,6 +9,7 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Migrations.Operations;
@@ -55,6 +58,30 @@ public sealed class CorruptionDetectionPersistenceTests
         Assert.Equal(
             CorruptionDetectionMode.Structural,
             CorruptionDetectionModeExtensions.Parse("structural"));
+    }
+
+    [Fact]
+    public void StatusReportsACancellingScanAsRunning()
+    {
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var id = tracker.RegisterOperation(
+            OperationType.CorruptionDetection, "Corruption detection", new CancellationTokenSource());
+        tracker.GetOperation(id)!.Status = OperationStatus.Cancelling;
+        var detection = (CorruptionDetectionService)RuntimeHelpers.GetUninitializedObject(
+            typeof(CorruptionDetectionService));
+        typeof(CorruptionDetectionService)
+            .GetField("_operationTracker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(detection, tracker);
+        var controller = new CacheController(null!, null!, detection, NullLogger<CacheController>.Instance,
+            null!, null!, null!, null!, tracker, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!);
+
+        var result = Assert.IsType<OkObjectResult>(controller.GetCorruptionDetectionStatus());
+
+        var status = Assert.IsType<CorruptionDetectionStatusResponse>(result.Value);
+        Assert.True(status.IsRunning);
+        Assert.Equal(OperationStatus.Cancelling, status.Status);
     }
 
     [Fact]

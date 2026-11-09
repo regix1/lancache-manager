@@ -14,8 +14,8 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// Proves <c>PrefillDaemonServiceBase.StartLoginAsync</c>
-/// races the daemon's "Login failed: &lt;reason&gt;" status broadcast (<c>OnStatusUpdate</c>, the shape
-/// every daemon repo uses: <c>BroadcastStatusAsync("awaiting-login", $"Login failed: {ex.Message}")</c>)
+/// races the daemon's failure status broadcast (<c>OnStatusUpdate</c>, status "awaiting-login" with the
+/// <c>login-failed</c> error code and the failure text as its message)
 /// against the blind challenge waits (diagnostic.md census sites 42-45: the 30s controller wait plus the
 /// 10s <c>WaitForChallengeAsync</c> fallback), instead of sitting through them.
 ///
@@ -266,7 +266,7 @@ public class PersistentLoginFailFastTests
     }
 
     /// <summary>
-    /// Scenario: the daemon broadcasts "Login failed: X" ~50ms after <c>StartLoginAsync</c> is called,
+    /// Scenario: the daemon broadcasts a <c>login-failed</c> failure ~50ms after <c>StartLoginAsync</c> is called,
     /// while the ack task itself deliberately blocks for <see cref="BlindWaitDelay"/> (simulating the
     /// daemon giving no ack at all) - the exact pre-fix shape from diagnostic.md census sites 42-45.
     /// <c>WaitForChallengeAsync</c>/<c>GetStatusAsync</c> are left throwing (inherited) so this also
@@ -292,7 +292,7 @@ public class PersistentLoginFailFastTests
         private async Task BroadcastLoginFailureShortlyAsync()
         {
             await Task.Delay(TimeSpan.FromMilliseconds(50));
-            await RaiseStatusUpdateAsync(new DaemonStatus { Status = "awaiting-login", Message = _failureMessage });
+            await RaiseStatusUpdateAsync(new DaemonStatus { Status = "awaiting-login", Message = _failureMessage, ErrorCode = "login-failed" });
         }
     }
 

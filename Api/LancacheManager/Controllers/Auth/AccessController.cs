@@ -208,7 +208,10 @@ public sealed class AccessController : ControllerBase
 
         var properties = new AuthenticationProperties
         {
-            RedirectUri = "/"
+            RedirectUri = "/",
+            // The one stored start time of this attempt; a failed callback compares it with the
+            // handler's RemoteAuthenticationTimeout to tell an expired attempt from a broken one.
+            IssuedUtc = DateTimeOffset.UtcNow
         };
         properties.Items["access_revision"] = challenge.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture);
         properties.Items["access_setup"] = challenge.Setup ? "true" : "false";

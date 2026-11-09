@@ -191,6 +191,11 @@ public partial class SteamKit2Service
                     // Viability check passed - reset the flag since incremental is now viable
                     _logger.LogInformation("Incremental scan is viable, proceeding with scheduled scan");
                 }
+                // A shutdown or a canceled run is not a failed run; the base class reports it as such.
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Unexpected exception during viability check, skipping scheduled scan");

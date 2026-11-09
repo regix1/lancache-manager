@@ -314,32 +314,4 @@ public sealed class SessionAuthenticationHandlerTests
         typeof(SessionService).GetField(name, BindingFlags.NonPublic | BindingFlags.Static)
         ?? throw new InvalidOperationException($"SessionService no longer has a static {name}.");
 
-    /// <summary>
-    /// Refuses to hand out a context until <see cref="Recover"/> is called, and counts how many times it was
-    /// asked. The count is what says whether the outage path stopped retrying.
-    /// </summary>
-    private sealed class SwitchableDbContextFactory : IDbContextFactory<AppDbContext>
-    {
-        private IDbContextFactory<AppDbContext>? _working;
-
-        public int CreateCount { get; private set; }
-
-        public void Recover(IDbContextFactory<AppDbContext> working) => _working = working;
-
-        public AppDbContext CreateDbContext()
-        {
-            CreateCount++;
-            return _working?.CreateDbContext()
-                ?? throw new InvalidOperationException("context creation failed");
-        }
-
-        public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-        {
-            CreateCount++;
-            return _working?.CreateDbContextAsync(cancellationToken)
-                ?? Task.FromException<AppDbContext>(
-                    new InvalidOperationException("context creation failed"));
-        }
-    }
-
 }

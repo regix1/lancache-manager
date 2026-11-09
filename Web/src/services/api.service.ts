@@ -91,6 +91,7 @@ import type {
   ScheduledPrefillPersistenceMode,
   ScheduledPrefillServiceScheduleDto
 } from '../components/features/management/schedules/scheduled-prefill/types';
+import type { PersistentLoginWaitKey } from '../components/features/management/schedules/scheduled-prefill/persistentLoginStore';
 import type {
   PrefillRun,
   PrefillRunFailedGame
@@ -1463,6 +1464,23 @@ class ApiService {
       this.getJsonFetchOptions({ deleteMode }, { method: 'PATCH' })
     );
     return await this.handleResponse<{ message: string; deleteMode: string }>(res);
+  }
+
+  // Get the cache slice size in bytes; null means Auto. The server drops null fields, so a
+  // missing sliceSizeBytes is Auto.
+  static async getCacheSliceSize(): Promise<number | null> {
+    const res = await fetch(`${API_BASE}/system/cache-slice-size`, this.getFetchOptions());
+    const body = await this.handleResponse<{ sliceSizeBytes?: number }>(res);
+    return body.sliceSizeBytes ?? null;
+  }
+
+  // Set the cache slice size in bytes; null sets Auto (requires auth)
+  static async setCacheSliceSize(bytes: number | null): Promise<void> {
+    const res = await fetch(
+      `${API_BASE}/system/cache-slice-size`,
+      this.getJsonFetchOptions({ sliceSizeBytes: bytes }, { method: 'PATCH' })
+    );
+    await this.handleResponse<void>(res);
   }
 
   // Check if rsync is available on the system
@@ -3202,7 +3220,7 @@ class ApiService {
       password: string;
     },
     apiKey: string
-  ): Promise<{ success: boolean; message: string; restartRequired: boolean; error?: string }> {
+  ): Promise<{ success: boolean; message: string; restartRequired: boolean }> {
     const response = await fetch(
       `${API_BASE}/setup/external`,
       ApiService.getJsonFetchOptions(payload, {
@@ -3210,7 +3228,7 @@ class ApiService {
         headers: { 'X-Api-Key': apiKey }
       })
     );
-    return response.json();
+    return ApiService.handleResponse(response);
   }
 
   static async getGuestThemePreference<T>(): Promise<T> {
@@ -4555,6 +4573,8 @@ export interface DaemonSessionDto {
   isPersistent?: boolean;
   isTemporary?: boolean;
   needsRelogin?: boolean;
+  // Left out of the JSON when the Log in waits for nothing.
+  loginWaitKey?: PersistentLoginWaitKey;
 }
 
 interface PrefillSessionsResponse {

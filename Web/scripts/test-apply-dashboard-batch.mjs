@@ -75,6 +75,17 @@ test('failed clients and services sections keep previous within the same range',
   assert.equal(hadPartialFailure, true);
 });
 
+test('a failed dashboard section keeps the previous totals and their prefill flag together', () => {
+  const prevDashboard = { period: { duration: 'live' }, totalServed: 1200, prefillSeparated: true };
+  const prev = slices({ dashboardStats: prevDashboard });
+  const { next } = applyDashboardBatchResponse(prev, fullBatch({ dashboard: null }), {
+    rangeKey: LIVE_KEY,
+    previousRangeKey: LIVE_KEY
+  });
+  assert.equal(next.dashboardStats, prevDashboard);
+  assert.equal(next.dashboardStats.prefillSeparated, true);
+});
+
 test('failed sections clear on a range change instead of keeping foreign-range data', () => {
   const prev = slices({
     latestDownloads: [{ id: 1 }],

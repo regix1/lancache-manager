@@ -46,6 +46,10 @@ struct Args {
     )]
     key_scheme: String,
 
+    /// Cache slice size in bytes, or `auto` to read it from the cache files
+    #[arg(long = "slice-size", default_value = "auto")]
+    slice_size: String,
+
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
@@ -165,6 +169,7 @@ fn collect_cache_digests(
     service: &str,
     urls: &HashMap<String, i64>,
     scheme: cache_utils::CacheKeyScheme,
+    slice_sizes: &[u64],
     progress: Option<&removal_core::CollectionProgress<'_>>,
     on_sweep_folder: &(dyn Fn(usize) + Sync),
 ) -> Result<Vec<(u128, Option<String>)>> {
@@ -178,35 +183,40 @@ fn collect_cache_digests(
 
     let walked: Vec<(u128, Option<String>)> = urls
         .par_iter()
-        .flat_map(|(url, _total_bytes)| {
+        .map(|(url, _total_bytes)| {
+            // A file that cannot be proven present or gone stops the removal: the walk could not
+            // tell which slice size the URL uses.
+            let presence = |digest: u128| {
+                cache_utils::cache_file_presence(
+                    cache_dir,
+                    &cache_utils::cache_path_for_digest(cache_dir, digest),
+                )
+            };
             let digests = match scheme {
                 cache_utils::CacheKeyScheme::Monolithic => {
-                    cache_utils::existing_cache_digests_for_url(service, url, |digest| {
-                        !matches!(
-                            cache_utils::cache_file_presence(
-                                cache_dir,
-                                &cache_utils::cache_path_for_digest(cache_dir, digest)
-                            ),
-                            Ok(false)
-                        )
-                    })
-                    .into_iter()
-                    .map(|digest| (digest, None))
-                    .collect::<Vec<_>>()
+                    cache_utils::existing_cache_digests_for_url(service, url, slice_sizes, presence)
+                        .map(|found| {
+                            found
+                                .files
+                                .into_iter()
+                                .map(|digest| (digest, None))
+                                .collect::<Vec<_>>()
+                        })
                 }
                 cache_utils::CacheKeyScheme::BareMetal => {
-                    cache_utils::existing_bare_metal_keyed_digests_for_url(service, url, |digest| {
-                        !matches!(
-                            cache_utils::cache_file_presence(
-                                cache_dir,
-                                &cache_utils::cache_path_for_digest(cache_dir, digest)
-                            ),
-                            Ok(false)
-                        )
+                    cache_utils::existing_bare_metal_keyed_digests_for_url(
+                        service,
+                        url,
+                        slice_sizes,
+                        presence,
+                    )
+                    .map(|found| {
+                        found
+                            .files
+                            .into_iter()
+                            .map(|(digest, key)| (digest, Some(key)))
+                            .collect::<Vec<_>>()
                     })
-                    .into_iter()
-                    .map(|(digest, key)| (digest, Some(key)))
-                    .collect::<Vec<_>>()
                 }
             };
 
@@ -230,7 +240,17 @@ fn collect_cache_digests(
 
             digests
         })
-        .collect::<Vec<_>>();
+        .collect::<std::io::Result<Vec<_>>>()
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "a cache file under {} could not be checked, so this removal cannot tell which slices exist: {}",
+                cache_dir.display(),
+                error
+            )
+        })?
+        .into_iter()
+        .flatten()
+        .collect();
 
     // Slices behind a partial-eviction hole wider than the walk's miss tolerance are invisible
     // above; recover them from their own KEY headers so the removal covers the whole object
@@ -242,6 +262,7 @@ fn collect_cache_digests(
         cache_dir,
         urls.keys().map(|url| (&service_owned, url)),
         &claimed,
+        slice_sizes,
     ) {
         return Ok(walked);
     }
@@ -262,6 +283,7 @@ fn remove_cache_files_for_service(
     progress_path: &Path,
     reporter: &ProgressReporter,
     scheme: cache_utils::CacheKeyScheme,
+    slice_sizes: &[u64],
 ) -> Result<(usize, u64, usize, usize, usize)> {
     // Returns (deleted_count, bytes_freed, permission_errors, verification_skips, undeleted_files).
     use rayon::prelude::*;
@@ -273,7 +295,7 @@ fn remove_cache_files_for_service(
     // Re-walked from disk here, inside the deleting process, so the set deleted is the set
     // that exists now rather than one an earlier pass recorded.
     let digests_to_delete =
-        collect_cache_digests(cache_dir, service, urls, scheme, None, &|folders| {
+        collect_cache_digests(cache_dir, service, urls, scheme, slice_sizes, None, &|folders| {
             // The card stays at the removal's starting 10% while the sweep reads the rest of the cache.
             let _ = removal_core::write_progress(
                 progress_path,
@@ -544,6 +566,8 @@ async fn main() -> Result<()> {
 
     let log_dir = PathBuf::from(&args.log_dir);
     let cache_dir = PathBuf::from(&args.cache_dir);
+    let manual_slice_size =
+        cache_utils::parse_slice_size_arg(&args.slice_size).map_err(anyhow::Error::msg)?;
     let output_json = PathBuf::from(&args.output_json);
     let service = &args.service;
     let progress_path = PathBuf::from(&args.progress_json);
@@ -563,6 +587,9 @@ async fn main() -> Result<()> {
     eprintln!("  Log directory: {}", log_dir.display());
     eprintln!("  Cache directory: {}", cache_dir.display());
     eprintln!("  Service: {}", service);
+
+    // A sample read error stops the removal here, before it touches anything.
+    let slice_sizes = cache_utils::slice_sizes_for_run(&cache_dir, manual_slice_size)?;
 
     let pool = db::create_pool().await?;
 
@@ -594,6 +621,7 @@ async fn main() -> Result<()> {
             service,
             &urls,
             key_scheme,
+            &slice_sizes,
             Some(&collection_progress),
             &|folders| {
                 removal_core::report_sweep_progress(&collection_progress, SERVICE_SWEEP_STAGE_KEY, folders)
@@ -653,6 +681,7 @@ async fn main() -> Result<()> {
         &progress_path,
         &reporter,
         key_scheme,
+        &slice_sizes,
     )?;
 
     // After cache removal: if cancellation arrived, flush partial progress and exit 0.
@@ -814,6 +843,7 @@ mod tests {
                 &progress_path,
                 &ProgressReporter::new(false),
                 cache_utils::CacheKeyScheme::BareMetal,
+                &[cache_utils::DEFAULT_SLICE_SIZE],
             )
             .unwrap();
 
@@ -874,6 +904,7 @@ mod tests {
             service,
             &urls,
             cache_utils::CacheKeyScheme::Monolithic,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
             None,
             &|_| {},
         )
@@ -892,6 +923,7 @@ mod tests {
                 &temp.path().join("progress.json"),
                 &ProgressReporter::new(false),
                 cache_utils::CacheKeyScheme::Monolithic,
+                &[cache_utils::DEFAULT_SLICE_SIZE],
             )
             .unwrap();
 
@@ -925,6 +957,7 @@ mod tests {
             &temp.path().join("progress.json"),
             &ProgressReporter::new(false),
             cache_utils::CacheKeyScheme::Monolithic,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
         )
         .unwrap();
 
@@ -935,29 +968,31 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_cache_file_whose_folder_is_a_file_is_counted_undeleted() {
+    fn a_cache_file_whose_folder_is_a_file_stops_the_service_removal() {
         let temp = tempfile::tempdir().unwrap();
         let url = "/depot/1/chunk/abcdef";
         let cache_path = cache_utils::calculate_cache_path_no_range(temp.path(), "steam", url);
         // A regular file where the cache file's second-level folder should be: the presence check
-        // fails with "not a directory" instead of reporting the file missing.
+        // fails with "not a directory" instead of reporting the file missing, so the walk stops
+        // the removal before anything is deleted.
         let folder = cache_path.parent().unwrap();
         fs::create_dir_all(folder.parent().unwrap()).unwrap();
         fs::write(folder, b"not a folder").unwrap();
         let urls = HashMap::from([(url.to_string(), 0_i64)]);
 
-        let outcome = remove_cache_files_for_service(
+        let error = remove_cache_files_for_service(
             temp.path(),
             "steam",
             &urls,
             &temp.path().join("progress.json"),
             &ProgressReporter::new(false),
             cache_utils::CacheKeyScheme::Monolithic,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
         )
-        .unwrap();
+        .unwrap_err();
 
-        assert_eq!(outcome, (0, 0, 0, 0, 1));
-        assert!(removal_core::ensure_cache_deletions_verified(outcome.3, outcome.4).is_err());
+        assert!(error.to_string().contains("could not be checked"), "{error}");
+        assert_eq!(fs::read(folder).unwrap(), b"not a folder");
     }
 
     #[cfg(unix)]
@@ -980,6 +1015,7 @@ mod tests {
             &temp.path().join("progress.json"),
             &ProgressReporter::new(false),
             cache_utils::CacheKeyScheme::Monolithic,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
         )
         .unwrap();
 
@@ -999,7 +1035,7 @@ mod tests {
         std::os::unix::fs::symlink(other_disk.path(), &hex_folder).unwrap();
         write_cache_file(&cache_path, None);
         // The disk behind the link is no longer mounted: the file may still be on it, and so may
-        // other slices of the object, so the key-header sweep stops the removal before any delete.
+        // other slices of the object, so the slice walk stops the removal before any delete.
         fs::remove_dir_all(other_disk.path()).unwrap();
         let urls = HashMap::from([(url.to_string(), 0_i64)]);
 
@@ -1010,10 +1046,11 @@ mod tests {
             &temp.path().join("progress.json"),
             &ProgressReporter::new(false),
             cache_utils::CacheKeyScheme::Monolithic,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
         )
         .unwrap_err();
 
-        assert!(error.to_string().contains("could not be read"));
+        assert!(error.to_string().contains("could not be checked"), "{error}");
     }
 
     #[test]
@@ -1024,6 +1061,7 @@ mod tests {
             "steam",
             &HashMap::new(),
             cache_utils::CacheKeyScheme::Monolithic,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
             None,
             &|_| {},
         )
@@ -1079,6 +1117,7 @@ mod tests {
             "riot",
             &urls,
             cache_utils::CacheKeyScheme::Monolithic,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
             Some(&progress),
             &|folders| {
                 removal_core::report_sweep_progress(&progress, SERVICE_SWEEP_STAGE_KEY, folders)

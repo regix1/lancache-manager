@@ -112,10 +112,10 @@ Usually nothing is wrong - the number includes the prefill itself. The dashboard
 
 On an empty cache, a prefill run is close to 100% MISS and the install that follows is close to 100% HIT. Together, one game blends to roughly 50%. Each reinstall pushes the number toward 66%, 75%, and higher, because the MISS bytes are a fixed floor while every install adds more HIT bytes.
 
-To hide the prefill traffic, find the daemon's client:
+To hide the prefill traffic by client, find the daemon's client:
 
-- With host networking on the cache machine, it shows as `localhost`.
-- In bridge mode, it shows as a Docker bridge address.
+- With host networking on the cache machine, it shows as the cache address the container dials, which is the cache machine's own address.
+- In bridge mode, the cache sees the Docker gateway address of the network the container joined.
 
 Then pick one:
 
@@ -123,14 +123,41 @@ Then pick one:
 |---|---|
 | Filter it out in the Downloads or Dashboard client filter | Hides its traffic from view. The data is not changed. |
 | Add it to Client Exclusions under **Management → Clients** | Also leaves it out of [`/metrics`](prometheus-metrics.md) |
+| Add a **Prefill traffic** rule to Client Exclusions under **Management → Clients** | Leaves prefill runs out of the figures, for any address or one client. Needs no client address. See [Prefill traffic rules](#prefill-traffic-rules). |
 
 For a specific install's real hit rate, switch Downloads to the **Retro** view, open the settings panel, leave **Group by game** unchecked under **Display**, and check that client's own row - or grep `access.log` for its IP. The manager only counts literal `HIT`/`MISS` from nginx's `upstream_cache_status`, so it always agrees with a manual log count.
+
 
 Some real misses are normal even on a clean install:
 
 - the prefill daemon only grabs Windows/x64/English depots by default
 - an interrupted earlier run without `--force` leaves gaps
 - HTTPS/IPv6 traffic that bypasses `lancache-dns` never touches the cache
+
+#### Prefill traffic rules { #prefill-traffic-rules }
+
+Each rule under **Client Exclusions** on the **Management → Clients** page applies to **All traffic** or to **Prefill traffic**. A prefill rule matches only downloads the manager marks as coming from a prefill run. Nothing changes until you click **Save Changes**.
+
+| Rule field | Choices |
+|---|---|
+| Address | One client address, or **Any address**, which **Add prefill rule** creates. A rule with no address can only be a prefill rule. |
+| Services | **All services**, or any of Steam, Epic Games, Xbox, Battle.net and Riot. Only a prefill rule picks services. |
+| Mode | **Hidden** or **Stats only**, the same two modes as an all-traffic rule. |
+
+A prefill rule handles the downloads it matches like this:
+
+| Mode | Left out | Kept |
+|---|---|---|
+| **Hidden** | Total served, bandwidth saved, the hit ratio, client counts, active downloads, the Downloads list and its 24-hour history, and `/metrics` | **Added to cache** |
+| **Stats only** | The dashboard figures and `/metrics` | The Downloads list, live speeds and **Added to cache** |
+
+With a prefill rule saved, **Total served** no longer equals **Saved** plus **Added to cache**.
+
+- Marking starts when the first prefill rule is saved. Prefill runs from before that moment keep counting.
+- A prefill rule for an address still lets you add an all-traffic rule for the same address.
+- The manager learns the prefill container's own address on each network it joins and marks downloads from that address, for the same service, during the run.
+- A container on host networking has no address of its own, so the manager marks downloads from the cache address it dials. This works when the cache runs on the same machine.
+- Prefill traffic is not marked when a host-network container reaches a cache on another machine, or when the cache sees the traffic from a shared address, such as the Docker bridge gateway (NAT) or a proxy. No prefill rule can hide those downloads, and they keep counting.
 
 ### Debug logging
 

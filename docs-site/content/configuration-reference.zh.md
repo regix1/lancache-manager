@@ -74,6 +74,70 @@
 - `/health` 存活探针始终会应答。
 - 登录和首次运行设置必须公开，否则无法访问。
 
+#### 通过环境变量设置登录 { #sign-in-environment }
+
+你可以在 Compose 文件中设置登录模式和单点登录，而不必使用界面。所有名称都以 `Security__` 开头。应用只在启动时读取这些值一次，因此修改后需要重启。
+
+| 变量 | 含义 | 默认值 |
+|----------|---------|---------|
+| `Security__SignInMode` | 登录模式，不区分大小写。可用值见下表。 | （未设置） |
+
+| 取值 | 模式 |
+|-------|------|
+| `Password` | 用户名和密码 |
+| `ApiKeyPassword` | API 密钥、用户名和密码 |
+| `ApiKeyOidc` | API 密钥和单点登录（别名 `ApiKeyAndSso`） |
+| `Oidc` | 单点登录（别名 `Sso`） |
+| `Unauthenticated` | 免认证访问 |
+
+每个单点登录使用相同的字段。服务商有自定义 OpenID Connect（`Oidc`）、`Google`、`GitHub`、`Microsoft` 和 `Apple`。
+
+| 变量 | 含义 | 默认值 |
+|----------|---------|---------|
+| `Security__Oidc__ClientId`<br>`Security__Google__ClientId`<br>`Security__GitHub__ClientId`<br>`Security__Microsoft__ClientId`<br>`Security__Apple__ClientId` | 服务商应用注册中的客户端 ID。 | （未设置） |
+| `Security__Oidc__ClientSecret`<br>`Security__Google__ClientSecret`<br>`Security__GitHub__ClientSecret`<br>`Security__Microsoft__ClientSecret` | 客户端密钥。建议使用 `ClientSecretFile` 形式，让密钥不出现在 Compose 文件中。Apple 没有客户端密钥，它使用下方的私钥。 | （未设置） |
+| `Security__Oidc__ClientSecretFile`<br>`Security__Google__ClientSecretFile`<br>`Security__GitHub__ClientSecretFile`<br>`Security__Microsoft__ClientSecretFile` | 容器内保存客户端密钥的文件路径。 | （未设置） |
+| `Security__Oidc__DisplayName`<br>`Security__Google__DisplayName`<br>`Security__GitHub__DisplayName`<br>`Security__Microsoft__DisplayName`<br>`Security__Apple__DisplayName` | 登录按钮上显示的名称。 | （未设置） |
+| `Security__Oidc__AllowedSubjects`<br>`Security__Google__AllowedSubjects`<br>`Security__GitHub__AllowedSubjects`<br>`Security__Microsoft__AllowedSubjects`<br>`Security__Apple__AllowedSubjects` | 允许登录的服务商账户 ID，逗号分隔。见[允许其他用户登录](sign-in.md#allowing-other-users)。 | （未设置） |
+| `Security__Oidc__OwnerSubject`<br>`Security__Google__OwnerSubject`<br>`Security__GitHub__OwnerSubject`<br>`Security__Microsoft__OwnerSubject`<br>`Security__Apple__OwnerSubject` | 所有者的服务商账户 ID，所有者以主管理员身份登录。 | （未设置） |
+| `Security__Oidc__OwnerIssuer`<br>`Security__Google__OwnerIssuer`<br>`Security__GitHub__OwnerIssuer`<br>`Security__Microsoft__OwnerIssuer`<br>`Security__Apple__OwnerIssuer` | 与 `OwnerSubject` 配套的颁发者。 | 服务商经过验证的授权地址。GitHub 为 `https://github.com`。 |
+
+部分服务商还需要额外字段。
+
+| 变量 | 含义 | 默认值 |
+|----------|---------|---------|
+| `Security__Oidc__Authority` | 自定义 OpenID Connect 服务商的 HTTPS 颁发者 URL。 | （未设置） |
+| `Security__Microsoft__Tenant` | 目录（租户）GUID，个人账户填 `consumers`。 | （未设置） |
+| `Security__Apple__TeamId` | Apple Team ID。 | （未设置） |
+| `Security__Apple__KeyId` | Apple Key ID。 | （未设置） |
+| `Security__Apple__PrivateKey` | Apple `.p8` 私钥的内容。 | （未设置） |
+| `Security__Apple__PrivateKeyFile` | 容器内 Apple `.p8` 私钥文件的路径。 | （未设置） |
+
+这些值的行为：
+
+| 情况 | 结果 |
+|-----------|--------|
+| `*File` 变量 | 文件中去掉首尾空白的文本就是该值。文件无法读取时，应用会记录一条错误，其中写明变量名而不是值。此时如果设置了内联变量，该字段使用内联值；如果没有设置，该字段保持未设置。 |
+| 同一字段既内联设置又用文件设置 | 以文件为准。应用会记录一条警告，写明两个变量。 |
+| 同一字段在环境变量和界面中都有设置 | 该字段以环境变量为准。环境变量没有设置的字段保留界面中的值。 |
+| 界面如何显示环境变量设置的字段 | 显示为由环境变量设置，且不能编辑。模式来自环境变量时，模式选择器为只读。 |
+| 来自环境变量的密钥 | 永远不会写入 `state.json`。 |
+| `Oidc` 或 `ApiKeyOidc` 但没有有效登录 | 应用回退到 `ApiKeyPassword`，绝不回退到 `Unauthenticated`，并记录一条错误，写明缺少的字段。 |
+| 无效的 `Security__SignInMode` 值 | 应用只记录一次并忽略它。 |
+| 使用 `Password`、`ApiKeyPassword` 或 `Unauthenticated` 的首次运行设置 | 跳过访问步骤。数据库步骤和第一个账户步骤仍然会运行。 |
+| 使用 `Oidc` 或 `ApiKeyOidc` 的首次运行设置 | 访问步骤仍会显示，但为只读。所有者在此处通过环境变量中的登录进行登录。 |
+| 之后你删除这些变量 | 访问步骤会重新出现。已保存的登录若失去了环境变量字段，且没有环境变量来补全，就不再列出。 |
+
+环境变量中的登录所允许的账户（通过 `OwnerSubject` 或 `AllowedSubjects`）无法被移除：
+
+- 删除和批量删除都会拒绝。
+- 轮换 API 密钥时保留该账户。
+- 重置账户时保留该账户及其已保存的 Steam、Epic 和 Xbox 登录。
+- 拒绝提示为：“此账户由环境变量授权。请先从该变量中移除它并重启应用，然后再删除该账户。”
+- 只要有任何一个字段来自环境变量，该登录服务就不能在界面中移除。
+
+如果回退使所有者无法登录，请按[密码恢复](password-recovery.md#single-sign-on-owner)操作。
+
 ### 预填充设置 { #prefill-config }
 
 预填充会为本表中几乎所有内容自动检测出合适的值。使用前需要了解三点：
@@ -133,6 +197,29 @@
 | `CacheSnapshots__RetentionDays` | `90` | 缓存快照的保留时长。更早的快照会被自动删除。 |
 | `CacheSnapshots__IntervalMinutes` | `60` | 高级设置。记录一次缓存大小快照的频率。 |
 
+### 缓存切片大小 { #cache-slice-size }
+
+**缓存切片大小**设置位于管理页面，在**缓存操作**顶部的**缓存设置**卡片中。它告诉应用你的缓存中切片有多大，该值由 LANCache 的 `CACHE_SLICE_SIZE` 决定。应用用它来找到一个缓存文件的所有切片。
+
+| 取值 | 含义 |
+|-------|---------|
+| **自动**（默认） | 应用从缓存文件的 `KEY:` 头中读取大小。 |
+| **手动指定大小** | 页面提供 1 到 64 MiB 之间 2 的幂的选项。其他整数 MiB 的大小请使用下方的 `PATCH` 请求。请将它设为与 `CACHE_SLICE_SIZE` 一致。 |
+
+- 应用始终会检查在磁盘上找到的大小，因此以旧大小写入的文件仍然可见。
+- 应用先尝试手动大小，再尝试抽样得到的大小，然后是 1 MiB。都不匹配时，它会尝试从 1 MiB 到 64 MiB 的每一个 2 的幂。
+- 不是 2 的幂的大小（例如 `CACHE_SLICE_SIZE=10m`）不在页面的选项中。请用 `PATCH /api/system/cache-slice-size` 设置，`sliceSizeBytes` 填 `10485760`。否则应用只能通过抽样文件来匹配它。保存后，页面会列出该大小并显示为已选中。
+- 文件都使用同一种大小的游戏会显示大小标记，例如 **8 MB 切片**。有多种大小的游戏显示**混合切片**。检测尚未扫描的游戏不显示标记。
+- 当抽样文件因“未找到”以外的原因无法读取时，移除模式的驱逐、游戏和服务移除以及损坏修复会在删除任何内容之前报错并停止。
+- 当切片大小为**自动**、缓存路径下有文件、但抽样找不到可用的 `KEY:` 范围时，移除模式的驱逐也会停止。要让它运行，请设置与 `CACHE_SLICE_SIZE` 一致的手动切片大小。
+
+| 请求 | 请求体 | 说明 |
+|---------|------|-------|
+| `GET /api/system/cache-slice-size` | 无 | 返回 `sliceSizeBytes`，`null` 表示自动。 |
+| `PATCH /api/system/cache-slice-size` | `sliceSizeBytes` | `null` 选择自动。其他值必须是 1 MiB 的正整数倍。 |
+
+这两个请求都需要账户持有者的会话。
+
 ### 完整带注释的 Compose 示例 { #complete-compose }
 
 下面这个例子是一份完整、可直接使用的 Compose 文件。生效的几行与快速开始一致；每一项可选设置都已列出但被注释掉，并注明了默认值和适用场景，因此可以放心复制使用。
@@ -172,6 +259,11 @@ services:
 
       # --- 安全 ---
       # - Security__EnableAuthentication=true     # 尚未保存模式时：false 选择无需身份验证
+      # - Security__SignInMode=Oidc               # Password、ApiKeyPassword、ApiKeyOidc、Oidc 或 Unauthenticated；设置后即固定模式
+      # - Security__Google__ClientId=             # 一个服务商的配置块；Oidc、GitHub、Microsoft 和 Apple 使用相同字段
+      # - Security__Google__ClientSecretFile=/run/secrets/google_client_secret   # 文件中去掉首尾空白的文本就是密钥
+      # - Security__Google__OwnerSubject=         # 所有者的服务商账户 ID
+      # - Security__Google__AllowedSubjects=      # 允许登录的服务商账户 ID，逗号分隔
       # - Security__RequireAuthForMetrics=false   # true = /metrics 需要 Bearer 令牌
       # - Security__GuestSessionDurationHours=6
       # - Security__AllowedOrigins=               # CORS 来源列表，逗号分隔；为空 = 仅同源，* = 任意来源（不携带凭据）

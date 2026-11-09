@@ -42,8 +42,8 @@ interface DatasourcesManagerProps {
   onDataRefresh?: () => void;
 }
 
-// Which row is persisting a cache-size change, and through which button, so
-// only the pressed button shows its spinner while everything else disables.
+// A row persisting a cache-size change, and through which button, so only the
+// pressed button shows its spinner while that row's other button disables.
 interface CacheSizeSaveState {
   name: string;
   action: 'save' | 'reset';
@@ -105,9 +105,11 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   // Per-datasource manual cache-size limit. A blank value clears the override and falls
   // back to auto-detect, so the input drives an explicit save rather than editing state live.
   const [cacheSizeDraft, setCacheSizeDraft] = useState<Record<string, string>>({});
-  const [cacheSizeSaving, setCacheSizeSaving] = useState<CacheSizeSaveState | null>(null);
+  // Keyed by datasource name: each row saves on its own, so one row's wait never blocks another.
+  const [cacheSizeSaving, setCacheSizeSaving] = useState<Record<string, CacheSizeSaveState>>({});
   const [cacheSizeError, setCacheSizeError] = useState<Record<string, string | undefined>>({});
-  const cacheSizeSaveRequestRef = useRef(0);
+  // The newest save per row; an answer whose token is no longer stored for its row writes nothing.
+  const cacheSizeSaveRequestRef = useRef(new Map<string, object>());
   const cacheSizeSaveAllowedRef = useRef(isAdmin && !mockMode);
   const configRef = useRef(config);
   cacheSizeSaveAllowedRef.current = isAdmin && !mockMode;
@@ -115,49 +117,59 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   useEffect(
     () => () => {
-      cacheSizeSaveRequestRef.current += 1;
+      cacheSizeSaveRequestRef.current.clear();
     },
     []
   );
   useEffect(() => {
-    if (cacheSizeSaving === null) return;
-    const currentSource = config.dataSources.find(
-      (datasource) => datasource.name === cacheSizeSaving.name
-    );
-    if (
-      isAdmin &&
-      !mockMode &&
-      currentSource?.cachePath === cacheSizeSaving.cachePath &&
-      currentSource?.logsPath === cacheSizeSaving.logsPath
-    ) {
-      return;
-    }
-    cacheSizeSaveRequestRef.current += 1;
-    setCacheSizeSaving(null);
+    const stale = Object.values(cacheSizeSaving).filter((saving) => {
+      const currentSource = config.dataSources.find(
+        (datasource) => datasource.name === saving.name
+      );
+      return !(
+        isAdmin &&
+        !mockMode &&
+        currentSource?.cachePath === saving.cachePath &&
+        currentSource?.logsPath === saving.logsPath
+      );
+    });
+    if (stale.length === 0) return;
+    for (const saving of stale) cacheSizeSaveRequestRef.current.delete(saving.name);
+    setCacheSizeSaving((prev) => {
+      const next = { ...prev };
+      for (const saving of stale) {
+        if (next[saving.name] === saving) delete next[saving.name];
+      }
+      return next;
+    });
   }, [cacheSizeSaving, config.dataSources, isAdmin, mockMode]);
 
   const saveCacheSize = async (name: string, raw: string, action: CacheSizeSaveState['action']) => {
-    // Single save at a time: a second row's Enter must not steal the saving owner.
-    if (cacheSizeSaving !== null || !isAdmin || mockMode) return;
+    // One save per row: a repeat Enter or click on a row that is saving is ignored.
+    if (cacheSizeSaving[name] !== undefined || !isAdmin || mockMode) return;
     const source = config.dataSources.find((datasource) => datasource.name === name);
     if (!source) return;
 
-    const request = ++cacheSizeSaveRequestRef.current;
+    const request = {};
+    cacheSizeSaveRequestRef.current.set(name, request);
+    // The box stays editable while the save runs; a value typed meanwhile is kept, not wiped.
+    const draft = cacheSizeDraft[name];
     const cachePath = source.cachePath;
     const logsPath = source.logsPath;
+    const saving: CacheSizeSaveState = { name, action, cachePath, logsPath };
     const saveCurrent = (): boolean => {
       const currentSource = configRef.current.dataSources.find(
         (datasource) => datasource.name === name
       );
       return (
-        request === cacheSizeSaveRequestRef.current &&
+        cacheSizeSaveRequestRef.current.get(name) === request &&
         cacheSizeSaveAllowedRef.current &&
         currentSource?.cachePath === cachePath &&
         currentSource?.logsPath === logsPath
       );
     };
 
-    setCacheSizeSaving({ name, action, cachePath, logsPath });
+    setCacheSizeSaving((prev) => ({ ...prev, [name]: saving }));
     setCacheSizeError((prev) => ({ ...prev, [name]: undefined }));
     try {
       const result = await ApiService.setDatasourceCacheSize(name, raw.length > 0 ? raw : null);
@@ -165,7 +177,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       updateConfig((current) => {
         const currentSource = current.dataSources.find((datasource) => datasource.name === name);
         if (
-          request !== cacheSizeSaveRequestRef.current ||
+          cacheSizeSaveRequestRef.current.get(name) !== request ||
           !cacheSizeSaveAllowedRef.current ||
           currentSource?.cachePath !== cachePath ||
           currentSource?.logsPath !== logsPath
@@ -187,7 +199,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         };
       });
       if (!saveCurrent()) return;
-      setCacheSizeDraft((prev) => ({ ...prev, [name]: '' }));
+      setCacheSizeDraft((prev) => (prev[name] === draft ? { ...prev, [name]: '' } : prev));
       onSuccess?.(
         action === 'reset'
           ? t('management.datasources.cacheSize.resetDone')
@@ -206,7 +218,12 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       }));
     } finally {
       if (saveCurrent()) {
-        setCacheSizeSaving(null);
+        cacheSizeSaveRequestRef.current.delete(name);
+        setCacheSizeSaving((prev) => {
+          const next = { ...prev };
+          delete next[name];
+          return next;
+        });
       }
     }
   };
@@ -726,7 +743,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                             placeholder={t('management.datasources.cacheSize.placeholder')}
                             aria-label={t('management.datasources.cacheSize.title')}
                             value={cacheSizeDraft[ds.name] ?? ''}
-                            disabled={cacheSizeSaving?.name === ds.name}
                             onClick={(e) => e.stopPropagation()}
                             onChange={(e) =>
                               setCacheSizeDraft((prev) => ({
@@ -750,14 +766,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                               e.stopPropagation();
                               handleSaveCacheSize(ds.name);
                             }}
-                            disabled={
-                              cacheSizeSaving !== null &&
-                              (cacheSizeSaving.name !== ds.name ||
-                                cacheSizeSaving.action !== 'save')
-                            }
-                            loading={
-                              cacheSizeSaving?.name === ds.name && cacheSizeSaving.action === 'save'
-                            }
+                            loading={cacheSizeSaving[ds.name]?.action === 'save'}
                           >
                             {t('common.save')}
                           </Button>
@@ -771,15 +780,8 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                                 e.stopPropagation();
                                 handleResetCacheSize(ds.name);
                               }}
-                              disabled={
-                                cacheSizeSaving !== null &&
-                                (cacheSizeSaving.name !== ds.name ||
-                                  cacheSizeSaving.action !== 'reset')
-                              }
-                              loading={
-                                cacheSizeSaving?.name === ds.name &&
-                                cacheSizeSaving.action === 'reset'
-                              }
+                              disabled={cacheSizeSaving[ds.name]?.action === 'save'}
+                              loading={cacheSizeSaving[ds.name]?.action === 'reset'}
                             >
                               {t('common.reset')}
                             </Button>

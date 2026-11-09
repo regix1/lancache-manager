@@ -127,7 +127,7 @@ public sealed class DashboardBatchCacheContractTests
             ServiceBreakdown = breakdown
         };
         cached.RecentDownloads = recent;
-        const string cacheKey = "dashboard-batch::::show:UTC:0:0:False:::|";
+        const string cacheKey = "dashboard-batch::::show::UTC:0:0:False:::|";
         cache.Set(cacheKey, cached, new MemoryCacheEntryOptions().SetSize(1));
 
         var response = await service.GetBatchAsync(
@@ -146,6 +146,85 @@ public sealed class DashboardBatchCacheContractTests
         Assert.Equal(99, cached.Dashboard!.ActiveDownloads);
         Assert.Equal("cached-stream", cached.Dashboard.ActivityStreamId);
         Assert.Equal(0, contexts.AsyncCreateCount);
+    }
+
+    [Fact]
+    public async Task ChangingAPrefillRulesServicesMissesTheEntryCachedUnderTheOldRules()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"dashboard-prefill-key-{Guid.NewGuid():N}")
+            .Options;
+        var contexts = new BlockingDbContexts(options);
+        using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 * 1024 * 1024 });
+        var service = BatchServiceWith(contexts, cache);
+        var rules = new List<ClientExclusionRule>
+        {
+            new() { Ip = "", Mode = ClientExclusionModes.Hide, Traffic = ClientExclusionTraffic.Prefill, Services = [PrefillPlatform.Steam] }
+        };
+        SetBatchField(service, "_stateRepository", CreateProxy<IStateService>((method, _) => method.Name switch
+        {
+            nameof(IStateService.GetHiddenClientIps) => new List<string>(),
+            nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
+            nameof(IStateService.GetPrefillRules) => rules,
+            nameof(IStateService.GetHiddenPrefillRules) => rules,
+            _ when method.ReturnType == typeof(string) => "show",
+            _ => DefaultReturn(method.ReturnType)
+        }));
+        cache.Set(
+            "dashboard-batch::::show:hide|prefill||Steam:UTC:0:0:False:::|",
+            FullyPopulatedResponse(),
+            new MemoryCacheEntryOptions().SetSize(1));
+
+        await service.GetBatchAsync(null, null, null, "UTC", false, CancellationToken.None);
+        Assert.Equal(0, contexts.AsyncCreateCount);
+
+        rules = [new() { Ip = "", Mode = ClientExclusionModes.Hide, Traffic = ClientExclusionTraffic.Prefill, Services = [PrefillPlatform.Epic] }];
+        using var cancel = new CancellationTokenSource();
+        var miss = service.GetBatchAsync(null, null, null, "UTC", false, cancel.Token);
+
+        // A fresh build starts, so the entry cached under the Steam rule was not served.
+        await contexts.FirstCreateStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        cancel.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => miss);
+    }
+
+    [Fact]
+    public async Task TheBatchHidesPrefillRowsByTheSameRulesItsCacheKeyNames()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await PrefillTrafficSeparationTests.SeedAsync(database, new Download
+        {
+            Service = "steam",
+            ClientIp = "172.17.0.2",
+            StartTimeUtc = DateTime.UtcNow.AddMinutes(-10),
+            EndTimeUtc = DateTime.UtcNow.AddMinutes(-5),
+            CacheMissBytes = 100,
+            IsPrefill = true
+        });
+        var contexts = new BlockingDbContexts(database.Options);
+        contexts.ReleaseFirstCreate.SetResult(true);
+        using var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 500 * 1024 * 1024 });
+        var service = BatchServiceWith(contexts, cache);
+        List<ClientExclusionRule> statsOnly =
+            [new() { Ip = "", Mode = ClientExclusionModes.Exclude, Traffic = ClientExclusionTraffic.Prefill }];
+        List<ClientExclusionRule> hidden =
+            [new() { Ip = "", Mode = ClientExclusionModes.Hide, Traffic = ClientExclusionTraffic.Prefill }];
+        var ruleReads = 0;
+        SetBatchField(service, "_stateRepository", CreateProxy<IStateService>((method, _) => method.Name switch
+        {
+            nameof(IStateService.GetHiddenClientIps) => new List<string>(),
+            nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
+            // A save that switches the rule to Hide lands just after this request's first read.
+            nameof(IStateService.GetPrefillRules) => Interlocked.Increment(ref ruleReads) == 1 ? statsOnly : hidden,
+            nameof(IStateService.GetHiddenPrefillRules) => hidden,
+            _ when method.ReturnType == typeof(string) => "show",
+            _ => DefaultReturn(method.ReturnType)
+        }));
+
+        var response = await service.GetBatchAsync(null, null, null, "UTC", false, CancellationToken.None);
+
+        // The key names the stats-only rule, so the cached download lists must keep the row.
+        Assert.Equal(1, Assert.IsType<DownloadTotals>(response.DownloadTotals).Count);
     }
 
     [Fact]
@@ -402,6 +481,39 @@ public sealed class DashboardBatchCacheContractTests
 
         await notifications.NotifyAllAsync(SignalREvents.DownloadHistoryMergeComplete);
         Assert.Equal(new[] { nameof(IDashboardBatchService.InvalidateAllCache) }, calls);
+    }
+
+    /// <summary>
+    /// The prefill setting changes totals in every range, so its event expires them all; an ingest
+    /// refresh after marking expires the live range. The test has no hub, so the send fails after
+    /// the expiry and is caught.
+    /// </summary>
+    [Fact]
+    public async Task ThePrefillSettingAndAnIngestRefreshExpireTheDashboard()
+    {
+        var calls = new List<string>();
+        var batches = CreateProxy<IDashboardBatchService>((method, _) =>
+        {
+            calls.Add(method.Name);
+            return DefaultReturn(method.ReturnType);
+        });
+        using var services = new ServiceCollection()
+            .AddSingleton(batches)
+            .BuildServiceProvider();
+        var notifications = new SignalRNotificationService(
+            null!, null!, null!, null!, null!, null!,
+            NullLogger<SignalRNotificationService>.Instance,
+            services);
+
+        await notifications.NotifyAllAsync(SignalREvents.PrefillTrafficSettingChanged);
+        Assert.Equal(new[] { nameof(IDashboardBatchService.InvalidateAllCache) }, calls);
+
+        foreach (var ingestEvent in new[] { SignalREvents.DownloadsRefresh, SignalREvents.LogProcessingComplete })
+        {
+            calls.Clear();
+            await notifications.NotifyAllAsync(ingestEvent);
+            Assert.Equal(new[] { nameof(IDashboardBatchService.InvalidateLiveCache) }, calls);
+        }
     }
 
     [Fact]
@@ -829,7 +941,7 @@ public sealed class DashboardBatchCacheContractTests
             "GetDashboardStatsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var batchTask = (Task<object>)getDashboardStats.Invoke(
             batchService,
-            [null, null, new List<long>(), null, new List<string>(), "show", new List<string>(), CancellationToken.None])!;
+            [null, null, new List<long>(), null, new List<string>(), "show", new List<string>(), new List<ClientExclusionRule>(), CancellationToken.None])!;
         var batchResponse = Assert.IsType<DashboardStatsResponse>(await batchTask);
 
         var stateService = CreateProxy<IStateService>((method, _) => method.Name switch
@@ -837,6 +949,8 @@ public sealed class DashboardBatchCacheContractTests
             nameof(IStateService.GetHiddenClientIps) => new List<string>(),
             nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
             nameof(IStateService.GetEvictedDataMode) => "show",
+            nameof(IStateService.GetPrefillRules) => new List<ClientExclusionRule>(),
+            nameof(IStateService.GetHiddenPrefillRules) => new List<ClientExclusionRule>(),
             _ => DefaultReturn(method.ReturnType)
         });
 
@@ -878,7 +992,7 @@ public sealed class DashboardBatchCacheContractTests
             "GetDashboardStatsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var batchTask = (Task<object>)getDashboardStats.Invoke(
             batchService,
-            [null, null, new List<long>(), null, new List<string>(), "show", new List<string>(), CancellationToken.None])!;
+            [null, null, new List<long>(), null, new List<string>(), "show", new List<string>(), new List<ClientExclusionRule>(), CancellationToken.None])!;
         var batchResponse = Assert.IsType<DashboardStatsResponse>(await batchTask);
 
         var stateService = CreateProxy<IStateService>((method, _) => method.Name switch
@@ -886,6 +1000,8 @@ public sealed class DashboardBatchCacheContractTests
             nameof(IStateService.GetHiddenClientIps) => new List<string>(),
             nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
             nameof(IStateService.GetEvictedDataMode) => "show",
+            nameof(IStateService.GetPrefillRules) => new List<ClientExclusionRule>(),
+            nameof(IStateService.GetHiddenPrefillRules) => new List<ClientExclusionRule>(),
             _ => DefaultReturn(method.ReturnType)
         });
 
@@ -930,7 +1046,7 @@ public sealed class DashboardBatchCacheContractTests
 
         var serviceOptions = Assert.IsType<List<ServiceFilterOption>>(
             await InvokeSubQuery(BatchServiceOver(options), "GetServiceOptionsAsync",
-                [null, null, new List<long>(), null, new List<string>(), "show", CancellationToken.None]));
+                [null, null, new List<long>(), null, new List<string>(), "show", new List<ClientExclusionRule>(), CancellationToken.None]));
 
         Assert.False(serviceOptions.Single(o => o.Service == "steam").HasLargeFiles);
         Assert.True(serviceOptions.Single(o => o.Service == "xboxlive").HasLargeFiles);
@@ -959,7 +1075,7 @@ public sealed class DashboardBatchCacheContractTests
         }
 
         var section = await InvokeSubQuery(BatchServiceOver(options), "GetRecentDownloadsAsync",
-            [null, null, new List<long>(), null, new List<string>(), "show", null, null, CancellationToken.None]);
+            [null, null, new List<long>(), null, new List<string>(), "show", new List<ClientExclusionRule>(), null,null, CancellationToken.None]);
         var rows = (List<DashboardBatchService.DashboardDownloadRow>)section
             .GetType().GetProperty("rows")!.GetValue(section)!;
 
@@ -993,7 +1109,7 @@ public sealed class DashboardBatchCacheContractTests
 
         var filtered = Assert.IsType<DownloadTotals>(
             await InvokeSubQuery(BatchServiceOver(options), "GetFilteredDownloadTotalsAsync",
-                [null, null, new List<long>(), null, new List<string>(), "show", null, "10.0.0.1", CancellationToken.None]));
+                [null, null, new List<long>(), null, new List<string>(), "show", new List<ClientExclusionRule>(), null,"10.0.0.1", CancellationToken.None]));
 
         Assert.Equal(400, filtered.CacheHitBytes);
         Assert.Equal(100, filtered.CacheMissBytes);
@@ -1001,7 +1117,7 @@ public sealed class DashboardBatchCacheContractTests
 
         var plain = Assert.IsType<DownloadTotals>(
             await InvokeSubQuery(BatchServiceOver(options), "GetDownloadTotalsAsync",
-                [null, null, new List<long>(), null, new List<string>(), "show", CancellationToken.None]));
+                [null, null, new List<long>(), null, new List<string>(), "show", new List<ClientExclusionRule>(), CancellationToken.None]));
 
         Assert.Equal(1000, plain.CacheHitBytes);
         Assert.Equal(1000, plain.CacheMissBytes);
@@ -1030,7 +1146,7 @@ public sealed class DashboardBatchCacheContractTests
 
         var totals = Assert.IsType<DownloadTotals>(
             await InvokeSubQuery(BatchServiceOver(options), "GetFilteredDownloadTotalsAsync",
-                [null, null, new List<long>(), null, new List<string>(), "show", null, "10.0.0.1,10.0.0.2", CancellationToken.None]));
+                [null, null, new List<long>(), null, new List<string>(), "show", new List<ClientExclusionRule>(), null,"10.0.0.1,10.0.0.2", CancellationToken.None]));
 
         Assert.Equal(400, totals.CacheHitBytes);
         Assert.Equal(2, totals.Count);
@@ -1077,6 +1193,8 @@ public sealed class DashboardBatchCacheContractTests
             {
                 nameof(IStateService.GetHiddenClientIps) => new List<string>(),
                 nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
+                nameof(IStateService.GetPrefillRules) => new List<ClientExclusionRule>(),
+                nameof(IStateService.GetHiddenPrefillRules) => new List<ClientExclusionRule>(),
                 _ when method.ReturnType == typeof(string) => "show",
                 _ => DefaultReturn(method.ReturnType)
             }));

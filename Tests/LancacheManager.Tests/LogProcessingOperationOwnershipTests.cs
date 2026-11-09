@@ -235,6 +235,68 @@ public sealed class LogProcessingOperationOwnershipTests
     }
 
     [Fact]
+    public async Task APassThatFailedBeforeTheEndOfItsLogsLeavesTheNextMarkingPassEveryEndedRunAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var sessions = new PrefillSessionService(database.Factory, NullLogger<PrefillSessionService>.Instance);
+        await using var fixture = new ProcessorFixture(transport: true, prefillSessions: sessions);
+        fixture.State.SetExcludedClientRules(
+        [
+            new ClientExclusionRule { Ip = "", Mode = ClientExclusionModes.Hide, Traffic = ClientExclusionTraffic.Prefill }
+        ]);
+        var window = fixture.State.GetPrefillMarkingSinceUtc()!.Value;
+        const string container = "172.17.0.2";
+        // A run that ended before the pass below began. Its lines lie past where that pass stops.
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.PrefillSessions.Add(new PrefillSession
+            {
+                SessionId = "steam-session",
+                Platform = PrefillPlatform.Steam,
+                CreatedAtUtc = window.AddDays(-1),
+                LastLoginAtUtc = window.AddDays(-1),
+                ExpiresAtUtc = window.AddDays(1)
+            });
+            seed.PrefillRuns.Add(new PrefillRun
+            {
+                Id = Guid.NewGuid(),
+                SessionId = "steam-session",
+                DaemonInstanceId = Guid.NewGuid().ToString(),
+                OptionsJson = "{}",
+                SnapshotJson = "{}",
+                ClientAddressesJson = $"[\"{container}\"]",
+                StartedAtUtc = window,
+                CompletedAtUtc = window
+            });
+            await seed.SaveChangesAsync();
+        }
+
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync(fixture.LogFilePath));
+        await fixture.Pipe!.ConnectAsync();
+        await fixture.Pipe.SendAsync(TerminalProgress(0, 0, "failed"), exitCode: 1);
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        // The next pass reads the run's lines and saves its download, then marks.
+        var row = new Download
+        {
+            Service = "steam",
+            ClientIp = container,
+            StartTimeUtc = window,
+            EndTimeUtc = window.AddMinutes(5),
+            CacheMissBytes = 100
+        };
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.Downloads.Add(row);
+            await seed.SaveChangesAsync();
+        }
+        await sessions.MarkPrefillRowsAsync(window, "alpha", DateTime.UtcNow, CancellationToken.None);
+
+        await using var read = new AppDbContext(database.Options);
+        Assert.True(await read.Downloads.Where(d => d.Id == row.Id).Select(d => d.IsPrefill).SingleAsync());
+    }
+
+    [Fact]
     public async Task ARiotMappingRunWhoseLogPassFailsEndsWithAKeyNotASentenceAsync()
     {
         await using var fixture = new ProcessorFixture(transport: true);
@@ -1863,7 +1925,8 @@ public sealed class LogProcessingOperationOwnershipTests
             bool transport = false,
             int datasourceCount = 1,
             IEventsService? events = null,
-            TimeProvider? clock = null)
+            TimeProvider? clock = null,
+            PrefillSessionService? prefillSessions = null)
         {
             if (datasourceCount is < 1 or > 2)
             {
@@ -1937,7 +2000,7 @@ public sealed class LogProcessingOperationOwnershipTests
                     .Options);
             OperationStateService? repairOwner = null;
             RustLogProcessorService? processor = null;
-            _services = new ServiceCollection()
+            var registrations = new ServiceCollection()
                 .AddSingleton(_ => repairOwner!)
                 .AddSingleton(_ => processor!)
                 .AddSingleton(datasources)
@@ -1945,8 +2008,12 @@ public sealed class LogProcessingOperationOwnershipTests
                 .AddSingleton(notifications)
                 .AddSingleton<IEventsService>(events)
                 .AddSingleton<IDbContextFactory<AppDbContext>>(contexts)
-                .AddScoped(_ => contexts.CreateDbContext())
-                .BuildServiceProvider();
+                .AddScoped(_ => contexts.CreateDbContext());
+            if (prefillSessions is not null)
+            {
+                registrations.AddSingleton(prefillSessions);
+            }
+            _services = registrations.BuildServiceProvider();
             _repairOwner = repairOwner = new OperationStateService(
                 NullLogger<OperationStateService>.Instance,
                 configuration,

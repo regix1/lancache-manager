@@ -1,4 +1,5 @@
 using System.Runtime.ExceptionServices;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
@@ -106,7 +107,7 @@ public partial class CacheManagementService
                             : string.Empty;
                         var process = _rustProcessHelper.CreateProcessStartInfo(
                             rustBinaryPath,
-                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{target}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)} --skip-db-delete --datasource \"{datasource.Name}\"{operationArgument}");
+                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{target}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}{RustProcessHelper.SliceSizeFlag(_stateService.GetCacheSliceSizeBytes())} --skip-db-delete --datasource \"{datasource.Name}\"{operationArgument}");
                         _logger.LogInformation("{LogTag} Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                             logTag, datasource.Name, rustBinaryPath, process.Arguments);
                         return process;

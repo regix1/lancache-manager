@@ -245,7 +245,7 @@ public class EpicApiDirectClient
     /// Fetches owned games from Epic's launcher assets API, then enriches with catalog metadata.
     /// Returns OwnedGame DTOs compatible with EpicGameMappingService.MergeOwnedGamesAsync().
     /// </summary>
-    public async Task<List<OwnedGame>> GetOwnedGamesAsync(string accessToken, CancellationToken ct = default)
+    public async Task<List<OwnedGame>> GetOwnedGamesAsync(string accessToken, Func<int, int, Task> onProgress, CancellationToken ct = default)
     {
         _logger.LogInformation("Fetching Epic owned assets...");
 
@@ -265,6 +265,7 @@ public class EpicApiDirectClient
         // Step 2: Enrich with catalog metadata (title + images)
         var games = new List<OwnedGame>();
         var batchSize = 25;
+        var processed = 0;
 
         for (var i = 0; i < assets.Count; i += batchSize)
         {
@@ -296,7 +297,7 @@ public class EpicApiDirectClient
                         games.Add(new OwnedGame
                         {
                             AppId = asset.AppName,
-                            Name = metadata.Title ?? asset.AppName,
+                            Name = metadata.Title ?? string.Empty,
                             ImageUrl = imageUrl
                         });
                     }
@@ -305,19 +306,28 @@ public class EpicApiDirectClient
                         games.Add(new OwnedGame
                         {
                             AppId = asset.AppName,
-                            Name = asset.AppName
+                            Name = string.Empty
                         });
                     }
                 }
-                catch (Exception ex)
+                // A request that times out throws TaskCanceledException too; only the caller's own cancel stops the loop. The
+                // games read so far are returned and the one in flight is left out, so a cancel stores no name-only game.
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
-                    _logger.LogWarning(ex, "Failed to get catalog metadata for {AppName}, using asset name", asset.AppName);
+                    return games;
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    _logger.LogWarning(ex, "Failed to get catalog metadata for {AppName}, leaving the name empty", asset.AppName);
                     games.Add(new OwnedGame
                     {
                         AppId = asset.AppName,
-                        Name = asset.AppName
+                        Name = string.Empty
                     });
                 }
+
+                processed++;
+                await onProgress(processed, assets.Count);
             }
         }
 
@@ -330,7 +340,7 @@ public class EpicApiDirectClient
     /// real CDN base URL. The manifest URI contains the actual path used by Epic's CDN
     /// (e.g., /Builds/Org/o-xxx/hash/default) which is what appears in lancache logs.
     /// </summary>
-    public async Task<List<CdnInfo>> GetCdnInfoAsync(string accessToken, CancellationToken ct = default)
+    public async Task<List<CdnInfo>> GetCdnInfoAsync(string accessToken, IReadOnlySet<string> skipAppIds, Func<int, int, Task> onProgress, CancellationToken ct = default)
     {
         _logger.LogInformation("Fetching Epic CDN info from assets...");
 
@@ -349,13 +359,19 @@ public class EpicApiDirectClient
         var cdnInfos = new List<CdnInfo>();
         var successCount = 0;
         var failCount = 0;
+        var processed = 0;
 
         foreach (var asset in assets)
         {
             if (ct.IsCancellationRequested) break;
 
-            if (string.IsNullOrEmpty(asset.BuildVersion) || string.IsNullOrEmpty(asset.AppName))
+            // Assets with no usable fields and games whose paths are already stored count as done without a request.
+            if (string.IsNullOrEmpty(asset.BuildVersion) || string.IsNullOrEmpty(asset.AppName) || skipAppIds.Contains(asset.AppName))
+            {
+                processed++;
+                await onProgress(processed, assets.Count);
                 continue;
+            }
 
             try
             {
@@ -380,6 +396,11 @@ public class EpicApiDirectClient
                     failCount++;
                 }
             }
+            // The caller's own cancel returns the paths resolved so far; a request that times out is skipped below.
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return cdnInfos;
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to resolve manifest CDN path for {AppName}, skipping", asset.AppName);
@@ -387,7 +408,17 @@ public class EpicApiDirectClient
             }
 
             // Small delay between manifest API calls to avoid rate limiting
-            await Task.Delay(100, ct);
+            try
+            {
+                await Task.Delay(100, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                return cdnInfos;
+            }
+
+            processed++;
+            await onProgress(processed, assets.Count);
         }
 
         _logger.LogInformation(
@@ -549,60 +580,50 @@ public class EpicApiDirectClient
     /// Fetches currently free games from Epic's public free games promotions API.
     /// This endpoint does NOT require authentication. Returns OwnedGame DTOs
     /// so results can be merged into the mapping DB alongside owned games.
-    /// Returns an empty list both when there are genuinely no active promotions AND when the
-    /// fetch fails (logged as a warning) - this is a best-effort supplemental source, not a
-    /// required value, so callers proceed with whatever owned-games data they already have.
+    /// Returns an empty list when there are no active promotions. A failed read throws, so the
+    /// caller counts it as a failed step instead of reporting a clean run.
     /// </summary>
     public async Task<List<OwnedGame>> GetFreeGamesAsync(CancellationToken ct = default)
     {
         const string url = "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions" +
                            "?locale=en-US&country=US&allowCountries=US";
 
-        try
+        _logger.LogInformation("Fetching Epic free games promotions...");
+
+        var response = await _httpClient.GetAsync(url, ct);
+        var json = await response.Content.ReadAsStringAsync(ct);
+
+        if (!response.IsSuccessStatusCode)
         {
-            _logger.LogInformation("Fetching Epic free games promotions...");
-
-            var response = await _httpClient.GetAsync(url, ct);
-            var json = await response.Content.ReadAsStringAsync(ct);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning("Epic free games promotions request failed: {StatusCode}", response.StatusCode);
-                return new List<OwnedGame>();
-            }
-
-            var freeGamesResponse = JsonSerializer.Deserialize<EpicFreeGamesResponse>(json);
-            var elements = freeGamesResponse?.Data?.Catalog?.SearchStore?.Elements;
-
-            if (elements == null || elements.Count == 0)
-            {
-                _logger.LogInformation("No free games found in Epic promotions response");
-                return new List<OwnedGame>();
-            }
-
-            // Filter to only currently active free promotions (not upcoming ones)
-            var activeElements = elements.Where(element =>
-                element.Promotions?.PromotionalOffers != null
-                && element.Promotions.PromotionalOffers.Count > 0
-                && element.Promotions.PromotionalOffers.Any(offer =>
-                    offer.PromotionalOffers != null && offer.PromotionalOffers.Count > 0))
-                .ToList();
-
-            var games = activeElements.Select(element => new OwnedGame
-            {
-                AppId = element.Id ?? string.Empty,
-                Name = element.Title ?? string.Empty,
-                ImageUrl = GetBestImageUrl(element.KeyImages)
-            }).Where(game => !string.IsNullOrEmpty(game.AppId)).ToList();
-
-            _logger.LogInformation("Found {Count} currently free Epic games", games.Count);
-            return games;
+            throw new InvalidOperationException($"Epic free games promotions request failed: {response.StatusCode}");
         }
-        catch (Exception ex)
+
+        var freeGamesResponse = JsonSerializer.Deserialize<EpicFreeGamesResponse>(json);
+        var elements = freeGamesResponse?.Data?.Catalog?.SearchStore?.Elements;
+
+        if (elements == null || elements.Count == 0)
         {
-            _logger.LogWarning(ex, "Failed to fetch Epic free games promotions");
+            _logger.LogInformation("No free games found in Epic promotions response");
             return new List<OwnedGame>();
         }
+
+        // Filter to only currently active free promotions (not upcoming ones)
+        var activeElements = elements.Where(element =>
+            element.Promotions?.PromotionalOffers != null
+            && element.Promotions.PromotionalOffers.Count > 0
+            && element.Promotions.PromotionalOffers.Any(offer =>
+                offer.PromotionalOffers != null && offer.PromotionalOffers.Count > 0))
+            .ToList();
+
+        var games = activeElements.Select(element => new OwnedGame
+        {
+            AppId = element.Id ?? string.Empty,
+            Name = element.Title ?? string.Empty,
+            ImageUrl = GetBestImageUrl(element.KeyImages)
+        }).Where(game => !string.IsNullOrEmpty(game.AppId)).ToList();
+
+        _logger.LogInformation("Found {Count} currently free Epic games", games.Count);
+        return games;
     }
 
 }

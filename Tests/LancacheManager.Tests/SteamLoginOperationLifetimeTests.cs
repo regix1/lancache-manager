@@ -217,6 +217,31 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
     }
 
     [Fact]
+    public async Task ABeginThatWaitedForTheStoreDoesNotDisplaceASignInAdmittedMeanwhileAsync()
+    {
+        var service = CreateService(CreateTracker());
+        var caller = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+        var storage = GetPrivateField<SteamAuthStorageService>(service, "_steamAuthRepository");
+        var first = await storage.BeginIntegrationLoginAsync(caller);
+        var admissionGate = (SemaphoreSlim)typeof(AuthFileStorageServiceBase<SteamAuthData, PersistedSteamAuthData>)
+            .GetField("_admissionGate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(storage)!;
+        // A prefill lease keeps the store's admission gate; the second sign-in passes the service's check and waits for it.
+        await admissionGate.WaitAsync();
+        var second = service.AuthenticateAsync("account", "password", caller: caller);
+        await Task.Delay(200);
+        Assert.False(second.IsCompleted);
+        // The first sign-in is admitted meanwhile.
+        SetPrivateField(service, "_loginReporter",
+            (MappingOperationReporter)RuntimeHelpers.GetUninitializedObject(typeof(MappingOperationReporter)));
+
+        admissionGate.Release();
+
+        var refused = await Assert.ThrowsAsync<ConflictException>(() => second.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal("errors.integration.loginInProgress", refused.StageKey);
+        Assert.True(storage.IsIntegrationLoginCurrent(first));
+    }
+
+    [Fact]
     public async Task ASteamSignInWhoseWindowRunsOutSaysItExpiredAsync()
     {
         var tracker = CreateTracker();

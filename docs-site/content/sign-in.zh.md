@@ -16,9 +16,20 @@
 - 两种单点登录模式都需要 HTTPS。
 - 密码和 API 密钥模式可以使用 HTTP。在不受信任的网络中请使用 HTTPS，以免密码和会话 Cookie 以明文传输。
 
+### 通过环境变量设置模式
+
+在 Compose 文件中设置 `Security__SignInMode` 即可固定模式。此时模式选择器为只读，首次运行设置的行为如下：
+
+| `Security__SignInMode` | 首次运行设置的访问步骤 |
+|---|---|
+| `Password`、`ApiKeyPassword` 或 `Unauthenticated` | 跳过。数据库步骤和第一个账户步骤仍然会运行。 |
+| `Oidc` 或 `ApiKeyOidc` | 以只读方式显示。所有者在此处通过环境变量中的登录进行登录。 |
+
+之后如果你删除这些变量，访问步骤会重新出现。取值和名称见[通过环境变量设置登录](configuration-reference.md#sign-in-environment)。
+
 ### 选择之前的默认值
 
-在保存模式之前，由 `Security__EnableAuthentication` 这个 compose 变量决定默认值：
+没有 `Security__SignInMode` 时，在保存模式之前，由 `Security__EnableAuthentication` 这个 compose 变量决定默认值：
 
 | 取值 | 默认模式 |
 |---|---|
@@ -51,6 +62,10 @@
 - **Microsoft：** 填写租户 GUID，个人账户填 `consumers`。`common` 和 `organizations` 会被拒绝。
 - **Apple：** 本应用会自动生成 Apple 的客户端密钥。Apple 要求 HTTPS 域名，不接受 localhost 和 IP 地址。
 
+### 通过环境变量设置
+
+把服务商的字段设为 `Security__` 变量，而不是粘贴到应用中。由环境变量设置的字段优先于界面中保存的值，且不能在界面中编辑。没有有效登录的 `Oidc` 或 `ApiKeyOidc` 模式会回退到 **API 密钥、用户名和密码**，绝不会回退到**免认证访问**。完整列表（包括用于密钥的 `*File` 形式）见[通过环境变量设置登录](configuration-reference.md#sign-in-environment)。
+
 ### 设置步骤
 
 1. 使用用户实际访问本应用的地址打开它。回调 URL 基于该地址生成。
@@ -59,7 +74,7 @@
     - 通过后，用于登录的账户会关联到主管理员，设置随即生效。
     - 失败则不改变任何内容，因此一次失败的尝试不会破坏已经可用的配置。
 
-### 允许其他用户登录
+### 允许其他用户登录 { #allowing-other-users }
 
 通过服务商提供的账户 ID 授权其他用户，而不是电子邮件地址或显示名称。
 
@@ -81,7 +96,9 @@
 
 ### 因单点登录无法登录
 
-在宿主机上运行恢复脚本：
+如果环境变量中的登录已回退到 **API 密钥、用户名和密码**，而所有者没有本地密码，请按[密码恢复](password-recovery.md#single-sign-on-owner)中的编号步骤操作。
+
+其他情况下，在宿主机上运行恢复脚本：
 
 ```bash
 ./data/scripts/reset-main-admin-password.sh

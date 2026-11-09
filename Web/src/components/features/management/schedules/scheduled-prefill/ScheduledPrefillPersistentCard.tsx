@@ -162,7 +162,8 @@ export function ScheduledPrefillPersistentCard({
               variant="default"
               size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={onStop}
-              disabled={disabled || actionPending}
+              disabled={disabled}
+              loading={action === 'stop'}
             >
               {t('prefill.persistent.actions.stop')}
             </Button>
@@ -173,7 +174,8 @@ export function ScheduledPrefillPersistentCard({
               color="run"
               size={SCHEDULED_PREFILL_BUTTON_SIZE}
               onClick={onStart}
-              disabled={disabled || actionPending || status.container === 'checking'}
+              disabled={disabled || status.container === 'checking'}
+              loading={action === 'start'}
             >
               {t('prefill.persistent.actions.start')}
             </Button>
@@ -299,7 +301,8 @@ export function ScheduledPrefillPersistentCard({
                   variant="default"
                   size={SCHEDULED_PREFILL_BUTTON_SIZE}
                   onClick={onLogout}
-                  disabled={disabled || isPrefilling || actionPending}
+                  disabled={disabled || isPrefilling}
+                  loading={action === 'logout'}
                 >
                   {t('prefill.persistent.logOut')}
                 </Button>

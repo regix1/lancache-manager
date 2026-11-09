@@ -13,6 +13,17 @@ public sealed class CreateSessionResult
 }
 
 /// <summary>
+/// The answer to a guest's Log in: the first challenge, which is null when none came yet, or the translation key
+/// and values of the refusal.
+/// </summary>
+public sealed class StartLoginResult
+{
+    public CredentialChallenge? Challenge { get; init; }
+    public string? StageKey { get; init; }
+    public Dictionary<string, object?>? Context { get; init; }
+}
+
+/// <summary>
 /// The answer to a guest's End session: the translation key and values of the failure, or no key when the
 /// session ended.
 /// </summary>

@@ -42,6 +42,8 @@ internal sealed class TestDatabase : IAsyncDisposable
         Factory = new TestDbContextFactory(options);
     }
 
+    public string ConnectionString => _connectionString;
+
     public DbContextOptions<AppDbContext> Options { get; }
 
     public TestDbContextFactory Factory { get; }

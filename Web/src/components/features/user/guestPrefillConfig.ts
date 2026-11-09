@@ -20,3 +20,5 @@ export const toGuestPrefillConfig = (
   durationHours: response.durationHours,
   maxThreadCount: service.supportsMaxThreads ? (response.maxThreadCount ?? null) : null
 });
+
+export type GuestPrefillConfigField = 'enabled' | 'duration' | 'maxThreads';

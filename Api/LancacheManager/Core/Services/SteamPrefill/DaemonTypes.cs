@@ -159,6 +159,12 @@ public class DaemonStatus
     [JsonPropertyName("errorCode")]
     public string? ErrorCode { get; set; }
 
+    /// <summary>
+    /// Whether the Xbox daemon still runs a sign-in. Null for daemons that do not send it.
+    /// </summary>
+    [JsonPropertyName("isLoggingIn")]
+    public bool? IsLoggingIn { get; set; }
+
     [JsonPropertyName("timestamp")]
     public DateTime Timestamp { get; set; }
 

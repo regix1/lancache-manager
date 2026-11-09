@@ -478,7 +478,10 @@ export function usePersistentPrefillAuth(
     // than a silent no-op: nothing server-side has been told about this attempt yet either, and
     // the store reset inside bumps the login epoch, so a still-hanging start() recognizes its own
     // settlement as stale and discards it.
-    const ending = endPersistentLogin(service);
+    let refusal: unknown = null;
+    const ending = endPersistentLogin(service, undefined, undefined, (error) => {
+      refusal = error;
+    });
     const epoch = getPersistentLoginEpoch(service);
     const ended = await ending;
     // A newer attempt moved the epoch before this cancel settled; leave its state alone.
@@ -486,10 +489,14 @@ export function usePersistentPrefillAuth(
     // The reset clears the typed credentials and the store; the failed-cancel error is written after
     // it with no await between, so the reset cannot erase it.
     resetAuthForm();
+    // A refusal the server named carries its reason; a cancel that never got an answer did not land.
     if (!ended)
       updatePersistentLoginState(service, (current) => ({
         ...current,
-        error: t('prefill.persistent.loginNotCanceled'),
+        error:
+          refusal instanceof ApiError && refusal.body?.stageKey
+            ? getErrorMessage(refusal)
+            : t('prefill.persistent.loginNotCanceled'),
         endReason: 'cancelFailed'
       }));
   }, [resetAuthForm, service, t]);

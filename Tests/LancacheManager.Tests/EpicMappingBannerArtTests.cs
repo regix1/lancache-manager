@@ -275,6 +275,59 @@ public class EpicMappingBannerArtTests
         Assert.Equal("https://cdn.epicgames.com/existing.jpg", mapping.ImageUrl);
     }
 
+    [Fact]
+    public async Task MergeOwnedGamesAsync_KnownGamesSeenAgainCountAsUnchangedAndMoveTheirLastSeenTime()
+    {
+        var options = NewInMemoryOptions();
+        var lastSeen = DateTime.UtcNow.AddDays(-2);
+        await using (var seed = new AppDbContext(options))
+        {
+            foreach (var appId in new[] { "a", "b", "c" })
+            {
+                var known = NewMapping(appId, $"Game {appId}", $"https://cdn.epicgames.com/{appId}.jpg");
+                known.LastSeenAtUtc = lastSeen;
+                seed.EpicGameMappings.Add(known);
+            }
+            await seed.SaveChangesAsync();
+        }
+
+        var service = NewService(options);
+        var sameGames = new[] { "a", "b", "c" }
+            .Select(appId => new OwnedGame { AppId = appId, Name = $"Game {appId}", ImageUrl = $"https://cdn.epicgames.com/{appId}.jpg" })
+            .ToList();
+
+        var result = await service.MergeOwnedGamesAsync(sameGames, "hash", "scheduled-refresh");
+
+        Assert.Equal(0, result.UpdatedGames);
+        Assert.Equal(3, result.UnchangedGames);
+        await using var assertDb = new AppDbContext(options);
+        Assert.All(await assertDb.EpicGameMappings.ToListAsync(), mapping => Assert.True(mapping.LastSeenAtUtc > lastSeen));
+    }
+
+    [Fact]
+    public async Task MergeOwnedGamesAsync_AGameReadWithoutANameKeepsItsNameOrIsStoredUnderItsEpicId()
+    {
+        var options = NewInMemoryOptions();
+        await using (var seed = new AppDbContext(options))
+        {
+            seed.EpicGameMappings.Add(NewMapping("known-app", "Known Game", null));
+            await seed.SaveChangesAsync();
+        }
+
+        var service = NewService(options);
+        var unnamed = new List<OwnedGame>
+        {
+            new() { AppId = "known-app", Name = string.Empty },
+            new() { AppId = "new-app", Name = string.Empty }
+        };
+
+        await service.MergeOwnedGamesAsync(unnamed, "hash", "scheduled-refresh");
+
+        await using var assertDb = new AppDbContext(options);
+        Assert.Equal("Known Game", (await assertDb.EpicGameMappings.SingleAsync(m => m.AppId == "known-app")).Name);
+        Assert.Equal("new-app", (await assertDb.EpicGameMappings.SingleAsync(m => m.AppId == "new-app")).Name);
+    }
+
     // --- Downloads propagation ---
     // No self-healing sweep exists: EpicGameMapping stores no artwork entries, so a sweep with
     // no Steam fallback would have had no art source at all and done nothing. Art-less rows heal

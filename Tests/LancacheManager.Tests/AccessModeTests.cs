@@ -73,9 +73,9 @@ public sealed class AccessModeTests : IDisposable
         Assert.Equal(AccountMode.Password, service.GetMode());
         Assert.True(service.HasPendingOidc());
 
-        var pending = Assert.IsType<OidcSettings>(service.GetOidcSettings(setup: true));
-        Assert.False(service.IdentityAllowed(pending.Revision + 1, setup: true, ownerOnly: false, "issuer", "owner"));
-        Assert.True(service.IdentityAllowed(pending.Revision, setup: true, ownerOnly: false, "issuer", "owner"));
+        var pending = Assert.IsType<OidcSettings>(service.GetLoginSettings("customOidc", setup: true));
+        Assert.False(service.IdentityAllowed("customOidc", pending.Revision + 1, setup: true, ownerOnly: false, "issuer", "owner"));
+        Assert.True(service.IdentityAllowed("customOidc", pending.Revision, setup: true, ownerOnly: false, "issuer", "owner"));
 
         var stateFile = Path.Combine(
             _root,
@@ -87,8 +87,8 @@ public sealed class AccessModeTests : IDisposable
         Assert.True(service.PromotePendingOidc(pending.Revision, "issuer", "owner"));
         Assert.Equal(AccountMode.Oidc, service.GetMode());
         Assert.False(service.HasPendingOidc());
-        Assert.True(service.IdentityAllowed(pending.Revision, setup: false, ownerOnly: false, "issuer", "owner"));
-        Assert.False(service.IdentityAllowed(pending.Revision, setup: false, ownerOnly: false, "other-issuer", "owner"));
+        Assert.True(service.IdentityAllowed("customOidc", pending.Revision, setup: false, ownerOnly: false, "issuer", "owner"));
+        Assert.False(service.IdentityAllowed("customOidc", pending.Revision, setup: false, ownerOnly: false, "other-issuer", "owner"));
     }
 
     [Fact]
@@ -111,12 +111,12 @@ public sealed class AccessModeTests : IDisposable
             },
             null);
 
-        var pending = Assert.IsType<OidcSettings>(service.GetOidcSettings(setup: true));
-        Assert.True(service.IdentityAllowed(pending.Revision, setup: true, ownerOnly: false, "issuer", "expected"));
-        Assert.True(service.IdentityAllowed(pending.Revision, setup: true, ownerOnly: false, "issuer", "unexpected"));
+        var pending = Assert.IsType<OidcSettings>(service.GetLoginSettings("customOidc", setup: true));
+        Assert.True(service.IdentityAllowed("customOidc", pending.Revision, setup: true, ownerOnly: false, "issuer", "expected"));
+        Assert.True(service.IdentityAllowed("customOidc", pending.Revision, setup: true, ownerOnly: false, "issuer", "unexpected"));
         Assert.True(service.PromotePendingOidc(pending.Revision, "issuer", "unexpected"));
-        Assert.True(service.IdentityAllowed(pending.Revision, setup: false, ownerOnly: false, "issuer", "colleague"));
-        Assert.False(service.IdentityAllowed(pending.Revision, setup: false, ownerOnly: true, "issuer", "colleague"));
+        Assert.True(service.IdentityAllowed("customOidc", pending.Revision, setup: false, ownerOnly: false, "issuer", "colleague"));
+        Assert.False(service.IdentityAllowed("customOidc", pending.Revision, setup: false, ownerOnly: true, "issuer", "colleague"));
     }
 
     [Fact]
@@ -191,7 +191,7 @@ public sealed class AccessModeTests : IDisposable
                 }
             },
             null);
-        var first = Assert.IsType<OidcSettings>(service.GetOidcSettings(setup: true));
+        var first = Assert.IsType<OidcSettings>(service.GetLoginSettings("customOidc", setup: true));
         Assert.True(service.PromotePendingOidc(first.Revision, "active-issuer", "owner"));
 
         service.Apply(
@@ -221,7 +221,7 @@ public sealed class AccessModeTests : IDisposable
         Assert.Equal("code", activeOptions.ResponseType);
         Assert.True(activeOptions.UsePkce);
         Assert.True(activeOptions.ProtocolValidator.RequireNonce);
-        Assert.True(activeOptions.ProtocolValidator.RequireStateValidation);
+        Assert.False(activeOptions.ProtocolValidator.RequireStateValidation);
         Assert.Equal(CookieSecurePolicy.Always, activeOptions.CorrelationCookie.SecurePolicy);
         Assert.Equal(CookieSecurePolicy.Always, activeOptions.NonceCookie.SecurePolicy);
     }
@@ -244,13 +244,13 @@ public sealed class AccessModeTests : IDisposable
                 }
             },
             null);
-        var pending = Assert.IsType<OidcSettings>(service.GetOidcSettings(setup: true));
+        var pending = Assert.IsType<OidcSettings>(service.GetLoginSettings("customOidc", setup: true));
         Assert.True(service.PromotePendingOidc(pending.Revision, "issuer", "owner"));
 
-        var first = service.GetOrCreateOidcAccountId("colleague", pending.Revision);
-        Assert.Equal(first, service.GetOrCreateOidcAccountId("colleague", pending.Revision));
+        var first = service.GetOrCreateAccountId("customOidc", "issuer", "colleague",pending.Revision);
+        Assert.Equal(first, service.GetOrCreateAccountId("customOidc", "issuer", "colleague",pending.Revision));
         Assert.Throws<ValidationException>(() =>
-            service.GetOrCreateOidcAccountId("colleague", pending.Revision + 1));
+            service.GetOrCreateAccountId("customOidc", "issuer", "colleague",pending.Revision + 1));
     }
 
     [Fact]

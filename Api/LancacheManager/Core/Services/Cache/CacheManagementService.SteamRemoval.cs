@@ -68,22 +68,23 @@ public partial class CacheManagementService
                     .Where(CachedGameDetection => CachedGameDetection.GameAppId == gameAppId)
                     .ExecuteDeleteAsync();
                 _logger.LogInformation("[GameRemoval] Removed cached game detection entry for AppID: {AppId}", gameAppId);
-            }
 
-            // The prefill "Cached" badges are a record of what prefill put on disk for this app, so
-            // the removal that just deleted those files falsifies them. Left behind, the prefill
-            // game picker keeps calling the game cached and the daemon skips it on the next run.
-            // Same rule the cache clear follows in CacheClearingService, scoped to one app id.
-            var prefillDepotsDeleted = await dbContext.PrefillCachedDepots
-                .Where(depot => depot.AppId == gameAppId)
-                .ExecuteDeleteAsync();
-            var appId = gameAppId.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var prefillAppsDeleted = await dbContext.PrefillCachedApps
-                .Where(a => a.Platform == PrefillPlatform.Steam && a.AppId == appId).ExecuteDeleteAsync();
-            if (prefillDepotsDeleted + prefillAppsDeleted > 0)
-            {
-                _logger.LogInformation("[GameRemoval] Removed {Count} prefill cached-depot rows for AppID: {AppId}", prefillDepotsDeleted, gameAppId);
-                await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+                // The prefill "Cached" badges are a record of what prefill put on disk for this app, so
+                // the removal that just deleted those files falsifies them. Left behind, the prefill
+                // game picker keeps calling the game cached and the daemon skips it on the next run.
+                // Same rule the cache clear follows in CacheClearingService, scoped to one app id.
+                // A kept detection row means a cache still holds the game's files, so the prefill record of them stays true.
+                var prefillDepotsDeleted = await dbContext.PrefillCachedDepots
+                    .Where(depot => depot.AppId == gameAppId)
+                    .ExecuteDeleteAsync();
+                var appId = gameAppId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                var prefillAppsDeleted = await dbContext.PrefillCachedApps
+                    .Where(a => a.Platform == PrefillPlatform.Steam && a.AppId == appId).ExecuteDeleteAsync();
+                if (prefillDepotsDeleted + prefillAppsDeleted > 0)
+                {
+                    _logger.LogInformation("[GameRemoval] Removed {Count} prefill cached-depot rows for AppID: {AppId}", prefillDepotsDeleted, gameAppId);
+                    await _notifications.NotifyAllAsync(SignalREvents.PrefillCacheChanged);
+                }
             }
 
             if (!operationId.HasValue)

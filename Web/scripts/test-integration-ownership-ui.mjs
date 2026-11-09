@@ -99,6 +99,9 @@ const aliases = {
     'const handler={notifyError(){}};export const useErrorHandler=()=>handler;'
   ),
   './useReconnectRefetch': moduleUrl('export const useReconnectRefetch=()=>{};'),
+  './useEpicMappingRun': moduleUrl(
+    'const clear=()=>{};export const useEpicMappingRun=()=>({run:{phase:"none",percent:0,stageKey:null,context:null},clear});'
+  ),
   './loginAttemptTimeout': moduleUrl('export const STEAM_DEVICE_CONFIRMATION_TIMEOUT_MS=60000;'),
   '@contexts/useSteamWebApiStatus': moduleUrl(
     'const refresh=async()=>{};export const useSteamWebApiStatus=()=>({status:globalThis.integrationTest.keyStatus,error:globalThis.integrationTest.keyError,refresh});'
@@ -564,6 +567,82 @@ test('the Epic code form keeps Back usable while the status cannot be read', () 
   };
   assert.doesNotMatch(back({}), /disabled/);
   assert.match(back({ loading: true }), /disabled/);
+});
+
+test('the Epic setup step reads its ending from the mapping, and from the saved status only without one', () => {
+  const none = { phase: 'none', percent: 0, stageKey: null, context: null };
+  const render = (state, authStatus) => {
+    const Step = make('src/components/initialization/steps/EpicAuthStep.tsx', 'EpicAuthStep', {
+      ...renderBindings,
+      ProgressBar: () => null,
+      describeEpicMappingRun: (run) => (run.stageKey === null ? 'codeAccepted' : run.stageKey),
+      useEpicMappingAuth: () => ({
+        ...mappingStepValue({ canAuthenticate: true, accessUnavailable: false, ...state }, noop),
+        actions: { retryLogin: noop },
+        authStatus
+      })
+    });
+    return renderToStaticMarkup(React.createElement(Step, { onComplete: noop, onSkip: noop }));
+  };
+  const saved = { canManage: true, isAuthenticated: true };
+
+  // A mapping that ended failed is shown with Retry, also after a remount that still knows it.
+  const failed = render(
+    {
+      codeAccepted: true,
+      mapping: { ...none, phase: 'failed', stageKey: 'signalr.epicMapping.failed' }
+    },
+    { ...saved, lastCollectionUtc: null }
+  );
+  assert.match(failed, /signalr.epicMapping.mappingFailed/);
+  assert.match(failed, /common.retry/);
+  // A remount that knows no mapping: a saved sign-in whose answer has no collection time field is not done.
+  const missingTime = render({ mapping: none }, saved);
+  assert.match(missingTime, /signalr.epicMapping.mappingFailed/);
+  assert.match(missingTime, /common.retry/);
+  // The same remount with a collection time, and a mapping that ended with its done key, are done.
+  for (const done of [
+    render({ mapping: none }, { ...saved, lastCollectionUtc: '2026-01-01T00:00:00Z' }),
+    render(
+      {
+        codeAccepted: true,
+        mapping: { ...none, phase: 'done', stageKey: 'signalr.epicMapping.mappingDone' }
+      },
+      saved
+    )
+  ]) {
+    assert.doesNotMatch(done, /common.retry/);
+    assert.doesNotMatch(done, /signalr.epicMapping.mappingFailed/);
+  }
+});
+
+test('the Epic setup step reads no ending from a saved sign-in before the mapping status is known or once a new sign-in starts', () => {
+  const none = { phase: 'none', percent: 0, stageKey: null, context: null };
+  const render = (state) => {
+    const Step = make('src/components/initialization/steps/EpicAuthStep.tsx', 'EpicAuthStep', {
+      ...renderBindings,
+      ProgressBar: () => null,
+      describeEpicMappingRun: (run) => (run.stageKey === null ? 'codeAccepted' : run.stageKey),
+      useEpicMappingAuth: () => ({
+        ...mappingStepValue({ canAuthenticate: true, accessUnavailable: false, ...state }, noop),
+        actions: { retryLogin: noop },
+        authStatus: { canManage: true, isAuthenticated: true }
+      })
+    });
+    return renderToStaticMarkup(React.createElement(Step, { onComplete: noop, onSkip: noop }));
+  };
+
+  for (const markup of [
+    // The status read failed, so whether a mapping runs is not known.
+    render({ mapping: { ...none, phase: 'unknown' } }),
+    // Retry started a new sign-in: first the request for the link, then the code box.
+    render({ mapping: none, loading: true }),
+    render({ mapping: none, needsAuthorizationCode: true, authorizationUrl: 'u' })
+  ]) {
+    assert.doesNotMatch(markup, /signalr.epicMapping.mappingFailed/);
+    assert.doesNotMatch(markup, /common.retry/);
+    assert.doesNotMatch(markup, /initialization.epicAuth.success/);
+  }
 });
 
 test('Steam integration loading and changed identity render without a refusal reason', async () => {
@@ -1655,7 +1734,7 @@ test('Epic provider link and code input refuse accepted submissions', () => {
       })
     );
     assert.match(markup, /<button disabled=""[^>]*>[\s\S]*openEpicLogin/);
-    assert.match(markup, /<input[^>]*disabled=""/);
+    assert.doesNotMatch(markup, /<input[^>]*disabled=""/);
   }
 });
 
@@ -1673,7 +1752,8 @@ test('primary recovery keeps every integration modal submission enabled', async 
         onClose: () => events.push('closed')
       }
     )();
-    assert.deepEqual(events, [true, 'closed', false]);
+    // The Epic dialog stays open after an accepted code: it shows the mapping's progress, and the user closes it.
+    assert.deepEqual(events, platform === 'Epic' ? [true, false] : [true, 'closed', false]);
   }
 });
 

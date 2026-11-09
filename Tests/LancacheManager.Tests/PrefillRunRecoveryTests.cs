@@ -37,7 +37,7 @@ public sealed class PrefillRunRecoveryTests
         var original = await fixture.StartAsync("10", schedule);
         fixture.Client.Offline = true;
         fixture.Session.Recovering = true;
-        await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, original.PrefillRunId);
+        await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, original.PrefillRunId, true);
         fixture.Session.Runs.Clear();
         fixture.Client.Offline = false;
         await fixture.RefreshAsync();
@@ -59,7 +59,7 @@ public sealed class PrefillRunRecoveryTests
         var original = await fixture.StartAsync("10", Guid.NewGuid());
         fixture.Client.Offline = true;
         fixture.Session.Recovering = true;
-        await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, original.PrefillRunId, reason: "runtime-exceeded");
+        await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, original.PrefillRunId, true, reason: "runtime-exceeded");
         fixture.Session.Runs.Clear();
         fixture.Client.Offline = false;
         await fixture.RefreshAsync();
@@ -104,6 +104,7 @@ public sealed class PrefillRunRecoveryTests
     public async Task DisconnectedAdmissionAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
+        fixture.KeepContainersRunning(fixture.Session);
         var run = await fixture.StartAsync("10");
         fixture.Client.Offline = true;
         await fixture.RefreshAsync();

@@ -105,6 +105,13 @@ const SECTIONS = [
     defaultExpanded: false
   },
   {
+    label: 'cache settings',
+    path: 'src/components/features/management/cache/CacheSettings.tsx',
+    keyText: "'management-cache-settings-expanded'",
+    key: 'management-cache-settings-expanded',
+    defaultExpanded: true
+  },
+  {
     label: 'corruption',
     path: 'src/components/features/management/cache/CorruptionManager.tsx',
     keyText: "'management-corruption-expanded'",

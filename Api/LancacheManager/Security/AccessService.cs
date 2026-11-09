@@ -5,6 +5,7 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Security;
 
@@ -26,23 +27,83 @@ public sealed class AccessService
     private readonly StateService _stateService;
     private readonly IConfiguration _configuration;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
+    private readonly SignInEnvironment _environment;
 
     public AccessService(
         StateService stateService,
         IConfiguration configuration,
-        IDbContextFactory<AppDbContext> dbContextFactory)
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        ILogger<AccessService>? logger = null)
     {
         _stateService = stateService;
         _configuration = configuration;
         _dbContextFactory = dbContextFactory;
+        var log = (ILogger?)logger ?? NullLogger.Instance;
+        _environment = new SignInEnvironment(configuration, log);
+        if (_environment.Logins.Count == 0 && _environment.Mode is null)
+        {
+            return;
+        }
+
+        var access = _stateService.GetState().Access;
+        foreach (var (loginId, login) in _environment.Logins)
+        {
+            try
+            {
+                var stored = access.Logins.FirstOrDefault(settings =>
+                        string.Equals(settings.Id, loginId, StringComparison.Ordinal))
+                    ?? (string.Equals(access.Oidc?.Id, loginId, StringComparison.Ordinal) ? access.Oidc : null);
+                Validated(Merge(stored, login, _environment.Fields[loginId]));
+            }
+            catch (ValidationException ex)
+            {
+                log.LogError(
+                    "The {LoginId} sign-in service set by Security__ environment variables is incomplete and is not used: {Reason}",
+                    loginId,
+                    ex.Message);
+            }
+        }
+        if (_environment.Mode is AccountMode.Oidc or AccountMode.ApiKeyOidc && ActiveSettings(access).Count == 0)
+        {
+            log.LogError(
+                "Security__SignInMode is {Mode} but no sign-in service is complete; running as ApiKeyPassword",
+                _environment.Mode);
+        }
     }
 
     public AccountMode GetMode()
+        => GetMode(_stateService.GetState().Access);
+
+    /// <summary>
+    /// The account mode, the setup flag and whether <c>Security__SignInMode</c> decides the mode, all
+    /// computed from one state read. The environment flag is false when that variable is unset, unknown,
+    /// or an external sign-in mode that fell back to API key + password.
+    /// </summary>
+    public AccessModeState GetModeState()
     {
-        var mode = _stateService.GetState().Access.Mode;
-        if (mode.HasValue)
+        var access = _stateService.GetState().Access;
+        var mode = GetMode(access);
+        return new AccessModeState(
+            mode,
+            IsSetupRequired(access),
+            _environment.Mode is { } environmentMode && mode == environmentMode);
+    }
+
+    private AccountMode GetMode(AccessSettings access)
+    {
+        if (_environment.Mode is { } environmentMode)
         {
-            return mode.Value;
+            // An external sign-in mode with no usable sign-in service would lock everyone out, and
+            // turning sign-in off instead would open the server, so it runs as API key + password.
+            return environmentMode is AccountMode.Oidc or AccountMode.ApiKeyOidc
+                && ActiveSettings(access).Count == 0
+                    ? AccountMode.ApiKeyPassword
+                    : environmentMode;
+        }
+
+        if (access.Mode.HasValue)
+        {
+            return access.Mode.Value;
         }
 
         return _configuration.GetValue<bool>("Security:EnableAuthentication", true)
@@ -51,7 +112,15 @@ public sealed class AccessService
     }
 
     public bool IsSetupRequired()
-        => _stateService.GetState().Access.SetupVersion < AccessSettings.RequiredSetupVersion;
+        => IsSetupRequired(_stateService.GetState().Access);
+
+    private bool IsSetupRequired(AccessSettings access)
+    {
+        var mode = GetMode(access);
+        return !(_environment.Mode is { } environmentMode && mode == environmentMode
+                && mode is AccountMode.Password or AccountMode.ApiKeyPassword or AccountMode.Unauthenticated)
+            && access.SetupVersion < AccessSettings.RequiredSetupVersion;
+    }
 
     public bool IsAuthenticationEnabled()
         => GetMode() != AccountMode.Unauthenticated;
@@ -75,7 +144,8 @@ public sealed class AccessService
         => !IsSetupRequired() && GetMode() == AccountMode.Unauthenticated;
 
     public bool AllowsOwnerPassword(UserAccount? account)
-        => GetMode() == AccountMode.Unauthenticated && account?.IsMainAdmin == true;
+        => GetMode() is AccountMode.Unauthenticated or AccountMode.Oidc or AccountMode.ApiKeyOidc
+            && account?.IsMainAdmin == true;
 
     public bool HasPendingOidc()
         => _stateService.GetState().Access.PendingOidc is not null;
@@ -128,9 +198,32 @@ public sealed class AccessService
             {
                 Id = settings.Id,
                 Kind = settings.Kind,
-                DisplayName = settings.DisplayName
+                DisplayName = settings.DisplayName,
+                EnvironmentFields = _environment.Fields.TryGetValue(settings.Id, out var fields)
+                    ? fields.Order().ToList()
+                    : []
             })
             .ToList();
+
+    /// <summary>
+    /// The logins environment variables set that are not complete enough to use. The setup screen
+    /// still shows their environment-set fields read-only, because a save fills those from the
+    /// environment whatever the screen sends.
+    /// </summary>
+    public List<LoginServiceResponse> GetIncompleteLoginServices()
+    {
+        var active = ActiveSettings(_stateService.GetState().Access);
+        return _environment.Logins
+            .Where(entry => active.All(settings => !string.Equals(settings.Id, entry.Key, StringComparison.Ordinal)))
+            .Select(entry => new LoginServiceResponse
+            {
+                Id = entry.Key,
+                Kind = entry.Value.Kind,
+                DisplayName = entry.Value.DisplayName,
+                EnvironmentFields = _environment.Fields[entry.Key].Order().ToList()
+            })
+            .ToList();
+    }
 
     public List<string> GetOwnerLoginServices()
         => ActiveSettings(_stateService.GetState().Access)
@@ -138,27 +231,25 @@ public sealed class AccessService
             .Select(settings => settings.Id)
             .ToList();
 
-    public OidcSettings? GetOidcSettings(bool setup)
-    {
-        var access = _stateService.GetState().Access;
-        if (setup)
-        {
-            return access.PendingOidc?.Copy();
-        }
-
-        var active = ActiveSettings(access);
-        return (active.FirstOrDefault(settings => settings.Kind == LoginKind.CustomOidc)
-            ?? (active.Count == 1 ? active[0] : null))?.Copy();
-    }
-
     public OidcSettings? GetLoginSettings(string loginId, bool setup)
     {
         var access = _stateService.GetState().Access;
         if (setup)
         {
-            return access.PendingOidc is { } pending
-                && string.Equals(pending.Id, loginId, StringComparison.Ordinal)
-                ? pending.Copy()
+            if (access.PendingOidc is { } pending
+                && string.Equals(pending.Id, loginId, StringComparison.Ordinal))
+            {
+                return _environment.Logins.TryGetValue(loginId, out var login)
+                    ? Usable(Merge(pending, login, _environment.Fields[loginId]))
+                    : pending.Copy();
+            }
+
+            // With no pending login, the access step signs the owner in through a login the
+            // environment completes on its own.
+            return _environment.Logins.ContainsKey(loginId)
+                ? ActiveSettings(access)
+                    .FirstOrDefault(settings => string.Equals(settings.Id, loginId, StringComparison.Ordinal))
+                    ?.Copy()
                 : null;
         }
 
@@ -172,7 +263,15 @@ public sealed class AccessService
         var access = _stateService.GetState().Access;
         if (setup)
         {
-            return access.PendingOidc?.Id;
+            if (access.PendingOidc is { } pending)
+            {
+                return pending.Id;
+            }
+
+            var environmentLogins = ActiveSettings(access)
+                .Where(settings => _environment.Logins.ContainsKey(settings.Id))
+                .ToList();
+            return environmentLogins.Count == 1 ? environmentLogins[0].Id : null;
         }
 
         var active = ActiveSettings(access);
@@ -246,13 +345,23 @@ public sealed class AccessService
         return await context.UserAccounts.AnyAsync();
     }
 
-    public bool CanDeferOidcAccount(long revision)
+    public bool CanDeferOidcAccount(string loginId, long revision)
     {
         var state = _stateService.GetState();
-        return !state.SetupCompleted
-            && _configuration.GetValue<bool>("Runtime:DatabaseSetupPending")
-            && state.Access.PendingOidc is { OwnerAccountId: null } pending
-            && pending.Revision == revision;
+        if (state.SetupCompleted || !_configuration.GetValue<bool>("Runtime:DatabaseSetupPending"))
+        {
+            return false;
+        }
+
+        if (state.Access.PendingOidc is { } pending)
+        {
+            return pending.OwnerAccountId is null && pending.Revision == revision;
+        }
+
+        // With no pending login the owner signs in through a login the environment completes, and
+        // that sign-in waits for the database the same way.
+        return GetLoginSettings(loginId, setup: true) is { OwnerAccountId: null } login
+            && login.Revision == revision;
     }
 
     public async Task<bool> IsMainAdminAsync(UserSession? session)
@@ -268,6 +377,12 @@ public sealed class AccessService
 
     public AccessSetupResponse Apply(AccessSetupRequest request, Guid? ownerAccountId)
     {
+        // With no complete login the server runs API key + password until a login completes the
+        // environment mode, so only those two modes can be saved.
+        if (_environment.Mode is { } environmentMode && request.Mode != environmentMode && request.Mode != GetMode())
+        {
+            throw new ValidationException("Sign-in mode is set by environment variable");
+        }
         if (request.Mode == AccountMode.Unauthenticated && !request.AcknowledgeUnauthenticated)
         {
             throw new ValidationException("Unauthenticated access must be explicitly acknowledged");
@@ -281,17 +396,64 @@ public sealed class AccessService
             {
                 throw new ValidationException("Login service settings are only valid for an external sign-in mode");
             }
-            pending = ValidateLogin(loginRequest, ownerAccountId);
-        }
-        else if (request.Mode is AccountMode.Oidc or AccountMode.ApiKeyOidc
-            && ActiveSettings(_stateService.GetState().Access).Count == 0)
-        {
-            throw new ValidationException("At least one tested login service is required for this account mode");
+
+            var loginId = LoginId(loginRequest.Kind);
+            if (_environment.Logins.TryGetValue(loginId, out var login))
+            {
+                // Validated with the environment's values in place, stored without them: the
+                // environment fills them again on every read, and its secrets never reach disk.
+                var fields = _environment.Fields[loginId];
+                pending = Validated(Merge(new OidcSettings
+                {
+                    Id = loginId,
+                    Kind = loginRequest.Kind,
+                    Authority = loginRequest.Authority ?? string.Empty,
+                    ClientId = loginRequest.ClientId,
+                    ClientSecret = loginRequest.ClientSecret,
+                    DisplayName = loginRequest.DisplayName,
+                    Tenant = loginRequest.Tenant,
+                    TeamId = loginRequest.TeamId,
+                    KeyId = loginRequest.KeyId,
+                    PrivateKey = loginRequest.PrivateKey,
+                    AllowedSubjects = loginRequest.AllowedSubjects ?? [],
+                    OwnerAccountId = ownerAccountId
+                }, login, fields));
+                pending.OwnerIssuer = null;
+                pending.OwnerSubject = null;
+                foreach (var field in fields)
+                {
+                    switch (field)
+                    {
+                        case EnvironmentField.ClientId: pending.ClientId = string.Empty; break;
+                        case EnvironmentField.ClientSecret: pending.ClientSecret = null; break;
+                        case EnvironmentField.Authority: pending.Authority = string.Empty; break;
+                        case EnvironmentField.DisplayName: pending.DisplayName = string.Empty; break;
+                        case EnvironmentField.AllowedSubjects: pending.AllowedSubjects = []; break;
+                        case EnvironmentField.Tenant: pending.Tenant = null; break;
+                        case EnvironmentField.TeamId: pending.TeamId = null; break;
+                        case EnvironmentField.KeyId: pending.KeyId = null; break;
+                        case EnvironmentField.PrivateKey: pending.PrivateKey = null; break;
+                    }
+                }
+            }
+            else
+            {
+                pending = ValidateLogin(loginRequest, ownerAccountId);
+            }
         }
 
         var requiresLoginTest = pending is not null;
         _stateService.UpdateAccess(access =>
         {
+            // Counted under the same state lock as the mode write, so a login removed in another
+            // request cannot leave an external sign-in mode with no login service.
+            if (pending is null
+                && request.Mode is AccountMode.Oidc or AccountMode.ApiKeyOidc
+                && ActiveSettings(access).Count == 0)
+            {
+                throw new ValidationException("At least one tested login service is required for this account mode");
+            }
+
             var nextRevision = checked(access.Revision + 1);
             access.Revision = nextRevision;
 
@@ -356,15 +518,6 @@ public sealed class AccessService
         return owner || settings.AllowedSubjects.Contains(subject, StringComparer.Ordinal);
     }
 
-    public bool IdentityAllowed(long revision, bool setup, bool ownerOnly, string issuer, string subject)
-    {
-        var settings = setup
-            ? _stateService.GetState().Access.PendingOidc
-            : ActiveSettings(_stateService.GetState().Access).FirstOrDefault(item => item.Revision == revision);
-        return settings is not null
-            && IdentityAllowed(settings.Id, revision, setup, ownerOnly, issuer, subject);
-    }
-
     public bool PromotePendingLogin(
         string loginId,
         long revision,
@@ -376,6 +529,30 @@ public sealed class AccessService
         _stateService.UpdateAccess(access =>
         {
             var pending = access.PendingOidc;
+            if (pending is null
+                && ActiveSettings(access).FirstOrDefault(settings =>
+                    string.Equals(settings.Id, loginId, StringComparison.Ordinal)
+                    && _environment.Logins.ContainsKey(settings.Id)) is { } environmentLogin
+                && environmentLogin.Revision == revision)
+            {
+                // The owner signed in through a login the environment completes. Only the owner
+                // and the account links are stored; every setting stays in the environment.
+                var stored = access.Logins.FirstOrDefault(settings =>
+                    string.Equals(settings.Id, loginId, StringComparison.Ordinal));
+                if (stored is null)
+                {
+                    stored = SecretFreeLogin(environmentLogin);
+                    access.Logins.Add(stored);
+                }
+                stored.OwnerIssuer = issuer;
+                stored.OwnerSubject = subject;
+                stored.OwnerAccountId = ownerAccountId;
+                access.Mode = access.PendingMode ?? _environment.Mode ?? AccountMode.Oidc;
+                access.SetupVersion = AccessSettings.RequiredSetupVersion;
+                access.PendingMode = null;
+                promoted = true;
+                return;
+            }
             if (pending is null
                 || pending.Revision != revision
                 || !string.Equals(pending.Id, loginId, StringComparison.Ordinal))
@@ -418,28 +595,24 @@ public sealed class AccessService
             && PromotePendingLogin(loginId, revision, issuer, subject, ownerAccountId);
     }
 
-    public void SetOidcOwnerAccount(Guid accountId, long revision)
+    public void SetOidcOwnerAccount(string loginId, Guid accountId, long revision)
     {
         _stateService.UpdateAccess(access =>
         {
-            var settings = access.Logins.FirstOrDefault(candidate => candidate.Revision == revision);
+            var settings = access.Logins.FirstOrDefault(candidate =>
+                string.Equals(candidate.Id, loginId, StringComparison.Ordinal)
+                && candidate.Revision == revision);
             if (settings is not null)
             {
                 settings.OwnerAccountId = accountId;
             }
-            if (access.Oidc is { } legacy && legacy.Revision == revision)
+            if (access.Oidc is { } legacy
+                && string.Equals(legacy.Id, loginId, StringComparison.Ordinal)
+                && legacy.Revision == revision)
             {
                 legacy.OwnerAccountId = accountId;
             }
         });
-    }
-
-    public Guid GetOrCreateOidcAccountId(string subject, long revision)
-    {
-        var settings = ActiveSettings(_stateService.GetState().Access)
-            .FirstOrDefault(candidate => candidate.Revision == revision)
-            ?? throw new ValidationException("Login settings changed during sign-in");
-        return GetOrCreateAccountId(settings.Id, settings.OwnerIssuer ?? string.Empty, subject, revision);
     }
 
     public Guid GetOrCreateAccountId(string loginId, string issuer, string subject, long revision)
@@ -457,6 +630,18 @@ public sealed class AccessService
                 && legacy.Revision == revision)
             {
                 settings = legacy;
+            }
+            if (settings is null
+                && access.Logins.All(candidate => !string.Equals(candidate.Id, loginId, StringComparison.Ordinal))
+                && ActiveSettings(access).FirstOrDefault(candidate =>
+                    string.Equals(candidate.Id, loginId, StringComparison.Ordinal)
+                    && _environment.Logins.ContainsKey(candidate.Id)
+                    && candidate.Revision == revision) is { } environmentLogin)
+            {
+                // The first sign-in through a login only the environment holds: store its account
+                // links on a row that carries no setting.
+                settings = SecretFreeLogin(environmentLogin);
+                access.Logins.Add(settings);
             }
             if (settings is null)
             {
@@ -480,6 +665,11 @@ public sealed class AccessService
         var removed = false;
         _stateService.UpdateAccess(access =>
         {
+            if (_environment.Fields.ContainsKey(loginId))
+            {
+                throw new ConflictException("This login service is set by environment variables");
+            }
+
             var active = ActiveSettings(access);
             if (active.All(settings => !string.Equals(settings.Id, loginId, StringComparison.Ordinal)))
             {
@@ -549,6 +739,12 @@ public sealed class AccessService
 
                 var revision = checked(access.Revision + 1);
                 access.Revision = revision;
+                // An environment login's settings did not change, so a sign-in already started
+                // through it stays valid.
+                if (_environment.Logins.ContainsKey(id))
+                {
+                    continue;
+                }
                 foreach (var login in settings)
                 {
                     login.Revision = revision;
@@ -711,13 +907,13 @@ public sealed class AccessService
                 throw new ValidationException("Apple private key must use the P-256 curve");
             }
         }
-        catch (CryptographicException)
+        catch (Exception ex) when (ex is CryptographicException or ArgumentException)
         {
             throw new ValidationException("Apple private key is not a valid EC private key");
         }
     }
 
-    private static string LoginId(LoginKind kind)
+    internal static string LoginId(LoginKind kind)
         => kind switch
         {
             LoginKind.CustomOidc => "customOidc",
@@ -745,16 +941,166 @@ public sealed class AccessService
         return Convert.ToHexString(bytes);
     }
 
-    private static List<OidcSettings> ActiveSettings(AccessSettings access)
+    private List<OidcSettings> ActiveSettings(AccessSettings access)
     {
-        var active = (access.Logins ?? []).ToList();
+        var stored = (access.Logins ?? []).ToList();
         if (access.Oidc is { } legacy
-            && active.All(settings => settings.Kind != LoginKind.CustomOidc))
+            && stored.All(settings => settings.Kind != LoginKind.CustomOidc))
         {
             legacy.Id = "customOidc";
             legacy.Kind = LoginKind.CustomOidc;
-            active.Add(legacy);
+            stored.Add(legacy);
+        }
+
+        // A stored row is listed only while it is complete: one stripped of environment settings
+        // stays out once the environment no longer fills them.
+        var active = new List<OidcSettings>();
+        foreach (var settings in stored)
+        {
+            var usable = _environment.Logins.TryGetValue(settings.Id, out var login)
+                ? Usable(Merge(settings, login, _environment.Fields[settings.Id]))
+                : Usable(settings) is null ? null : settings;
+            if (usable is not null)
+            {
+                active.Add(usable);
+            }
+        }
+        foreach (var (loginId, login) in _environment.Logins)
+        {
+            if (stored.All(settings => !string.Equals(settings.Id, loginId, StringComparison.Ordinal))
+                && Usable(login.Copy()) is { } usable)
+            {
+                active.Add(usable);
+            }
         }
         return active;
     }
+
+    /// <summary>
+    /// True when an environment login's owner subject or subject allow list covers the account,
+    /// so deleting it would only let the next sign-in create it again.
+    /// </summary>
+    public bool IsAllowedByEnvironment(Guid accountId)
+    {
+        foreach (var settings in ActiveSettings(_stateService.GetState().Access))
+        {
+            if (!_environment.Fields.TryGetValue(settings.Id, out var fields))
+            {
+                continue;
+            }
+
+            var owner = fields.Contains(EnvironmentField.OwnerSubject);
+            if (owner && settings.OwnerAccountId == accountId)
+            {
+                return true;
+            }
+
+            var issuer = settings.OwnerIssuer ?? DefaultIssuer(settings);
+            var subjects = (fields.Contains(EnvironmentField.AllowedSubjects) ? settings.AllowedSubjects : [])
+                .Concat(owner && settings.OwnerSubject is { } ownerSubject ? [ownerSubject] : []);
+            if (subjects.Any(subject =>
+                    settings.AccountIds.TryGetValue(IdentityKey(issuer, subject), out var linked)
+                    && linked == accountId))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Starts from the stored row (or the environment row when nothing is stored) and puts every
+    /// environment-set field over it. A stored row keeps its own revision and account links.
+    /// </summary>
+    private static OidcSettings Merge(
+        OidcSettings? stored,
+        OidcSettings environment,
+        IReadOnlySet<EnvironmentField> fields)
+    {
+        var merged = (stored ?? environment).Copy();
+        foreach (var field in fields)
+        {
+            switch (field)
+            {
+                case EnvironmentField.ClientId: merged.ClientId = environment.ClientId; break;
+                case EnvironmentField.ClientSecret: merged.ClientSecret = environment.ClientSecret; break;
+                case EnvironmentField.Authority: merged.Authority = environment.Authority; break;
+                case EnvironmentField.DisplayName: merged.DisplayName = environment.DisplayName; break;
+                case EnvironmentField.AllowedSubjects: merged.AllowedSubjects = [.. environment.AllowedSubjects]; break;
+                case EnvironmentField.OwnerSubject: merged.OwnerSubject = environment.OwnerSubject; break;
+                case EnvironmentField.OwnerIssuer: merged.OwnerIssuer = environment.OwnerIssuer; break;
+                case EnvironmentField.Tenant: merged.Tenant = environment.Tenant; break;
+                case EnvironmentField.TeamId: merged.TeamId = environment.TeamId; break;
+                case EnvironmentField.KeyId: merged.KeyId = environment.KeyId; break;
+                case EnvironmentField.PrivateKey: merged.PrivateKey = environment.PrivateKey; break;
+            }
+        }
+        return merged;
+    }
+
+    /// <summary>
+    /// Runs a merged row through the same validation a saved login passes and returns the
+    /// normalized row with the merged owner, account links and revision. Throws
+    /// <see cref="ValidationException"/> when a required field is missing or invalid.
+    /// </summary>
+    private static OidcSettings Validated(OidcSettings merged)
+    {
+        var valid = ValidateLogin(
+            new LoginSetupRequest
+            {
+                Kind = merged.Kind,
+                ClientId = merged.ClientId,
+                ClientSecret = merged.ClientSecret ?? string.Empty,
+                DisplayName = merged.DisplayName,
+                Tenant = merged.Tenant,
+                Authority = merged.Authority,
+                TeamId = merged.TeamId,
+                KeyId = merged.KeyId,
+                PrivateKey = merged.PrivateKey,
+                AllowedSubjects = merged.AllowedSubjects
+            },
+            merged.OwnerAccountId);
+        valid.OwnerSubject = merged.OwnerSubject;
+        valid.OwnerIssuer = merged.OwnerIssuer
+            ?? (merged.OwnerSubject is null ? null : DefaultIssuer(valid));
+        valid.AccountIds = merged.AccountIds;
+        valid.Revision = merged.Revision;
+        return valid;
+    }
+
+    private static OidcSettings? Usable(OidcSettings merged)
+    {
+        try
+        {
+            return Validated(merged);
+        }
+        catch (ValidationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The stored half of a login whose settings all come from the environment: its id, kind,
+    /// revision and account links, and no secret.
+    /// </summary>
+    private static OidcSettings SecretFreeLogin(OidcSettings login)
+        => new()
+        {
+            Id = login.Id,
+            Kind = login.Kind,
+            DisplayName = string.Empty,
+            AccountIds = new Dictionary<string, Guid>(login.AccountIds, StringComparer.Ordinal),
+            IdentityVersion = 1,
+            Revision = login.Revision
+        };
+
+    /// <summary>
+    /// The issuer an identity from this login carries when no owner issuer is set. GitHub has no
+    /// authority; its sign-in handler uses this issuer.
+    /// </summary>
+    private static string DefaultIssuer(OidcSettings settings)
+        => settings.Kind == LoginKind.GitHub ? GitHubEvents.Issuer : settings.Authority;
 }
+
+public sealed record AccessModeState(AccountMode Mode, bool SetupRequired, bool ModeFromEnvironment);

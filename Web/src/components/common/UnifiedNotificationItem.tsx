@@ -357,16 +357,16 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
     const isWaiting = notification.status === 'waiting' && !notification.details?.cancelRequested;
 
     return (
-      <div className="background-task-control-row rounded text-sm text-themed-primary">
-        <span className="background-task-control-row__name">
-          {titleKey ? t(titleKey) : notification.message}
+      <div className="background-task-control-row rounded text-sm text-themed-secondary">
+        <span className="background-task-control-row__name text-themed-primary">
+          {titleKey && t(titleKey)}
           {notification.details?.service && (
             <span className="capitalize"> · {notification.details.service}</span>
           )}
           {notification.details?.gameName && <> · {notification.details.gameName}</>}
         </span>
         <span
-          className={`background-task-control-row__status text-xs text-themed-secondary${isWaiting ? '' : ' capitalize'}`}
+          className={`background-task-control-row__status text-sm text-themed-secondary${isWaiting ? '' : ' capitalize'}`}
           role="status"
         >
           {isWaiting
@@ -382,10 +382,9 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
           <Button
             type="button"
             onClick={() => onCancel(notification)}
-            variant="filled"
-            color="stop"
+            variant="transparent"
             size="sm"
-            className="background-task-control-row__cancel"
+            className="background-task-control-row__cancel text-themed-secondary delete-hover"
             loading={notification.details?.cancelPending}
             disabled={notification.details?.cancelRequested && !canForceStop}
             stableWidth

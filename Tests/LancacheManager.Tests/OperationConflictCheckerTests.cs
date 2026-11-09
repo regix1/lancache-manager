@@ -445,6 +445,47 @@ public class OperationConflictCheckerTests
         Assert.Equal("errors.conflict.overlappingEntity", removalResponse!.StageKey);
     }
 
+    // A detection writes back every game and service its cache walk found, and an eviction scan
+    // runs one first, so a removal that deletes a detection row in between would be undone.
+    [Theory]
+    [InlineData(OperationType.GameDetection)]
+    [InlineData(OperationType.EvictionScan)]
+    public async Task Detection_AndDetectionRowRemovals_WaitForEachOtherAsync(OperationType detectionType)
+    {
+        using (var activeDetection = new TrackerHarness())
+        {
+            RegisterBulkOperation(activeDetection.Tracker, detectionType, detectionType.ToString());
+            var gameResponse = await activeDetection.Checker.CheckAsync(
+                OperationType.GameRemoval,
+                ConflictScope.SteamGame(480),
+                CancellationToken.None);
+            var serviceResponse = await activeDetection.Checker.CheckAsync(
+                OperationType.ServiceRemoval,
+                ConflictScope.Service("steam"),
+                CancellationToken.None);
+            Assert.Equal("errors.conflict.overlappingEntity", gameResponse?.StageKey);
+            Assert.Equal("errors.conflict.overlappingEntity", serviceResponse?.StageKey);
+        }
+
+        using (var activeGameRemoval = new TrackerHarness())
+        {
+            RegisterNamedGameRemoval(activeGameRemoval.Tracker, service: "blizzard", gameName: "Diablo IV");
+            var response = await activeGameRemoval.Checker.CheckAsync(
+                detectionType,
+                ConflictScope.Bulk(),
+                CancellationToken.None);
+            Assert.Equal("errors.conflict.overlappingEntity", response?.StageKey);
+        }
+
+        using var activeServiceRemoval = new TrackerHarness();
+        RegisterServiceRemoval(activeServiceRemoval.Tracker, "steam");
+        var detectionResponse = await activeServiceRemoval.Checker.CheckAsync(
+            detectionType,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+        Assert.Equal("errors.conflict.overlappingEntity", detectionResponse?.StageKey);
+    }
+
     [Fact]
     public async Task Blocks_GameDetection_When_LogProcessing_IsActiveAsync()
     {

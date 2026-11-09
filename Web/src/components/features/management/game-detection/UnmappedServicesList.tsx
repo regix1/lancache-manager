@@ -57,8 +57,6 @@ const UnmappedServicesList: React.FC<UnmappedServicesListProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Names the scan these figures came from, so they are not read as the dashboard's
-          separately computed unmapped total. */}
       <p className="mgmt-scanmeta">{t('management.gameDetection.unmappedFromScan')}</p>
 
       <CacheEntityList<UnmappedService>

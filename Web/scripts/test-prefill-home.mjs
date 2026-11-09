@@ -153,6 +153,7 @@ test('the owner terminal callback returns to Start without replacement', () => {
   const ended = [];
   const state = [];
   const bindings = {
+    sessionRef: { current: { id: 'steam-session' } },
     addLog: () => undefined,
     t: (key) => key,
     setSession: (value) => state.push(['session', value]),
@@ -825,6 +826,7 @@ test('every reason a daemon or the manager stores on a failed run names a key fo
 test("the owner's log shows the stop reason through its key", () => {
   const logged = [];
   const ended = bindLifted(eventCallback('SessionEnded'), {
+    sessionRef: { current: { id: 's' } },
     addLog: (type, message) => logged.push([type, message]),
     t: (key, values) => (values ? `${key}(${values.reason})` : `${key}!`),
     setSession: () => undefined,
@@ -841,6 +843,28 @@ test("the owner's log shows the stop reason through its key", () => {
   assert.deepEqual(logged, [
     ['warning', 'prefill.log.sessionEnded(signalr.prefillSession.expired!)']
   ]);
+});
+
+test('an end notice for another session keeps the session this page holds', () => {
+  const logged = [];
+  const ended = [];
+  const onEnded = bindLifted(eventCallback('SessionEnded'), {
+    sessionRef: { current: { id: 'A' } },
+    addLog: (type, message) => logged.push([type, message]),
+    t: (key) => key,
+    endSession: () => ended.push('ended')
+  });
+  const notice = (sessionId) => ({
+    sessionId,
+    reason: 'User requested',
+    reasonKey: 'signalr.prefillSession.stopped'
+  });
+  onEnded(notice('B'));
+  assert.deepEqual(ended, []);
+  assert.deepEqual(logged, []);
+
+  onEnded(notice('A'));
+  assert.deepEqual(ended, ['ended']);
 });
 
 const olderSession = (overrides = {}) => ({

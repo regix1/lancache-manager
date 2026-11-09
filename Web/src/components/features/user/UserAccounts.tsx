@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { UserCog } from 'lucide-react';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
@@ -71,9 +72,15 @@ const UserAccounts: React.FC = () => {
   const shownEditor = useHeldValue(editor);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const scheduleReload = useTimeoutCallback(RELOAD_DEBOUNCE_MS);
   const accountsRequestRef = useRef(0);
+  // Account ids whose disable or enable request is out: a repeat click on that account is ignored,
+  // another account's click still sends.
+  const setDisabledInProgressRef = useRef(new Set<string>());
+  // True while the delete dialog's request is out, so a repeat confirm sends nothing.
+  const deleteInProgressRef = useRef(false);
 
   /**
    * @param firstLoad True for the load that fills an empty screen: it shows the loading state while
@@ -177,8 +184,11 @@ const UserAccounts: React.FC = () => {
   };
 
   const setDisabled = async (account: UserAccount, disabled: boolean) => {
+    if (setDisabledInProgressRef.current.has(account.id)) {
+      return;
+    }
+    setDisabledInProgressRef.current.add(account.id);
     try {
-      setBusyAccountId(account.id);
       const response = await fetch(
         `${API_BASE}/accounts/${account.id}/disabled`,
         ApiService.getJsonFetchOptions({ disabled }, { method: 'PUT' })
@@ -192,11 +202,15 @@ const UserAccounts: React.FC = () => {
         logLabel: 'Failed to change whether an account is disabled'
       });
     } finally {
-      setBusyAccountId(null);
+      setDisabledInProgressRef.current.delete(account.id);
     }
   };
 
   const runConfirmation = async (pending: AccountConfirmation) => {
+    if (deleteInProgressRef.current) {
+      return;
+    }
+    deleteInProgressRef.current = true;
     const { account } = pending;
     try {
       setBusyAccountId(account.id);
@@ -212,11 +226,15 @@ const UserAccounts: React.FC = () => {
 
       setConfirmation(null);
     } catch (err: unknown) {
+      // The open dialog shows the reason, so a popup would repeat it.
+      setDeleteError(getErrorMessage(err));
       notifyError(t('user.accounts.errors.delete'), err, {
+        silent: true,
         logLabel: 'Failed to delete an account'
       });
     } finally {
       setBusyAccountId(null);
+      deleteInProgressRef.current = false;
     }
   };
 
@@ -318,7 +336,6 @@ const UserAccounts: React.FC = () => {
         // The installation's own account refuses every one of these on the server. They stay shown
         // disabled so the protected row reads as deliberate rather than broken.
         const owner = account.isMainAdmin;
-        const busy = busyAccountId === account.id;
         // Deleting or disabling your own account ends your own sessions, and neither can be undone
         // by the person who did it. Renaming yourself and setting your own password stay open, so
         // Edit is not disabled here.
@@ -332,7 +349,7 @@ const UserAccounts: React.FC = () => {
             {(close) => (
               <>
                 <ActionMenuItem
-                  disabled={owner || busy}
+                  disabled={owner}
                   onClick={() => {
                     close();
                     setFormError(null);
@@ -346,7 +363,7 @@ const UserAccounts: React.FC = () => {
                   {t('common.edit')}
                 </ActionMenuItem>
                 <ActionMenuItem
-                  disabled={owner || yourself || busy}
+                  disabled={owner || yourself}
                   onClick={() => {
                     close();
                     setDisabled(account, !account.isDisabled);
@@ -358,9 +375,10 @@ const UserAccounts: React.FC = () => {
                 </ActionMenuItem>
                 <ActionMenuDivider />
                 <ActionMenuDangerItem
-                  disabled={owner || yourself || busy}
+                  disabled={owner || yourself}
                   onClick={() => {
                     close();
+                    setDeleteError(null);
                     setConfirmation({ account });
                   }}
                 >
@@ -533,11 +551,20 @@ const UserAccounts: React.FC = () => {
         confirmColor="red"
       >
         {shownConfirmation && (
-          <p className="text-sm text-themed-secondary">
-            {t('user.accounts.confirm.deleteBody', {
-              username: shownConfirmation.account.username
-            })}
-          </p>
+          <div className="space-y-4">
+            <p className="text-sm text-themed-secondary">
+              {t('user.accounts.confirm.deleteBody', {
+                username: shownConfirmation.account.username
+              })}
+            </p>
+            {deleteError && (
+              <div role="alert">
+                <Alert color="error" icon={null} title={t('user.accounts.errors.delete')}>
+                  {deleteError}
+                </Alert>
+              </div>
+            )}
+          </div>
         )}
       </ConfirmationModal>
     </>

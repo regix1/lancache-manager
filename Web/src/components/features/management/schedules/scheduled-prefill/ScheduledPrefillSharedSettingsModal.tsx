@@ -51,8 +51,10 @@ export function ScheduledPrefillSharedSettingsModal({
     mode: null
   });
   const dirty = useRef({ days: false, mode: false });
-  const revisions = useRef({ days: 0, mode: 0 });
+  const revisions = useRef({ days: 0, mode: 0, clear: 0 });
   const daysWrite = useRef({ serial: 0, pending: 0 });
+  // The last value typed in the days box, read when a write ends after an edit made during it.
+  const editedDays = useRef<number | null>(null);
   const modeWrite = useRef({ serial: 0, pending: 0 });
   const session = useRef({ opened, id: 0 });
   if (session.current.opened !== opened) session.current = { opened, id: session.current.id + 1 };
@@ -141,6 +143,9 @@ export function ScheduledPrefillSharedSettingsModal({
     if (saving || clearing) return;
     const opening = session.current.id;
     const current = () => session.current.opened && session.current.id === opening;
+    // A clear switched on or off while this save runs was never acted on, so it keeps the dialog
+    // open for the next Save.
+    const clearRevision = revisions.current.clear;
     // The logins are cleared first, while the confirm stays open with its own status; a failed
     // clear keeps the choice on and the dialog open so Save can retry it.
     let clearFailed = false;
@@ -190,7 +195,13 @@ export function ScheduledPrefillSharedSettingsModal({
           .then(() => {
             daysWrite.current.pending -= 1;
             daysWrite.current.serial += 1;
-            if (revisions.current.days !== daysRevision) return;
+            if (revisions.current.days !== daysRevision) {
+              // The server holds the sent days; a newer edit still needs a save unless it ended on
+              // them, also when it returned to the value the dialog opened with.
+              saved.current.days = days;
+              dirty.current.days = editedDays.current !== days;
+              return;
+            }
             saved.current.days = days;
             dirty.current.days = false;
             if (!current()) {
@@ -247,7 +258,13 @@ export function ScheduledPrefillSharedSettingsModal({
         notifyError(t(`${baseKey}.settings.saveError`, { error: message }));
       return;
     }
-    if (!dirty.current.days && !dirty.current.mode && !clearFailed) onClose();
+    if (
+      !dirty.current.days &&
+      !dirty.current.mode &&
+      !clearFailed &&
+      revisions.current.clear === clearRevision
+    )
+      onClose();
   };
   const modes: ScheduledPrefillPersistenceMode[] = [
     'killOnRestart',
@@ -295,10 +312,11 @@ export function ScheduledPrefillSharedSettingsModal({
                           value={days ?? PERSISTENT_PREFILL_VALIDITY_BOUNDS.min}
                           min={PERSISTENT_PREFILL_VALIDITY_BOUNDS.min}
                           max={PERSISTENT_PREFILL_VALIDITY_BOUNDS.max}
-                          disabled={days === null || saving}
+                          disabled={days === null}
                           onChange={(value) => {
                             if (typeof value !== 'number') return;
                             revisions.current.days += 1;
+                            editedDays.current = value;
                             setDays(value);
                             dirty.current.days = value !== saved.current.days;
                             setSaveErrors((previous) => ({ ...previous, days: undefined }));
@@ -408,8 +426,10 @@ export function ScheduledPrefillSharedSettingsModal({
                             }
                           ]}
                           value={clearPending ? 'true' : 'false'}
-                          onChange={(value) => setClearPending(value === 'true')}
-                          disabled={saving || clearing}
+                          onChange={(value) => {
+                            revisions.current.clear += 1;
+                            setClearPending(value === 'true');
+                          }}
                         />
                       </div>
                     </div>

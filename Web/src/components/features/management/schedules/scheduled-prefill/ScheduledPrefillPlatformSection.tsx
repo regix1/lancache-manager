@@ -14,7 +14,6 @@ import type { ScheduledPrefillSchedule, ScheduledPrefillServiceKey } from './typ
 interface ScheduledPrefillPlatformSectionProps {
   serviceKey: ScheduledPrefillServiceKey;
   config: ScheduledPrefillSchedule;
-  disabled: boolean;
   gameSelectionLoading: boolean;
   gameSelectionBlocked: 'login' | 'container' | null;
   onChange: (schedule: ScheduledPrefillSchedule) => void;
@@ -30,7 +29,7 @@ export function ScheduledPrefillPlatformSection({
 }: ScheduledPrefillPlatformSectionProps) {
   const { t } = useTranslation();
   const baseKey = 'management.schedules.services.scheduledPrefill.config';
-  const fieldsDisabled = props.disabled || !props.config.enabled;
+  const fieldsDisabled = !props.config.enabled;
   const fields = { ...props, disabled: fieldsDisabled };
   const selectGamesRef = useRef<HTMLSpanElement>(null);
   const selectGamesReasonId = `scheduled-prefill-select-games-reason-${props.serviceKey}`;

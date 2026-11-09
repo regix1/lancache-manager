@@ -20,6 +20,8 @@ public sealed class PrefillRun
     public Guid? ParentOperationId { get; set; }
     public required string OptionsJson { get; set; }
     public required string SnapshotJson { get; set; }
+    /// <summary>JSON array of the addresses the cache logs for this run's container.</summary>
+    public string? ClientAddressesJson { get; set; }
     public DateTime StartedAtUtc { get; set; }
     public DateTime? CompletedAtUtc { get; set; }
     [MaxLength(32)]

@@ -343,7 +343,7 @@ public class PersistentPrefillController : ControllerBase
         if (!session!.Runs.IsEmpty)
         {
             if (request.RunId.HasValue)
-                await daemon!.CancelPrefillRunAsync(session.Id, request.RunId.Value, cancellationToken);
+                await daemon!.CancelPrefillRunAsync(session.Id, request.RunId.Value, false, cancellationToken);
             else await daemon!.CancelPrefillAsync(session.Id, cancellationToken);
             return Ok();
         }
@@ -375,21 +375,25 @@ public class PersistentPrefillController : ControllerBase
             {
                 return Conflict(ApiResponse.Error("The requested prefill run is no longer active."));
             }
-
-            try
-            {
-                await daemon.CancelPrefillAsync(claimedSession!.Id, cancellationToken);
-            }
-            catch (Exception ex) when (ex is not ApiException
-                && (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested))
-            {
-                // A cancel that cannot find the session it was sent for is a failed daemon request, not
-                // the caller's own cancel or a disk fault.
-                _logger.LogWarning(ex, "Cancel-prefill failed for persistent session {SessionId}", claimedSession!.Id);
-                throw new DaemonCommandException();
-            }
-            return Ok();
         }
+
+        // Sent after the gate is released: a Start that added its run after the check above holds that run's work
+        // while it waits for this gate, so cancelling it under the gate would leave both waiting on each other.
+        try
+        {
+            if (request.RunId.HasValue)
+                await daemon.CancelPrefillRunAsync(session.Id, request.RunId.Value, false, cancellationToken);
+            else await daemon.CancelPrefillAsync(session.Id, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not ApiException
+            && (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested))
+        {
+            // A cancel that cannot find the session it was sent for is a failed daemon request, not
+            // the caller's own cancel or a disk fault.
+            _logger.LogWarning(ex, "Cancel-prefill failed for persistent session {SessionId}", session.Id);
+            throw new DaemonCommandException();
+        }
+        return Ok();
     }
 
     [HttpGet("runs")]

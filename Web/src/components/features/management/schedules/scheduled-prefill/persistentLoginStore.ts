@@ -54,7 +54,12 @@ interface PersistentLoginStoreState {
    * account keeps its real status. Cleared by a reset and when a new attempt starts.
    */
   endReason: 'timedOut' | 'cancelFailed' | null;
+  /** What the server says this Log in waits for before it starts; null when it waits for nothing. */
+  loginWaitKey: PersistentLoginWaitKey | null;
 }
+
+/** The i18n keys the server sends while a person's Log in waits before it starts. */
+export type PersistentLoginWaitKey = 'prefill.persistent.finishingSavedSignIn';
 
 interface PersistentChallengeFlags {
   needsTwoFactor: boolean;
@@ -101,7 +106,8 @@ const INITIAL_PERSISTENT_LOGIN_STATE: PersistentLoginStoreState = {
   loginId: null,
   loginDeadline: null,
   step: null,
-  endReason: null
+  endReason: null,
+  loginWaitKey: null
 };
 
 /**
@@ -605,12 +611,13 @@ if (typeof window !== 'undefined') {
  * challenge and rethrows when its own daemon call fails, so a failed cancel leaves a live login
  * nobody is watching. Callers that a person is waiting on - Logout in particular - use the false to
  * say so instead of reporting a clean logout. The others ignore it, which is why this returns rather
- * than throws.
+ * than throws. `onRefused` receives the failure, so a caller can show the reason the server named.
  */
 export async function endPersistentLogin(
   service: PersistentPrefillServiceId,
   fallbackSessionId?: string | null,
-  stopReason?: string
+  stopReason?: string,
+  onRefused?: (error: unknown) => void
 ): Promise<boolean> {
   const current = getPersistentLoginState(service);
   const sessionId = current.sessionId ?? fallbackSessionId;
@@ -629,7 +636,10 @@ export async function endPersistentLogin(
     : ApiService.cancelPersistentLogin(service, sessionId, identity);
   const ended = await cancel.then(
     () => true,
-    () => false
+    (error: unknown) => {
+      onRefused?.(error);
+      return false;
+    }
   );
   const remaining = cancelingLogins.get(service)! - 1;
   if (remaining === 0) cancelingLogins.delete(service);

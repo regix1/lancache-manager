@@ -45,8 +45,14 @@ import { useKnownClientIps } from '@/hooks/useKnownClientIps';
 import { Users, EyeOff, Trash2, Edit2, ChevronDown, Network } from 'lucide-react';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
+import { PERSISTENT_PREFILL_SERVICES } from '@components/features/prefill/persistentPrefillConstants';
 import type { SignalREventName } from '@contexts/SignalRContext/types';
-import type { ClientGroup, ClientExclusionRule, ClientExclusionMode } from '../../../../types';
+import type {
+  ClientGroup,
+  ClientExclusionRule,
+  ClientExclusionMode,
+  ClientExclusionTraffic
+} from '../../../../types';
 import '../managementSectionContent.css';
 import './ClientsSection.css';
 
@@ -59,6 +65,37 @@ interface HostnameForm {
   dockerLookup: boolean;
   resolver: string;
 }
+
+// Rows are keyed by a number of their own: a key built from the rule changes on every edit, which
+// remounts the row and closes the service picker after each pick, and two rows edited to the same
+// rule would share it.
+type ExclusionDraftRow = ClientExclusionRule & { rowId: number };
+
+// The server's rule key, field for field (mode, traffic, address, services sorted and joined with
+// ','), so a list the server deduped compares equal to the one that was sent.
+const ruleKey = (rule: ClientExclusionRule): string =>
+  [rule.mode, rule.traffic, rule.ip, [...rule.services].sort().join(',')].join('|');
+
+// Each incoming rule takes the number of the first unclaimed row holding the same rule, so a reload
+// or a save answer that repeats a rule leaves its row mounted.
+const assignRowIds = (
+  rules: ClientExclusionRule[],
+  current: ExclusionDraftRow[],
+  nextRowIdRef: React.RefObject<number>
+): ExclusionDraftRow[] => {
+  const claimed = new Set<number>();
+  return rules.map((rule: ClientExclusionRule): ExclusionDraftRow => {
+    const key = ruleKey(rule);
+    const match = current.find(
+      (row: ExclusionDraftRow) => !claimed.has(row.rowId) && ruleKey(row) === key
+    );
+    if (match) {
+      claimed.add(match.rowId);
+      return { ...rule, rowId: match.rowId };
+    }
+    return { ...rule, rowId: ++nextRowIdRef.current };
+  });
+};
 
 // The form field each switch writes, and the string that names it on screen.
 const HOSTNAME_SWITCHES = [
@@ -130,6 +167,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     setHostnamesExpanded((prev) => !prev)
   );
   const [savingHostnames, setSavingHostnames] = useState(false);
+  const savingHostnamesRef = useRef(false);
   const [hostnameForm, setHostnameForm] = useState<HostnameForm>({
     enabled: false,
     guestAccess: false,
@@ -137,6 +175,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     dockerLookup: true,
     resolver: ''
   });
+  // The stored values the form was last seeded from. It starts as the form's own first state, so
+  // every field still matches it and the first stored values fill the whole form.
+  const seededHostnamesRef = useRef<HostnameForm>(hostnameForm);
 
   // ALL client IPs without time filtering - management sections should not be affected by time
   // filters - kept current as client groups change.
@@ -157,7 +198,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     refreshKnownClientIps();
   }, [knownClientsVisible, refreshKnownClientIps]);
 
-  const [excludedRules, setExcludedRules] = useState<ClientExclusionRule[]>([]);
+  const [excludedRules, setExcludedRules] = useState<ExclusionDraftRow[]>([]);
   const [savedExcludedRules, setSavedExcludedRules] = useState<ClientExclusionRule[]>([]);
   const [excludeInput, setExcludeInput] = useState('');
   const [selectedKnownIps, setSelectedKnownIps] = useState<string[]>([]);
@@ -165,12 +206,11 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   const [excludedLoadError, setExcludedLoadError] = useState<string | null>(null);
   const [savingExcluded, setSavingExcluded] = useState(false);
 
+  // Sorted by the whole rule, so the same rules in another order compare equal: two rules for one
+  // address would otherwise keep their order under an address sort, and removing and re-adding one
+  // would read as an unsaved change that holds off every reload.
   const serializeRules = useCallback(
-    (rules: ClientExclusionRule[]) =>
-      [...rules]
-        .sort((a, b) => a.ip.localeCompare(b.ip))
-        .map((rule) => `${rule.ip}:${rule.mode}`)
-        .join('|'),
+    (rules: ClientExclusionRule[]) => rules.map(ruleKey).sort().join('|'),
     []
   );
 
@@ -183,8 +223,15 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   // reply lands, not what was on screen when the request went out.
   const hasExcludedChangesRef = useRef(hasExcludedChanges);
   hasExcludedChangesRef.current = hasExcludedChanges;
+  const excludedRulesRef = useRef(excludedRules);
+  excludedRulesRef.current = excludedRules;
+  const nextRowIdRef = useRef(0);
   // Mount, reconnect, the exclusion event and Retry can each start a read; only the newest writes.
   const excludedRequestRef = useRef(0);
+  // A read that lands while a save runs, or that began before one, holds a list older than the
+  // save's answer, so it never becomes the draft the answer is compared with.
+  const savingExcludedRef = useRef(false);
+  const savesStartedRef = useRef(0);
 
   const loadExcludedIps = useCallback(
     async (showLoading: boolean) => {
@@ -193,6 +240,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       // rather than showing a real machine's hidden clients.
       if (mockMode) return;
       const request = ++excludedRequestRef.current;
+      const savesAtStart = savesStartedRef.current;
       if (showLoading) setLoadingExcluded(true);
       try {
         const response = await ApiService.getStatsExclusions();
@@ -201,8 +249,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
         // A reply is a whole request old, and the user can have started editing inside that window.
         // What they typed is what they can see, so the server's copy waits for their next save.
         if (hasExcludedChangesRef.current) return;
+        if (savingExcludedRef.current || savesStartedRef.current !== savesAtStart) return;
         const rules = response.rules;
-        setExcludedRules(rules);
+        setExcludedRules(assignRowIds(rules, excludedRulesRef.current, nextRowIdRef));
         setSavedExcludedRules(rules);
       } catch (err) {
         if (request !== excludedRequestRef.current) return;
@@ -225,7 +274,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   // back over the new. A draft is never replaced, and a background reload never raises the loading
   // flag, so it neither blanks the list nor disables the controls the user is holding.
   const reloadExclusions = useCallback(() => {
-    if (hasExcludedChangesRef.current) return;
+    if (hasExcludedChangesRef.current || savingExcludedRef.current) return;
     void loadExcludedIps(false);
   }, [loadExcludedIps]);
 
@@ -252,15 +301,27 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   // New entries default to stats-only exclusion (visible, omitted from calculations).
   const DEFAULT_EXCLUSION_MODE: ClientExclusionMode = 'exclude';
 
-  const addRules = useCallback((ips: string[]) => {
+  // One row per address and traffic, whatever its mode: a second would repeat the first. Every add
+  // starts with no services, so a row that narrows by service is a different rule.
+  const addRules = useCallback((ips: string[], traffic: ClientExclusionTraffic) => {
     setExcludedRules((prev) => {
-      const existing = new Set(prev.map((rule) => rule.ip));
       const next = [...prev];
       for (const ip of ips) {
-        if (!existing.has(ip)) {
-          next.push({ ip, mode: DEFAULT_EXCLUSION_MODE });
-          existing.add(ip);
+        if (
+          next.some(
+            (rule: ExclusionDraftRow) =>
+              rule.traffic === traffic && rule.ip === ip && rule.services.length === 0
+          )
+        ) {
+          continue;
         }
+        next.push({
+          ip,
+          mode: DEFAULT_EXCLUSION_MODE,
+          traffic,
+          services: [],
+          rowId: ++nextRowIdRef.current
+        });
       }
       return next;
     });
@@ -272,38 +333,82 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
 
     if (validCandidates.length === 0) return;
 
-    addRules(validCandidates);
+    addRules(validCandidates, 'all');
     setExcludeInput('');
   };
 
   const handleAddKnownIps = () => {
     if (selectedKnownIps.length === 0) return;
-    addRules(selectedKnownIps);
+    addRules(selectedKnownIps, 'all');
     setSelectedKnownIps([]);
   };
 
-  const handleRemoveExcluded = (ip: string) => {
-    setExcludedRules((prev) => prev.filter((rule) => rule.ip !== ip));
+  const handleRemoveExcluded = (rowId: number) => {
+    setExcludedRules((prev) => prev.filter((rule) => rule.rowId !== rowId));
   };
 
-  const handleChangeMode = (ip: string, mode: ClientExclusionMode) => {
-    setExcludedRules((prev) => prev.map((rule) => (rule.ip === ip ? { ...rule, mode } : rule)));
+  const handleChangeMode = (rowId: number, mode: ClientExclusionMode) => {
+    setExcludedRules((prev) =>
+      prev.map((rule) => (rule.rowId === rowId ? { ...rule, mode } : rule))
+    );
+  };
+
+  // Only a prefill rule narrows by service, so a rule moved to all traffic drops its picks.
+  const handleChangeTraffic = (rowId: number, traffic: ClientExclusionTraffic) => {
+    setExcludedRules((prev) =>
+      prev.map((rule) =>
+        rule.rowId === rowId
+          ? { ...rule, traffic, services: traffic === 'all' ? [] : rule.services }
+          : rule
+      )
+    );
+  };
+
+  const handleChangeServices = (rowId: number, values: string[]) => {
+    const services = PERSISTENT_PREFILL_SERVICES.filter((item) =>
+      values.includes(item.service)
+    ).map((item) => item.service);
+    setExcludedRules((prev) =>
+      prev.map((rule) => (rule.rowId === rowId ? { ...rule, services } : rule))
+    );
   };
 
   const handleSaveExcluded = async () => {
+    if (savingExcludedRef.current) return;
+    savingExcludedRef.current = true;
+    ++savesStartedRef.current;
     setSavingExcluded(true);
+    const sentDraft = excludedRules;
+    // Two rows edited to the same rule are one rule to the server.
+    const request = new Map<string, ClientExclusionRule>();
+    for (const row of sentDraft) {
+      const rule: ClientExclusionRule = {
+        ip: row.ip,
+        mode: row.mode,
+        traffic: row.traffic,
+        services: row.services
+      };
+      request.set(ruleKey(rule), rule);
+    }
     try {
-      const response = await ApiService.updateStatsExclusionRules(excludedRules);
+      const response = await ApiService.updateStatsExclusionRules([...request.values()]);
       const rules = response.rules;
-      setExcludedRules(rules);
       setSavedExcludedRules(rules);
+      // An edit made while the request ran is newer than the answer, so it stays on the card and
+      // shows as unsaved.
+      if (serializeRules(excludedRulesRef.current) === serializeRules(sentDraft)) {
+        setExcludedRules(assignRowIds(rules, excludedRulesRef.current, nextRowIdRef));
+      }
       onSuccess(t('management.sections.clients.excludedIpsUpdated'));
       await refreshStats(true);
       await refreshDownloads();
     } catch (err) {
       onError(t('management.sections.clients.errors.failedToUpdateExcluded'), err);
     } finally {
+      savingExcludedRef.current = false;
       setSavingExcluded(false);
+      // Reloads were held off while the save ran; this one declines on its own while edits wait.
+      reloadExclusions();
     }
   };
 
@@ -316,7 +421,10 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       .map((ip) => {
         const nickname = getGroupForIp(ip)?.nickname;
         const { text, substitutesAddress } = resolveClientLabel(ip, nickname, getHostnameForIp(ip));
-        const excludedMode = excludedRules.find((rule) => rule.ip === ip)?.mode;
+        // A prefill rule hides only part of an address's traffic, so the address stays pickable.
+        const excludedMode = excludedRules.find(
+          (rule) => rule.traffic === 'all' && rule.ip === ip
+        )?.mode;
         return {
           value: ip,
           label: substitutesAddress ? `${text} (${ip})` : ip,
@@ -464,15 +572,28 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   }, [isModalOpen, editingGroupId, clientGroups, handleModalClose, onError, t]);
 
   // The stored values arrive after the first render, so the form is seeded once they do and
-  // follows any later change, including one made from another browser.
+  // follows any later change, including one made from another browser. Only a field the user has
+  // not edited moves: typing survives the push, and an untouched field takes the new value instead
+  // of Save writing the old one back, since Save sends every field.
   useEffect(() => {
-    setHostnameForm({
+    const stored: HostnameForm = {
       enabled: hostnamesEnabled,
       guestAccess: hostnameSettings.guestAccess,
       routerLookup: hostnameSettings.routerLookup,
       dockerLookup: hostnameSettings.dockerLookup,
       resolver: hostnameSettings.resolver ?? ''
-    });
+    };
+    const seeded = seededHostnamesRef.current;
+    seededHostnamesRef.current = stored;
+    setHostnameForm((form) => ({
+      enabled: form.enabled === seeded.enabled ? stored.enabled : form.enabled,
+      guestAccess: form.guestAccess === seeded.guestAccess ? stored.guestAccess : form.guestAccess,
+      routerLookup:
+        form.routerLookup === seeded.routerLookup ? stored.routerLookup : form.routerLookup,
+      dockerLookup:
+        form.dockerLookup === seeded.dockerLookup ? stored.dockerLookup : form.dockerLookup,
+      resolver: form.resolver === seeded.resolver ? stored.resolver : form.resolver
+    }));
   }, [hostnamesEnabled, hostnameSettings]);
 
   // Nothing is written until Save, so the panel needs to know whether anything is waiting.
@@ -486,6 +607,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   // Written on demand rather than on every keystroke: the address is only usable once it is whole,
   // and each save clears every remembered name and re-asks the network.
   const handleHostnamesSave = useCallback(async () => {
+    if (savingHostnamesRef.current) return;
+    savingHostnamesRef.current = true;
     setSavingHostnames(true);
     try {
       // The servers to ask are written before the lookup is switched on, so the first queries the
@@ -503,6 +626,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     } catch (err: unknown) {
       onError(t('management.sections.clients.hostnames.saveFailed'), err);
     } finally {
+      savingHostnamesRef.current = false;
       setSavingHostnames(false);
     }
   }, [
@@ -885,9 +1009,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       placeholder={t('management.sections.clients.selectClients')}
                       minSelections={0}
                       searchable
-                      disabled={
-                        loadingExcluded || savingExcluded || knownClientOptions.length === 0
-                      }
+                      disabled={loadingExcluded || knownClientOptions.length === 0}
                       className="w-full"
                     />
                     <Button
@@ -895,7 +1017,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       variant="filled"
                       color="secondary"
                       className="sm:w-40"
-                      disabled={selectedKnownIps.length === 0 || loadingExcluded || savingExcluded}
+                      disabled={selectedKnownIps.length === 0 || loadingExcluded}
                     >
                       {t('management.sections.clients.addSelected')}
                     </Button>
@@ -915,7 +1037,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       onChange={(e) => setExcludeInput(e.target.value)}
                       placeholder={t('management.sections.clients.addIpsPlaceholder')}
                       className="themed-input control-h-md w-full px-3 text-sm transition-colors"
-                      disabled={loadingExcluded || savingExcluded}
+                      disabled={loadingExcluded}
                     />
                     <Button
                       onClick={handleAddExcluded}
@@ -924,7 +1046,6 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       className="sm:w-40"
                       disabled={
                         loadingExcluded ||
-                        savingExcluded ||
                         excludeInput.trim().length === 0 ||
                         invalidInputIps.length > 0
                       }
@@ -946,6 +1067,22 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       </span>
                     </Alert>
                   )}
+
+                  {/* A rule with no address covers prefill traffic from every client. */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <p className="text-xs text-themed-muted">
+                      {t('management.sections.clients.prefillNatLimit')}
+                    </p>
+                    <Button
+                      onClick={() => addRules([''], 'prefill')}
+                      variant="filled"
+                      color="secondary"
+                      className="sm:w-40 flex-shrink-0"
+                      disabled={loadingExcluded}
+                    >
+                      {t('management.sections.clients.addPrefillRule')}
+                    </Button>
+                  </div>
                 </div>
 
                 {excludedLoadError && (
@@ -972,32 +1109,80 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                 ) : (
                   <div className="mgmt-list divided-list">
                     {excludedRules.map((rule) => (
-                      <div key={rule.ip} className="mgmt-row clients-exclusion-row flex-wrap">
+                      <div key={rule.rowId} className="mgmt-row clients-exclusion-row flex-wrap">
                         <div className="mgmt-row__body">
-                          <div className="mgmt-row__title font-mono">
-                            <ClientIpDisplay clientIp={rule.ip} showTooltip={false} />
-                          </div>
+                          {rule.ip === '' ? (
+                            <div className="mgmt-row__title">
+                              {t('management.sections.clients.anyAddress')}
+                            </div>
+                          ) : (
+                            <div className="mgmt-row__title font-mono">
+                              <ClientIpDisplay clientIp={rule.ip} showTooltip={false} />
+                            </div>
+                          )}
                         </div>
                         <div className="mgmt-row__actions">
+                          {rule.traffic === 'prefill' && (
+                            <MultiSelectDropdown
+                              options={PERSISTENT_PREFILL_SERVICES.map((item) => ({
+                                value: item.service,
+                                label: t(`errors.prefill.serviceNames.${item.service}`)
+                              }))}
+                              values={rule.services}
+                              onChange={(values: string[]) =>
+                                handleChangeServices(rule.rowId, values)
+                              }
+                              placeholder={t('management.sections.clients.allServices')}
+                              title={t('management.sections.clients.servicesLabel')}
+                              minSelections={0}
+                              className="w-44"
+                            />
+                          )}
+                          <div
+                            role="group"
+                            aria-label={t('management.sections.clients.trafficLabel')}
+                          >
+                            <SegmentedControl
+                              size="sm"
+                              showLabels
+                              value={rule.traffic}
+                              onChange={(traffic: string) =>
+                                handleChangeTraffic(
+                                  rule.rowId,
+                                  traffic === 'prefill' ? 'prefill' : 'all'
+                                )
+                              }
+                              options={[
+                                {
+                                  value: 'all',
+                                  label: t('management.sections.clients.trafficAll'),
+                                  // The server refuses an all-traffic rule with no address.
+                                  disabled: rule.ip === ''
+                                },
+                                {
+                                  value: 'prefill',
+                                  label: t('management.sections.clients.trafficPrefill')
+                                }
+                              ]}
+                            />
+                          </div>
                           <SegmentedControl
                             size="sm"
                             showLabels
                             value={rule.mode}
                             onChange={(mode: string) =>
-                              handleChangeMode(rule.ip, mode === 'hide' ? 'hide' : 'exclude')
+                              handleChangeMode(rule.rowId, mode === 'hide' ? 'hide' : 'exclude')
                             }
                             options={[
                               {
                                 value: 'exclude',
                                 label: t('management.sections.clients.modeExclude'),
-                                tooltip: t('management.sections.clients.modeExcludeTooltip'),
-                                disabled: savingExcluded
+                                tooltip: t('management.sections.clients.modeExcludeTooltip')
                               },
                               {
                                 value: 'hide',
                                 label: t('management.sections.clients.modeHide'),
-                                tooltip: t('management.sections.clients.modeHideTooltip'),
-                                disabled: savingExcluded
+                                tooltip: t('management.sections.clients.modeHideTooltip')
                               }
                             ]}
                           />
@@ -1007,8 +1192,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                               color="secondary"
                               size="sm"
                               className="btn-icon-square btn-icon-square--sm delete-hover pointer-target-44"
-                              onClick={() => handleRemoveExcluded(rule.ip)}
-                              disabled={savingExcluded}
+                              onClick={() => handleRemoveExcluded(rule.rowId)}
                               aria-label={t('management.sections.clients.removeIp')}
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1100,7 +1284,6 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     }
                     label={t(`management.sections.clients.hostnames.${label}Label`)}
                     description={t(`management.sections.clients.hostnames.${label}Description`)}
-                    disabled={savingHostnames}
                   />
                 ))}
                 <div className="space-y-2 py-2">
@@ -1119,7 +1302,6 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     }
                     placeholder={t('management.sections.clients.hostnames.resolverPlaceholder')}
                     className="themed-input control-h-md w-full px-3 text-sm transition-colors"
-                    disabled={savingHostnames}
                     aria-label={t('management.sections.clients.hostnames.resolverLabel')}
                   />
                 </div>

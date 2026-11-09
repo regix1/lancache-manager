@@ -221,7 +221,8 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     }
 
     /// <summary>
-    /// Starts the login process.
+    /// Starts the login process. A page still open from the previous version calls this; current pages call
+    /// <see cref="BeginLoginAsync"/>.
     /// </summary>
     public async Task<CredentialChallenge?> StartLoginAsync(string sessionId)
     {
@@ -229,6 +230,28 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
 
         _logger.LogInformation("Starting login for {Hub} session {SessionId}", HubDisplayName, sessionId);
         return await _daemonService.StartLoginAsync(sessionId, TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>
+    /// Starts the login process and answers the first challenge, or the key and values of the refusal.
+    /// </summary>
+    public async Task<StartLoginResult> BeginLoginAsync(string sessionId)
+    {
+        ValidateSessionAccess(sessionId, out _);
+
+        _logger.LogInformation("Starting login for {Hub} session {SessionId}", HubDisplayName, sessionId);
+        try
+        {
+            return new StartLoginResult { Challenge = await _daemonService.StartLoginAsync(sessionId, TimeSpan.FromSeconds(30)) };
+        }
+        // A hub error carries only a sentence, so a keyed refusal is answered with its key and values for the
+        // guest's own language.
+        catch (ApiException ex) when (ex.StageKey is not null)
+        {
+            _logger.LogWarning("Login refused for {Hub} session {SessionId}: {Message}",
+                HubDisplayName, sessionId, ex.Message);
+            return new StartLoginResult { StageKey = ex.StageKey, Context = ex.Context };
+        }
     }
 
     /// <summary>
@@ -290,7 +313,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     public async Task CancelPrefillRunAsync(string sessionId, Guid runId)
     {
         ValidateSessionAccess(sessionId, out _);
-        await _daemonService.CancelPrefillRunAsync(sessionId, runId);
+        await _daemonService.CancelPrefillRunAsync(sessionId, runId, false);
     }
 
     public IReadOnlyList<DaemonRunStatus> GetPrefillRuns(string sessionId)

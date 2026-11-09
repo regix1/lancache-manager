@@ -92,10 +92,12 @@ export function registerPrefillEventHandlers(
     setIsLoggedIn(session.authState === 'Authenticated');
   });
 
-  // Handle session ended (sent to session owner)
+  // Handle session ended (sent to session owner). A connection can still be subscribed to a session
+  // whose stop is being retried after this tab moved on, so only the held session's notice ends it.
   connection.on(
     getEventName('SessionEnded', serviceId),
-    ({ reasonKey }: { sessionId: string; reasonKey: string }) => {
+    ({ sessionId, reasonKey }: { sessionId: string; reasonKey: string }) => {
+      if (sessionId !== sessionRef.current?.id) return;
       addLog('warning', t('prefill.log.sessionEnded', { reason: t(reasonKey) }));
       endSession();
     }

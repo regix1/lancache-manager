@@ -26,7 +26,14 @@ import './user-settings.css';
  */
 const SignInMethodCard: React.FC = () => {
   const { t } = useTranslation();
-  const { isMainAdmin, authenticationEnabled, accountMode, loginServices, refreshAuth } = useAuth();
+  const {
+    isMainAdmin,
+    authenticationEnabled,
+    accountMode,
+    signInModeFromEnvironment,
+    loginServices,
+    refreshAuth
+  } = useAuth();
   const [expanded, setExpanded] = useState(false);
   useAccordionGroupItem('accounts-sign-in-method', expanded, () => setExpanded((prev) => !prev));
   const [editingAccess, setEditingAccess] = useState(false);
@@ -94,7 +101,6 @@ const SignInMethodCard: React.FC = () => {
             label={t('modals.auth.labels.apiKey')}
             value={removeKey}
             onChange={(event) => setRemoveKey(event.target.value)}
-            disabled={removeBusy}
             autoComplete="new-password"
             inputClassName="w-full px-3 py-2.5 themed-input"
             showPasswordLabel={t('accessSetup.showSecret')}
@@ -126,6 +132,11 @@ const SignInMethodCard: React.FC = () => {
             <div className="mgmt-row__body">
               <p className="mgmt-row__title">{t('accessSetup.signInMethod')}</p>
               <p className="mgmt-row__meta">{t(`accessSetup.modes.${accountMode}.title`)}</p>
+              {signInModeFromEnvironment && (
+                <p className="mgmt-row__meta">
+                  {t('accessSetup.environment.modeSetByEnvironment')}
+                </p>
+              )}
             </div>
             <div className="mgmt-row__actions">
               <Button variant="default" onClick={() => setEditingAccess(true)}>
@@ -141,6 +152,8 @@ const SignInMethodCard: React.FC = () => {
                   ? 'accessSetup.connectionActive'
                   : 'accessSetup.connectionDormant'
               );
+              // The server refuses removing a login an environment variable sets.
+              const environmentManaged = service.environmentFields.length > 0;
               return (
                 <div key={service.id} className="mgmt-row">
                   <div className="mgmt-row__body">
@@ -151,11 +164,16 @@ const SignInMethodCard: React.FC = () => {
                     <p className="mgmt-row__meta">
                       {kindTitle === service.displayName ? use : `${kindTitle} · ${use}`}
                     </p>
+                    {environmentManaged && (
+                      <p className="mgmt-row__meta">
+                        {t('accessSetup.environment.setByEnvironment')}
+                      </p>
+                    )}
                   </div>
                   <div className="mgmt-row__actions">
                     <Button
                       variant="default"
-                      disabled={removeBusy}
+                      disabled={removeBusy || environmentManaged}
                       onClick={() => setRemoving(service)}
                     >
                       {t('accessSetup.remove')}

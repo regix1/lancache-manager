@@ -15,6 +15,7 @@ using LancacheManager.Security;
 using LancacheManager.Core.Services.Xbox;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -830,6 +831,104 @@ public partial class XboxScheduledRefreshProgressTests
         }
     }
 
+    [Fact]
+    public async Task ABannerPassThatCannotSaveEndsTheRefreshCompletedWithAStepWarningAsync()
+    {
+        // Signed out and nothing else to do, so before the banner step was counted this run read as
+        // skipped: the failed save looked the same as a pass with nothing to store.
+        const string catalogJson =
+            """
+            {"Products":[{"ProductId":"9NBLGGH4R315","LocalizedProperties":[{"ProductTitle":"Test Title",
+            "Images":[{"Uri":"//store-images.example/banner.jpg","ImagePurpose":"Poster"}]}]}]}
+            """;
+
+        using var harness = new Harness(
+            new StubCatalogHandler(catalogJson),
+            saveInterceptor: new BannerSaveFailureInterceptor());
+
+        await using (var db = await harness.DbFactory.CreateDbContextAsync())
+        {
+            db.XboxGameMappings.Add(new XboxGameMapping { ProductId = "9NBLGGH4R315", Title = "Test Title", ImageUrl = null });
+            await db.SaveChangesAsync();
+        }
+
+        await harness.Service.RefreshNowAsync();
+        await harness.Notifications.TerminalRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var terminal = harness.Notifications.XboxLifecycleEvents().Single(e => e.IsTerminal);
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        Assert.NotEqual("signalr.xboxMapping.skippedNotSignedIn", terminal.StageKey);
+        var warning = Assert.Single(harness.Tracker.GetOperation(terminal.OperationId)!.Warnings);
+        Assert.Equal("common.notifications.warnings.xboxStepsFailed", warning.StageKey);
+        Assert.Equal(1, warning.Context["count"]);
+    }
+
+    [Fact]
+    public async Task ABannerLookupTheCatalogRefusesEndsTheRefreshWithAStepWarningAsync()
+    {
+        // A refused lookup stores nothing, so unless it counts as failed this signed-out run reads as skipped.
+        using var harness = new Harness(new StubCatalogHandler("{}") { Status = HttpStatusCode.ServiceUnavailable });
+
+        await using (var db = await harness.DbFactory.CreateDbContextAsync())
+        {
+            db.XboxGameMappings.Add(new XboxGameMapping { ProductId = "9NBLGGH4R315", Title = "Test Title", ImageUrl = null });
+            await db.SaveChangesAsync();
+        }
+
+        await harness.Service.RefreshNowAsync();
+        await harness.Notifications.TerminalRecorded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var terminal = harness.Notifications.XboxLifecycleEvents().Single(e => e.IsTerminal);
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        Assert.NotEqual("signalr.xboxMapping.skippedNotSignedIn", terminal.StageKey);
+        var warning = Assert.Single(harness.Tracker.GetOperation(terminal.OperationId)!.Warnings);
+        Assert.Equal("common.notifications.warnings.xboxStepsFailed", warning.StageKey);
+        Assert.Equal(1, warning.Context["count"]);
+    }
+
+    [Fact]
+    public async Task ABannerLookupTheCatalogRefusesAfterSignInLeavesABannerWarningAsync()
+    {
+        using var auth = new StubDeviceCodeHandler
+        {
+            TokenBody = """{"access_token":"access-token","refresh_token":"new-refresh"}""",
+            CompleteHarvest = true
+        };
+        using var harness = new Harness(new StubCatalogHandler("{}") { Status = HttpStatusCode.ServiceUnavailable }, auth);
+        await using (var db = await harness.DbFactory.CreateDbContextAsync())
+        {
+            db.XboxGameMappings.Add(new XboxGameMapping { ProductId = "9NBLGGH4R315", Title = "Test Title", ImageUrl = null });
+            await db.SaveChangesAsync();
+        }
+        var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+
+        await harness.Service.StartLoginAsync(null, caller: owner);
+        await harness.Notifications.TerminalRecorded.Task.WaitAsync(TimeSpan.FromSeconds(20));
+        await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+
+        var terminal = Assert.Single(harness.Notifications.XboxLifecycleEvents(), e => e.IsTerminal);
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        var warning = Assert.Single(harness.Tracker.GetOperation(terminal.OperationId)!.Warnings);
+        Assert.Equal("common.notifications.warnings.xboxBannersNotRefreshed", warning.StageKey);
+    }
+
+    /// <summary>Fails a save that writes banner art onto an existing mapping, as a database error would; seeding adds rows, so it still saves.</summary>
+    private sealed class BannerSaveFailureInterceptor : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData saving,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (saving.Context!.ChangeTracker.Entries<XboxGameMapping>().Any(e => e.State == EntityState.Modified))
+            {
+                throw new DbUpdateException("Banner art could not be saved");
+            }
+
+            return base.SavingChangesAsync(saving, result, cancellationToken);
+        }
+    }
+
     /// <summary>Answers every request with one canned DisplayCatalog body; with <see cref="HoldFirst"/> the first request waits for <see cref="ReleaseFirst"/>.</summary>
     private sealed class StubCatalogHandler : HttpMessageHandler
     {
@@ -841,6 +940,8 @@ public partial class XboxScheduledRefreshProgressTests
         public StubCatalogHandler(string json) => _json = json;
 
         public bool HoldFirst { get; init; }
+
+        public HttpStatusCode Status { get; init; } = HttpStatusCode.OK;
 
         /// <summary>Completes once the first request is waiting for the release.</summary>
         public Task FirstReached => _firstReached.Task;
@@ -857,7 +958,7 @@ public partial class XboxScheduledRefreshProgressTests
                 await _firstReleased.Task.WaitAsync(cancellationToken);
             }
 
-            return new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(Status)
             {
                 Content = new StringContent(_json, Encoding.UTF8, "application/json")
             };
@@ -889,7 +990,12 @@ public partial class XboxScheduledRefreshProgressTests
         /// every pre-existing test here wants.</param>
         /// <param name="authHandler">Stub responder for the MSA device-code endpoints, so a login can be
         /// driven without a Microsoft account. Left null nothing in the harness starts a login.</param>
-        public Harness(HttpMessageHandler? catalogHandler = null, HttpMessageHandler? authHandler = null)
+        /// <param name="saveInterceptor">Runs on every database save, so a test can make one save fail the way a
+        /// database error would. Left null every save succeeds.</param>
+        public Harness(
+            HttpMessageHandler? catalogHandler = null,
+            HttpMessageHandler? authHandler = null,
+            SaveChangesInterceptor? saveInterceptor = null)
         {
             _apiHttp = catalogHandler is null ? new HttpClient() : new HttpClient(catalogHandler);
             _authHttp = authHandler is null ? new HttpClient() : new HttpClient(authHandler);
@@ -922,9 +1028,9 @@ public partial class XboxScheduledRefreshProgressTests
             var apiClient = new XboxApiDirectClient(_apiHttp, NullLogger<XboxApiDirectClient>.Instance);
 
             var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
-                .UseInMemoryDatabase($"xbox_sched_{Guid.NewGuid():N}")
-                .Options;
-            DbFactory = new InMemoryDbContextFactory(dbOptions);
+                .UseInMemoryDatabase($"xbox_sched_{Guid.NewGuid():N}");
+            if (saveInterceptor is not null) dbOptions.AddInterceptors(saveInterceptor);
+            DbFactory = new InMemoryDbContextFactory(dbOptions.Options);
             var mappingService = new XboxMappingService(
                 DbFactory,
                 Notifications,

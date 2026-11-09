@@ -112,7 +112,7 @@ const GameCard: React.FC<GameCardProps> = ({
   const isEvicted = game.is_evicted === true;
 
   const subtitle = (
-    <span className="flex items-center gap-1.5 flex-shrink-0">
+    <span className="flex flex-wrap items-center gap-1.5">
       <span className={serviceBadgeClass}>
         {isEpic && <EpicIcon size={10} className="game-card-epic-icon" />}
         {serviceBadgeLabel}
@@ -120,6 +120,15 @@ const GameCard: React.FC<GameCardProps> = ({
       {isSteam && (
         <Badge variant="neutral">
           {t('management.gameDetection.appIdLabel')} {game.game_app_id}
+        </Badge>
+      )}
+      {game.slice_sizes && (
+        <Badge variant="neutral">
+          {game.slice_sizes.includes(',')
+            ? t('management.gameDetection.sliceMixed')
+            : t('management.gameDetection.sliceSize', {
+                size: formatBytes(Number(game.slice_sizes), 0)
+              })}
         </Badge>
       )}
       {isEvicted && <EvictedBadge />}

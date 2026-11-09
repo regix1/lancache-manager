@@ -1,5 +1,6 @@
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -24,6 +25,10 @@ public class GameMetricsQueryTranslationTests
     private static readonly List<string> NoHiddenClients = new();
     private static readonly List<string> NoStatsExcludedClients = new();
 
+    // The served per-game figures leave out prefill rows, so the grouped queries run with a rule in place.
+    private static readonly List<ClientExclusionRule> OnePrefillRule =
+        [new ClientExclusionRule { Ip = "", Mode = ClientExclusionModes.Hide, Traffic = ClientExclusionTraffic.Prefill }];
+
     private static AppDbContext CreateContext() =>
         new(new DbContextOptionsBuilder<AppDbContext>()
             .UseNpgsql("Host=localhost;Database=game_metrics_translation_smoke_test")
@@ -36,6 +41,7 @@ public class GameMetricsQueryTranslationTests
         var fiveMinutesAgo = DateTime.UtcNow.AddMinutes(-5);
 
         var sql = LancacheMetricsService.ExcludedClientsRemoved(context, NoHiddenClients, NoStatsExcludedClients)
+            .ApplyPrefillFilter(OnePrefillRule)
             .Where(d => d.EpicAppId != null && d.EpicAppId != "")
             .GroupBy(d => d.EpicAppId)
             .Select(g => new
@@ -63,6 +69,7 @@ public class GameMetricsQueryTranslationTests
         var fiveMinutesAgo = DateTime.UtcNow.AddMinutes(-5);
 
         var sql = LancacheMetricsService.ExcludedClientsRemoved(context, NoHiddenClients, NoStatsExcludedClients)
+            .ApplyPrefillFilter(OnePrefillRule)
             .Where(d => (d.EpicAppId == null || d.EpicAppId == "")
                 && d.GameAppId != null
                 && d.GameAppId != 0)
@@ -92,6 +99,7 @@ public class GameMetricsQueryTranslationTests
         var fiveMinutesAgo = DateTime.UtcNow.AddMinutes(-5);
 
         var sql = LancacheMetricsService.ExcludedClientsRemoved(context, NoHiddenClients, NoStatsExcludedClients)
+            .ApplyPrefillFilter(OnePrefillRule)
             .Where(d => (d.EpicAppId == null || d.EpicAppId == "")
                 && (d.GameAppId == null || d.GameAppId == 0)
                 && d.GameName != null
@@ -114,6 +122,7 @@ public class GameMetricsQueryTranslationTests
         Assert.Contains("GROUP BY", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ORDER BY", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("LIMIT", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("IsPrefill", sql, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -455,5 +464,6 @@ public class GameMetricsQueryTranslationTests
         Assert.Contains("min(", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ORDER BY", sql, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("LIMIT", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("IsPrefill", sql, StringComparison.Ordinal);
     }
 }

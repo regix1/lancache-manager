@@ -88,11 +88,22 @@ public class SystemController : ControllerBase
     [ProducesResponseType(typeof(SystemConfigResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<SystemConfigResponse>> GetConfigAsync()
     {
-        // Where the cache, the logs and the data directory live is told to a caller who has signed in
-        // and to nobody else. The app loads this response before any session exists, so the route stays
-        // anonymous and only the filesystem layout and its writability are withheld. Read once into a
-        // local because the datasource projection below runs its branches concurrently.
-        var isSignedIn = User.Identity?.IsAuthenticated == true;
+        // Where the cache, the logs and the data directory live is told to an account holder and to
+        // nobody else; a guest holds a session but no account. The app loads this response before any
+        // session exists, so the route stays anonymous and only the filesystem layout and its
+        // writability are withheld. Read once into a local because the datasource projection below
+        // runs its branches concurrently.
+        var isAccountHolder = HttpContext.GetUserSession()?.SessionType.IsAccountHolder() == true;
+
+        // Until setup completes, the setup wizard reads the datasource list before anyone can sign in
+        // (an environment Password or ApiKeyPassword install with no account shows the wizard with no
+        // session), so the list stays as served today until then. After setup, a caller with no
+        // session gets the time zone and the response defaults, and the cache-size reads are skipped.
+        var withholdFromCaller = HttpContext.GetUserSession() is null && _stateService.GetSetupCompleted();
+        if (withholdFromCaller)
+        {
+            return Ok(new SystemConfigResponse { TimeZone = ServerTimeZone.IanaId(_configuration) });
+        }
 
         var datasources = _datasourceService.GetDatasources();
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
@@ -113,10 +124,10 @@ public class SystemController : ControllerBase
             return new DatasourceInfoDto
             {
                 Name = ds.Name,
-                CachePath = isSignedIn ? ds.CachePath : string.Empty,
-                LogsPath = isSignedIn ? ds.LogPath : string.Empty,
-                CacheWritable = isSignedIn && ds.CacheWritable,
-                LogsWritable = isSignedIn && ds.LogsWritable,
+                CachePath = isAccountHolder ? ds.CachePath : string.Empty,
+                LogsPath = isAccountHolder ? ds.LogPath : string.Empty,
+                CacheWritable = isAccountHolder && ds.CacheWritable,
+                LogsWritable = isAccountHolder && ds.LogsWritable,
                 Enabled = ds.Enabled,
                 CacheSizeOverrideBytes = cacheSize.OverrideBytes,
                 ResolvedCacheSizeBytes = cacheSize.ResolvedBytes,
@@ -140,15 +151,15 @@ public class SystemController : ControllerBase
         return Ok(new SystemConfigResponse
         {
             // Use first datasource paths for backward compatibility, or fall back to PathResolver
-            CachePath = isSignedIn ? (defaultDatasource?.CachePath ?? _pathResolver.GetCacheDirectory()) : string.Empty,
-            LogsPath = isSignedIn ? (defaultDatasource?.LogPath ?? _pathResolver.GetLogsDirectory()) : string.Empty,
-            DataPath = isSignedIn ? _pathResolver.GetDataDirectory() : string.Empty,
+            CachePath = isAccountHolder ? (defaultDatasource?.CachePath ?? _pathResolver.GetCacheDirectory()) : string.Empty,
+            LogsPath = isAccountHolder ? (defaultDatasource?.LogPath ?? _pathResolver.GetLogsDirectory()) : string.Empty,
+            DataPath = isAccountHolder ? _pathResolver.GetDataDirectory() : string.Empty,
             CacheDeleteMode = _cacheClearingService.GetDeleteMode(),
             SteamAuthMode = _stateService.GetSteamAuthMode() ?? SteamAuthMode.Anonymous,
             TimeZone = ServerTimeZone.IanaId(_configuration),
             // Use cached permission flags maintained by DirectoryPermissionMonitor.
-            CacheWritable = isSignedIn && (defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheWritable()),
-            LogsWritable = isSignedIn && (defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsWritable()),
+            CacheWritable = isAccountHolder && (defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheWritable()),
+            LogsWritable = isAccountHolder && (defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsWritable()),
             // Include all datasources with their layout + capability evidence.
             DataSources = datasourceDtos.ToList()
         });
@@ -251,10 +262,10 @@ public class SystemController : ControllerBase
         string? postgresDatabase = null;
         string? postgresUser = null;
 
-        // Where the database lives is told to a caller who has signed in and to nobody else. The
-        // completion answer above is read before any session exists, so it stays anonymous while
-        // the connection target does not.
-        if (User.Identity?.IsAuthenticated == true)
+        // Where the database lives is told to an account holder and to nobody else; a guest holds a
+        // session but no account. The completion answer above is read before any session exists, so
+        // it stays anonymous while the connection target does not.
+        if (HttpContext.GetUserSession()?.SessionType.IsAccountHolder() == true)
         {
             // Surface the configured external-mode target for the info screen, without
             // ever exposing the password. Pulls from env first; falls back to the
@@ -504,6 +515,46 @@ public class SystemController : ControllerBase
             Message = "Cache delete mode updated",
             DeleteMode = request.DeleteMode
         });
+    }
+
+    /// <summary>
+    /// Gets the cache slice size. A null size means Auto.
+    /// </summary>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpGet("cache-slice-size")]
+    [ProducesResponseType(typeof(CacheSliceSizeResponse), StatusCodes.Status200OK)]
+    public ActionResult<CacheSliceSizeResponse> GetCacheSliceSize()
+    {
+        return Ok(new CacheSliceSizeResponse { SliceSizeBytes = _stateService.GetCacheSliceSizeBytes() });
+    }
+
+    /// <summary>
+    /// Sets the cache slice size.
+    /// </summary>
+    /// <remarks>
+    /// A null size selects Auto. A manual size is a positive whole number of megabytes. Request body:
+    /// { "sliceSizeBytes": 8388608 | null }.
+    /// </remarks>
+    [Authorize(Policy = "AccountHolder")]
+    [HttpPatch("cache-slice-size")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> SetCacheSliceSizeAsync([FromBody] CacheSliceSizeRequest request)
+    {
+        const long bytesPerMegabyte = 1024L * 1024;
+        if (request.SliceSizeBytes is { } bytes && (bytes <= 0 || bytes % bytesPerMegabyte != 0))
+        {
+            throw new ValidationException("The slice size must be a positive whole number of megabytes.")
+            {
+                StageKey = "errors.cache.sliceSizeInvalid"
+            };
+        }
+
+        _stateService.SetCacheSliceSizeBytes(request.SliceSizeBytes);
+        _logger.LogInformation("Cache slice size updated to: {SliceSizeBytes}", request.SliceSizeBytes);
+
+        // Other open pages and tabs still show the size they loaded until they hear of the save.
+        await _notifications.NotifyAllAsync(SignalREvents.CacheSliceSizeChanged);
+        return NoContent();
     }
 
     /// <summary>

@@ -106,6 +106,7 @@ const runDelete = async (api, overrides = {}) => {
     ApiService: api,
     pendingLogFileDeletionRef: { current: 'alpha' },
     deletingLogFiles: keySet(),
+    deletingLogFileRef: { current: new Set() },
     setPendingLogFileDeletion: recorder(),
     setLogFileDeleteError: recorder(),
     addNotification: recorder(),
@@ -287,21 +288,36 @@ test("a log file delete that answers while another datasource's dialog is open l
 });
 
 test('a repeat delete of a log whose delete runs is ignored; another datasource is sent', async () => {
-  const ignored = await runDelete(
-    { deleteLogFile: neverCalled },
-    { deletingLogFiles: keySet(['alpha']) }
-  );
-  assert.deepEqual(ignored.loadData.calls, []);
-  assert.deepEqual(ignored.deletingLogFiles.changes, []);
-
-  const sent = await runDelete(
-    { deleteLogFile: () => Promise.resolve({}) },
-    { deletingLogFiles: keySet(['beta']) }
-  );
-  assert.deepEqual(sent.deletingLogFiles.changes, [
-    ['alpha', true],
-    ['alpha', false]
-  ]);
+  const deleted = [];
+  let answer;
+  // Both presses run the handler of one render, so the render's busy set is empty for each.
+  const bindings = {
+    ...shared(),
+    authMode: 'authenticated',
+    ApiService: {
+      deleteLogFile: (datasourceName) => {
+        deleted.push(datasourceName);
+        return new Promise((resolve) => {
+          answer = resolve;
+        });
+      }
+    },
+    pendingLogFileDeletionRef: { current: 'alpha' },
+    deletingLogFiles: { isSelected: () => false, setMany: () => undefined },
+    deletingLogFileRef: { current: new Set(['beta']) },
+    setPendingLogFileDeletion: recorder(),
+    setLogFileDeleteError: recorder(),
+    addNotification: recorder(),
+    loadData: recorder()
+  };
+  const executeDeleteLogFile = bindLifted(deleteSource, bindings);
+  const first = executeDeleteLogFile('alpha');
+  const repeat = executeDeleteLogFile('alpha');
+  assert.deepEqual(deleted, ['alpha'], 'the repeat press sends no second delete');
+  answer({});
+  await Promise.all([first, repeat]);
+  assert.deepEqual(bindings.loadData.calls, [[true]]);
+  assert.deepEqual([...bindings.deletingLogFileRef.current], ['beta']);
 });
 
 const jsxAttributes = (relativePath, tagName, marker) => {

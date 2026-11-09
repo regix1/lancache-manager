@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Sockets;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 
 namespace LancacheManager.Infrastructure.Utilities;
@@ -79,7 +80,10 @@ public static class WindowsPostgresManager
     {
         try
         {
-            var result = await RunDockerAsync("info --format {{.ServerVersion}}");
+            // Docker Desktop answers in well under a second once its engine runs, but blocks while
+            // it starts. 30 s matches the daemon clients' socket wait; past it startup continues.
+            using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var result = await RunDockerAsync("info --format {{.ServerVersion}}", limit.Token);
             return result.ExitCode == 0;
         }
         catch (Exception ex)
@@ -181,28 +185,18 @@ public static class WindowsPostgresManager
         logger.LogWarning("PostgreSQL did not become reachable within {Seconds}s - migration may fail", MaxWaitSeconds);
     }
 
-    private static async Task<DockerResult> RunDockerAsync(string arguments)
+    private static async Task<ProcessCommandResult> RunDockerAsync(string arguments, CancellationToken cancellationToken = default)
     {
-        using var process = new Process
+        var command = new ProcessStartInfo
         {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = "docker",
-                Arguments = arguments,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            }
+            FileName = "docker",
+            Arguments = arguments,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
         };
 
-        process.Start();
-        var output = await process.StandardOutput.ReadToEndAsync();
-        var error = await process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
-
-        return new DockerResult(process.ExitCode, output, error);
+        return await new ProcessManager(NullLogger<ProcessManager>.Instance).RunAsync(command, cancellationToken);
     }
-
-    private sealed record DockerResult(int ExitCode, string Output, string Error);
 }

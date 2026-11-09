@@ -569,7 +569,8 @@ public class XboxNamedDetectionEvictionTests
             datasourceService,
             new DatasourceCapabilityService(datasourceService),
             operationTracker: null!,
-            CacheScanGateHarness.Idle());
+            CacheScanGateHarness.Idle(),
+            new LancacheManager.Infrastructure.Services.StateService(NullLogger<LancacheManager.Infrastructure.Services.StateService>.Instance, pathResolver, null!, null!));
     }
 
     private sealed class TempDirPathResolver : PathResolverBase

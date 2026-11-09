@@ -1,5 +1,5 @@
 import { noAutofill } from '@utils/autofill';
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CalendarDays, Trash2, Calendar, Check } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
@@ -20,6 +20,8 @@ import { APP_EVENTS } from '@utils/constants';
 interface EventModalProps {
   opened: boolean;
   event: Event | null; // null for create, Event for edit
+  /** The calendar day a new event starts on; unset for the create button. */
+  initialStart?: Date;
   onClose: () => void;
   onSave: () => void;
 }
@@ -27,19 +29,32 @@ interface EventModalProps {
 // Color indexes 1-8 for event colors
 const COLOR_INDEXES = [1, 2, 3, 4, 5, 6, 7, 8];
 
-const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave }) => {
+const EventModal: React.FC<EventModalProps> = ({
+  opened,
+  event,
+  initialStart,
+  onClose,
+  onSave
+}) => {
   const { t } = useTranslation();
   const { createEvent, updateEvent, deleteEvent } = useEvents();
   const clock = useReaderClock();
   const { setTimeRange, setSelectedEventIds } = useTimeFilter();
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Read by every handler before it starts: a save and a delete never overlap, and no close runs
+  // under either, since the request's own onSave would otherwise close the next dialog opened.
+  const savingRef = useRef(false);
+  const deletingRef = useRef(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Set only for a failed save or delete; a validation message has no title.
+  // Set only for a failed save; a validation message has no title.
   const [errorTitle, setErrorTitle] = useState<string>();
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
+  // Each open gets a fresh picker, because a picker reads its value only when it mounts.
+  const [pickerKey, setPickerKey] = useState(0);
   // The floor the two DateTimePickers below are given. They compare it against cells they build
   // in the browser's own calendar, so it is midnight of the browser's today. Taking the day from
   // a display timezone instead lands the floor on the neighbouring day, which either lets an
@@ -57,16 +72,18 @@ const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave 
     const now = new Date();
     now.setMinutes(0);
     now.setSeconds(0, 0);
+    // A clicked day keeps the current hour, so a click on today never starts in the past.
+    if (initialStart) {
+      now.setFullYear(initialStart.getFullYear(), initialStart.getMonth(), initialStart.getDate());
+    }
     return now;
   });
   const [endDateTime, setEndDateTime] = useState<Date>(() => {
     if (event) {
       return new Date(event.endTimeUtc);
     }
-    const later = new Date();
+    const later = new Date(startDateTime);
     later.setHours(later.getHours() + 4);
-    later.setMinutes(0);
-    later.setSeconds(0, 0);
     return later;
   });
 
@@ -93,15 +110,17 @@ const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
-      setError(null);
-      setErrorTitle(undefined);
+      if (savingRef.current || deletingRef.current) return;
 
+      // The previous error stays on screen until this attempt's result replaces it.
       if (!name.trim()) {
+        setErrorTitle(undefined);
         setError(t('events.modal.errors.nameRequired'));
         return;
       }
 
       if (isBeforeToday(startDateTime)) {
+        setErrorTitle(undefined);
         setError(t('events.modal.errors.startInPast'));
         return;
       }
@@ -110,10 +129,12 @@ const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave 
       const endTime = Math.floor(endDateTime.getTime() / 1000);
 
       if (endTime <= startTime) {
+        setErrorTitle(undefined);
         setError(t('events.modal.errors.endAfterStart'));
         return;
       }
 
+      savingRef.current = true;
       setSaving(true);
       try {
         const data: CreateEventRequest | UpdateEventRequest = {
@@ -134,6 +155,7 @@ const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave 
         setErrorTitle(t('events.modal.errors.saveFailed'));
         setError(getErrorMessage(err));
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
     },
@@ -153,24 +175,34 @@ const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave 
   );
 
   const handleDeleteClick = useCallback(() => {
+    if (savingRef.current) return;
+    // The confirm is closed here, so clearing the last attempt's error hides nothing on screen.
+    setDeleteError(null);
     setShowDeleteConfirm(true);
   }, []);
 
   const handleDeleteConfirm = useCallback(async () => {
-    if (!event) return;
+    if (!event || savingRef.current || deletingRef.current) return;
 
+    deletingRef.current = true;
     setDeleting(true);
     try {
       await deleteEvent(event.id);
+      setShowDeleteConfirm(false);
       onSave();
     } catch (err) {
-      setErrorTitle(t('events.modal.errors.deleteFailed'));
-      setError(getErrorMessage(err));
-      setShowDeleteConfirm(false);
+      // The confirm stays open with the reason, and Confirm is the retry.
+      setDeleteError(getErrorMessage(err));
     } finally {
+      deletingRef.current = false;
       setDeleting(false);
     }
-  }, [event, deleteEvent, onSave, t]);
+  }, [event, deleteEvent, onSave]);
+
+  const handleClose = useCallback(() => {
+    if (savingRef.current || deletingRef.current) return;
+    onClose();
+  }, [onClose]);
 
   const handleViewOnDashboard = useCallback(() => {
     if (!event) return;
@@ -191,7 +223,7 @@ const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave 
     <>
       <Modal
         opened={opened}
-        onClose={onClose}
+        onClose={handleClose}
         title={
           <div className="flex items-center gap-2">
             <CalendarDays className="w-5 h-5 text-[var(--theme-primary)]" />
@@ -262,7 +294,10 @@ const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave 
                     {...field}
                     type="button"
                     variant="transparent"
-                    onClick={() => setShowStartPicker(true)}
+                    onClick={() => {
+                      setPickerKey((key) => key + 1);
+                      setShowStartPicker(true);
+                    }}
                     className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors justify-start gap-2 font-normal"
                   >
                     <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
@@ -280,7 +315,10 @@ const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave 
                     {...field}
                     type="button"
                     variant="transparent"
-                    onClick={() => setShowEndPicker(true)}
+                    onClick={() => {
+                      setPickerKey((key) => key + 1);
+                      setShowEndPicker(true);
+                    }}
                     className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors justify-start gap-2 font-normal"
                   >
                     <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
@@ -338,8 +376,7 @@ const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave 
                 type="button"
                 variant="default"
                 className="event-modal-cancel"
-                onClick={onClose}
-                disabled={saving || deleting}
+                onClick={handleClose}
               >
                 {t('actions.cancel')}
               </Button>
@@ -351,34 +388,34 @@ const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave 
         </form>
 
         {/* Start DateTime Picker */}
-        {showStartPicker && (
-          <DateTimePicker
-            value={startDateTime}
-            onChange={(date) => {
-              setStartDateTime(date);
-              // If end time is before new start time, auto-adjust it
-              if (date >= endDateTime) {
-                const newEnd = new Date(date);
-                newEnd.setHours(newEnd.getHours() + 4);
-                setEndDateTime(newEnd);
-              }
-            }}
-            onClose={() => setShowStartPicker(false)}
-            title={t('events.modal.selectStartDateTime')}
-            minDate={todayMinDate}
-          />
-        )}
+        <DateTimePicker
+          key={pickerKey}
+          opened={showStartPicker}
+          value={startDateTime}
+          onChange={(date) => {
+            setStartDateTime(date);
+            // If end time is before new start time, auto-adjust it
+            if (date >= endDateTime) {
+              const newEnd = new Date(date);
+              newEnd.setHours(newEnd.getHours() + 4);
+              setEndDateTime(newEnd);
+            }
+          }}
+          onClose={() => setShowStartPicker(false)}
+          title={t('events.modal.selectStartDateTime')}
+          minDate={todayMinDate}
+        />
 
         {/* End DateTime Picker */}
-        {showEndPicker && (
-          <DateTimePicker
-            value={endDateTime}
-            onChange={setEndDateTime}
-            onClose={() => setShowEndPicker(false)}
-            title={t('events.modal.selectEndDateTime')}
-            minDate={startDateTime > todayMinDate ? startDateTime : todayMinDate}
-          />
-        )}
+        <DateTimePicker
+          key={pickerKey}
+          opened={showEndPicker}
+          value={endDateTime}
+          onChange={setEndDateTime}
+          onClose={() => setShowEndPicker(false)}
+          title={t('events.modal.selectEndDateTime')}
+          minDate={startDateTime > todayMinDate ? startDateTime : todayMinDate}
+        />
       </Modal>
 
       {/* Delete Confirmation Modal - rendered as sibling, not nested */}
@@ -396,6 +433,13 @@ const EventModal: React.FC<EventModalProps> = ({ opened, event, onClose, onSave 
           {t('events.modal.deleteConfirm', { name: event?.name })}
         </p>
         <p className="text-sm text-[var(--theme-text-muted)]">{t('events.modal.deleteWarning')}</p>
+        {deleteError && (
+          <div role="alert">
+            <Alert color="error" icon={null} title={t('events.modal.errors.deleteFailed')}>
+              {deleteError}
+            </Alert>
+          </div>
+        )}
       </ConfirmationModal>
     </>
   );

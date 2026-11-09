@@ -67,8 +67,11 @@ public class AntiforgeryFilter : IAsyncAuthorizationFilter
                 context.HttpContext.Request.Path,
                 ex.Message);
 
-            context.Result = new BadRequestObjectResult(
-                ApiResponse.Error(Security.AntiforgeryToken.MissingTokenMessage));
+            context.Result = new BadRequestObjectResult(new ErrorResponse
+            {
+                Error = Security.AntiforgeryToken.MissingTokenMessage,
+                StageKey = Security.AntiforgeryToken.MissingTokenStageKey
+            });
         }
     }
 }

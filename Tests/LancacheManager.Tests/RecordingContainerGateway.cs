@@ -20,6 +20,7 @@ internal sealed class FakeContainer
     public List<string> Env { get; init; } = new();
     public HostConfig HostConfig { get; init; } = new();
     public IList<MountPoint>? Mounts { get; init; }
+    public IDictionary<string, EndpointSettings>? Networks { get; init; }
 
     public ContainerListResponse ToListResponse() => new()
     {
@@ -29,7 +30,8 @@ internal sealed class FakeContainer
         ImageID = ImageId,
         State = Running ? "running" : "exited",
         Status = Running ? "Up 1 minute" : "Exited (0)",
-        Labels = new Dictionary<string, string>(Labels)
+        Labels = new Dictionary<string, string>(Labels),
+        NetworkSettings = new SummaryNetworkSettings { Networks = Networks }
     };
 
     public ContainerInspectResponse ToInspectResponse() => new()
@@ -61,6 +63,8 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
     private Exception? _pendingKillFailure;
     private Exception? _pendingRemoveVolumeFailure;
     private Exception? _createdFailure;
+    private Exception? _pendingNetworkListFailure;
+    private readonly List<NetworkResponse> _networks = new();
 
     public RecordingContainerGateway(bool available = true)
     {
@@ -155,6 +159,19 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
     public void FailCreatedContainer(Exception failure) { lock (_sync) _createdFailure = failure; }
     public void FailNextKillContainer(Exception failure) { lock (_sync) _pendingKillFailure = failure; }
 
+    /// <summary>Injects a failure on the next <see cref="ListNetworksAsync"/> call (cleared after it fires).</summary>
+    public void FailNextNetworkList(Exception failure) { lock (_sync) _pendingNetworkListFailure = failure; }
+
+    /// <summary>Adds a Docker network whose IPAM config holds this gateway; no container needs to sit on it.</summary>
+    public void AddNetwork(string name, string gateway)
+    {
+        lock (_sync) _networks.Add(new NetworkResponse
+        {
+            Name = name,
+            IPAM = new IPAM { Config = new List<IPAMConfig> { new() { Gateway = gateway } } }
+        });
+    }
+
     /// <summary>Injects a failure on the next <see cref="RemoveContainerAsync"/> call (cleared after it fires). The
     /// op is still logged to <see cref="Calls"/> before it throws, matching a real Docker call that reached the daemon.</summary>
     public void FailNextRemoveContainer(Exception failure) { lock (_sync) _pendingRemoveFailure = failure; }
@@ -186,6 +203,21 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
             throw NoAnswer();
         IsAvailable = true;
         return new Docker.DotNet.Models.VersionResponse { Version = "test-engine" };
+    }
+
+    public Task<IList<NetworkResponse>> ListNetworksAsync(CancellationToken cancellationToken)
+    {
+        EnsureConnected();
+        lock (_sync)
+        {
+            Calls.Add("ListNetworks");
+            if (_pendingNetworkListFailure is { } listFailure)
+            {
+                _pendingNetworkListFailure = null;
+                return Task.FromException<IList<NetworkResponse>>(listFailure);
+            }
+            return Task.FromResult<IList<NetworkResponse>>(_networks.ToList());
+        }
     }
 
     public Task<IList<ContainerListResponse>> ListContainersAsync(ContainersListParameters parameters, CancellationToken cancellationToken)
@@ -765,7 +797,10 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
     public event Func<DaemonStatus, Task>? OnStatusUpdate;
     public event Func<SocketPrefillProgress, Task>? OnProgressUpdate { add { } remove { } }
     public event Func<string, Task>? OnError { add { } remove { } }
-    public event Func<Task>? OnDisconnected { add { } remove { } }
+    public event Func<Task>? OnDisconnected;
+
+    /// <summary>Raises the socket drop as the daemon's transport would.</summary>
+    public Task RaiseDisconnectedAsync() => DaemonEventDispatch.InvokeAllAsync(OnDisconnected, null);
 
     public Task ConnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 

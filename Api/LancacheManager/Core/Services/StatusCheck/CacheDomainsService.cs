@@ -38,6 +38,9 @@ public sealed class CacheDomainsService : ICacheDomainsService
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private CacheDomainsList? _cachedList;
     private DomainsSource? _cachedSource;
+    // After a failed fetch, automatic loads wait the same interval as after a successful one before
+    // asking GitHub again; a user's Refresh still fetches at once.
+    private DateTime? _lastFailedFetchUtc;
 
     public CacheDomainsService(
         ILogger<CacheDomainsService> logger,
@@ -124,19 +127,40 @@ public sealed class CacheDomainsService : ICacheDomainsService
         // Contract v1.2: envFilePath is null when Docker inspect supplied any of the 3 variables.
         var envFilePath = envSource == "dockerInspect" ? null : _envReader.ResolvedPath;
 
-        await _refreshLock.WaitAsync(ct);
+        // A load that already has a list answers with it rather than queueing behind a running
+        // fetch, which can hang for the client's 30 s timeout.
+        if (forceRefresh || _cachedList == null)
+        {
+            await _refreshLock.WaitAsync(ct);
+        }
+        else if (!await _refreshLock.WaitAsync(0, ct))
+        {
+            return (_cachedList, _cachedSource!);
+        }
+
         try
         {
             var isStale = _cachedSource?.FetchedAtUtc is null ||
                           DateTime.UtcNow - _cachedSource.FetchedAtUtc.Value > _staleAfter;
 
-            var attemptFetch = !noFetch && (forceRefresh || _cachedList == null || isStale);
+            // A held list with no fetch time is the empty list from a failed first start, so it
+            // keeps retrying on every load.
+            var recentFailure = _cachedSource?.FetchedAtUtc is not null &&
+                                _lastFailedFetchUtc is { } failedAt &&
+                                DateTime.UtcNow - failedAt <= _staleAfter;
+
+            var attemptFetch = !noFetch && (forceRefresh || _cachedList == null || (isStale && !recentFailure));
 
             if (attemptFetch)
             {
                 var fetched = await TryFetchFromGitHubAsync(repoUrl, branch, ct);
-                if (fetched != null)
+                if (fetched == null)
                 {
+                    _lastFailedFetchUtc = DateTime.UtcNow;
+                }
+                else
+                {
+                    _lastFailedFetchUtc = null;
                     _cachedList = fetched;
                     _cachedSource = new DomainsSource
                     {
@@ -201,7 +225,7 @@ public sealed class CacheDomainsService : ICacheDomainsService
                     NoFetch = noFetch,
                     FetchedAtUtc = _cachedSource?.FetchedAtUtc,
                     FromCache = true,
-                    Error = attemptFetch ? "Fetch failed; serving the last known domain list." : null
+                    Error = !noFetch && (attemptFetch || recentFailure) ? "Fetch failed; serving the last known domain list." : null
                 };
             }
 
@@ -303,11 +327,22 @@ public sealed class CacheDomainsService : ICacheDomainsService
 
             // Persist only after the archive proved usable, so a bad fetch can never clobber a
             // good disk copy.
+            // Written without the caller's token: a cancel between these writes would leave the new
+            // manifest naming domain files that were never written, and a restart serves that copy.
+            // The manifest goes last, so a failed write keeps the old manifest; the fetched list is
+            // still served from memory.
             EnsureDomainsDirectory();
-            await File.WriteAllTextAsync(Path.Combine(_domainsDirectory, "cache_domains.json"), manifestJson, ct);
-            foreach (var (fileName, fileContent) in referencedFiles)
+            try
             {
-                await File.WriteAllTextAsync(Path.Combine(_domainsDirectory, fileName), fileContent, ct);
+                foreach (var (fileName, fileContent) in referencedFiles)
+                {
+                    await File.WriteAllTextAsync(Path.Combine(_domainsDirectory, fileName), fileContent, CancellationToken.None);
+                }
+                await File.WriteAllTextAsync(Path.Combine(_domainsDirectory, "cache_domains.json"), manifestJson, CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _logger.LogWarning(ex, "Status Check: failed to save the cache-domains list to {Path}", _domainsDirectory);
             }
 
             _logger.LogInformation(
@@ -317,9 +352,10 @@ public sealed class CacheDomainsService : ICacheDomainsService
         }
         // InvalidData/EndOfStream/Format cover a corrupt or truncated tarball (GZipStream and
         // TarReader throw all three) - a bad archive must degrade to the disk copy, never fail
-        // the sweep.
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException
-            or InvalidDataException or EndOfStreamException or FormatException)
+        // the sweep. The caller's own cancel is not a failed fetch, so it propagates; the client timeout
+        // still counts as one.
+        catch (Exception ex) when ((ex is OperationCanceledException && !ct.IsCancellationRequested)
+            || ex is HttpRequestException or InvalidDataException or EndOfStreamException or FormatException)
         {
             _logger.LogWarning(ex, "Status Check: failed to fetch cache-domains archive from {RepoUrl}@{Branch}", repoUrl, branch);
             return null;

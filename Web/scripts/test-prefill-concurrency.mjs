@@ -499,8 +499,8 @@ test('a run list fetched from the server drops the finished runs it no longer li
     supportsConcurrentPrefill: () => true,
     sessionRef,
     runsRef,
-    runsRequestRef: { current: null },
-    runsAgainRef: { current: false },
+    runsRequestRef: { current: new Map() },
+    runsAgainRef: { current: new Set() },
     updateRuns,
     dropUnlistedFinishedRuns,
     isPrefillRunActive,
@@ -553,8 +553,8 @@ test('a session update after a reset drops the finished runs the server no longe
     supportsConcurrentPrefill: () => true,
     sessionRef,
     runsRef,
-    runsRequestRef: { current: null },
-    runsAgainRef: { current: false },
+    runsRequestRef: { current: new Map() },
+    runsAgainRef: { current: new Set() },
     updateRuns,
     dropUnlistedFinishedRuns,
     isPrefillRunActive,
@@ -606,4 +606,55 @@ test('a session update after a reset drops the finished runs the server no longe
     runs: []
   });
   assert.equal(requests.length, 1);
+});
+
+test("a run-list read for the new session is not merged into the old session's read", async () => {
+  const hookPath = 'src/components/features/prefill/hooks/usePrefillSignalR.ts';
+  const sessionRef = { current: { id: 'A' } };
+  const runsRef = { current: [] };
+  const shown = [];
+  const updateRuns = bindLifted(
+    liftHookCallback(hookPath, 'useCallback', 'pendingProgressRef.current.values()'),
+    {
+      sessionRef,
+      runsRef,
+      mergePrefillRuns,
+      applyPrefillRunProgress,
+      pendingProgressRef: { current: new Map() },
+      setRuns: (next) => shown.push(next.map((entry) => entry.runId))
+    }
+  );
+  const refetch = bindLifted(liftHookCallback(hookPath, 'useCallback', "'GetPrefillRuns'"), {
+    supportsConcurrentPrefill: () => true,
+    sessionRef,
+    runsRef,
+    runsRequestRef: { current: new Map() },
+    runsAgainRef: { current: new Set() },
+    updateRuns,
+    dropUnlistedFinishedRuns,
+    isPrefillRunActive,
+    getErrorMessage: (error) => error.message,
+    expectedAppCountRef: { current: 0 },
+    setIsPrefillActive: () => undefined,
+    setPrefillProgress: () => undefined
+  });
+  const asked = [];
+  let answerA;
+  const connection = {
+    invoke: (method, sessionId) => {
+      asked.push(sessionId);
+      if (sessionId === 'A') return new Promise((resolve) => (answerA = resolve));
+      return Promise.resolve([{ ...run('9'), sessionId: 'B' }]);
+    }
+  };
+
+  // Session A's read is still in flight when the page moves to session B and reads B's runs.
+  const readA = refetch(connection, 'A');
+  sessionRef.current = { id: 'B' };
+  const readB = refetch(connection, 'B');
+  answerA([]);
+  await Promise.all([readA, readB]);
+
+  assert.ok(asked.includes('B'), `asked ${asked.join(',')}`);
+  assert.deepEqual(shown.at(-1), ['9']);
 });

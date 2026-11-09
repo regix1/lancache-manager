@@ -13,8 +13,15 @@ namespace LancacheManager.Core.Services;
 public class PrefillCacheService
 {
     internal const string SteamCacheReceipt = "steam-depots-v1";
+    // Transaction-scoped advisory key the PICS import and the prefill mapping writer take before they
+    // touch SteamDepotMappings. The database reset (DatabaseService) and the orphan tag after a crawl
+    // import (SteamKit2Service.Pics) write mapping rows without it. It sits outside the per-app cache
+    // keys (0x4C434D0000000000 | appId) so it never collides with them.
+    internal const long DepotOwnerLockKey = 0x4C434D4400000000;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<PrefillCacheService> _logger;
+    // Bounds the background mapping loops to one pooled connection while an import holds the advisory lock.
+    private readonly SemaphoreSlim _depotMappingLoopGate = new(1, 1);
 
     public PrefillCacheService(
         IDbContextFactory<AppDbContext> contextFactory,
@@ -27,11 +34,28 @@ public class PrefillCacheService
     /// <summary>
     /// Ensures a depot mapping exists in SteamDepotMappings for download resolution.
     /// This is called when prefill records a cached depot, capturing mappings that PICS may not provide.
+    /// Returns true when it inserted the mapping or made it the depot's owner; throws when the write fails.
     /// </summary>
-    private async Task EnsureDepotMappingExistsAsync(AppDbContext context, long appId, long depotId, string? appName)
+    internal async Task<bool> EnsureDepotMappingExistsAsync(AppDbContext context, long appId, long depotId, string? appName)
     {
-        try
+        var execution = context.Database.CreateExecutionStrategy();
+        return await execution.ExecuteAsync(async () =>
         {
+            // A retried attempt must not save an entity a failed attempt left in the Added state.
+            context.ChangeTracker.Clear();
+            var relational = context.Database.IsRelational();
+            // A restore inside a PICS replace runs in the replace's transaction, so its rows commit with it.
+            await using var transaction = relational && context.Database.CurrentTransaction == null
+                ? await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted)
+                : null;
+            if (relational)
+            {
+                // The PICS import takes this key too before it reads or writes any mapping row, so a
+                // prefill insert queues behind the import instead of deadlocking on its row locks.
+                await context.Database.ExecuteSqlInterpolatedAsync(
+                    $"SELECT pg_advisory_xact_lock({DepotOwnerLockKey})");
+            }
+
             var depotMappings = await context.SteamDepotMappings
                 .Where(m => m.DepotId == depotId)
                 .ToListAsync();
@@ -40,6 +64,7 @@ public class PrefillCacheService
             if (existingMapping != null)
             {
                 var changed = false;
+                var promoted = false;
 
                 // Update app name if we have a better one (not placeholder)
                 if (!string.IsNullOrEmpty(appName) &&
@@ -64,12 +89,23 @@ public class PrefillCacheService
                     changed = true;
                 }
 
+                // A depot whose owner row a PICS replace removed would otherwise stay "Unknown Game".
+                if (!existingMapping.IsOwner &&
+                    existingMapping.Source == "Prefill" &&
+                    !depotMappings.Any(m => m.IsOwner))
+                {
+                    existingMapping.IsOwner = true;
+                    changed = true;
+                    promoted = true;
+                }
+
                 if (changed)
                 {
                     await context.SaveChangesAsync();
                     _logger.LogDebug("Updated depot mapping for {DepotId} -> {AppName}", depotId, appName);
                 }
-                return;
+                if (transaction != null) await transaction.CommitAsync();
+                return promoted;
             }
 
             // Keep the existing PICS owner when the selected app downloaded a DLC or shared depot.
@@ -85,35 +121,56 @@ public class PrefillCacheService
 
             context.SteamDepotMappings.Add(mapping);
             await context.SaveChangesAsync();
+            if (transaction != null) await transaction.CommitAsync();
             _logger.LogInformation("Created depot mapping from prefill: depot {DepotId} -> app {AppId} ({AppName})",
                 depotId, appId, appName);
-        }
-        catch (Exception ex)
-        {
-            // Don't fail the prefill cache operation if mapping update fails
-            _logger.LogWarning(ex, "Failed to update depot mapping for depot {DepotId} app {AppId}", depotId, appId);
-        }
+            return true;
+        });
     }
 
     /// <summary>
-    /// Puts back the depot mappings prefill recorded, after a PICS full replace deleted them, so the
-    /// games prefill cached keep their names. It takes no cancellation: the replace has already
-    /// committed, and stopping partway would leave those games unnamed until the next import.
+    /// Puts back the depot mappings prefill recorded after a Steam-crawl import, so the games prefill
+    /// cached keep their names. It takes no cancellation: the import has already committed, and
+    /// stopping partway would leave those games unnamed until the next import.
     /// </summary>
     public async Task RestoreDepotMappingsAsync()
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
+        var failed = await RestoreDepotMappingsAsync(context);
+        if (failed > 0)
+        {
+            throw new InvalidOperationException($"{failed} prefill depot mappings could not be restored");
+        }
+    }
+
+    /// <summary>
+    /// Restores the prefill depot mappings on the given context and returns how many could not be
+    /// restored. Inside the caller's transaction each failed row rolls back to its own savepoint, so
+    /// the other rows still commit with that transaction.
+    /// </summary>
+    internal async Task<int> RestoreDepotMappingsAsync(AppDbContext context)
+    {
         var depots = await context.PrefillCachedDepots
             .AsNoTracking()
             .OrderByDescending(depot => depot.CachedAtUtc)
             .Select(depot => new { depot.AppId, depot.DepotId, depot.AppName })
             .ToListAsync();
+        var failed = 0;
         foreach (var depot in depots.DistinctBy(depot => (depot.AppId, depot.DepotId)))
         {
-            await EnsureDepotMappingExistsAsync(context, depot.AppId, depot.DepotId, depot.AppName);
+            try
+            {
+                await EnsureDepotMappingExistsAsync(context, depot.AppId, depot.DepotId, depot.AppName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to update depot mapping for depot {DepotId} app {AppId}", depot.DepotId, depot.AppId);
+                failed++;
+            }
             // A failed insert stays tracked and would be retried by every later save.
             context.ChangeTracker.Clear();
         }
+        return failed;
     }
 
     public async Task<PrefillCacheSnapshot> GetCacheSnapshotAsync(
@@ -304,19 +361,38 @@ public class PrefillCacheService
             return cacheChanged;
         }, cancellationToken);
 
+        // The mapping write can wait for a whole depot import on the owner-row lock, and the caller
+        // publishes run progress, so it must not hold the run up.
+        _ = Task.Run(() => RecordDepotMappingsAsync(appId, appName, accepted));
+        return changed;
+    }
+
+    private async Task RecordDepotMappingsAsync(long appId, string? appName, IReadOnlyList<DepotManifestProgressInfo> accepted)
+    {
+        await _depotMappingLoopGate.WaitAsync();
         try
         {
             await using var mappingContext = await _contextFactory.CreateDbContextAsync(CancellationToken.None);
             foreach (var depot in accepted)
             {
-                await EnsureDepotMappingExistsAsync(mappingContext, appId, depot.DepotId, appName);
+                try
+                {
+                    await EnsureDepotMappingExistsAsync(mappingContext, appId, depot.DepotId, appName);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to update depot mapping for depot {DepotId} app {AppId}", depot.DepotId, appId);
+                }
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to update depot mappings for app {AppId}", appId);
         }
-        return changed;
+        finally
+        {
+            _depotMappingLoopGate.Release();
+        }
     }
 
     /// <summary>

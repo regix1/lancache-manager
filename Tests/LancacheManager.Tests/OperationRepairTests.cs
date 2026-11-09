@@ -4411,7 +4411,8 @@ public sealed class OperationRepairTests : IDisposable
                 Datasources,
                 Capabilities,
                 operationTracker: null!,
-                CacheScanGateHarness.Idle());
+                CacheScanGateHarness.Idle(),
+                State);
             _management = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(typeof(CacheManagementService));
             CachedScanFile = Path.Combine(root, "cached_cache_scan.json");
             File.WriteAllText(CachedScanFile, "{}");
@@ -4579,12 +4580,14 @@ public sealed class OperationRepairTests : IDisposable
             services.AddSingleton(_management);
             services.AddSingleton((CacheClearingService)RuntimeHelpers.GetUninitializedObject(typeof(CacheClearingService)));
             services.AddSingleton((RustLogRemovalService)RuntimeHelpers.GetUninitializedObject(typeof(RustLogRemovalService)));
-            services.AddSingleton(new RustLogProcessorService(
+            // A log reset forgets the marking record; no prefill rule is saved here, so it never reads rows.
+            services.AddSingleton(new PrefillSessionService(contextFactory: null!, NullLogger<PrefillSessionService>.Instance));
+            services.AddSingleton(container => new RustLogProcessorService(
                 NullLogger<RustLogProcessorService>.Instance,
                 Paths,
                 Notifications,
                 State,
-                serviceProvider: null!,
+                container,
                 rustProcessHelper: null!,
                 Datasources,
                 operationTracker: null!,

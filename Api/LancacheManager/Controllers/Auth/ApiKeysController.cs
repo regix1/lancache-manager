@@ -132,9 +132,11 @@ public class ApiKeysController : ControllerBase
     [ProducesResponseType(typeof(ApiKeyRegenerateResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> RegenerateApiKeyAsync()
     {
-        var accessConfigured = _accessService is not null && !_accessService.IsSetupRequired();
-        var authenticationEnabled = accessConfigured
-            || _configuration.GetValue<bool>("Security:EnableAuthentication", true);
+        var authenticationEnabled = _accessService is not null
+            ? !_accessService.IsSetupRequired() || _accessService.IsAuthenticationEnabled()
+            : SignInEnvironment.ReadMode(_configuration) is { } environmentMode
+                ? environmentMode != AccountMode.Unauthenticated
+                : _configuration.GetValue<bool>("Security:EnableAuthentication", true);
         if (!authenticationEnabled)
         {
             var apiKeyResult = _authenticationHelper.ValidateApiKey(HttpContext);
@@ -224,10 +226,15 @@ public class ApiKeysController : ControllerBase
         if (authenticationEnabled)
         {
             await using var accounts = await _dbContextFactory.CreateDbContextAsync();
-            var otherAccounts = await accounts.UserAccounts.Where(a => !a.IsMainAdmin).ToListAsync();
-            _accessService?.ForgetAccounts(otherAccounts.Select(account => account.Id));
+            // Accounts an environment variable allows stay: deleting them would only let their next
+            // sign-in create them again.
+            var otherAccounts = (await accounts.UserAccounts.Where(a => !a.IsMainAdmin).ToListAsync())
+                .Where(account => _accessService?.IsAllowedByEnvironment(account.Id) != true)
+                .ToList();
             accounts.UserAccounts.RemoveRange(otherAccounts);
             await accounts.SaveChangesAsync();
+            // After the delete is saved, so a failed save leaves every account its sign-in links.
+            _accessService?.ForgetAccounts(otherAccounts.Select(account => account.Id));
 
             foreach (var removed in otherAccounts)
             {

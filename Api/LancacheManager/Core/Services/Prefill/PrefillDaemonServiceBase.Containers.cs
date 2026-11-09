@@ -554,6 +554,7 @@ public abstract partial class PrefillDaemonServiceBase
             ipAddress: null,
             userAgent: null,
             networkDiagnostics: null,
+            prefillAddresses: await ReadPrefillAddressesAsync(inspect, cancellationToken),
             isReconnect: imageChange is null && dbRecord is not null,
             startupReadopt: startupReadopt,
             involuntaryRecreate: false,
@@ -618,7 +619,7 @@ public abstract partial class PrefillDaemonServiceBase
     /// container still occupies the deterministic name - e.g. a concurrent removal that
     /// <see cref="ResolvePersistentContainerDecisionAsync"/> raced with). After a few short retries,
     /// force-removes whatever is occupying the name and makes one final create attempt. Follows the
-    /// same message-matching <see cref="DockerApiException"/> handling style as <see cref="TerminateSessionAsync"/>.
+    /// same status-code <see cref="DockerApiException"/> handling style as <see cref="TerminateSessionAsync"/>.
     /// </summary>
     private async Task<CreateContainerResponse> CreatePersistentContainerWithConflictRetryAsync(
         CreateContainerParameters parameters, CancellationToken cancellationToken)
@@ -647,8 +648,7 @@ public abstract partial class PrefillDaemonServiceBase
     }
 
     private static bool IsNameConflict(DockerApiException ex)
-        => ex.Message.Contains("Conflict", StringComparison.OrdinalIgnoreCase)
-           && ex.Message.Contains("already in use", StringComparison.OrdinalIgnoreCase);
+        => ex.StatusCode == HttpStatusCode.Conflict;
 
     private async Task ForceRemoveContainersByExactNameAsync(string containerName, CancellationToken cancellationToken, bool removeVolumes)
     {
@@ -718,7 +718,7 @@ public abstract partial class PrefillDaemonServiceBase
             // Already gone - CONFIRMED absent (another teardown/sweep or AutoRemove got there first).
             return ContainerRemovalOutcome.AlreadyAbsent;
         }
-        catch (DockerApiException ex) when (ex.Message.Contains("removal") && ex.Message.Contains("already in progress"))
+        catch (DockerApiException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
         {
             // Another removal is already in flight; the container's absence is NOT yet confirmed.
             return ContainerRemovalOutcome.RemovalInProgress;
@@ -757,6 +757,59 @@ public abstract partial class PrefillDaemonServiceBase
     }
 
     /// <summary>
+    /// The addresses the cache can log for this container's requests. A container on host networking
+    /// has no address of its own; a request it sends to a cache on the same machine leaves from the
+    /// cache address it dials (its <c>LANCACHE_IP</c>), so that address is recorded, unless it is the
+    /// gateway of any Docker network, because every container reaching the cache through that gateway
+    /// sends from it too, including one that starts after this session. A failed list records nothing,
+    /// since the lookup only marks prefill traffic and must not end the session. Other containers record
+    /// <see cref="ReadPrefillAddresses"/>.
+    /// </summary>
+    private async Task<List<string>> ReadPrefillAddressesAsync(ContainerInspectResponse inspect, CancellationToken cancellationToken)
+    {
+        if (inspect.HostConfig.NetworkMode != "host")
+        {
+            return ReadPrefillAddresses(inspect);
+        }
+
+        var cacheAddress = GetEnvValue(inspect.Config?.Env ?? new List<string>(), "LANCACHE_IP");
+        if (cacheAddress is null)
+        {
+            return new List<string>();
+        }
+
+        try
+        {
+            var networks = await _containerGateway.ListNetworksAsync(cancellationToken);
+            var isGateway = networks
+                .SelectMany(network => network.IPAM.Config ?? Enumerable.Empty<IPAMConfig>())
+                .Any(config => config.Gateway == cacheAddress);
+            return isGateway ? new List<string>() : new List<string> { cacheAddress };
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex,
+                "Could not list Docker networks to check the {ServiceName} prefill cache address; recording none",
+                ServiceName);
+            return new List<string>();
+        }
+    }
+
+    /// <summary>
+    /// The addresses the cache can log for this container's requests: each attached network's own
+    /// address. A gateway is not recorded because other containers NATed through it send from the
+    /// same address. Prefill traffic from it is not separated. Empty and repeated values are dropped.
+    /// </summary>
+    private static List<string> ReadPrefillAddresses(ContainerInspectResponse inspect)
+    {
+        return (inspect.NetworkSettings?.Networks?.Values ?? Enumerable.Empty<EndpointSettings>())
+            .Select(network => network.IPAddress)
+            .Where(address => !string.IsNullOrWhiteSpace(address))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>
     /// Reads the published host TCP port from an inspected container's port bindings (host-config first,
     /// then live network settings). Returns null when no positive host port is published.
     /// </summary>
@@ -777,6 +830,22 @@ public abstract partial class PrefillDaemonServiceBase
         }
 
         return FirstHostPort(inspect.HostConfig?.PortBindings) ?? FirstHostPort(inspect.NetworkSettings?.Ports);
+    }
+
+    /// <summary>
+    /// Whether the session's daemon container is still running. A removed container is not running.
+    /// </summary>
+    private async Task<bool> IsContainerRunningAsync(DaemonSession session, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var inspect = await _containerGateway.InspectContainerAsync(session.ContainerId, cancellationToken);
+            return inspect.State.Running;
+        }
+        catch (DockerContainerNotFoundException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

@@ -125,6 +125,12 @@ public class SignalRNotificationService : ISignalRNotificationService
             {
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
             }
+            // The prefill setting changes the totals, clients and sparklines in every time range,
+            // so it expires every batch, as the hostname toggle does.
+            else if (eventName == SignalREvents.PrefillTrafficSettingChanged)
+            {
+                _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
+            }
             // The reset's completed progress is sent after its commit, and a failure after the commit leaves
             // the rows deleted too. Batches built before it, on any range, still describe the deleted rows, and
             // a refetch that started mid-reset may already have cached one under the generation the reset's own

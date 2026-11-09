@@ -1,6 +1,7 @@
 using System.Text.Json;
 using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Npgsql;
@@ -426,7 +427,9 @@ public class PicsDataService
         await ImportToDatabaseAsync(picsData, false, cancellationToken, progressCallback);
     }
 
-    public async Task ImportToDatabaseAsync(PicsJsonData picsData, bool replace, CancellationToken cancellationToken, Func<string, int, Task>? progressCallback = null)
+    // beforeCommit runs inside the import's transaction after every mapping write, so its rows commit
+    // with the import and no reader sees the import without them.
+    public async Task ImportToDatabaseAsync(PicsJsonData picsData, bool replace, CancellationToken cancellationToken, Func<string, int, Task>? progressCallback = null, Func<AppDbContext, Task>? beforeCommit = null)
     {
         try
         {
@@ -493,9 +496,6 @@ public class PicsDataService
             if (progressCallback != null) await progressCallback($"Inserting {allMappings.Count:N0} mappings...", 20);
 
             // Phase 3: UNNEST bulk upsert (20-95%)
-            // Check if table is empty for first-run optimization (skip ON CONFLICT overhead)
-            var tableIsEmpty = !replace && !await scopedDb.DbContext.SteamDepotMappings.AnyAsync(cancellationToken);
-
             var db = scopedDb.DbContext;
             db.ChangeTracker.AutoDetectChangesEnabled = false;
             try
@@ -508,6 +508,14 @@ public class PicsDataService
                 await strategy.ExecuteAsync(async () =>
                 {
                     await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+                    // Take the owner-row key before touching any mapping row, the order prefill's
+                    // mapping writer uses too, so neither side can wait on the other's row locks.
+                    // The commit, or the rollback before a retry, releases it.
+                    await db.Database.ExecuteSqlInterpolatedAsync(
+                        $"SELECT pg_advisory_xact_lock({PrefillCacheService.DepotOwnerLockKey})", cancellationToken);
+                    // Read under the key so a prefill row committed before it is seen by the branch choice.
+                    // An empty table takes the first-run plain INSERT (skips ON CONFLICT overhead).
+                    var tableIsEmpty = !replace && !await db.SteamDepotMappings.AnyAsync(cancellationToken);
 
                     if (replace)
                     {
@@ -540,7 +548,8 @@ public class PicsDataService
                             // First-run: plain INSERT - no conflict resolution overhead
                             await db.Database.ExecuteSqlRawAsync(@"
                             INSERT INTO ""SteamDepotMappings"" (""DepotId"", ""DepotName"", ""AppId"", ""AppName"", ""IsOwner"", ""DiscoveredAt"", ""Source"")
-                            SELECT * FROM UNNEST(@p0::bigint[], @p1::text[], @p2::bigint[], @p3::text[], @p4::boolean[], @p5::timestamptz[], @p6::text[])",
+                            SELECT * FROM UNNEST(@p0::bigint[], @p1::text[], @p2::bigint[], @p3::text[], @p4::boolean[], @p5::timestamptz[], @p6::text[])
+                            ON CONFLICT (""DepotId"", ""AppId"") DO NOTHING",
                                 new object[] { pDepotIds, pDepotNames, pAppIds, pAppNames, pIsOwners, pDiscoveredAts, pSources }, cancellationToken);
                         }
                         else
@@ -567,6 +576,23 @@ public class PicsDataService
                         }
 
                         await Task.Yield();
+                    }
+
+                    // A prefill row only records which app downloaded the depot; once PICS names an
+                    // owner, the prefill row must not stay a second one.
+                    await db.Database.ExecuteSqlRawAsync(@"
+                    UPDATE ""SteamDepotMappings"" AS prefill SET ""IsOwner"" = false
+                    WHERE prefill.""IsOwner"" AND prefill.""Source"" = 'Prefill'
+                      AND EXISTS (
+                        SELECT 1 FROM ""SteamDepotMappings"" AS other
+                        WHERE other.""DepotId"" = prefill.""DepotId"" AND other.""IsOwner"" AND other.""Source"" <> 'Prefill')",
+                        cancellationToken);
+
+                    if (beforeCommit != null)
+                    {
+                        // The callback edits tracked rows, which SaveChanges finds only with change detection on.
+                        db.ChangeTracker.AutoDetectChangesEnabled = true;
+                        await beforeCommit(db);
                     }
 
                     await transaction.CommitAsync(cancellationToken);

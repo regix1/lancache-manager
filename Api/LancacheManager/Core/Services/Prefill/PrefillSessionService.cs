@@ -15,6 +15,15 @@ public class PrefillSessionService
 {
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly ILogger<PrefillSessionService> _logger;
+    private readonly object _markingPassLock = new();
+    // Per datasource, the last marking pass that finished: its window start and the time its
+    // ingest pass began. A run that ended before that time had all its lines read by that pass
+    // and was marked then.
+    private readonly Dictionary<string, (DateTime Since, DateTime IngestStartedUtc)> _lastMarkingPass = new();
+    // Held by a marking pass for its whole run and by a rule save, so no mark from an ended window
+    // is written after the clear that starts the next one.
+    private readonly SemaphoreSlim _markingGate = new(1, 1);
+    private DateTime _marksClearedAtUtc;
 
     public PrefillSessionService(
         IDbContextFactory<AppDbContext> contextFactory,
@@ -706,10 +715,116 @@ public class PrefillSessionService
             ParentOperationId = run.ParentOperationId,
             OptionsJson = JsonSerializer.Serialize(run.Options),
             SnapshotJson = JsonSerializer.Serialize(run.Snapshot),
+            ClientAddressesJson = JsonSerializer.Serialize(run.PrefillAddresses),
             StartedAtUtc = run.Snapshot.StartedAt.UtcDateTime,
             State = run.Snapshot.State
         });
         await context.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Marks the downloads that came from prefill runs started at or after
+    /// <paramref name="separateSinceUtc"/>: rows on the run's service, from one of its container's
+    /// addresses, active inside the run's window (to now for a run still going). It only sets
+    /// <see cref="Download.IsPrefill"/>, a column log ingest never writes, so it never contends
+    /// with the live ingest for the same values. <paramref name="ingestStartedUtc"/> is null for an
+    /// ingest pass that did not read to the end of its logs: such a pass records nothing, so the
+    /// next pass still reads every run that ended since the last pass that did.
+    /// </summary>
+    internal async Task MarkPrefillRowsAsync(DateTime separateSinceUtc, string datasourceName, DateTime? ingestStartedUtc, CancellationToken cancellationToken)
+    {
+        await _markingGate.WaitAsync(cancellationToken);
+        try
+        {
+            DateTime? endedAfter;
+            lock (_markingPassLock)
+            {
+                endedAfter = _lastMarkingPass.TryGetValue(datasourceName, out var last) && last.Since == separateSinceUtc
+                    ? last.IngestStartedUtc
+                    : null;
+            }
+
+            // A pass that read its window start before a clear belongs to the window that ended, so
+            // it marks only runs of the window the clear started.
+            var startedFrom = separateSinceUtc > _marksClearedAtUtc ? separateSinceUtc : _marksClearedAtUtc;
+            await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+            var runs = await context.PrefillRuns
+                .AsNoTracking()
+                .Where(run => run.StartedAtUtc >= startedFrom
+                    && (endedAfter == null || run.CompletedAtUtc == null || run.CompletedAtUtc >= endedAfter))
+                .Select(run => new { run.StartedAtUtc, run.CompletedAtUtc, run.ClientAddressesJson, run.Session!.Platform })
+                .ToListAsync(cancellationToken);
+
+            var now = DateTime.UtcNow;
+            foreach (var run in runs)
+            {
+                // Every run row created since the setting existed carries the column (CreateRunAsync).
+                var addresses = JsonSerializer.Deserialize<List<string>>(run.ClientAddressesJson!)
+                    ?? throw new JsonException("Persisted run addresses are null.");
+                var services = run.Platform.ToRawServices();
+                var start = run.StartedAtUtc;
+                var end = run.CompletedAtUtc ?? now;
+
+                await context.Downloads
+                    .Where(d => !d.IsPrefill
+                        && services.Contains(d.Service)
+                        && addresses.Contains(d.ClientIp)
+                        && d.StartTimeUtc <= end
+                        && d.EndTimeUtc >= start)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(d => d.IsPrefill, true), cancellationToken);
+            }
+
+            // Recorded only after every run was marked, so a pass that throws records nothing and the
+            // next pass reads the whole set again.
+            if (ingestStartedUtc is { } readToEndFrom)
+            {
+                lock (_markingPassLock)
+                {
+                    _lastMarkingPass[datasourceName] = (separateSinceUtc, readToEndFrom);
+                }
+            }
+        }
+        finally
+        {
+            _markingGate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Runs a rule save under the marking gate. When the save starts a new marking window, every
+    /// mark from the earlier window is cleared first: the marking pass only ever sets the flag, so
+    /// those rows would otherwise stay hidden in the new window. They are cleared while no prefill
+    /// rule exists, so no read filters on them mid-clear, and the next pass marks only runs from
+    /// the new window.
+    /// </summary>
+    internal async Task SaveRulesAsync(Func<bool> startsNewWindow, Action save)
+    {
+        await _markingGate.WaitAsync();
+        try
+        {
+            if (startsNewWindow())
+            {
+                _marksClearedAtUtc = DateTime.UtcNow;
+                await using var context = await _contextFactory.CreateDbContextAsync();
+                await context.Downloads
+                    .Where(d => d.IsPrefill)
+                    .ExecuteUpdateAsync(setters => setters.SetProperty(d => d.IsPrefill, false));
+            }
+
+            save();
+        }
+        finally
+        {
+            _markingGate.Release();
+        }
+    }
+
+    public void ResetMarkingPass()
+    {
+        lock (_markingPassLock)
+        {
+            _lastMarkingPass.Clear();
+        }
     }
 
     internal async Task InterruptRunsAsync(string sessionId, string reason, CancellationToken cancellationToken)
@@ -796,6 +911,8 @@ public class PrefillSessionService
         })];
     }
 
+    // Every caller holds the run's PrefillWork, and the history reset deletes only finished rows, so no other writer
+    // can change this unfinished row between the read and the save.
     internal async Task SetRunCancellationAsync(Guid runId, CancellationToken cancellationToken, string? reason = null)
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
@@ -825,6 +942,18 @@ public class PrefillSessionService
             // counts as done and the run's progress and end still apply in memory.
             if (saved is null)
                 return (true, []);
+            // A retried terminal save whose first commit landed but whose answer was lost finds its own completed
+            // row. The games that commit ended carry its end time, so they stand in for the lost answer and the run
+            // still ends in memory and records its prefilled apps; games an earlier save ended are not published again.
+            if (terminal && saved.CompletedAtUtc.HasValue && saved.Sequence == snapshot.Sequence
+                && saved.State == snapshot.State && saved.DaemonInstanceId == snapshot.DaemonInstanceId)
+            {
+                var endedByThisSave = await context.PrefillHistoryEntries
+                    .Where(entry => entry.RunId == run.PrefillRunId && entry.CompletedAtUtc == saved.CompletedAtUtc)
+                    .Select(entry => entry.AppId)
+                    .ToListAsync(attemptToken);
+                return (true, items.Where(item => endedByThisSave.Contains(item.AppId)).ToList());
+            }
             if (saved.CompletedAtUtc.HasValue || saved.DaemonInstanceId != snapshot.DaemonInstanceId
                 || snapshot.Sequence < saved.Sequence)
                 return (false, []);

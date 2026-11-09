@@ -57,10 +57,10 @@ What the sign-in call needs depends on the access mode (see [Access and sign-in]
 | Username and password | `username`, `password` |
 | API key, username and password | `apiKey`, `username`, `password` |
 | Unauthenticated | `username`, `password` of the primary administrator only |
-| API key and single sign-on | Not available. The call is refused. |
-| Single sign-on | Not available. The call is refused. |
+| API key and single sign-on | `apiKey`, `username`, `password` of the primary administrator only |
+| Single sign-on | `username`, `password` of the primary administrator only |
 
-In the two single sign-on modes, a script has no way to sign in.
+In the two single sign-on modes, only the primary administrator's local password works. Any other account is refused with `401`.
 
 The steps, for **API key, username and password**:
 

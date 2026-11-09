@@ -56,6 +56,13 @@ public class GameCacheInfo
     public bool IsEvicted { get; set; } = false;
 
     /// <summary>
+    /// Slice sizes of the game's ranged cache files in bytes, ascending and comma separated
+    /// ("1048576" or "1048576,8388608"); null when detection resolved none of its files.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("slice_sizes")]
+    public string? SliceSizes { get; set; }
+
+    /// <summary>
     /// Number of Downloads rows with IsEvicted = true for this game.
     /// Non-zero even when the game still has active cache files (partial eviction).
     /// Populated in GetCachedDetectionAsync via GROUP BY query.

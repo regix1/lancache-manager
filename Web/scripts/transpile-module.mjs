@@ -286,10 +286,14 @@ export class MemoryStorage {
  * Parses a TypeScript file into a syntax tree the lifting helpers can walk.
  *
  * @param {string} relativePath Path to the file, relative to the repo's `Web/` directory.
- * @param {typescript.ScriptKind} [scriptKind] TS for a `.ts` file, TSX for a `.tsx` one.
+ * @param {typescript.ScriptKind} [scriptKind] TS for a `.ts` file, TSX for a `.tsx` one; picked
+ *   from the extension when left out.
  * @returns {typescript.SourceFile} The parsed file, carrying `relativePath` as its file name.
  */
-export const parseSource = (relativePath, scriptKind = typescript.ScriptKind.TS) => {
+export const parseSource = (
+  relativePath,
+  scriptKind = relativePath.endsWith('.tsx') ? typescript.ScriptKind.TSX : typescript.ScriptKind.TS
+) => {
   const source = readFileSync(new URL(`../${relativePath}`, import.meta.url), 'utf8');
   return typescript.createSourceFile(
     relativePath,
@@ -352,6 +356,24 @@ export const liftConstArrow = (relativePath, constName) => {
       typescript.isArrowFunction(node.initializer)
   );
   return declaration.initializer.getText(sourceFile);
+};
+
+/**
+ * The shipped initializer of `const <name> = ...`, evaluated, so a test reads the value the file
+ * ships instead of a copy of it. The initializer may not use any other name from the file.
+ *
+ * @param {string} relativePath Path to the file, relative to the repo's `Web/` directory.
+ * @param {string} name Name the value is assigned to.
+ * @returns {unknown} The evaluated value.
+ */
+export const declaredValue = (relativePath, name) => {
+  const sourceFile = parseSource(relativePath);
+  const declaration = findSoleNode(
+    sourceFile,
+    `${name} declaration`,
+    (node) => typescript.isVariableDeclaration(node) && node.name.getText(sourceFile) === name
+  );
+  return bindLifted(`() => (${declaration.initializer.getText(sourceFile)})`, {})();
 };
 
 /**

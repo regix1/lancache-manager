@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using LancacheManager.Middleware;
@@ -131,15 +132,15 @@ public partial class SteamKit2Service
                 await NotifyGitHubProgressAsync(reporter, message, overallPercent);
             }
 
-            await _picsDataService.ImportToDatabaseAsync(downloadedData, true, reporter.Token, ImportProgressCallback);
-            try
-            {
-                await _prefillCache.RestoreDepotMappingsAsync();
-            }
-            catch (Exception ex)
+            // The restore runs inside the replace's transaction, so no detection sees the replace
+            // without the prefill-only depots. Assigned per attempt, since a retried attempt reruns it.
+            var restoreFailed = false;
+            await _picsDataService.ImportToDatabaseAsync(downloadedData, true, reporter.Token, ImportProgressCallback,
+                async (AppDbContext db) => restoreFailed = await _prefillCache.RestoreDepotMappingsAsync(db) > 0);
+            if (restoreFailed)
             {
                 // The PICS rows are committed; names for prefill-only depots return with the next GitHub import.
-                _logger.LogWarning(ex, "[GitHub Mode] Could not restore prefill depot mappings after the replace");
+                _logger.LogWarning("[GitHub Mode] Could not restore prefill depot mappings after the replace");
             }
             await NotifyGitHubProgressAsync(reporter, "Applying mappings to downloads...", 90);
             await ManuallyApplyDepotMappingsCoreAsync(reporter, reporter.Token, replace: true);
@@ -147,6 +148,21 @@ public partial class SteamKit2Service
 
             _picsDataService.WritePicsJsonFile(jsonContent);
             _emitTotalMappings = _depotToAppMappings.Count;
+            if (restoreFailed)
+            {
+                // The replace committed, so the checkpoint stands and the next crawl does not redo it.
+                runToken.ThrowIfCancellationRequested();
+                UpdateLastCrawlTime(downloadedData.Metadata.LastChangeNumber);
+                committed = true;
+                const string message = "Prefill depot names could not be restored after the import";
+                await reporter.CompleteAsync(
+                    success: false,
+                    stageKey: "signalr.depotMapping.github.prefillNamesNotRestored",
+                    context: CreateDepotContext(
+                        message: message,
+                        errorDetail: message));
+                return false;
+            }
             await reporter.CompleteAsync(
                 success: true,
                 stageKey: "signalr.depotMapping.github.complete",

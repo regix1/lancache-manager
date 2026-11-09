@@ -46,6 +46,15 @@ public partial class SteamKit2Service
         {
             await _picsDataService.ImportToDatabaseAsync(cancellationToken);
             _logger.LogInformation("Successfully imported PICS JSON data to database");
+            try
+            {
+                await _prefillCache.RestoreDepotMappingsAsync();
+            }
+            catch (Exception ex)
+            {
+                // The import is committed; a prefill depot left without a mapping is retried by the next import.
+                _logger.LogWarning(ex, "Could not restore prefill depot mappings after the PICS import");
+            }
         }
         catch (OperationCanceledException)
         {

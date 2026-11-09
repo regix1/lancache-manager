@@ -881,6 +881,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   // Each history read takes the next number for its session, and only the newest read of a session
   // stores or reports, so a read that started before a run's last save never replaces the read after it.
   const newestHistoryReadRef = useRef<Map<string, number>>(new Map());
+  // Live create and update events counted per session, so a list read that started before a push
+  // keeps the pushed row instead of its own older one.
+  const sessionPushesRef = useRef<Map<string, number>>(new Map());
   // Sessions whose history event arrived since the last refresh, and sessions whose last read failed.
   const pendingHistoryRef = useRef(new Set<string>());
   const failingHistoryRef = useRef(new Set<string>());
@@ -933,6 +936,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       return;
     }
     setLoadingSessions(true);
+    const pushesAtStart = new Map(sessionPushesRef.current);
     try {
       const [sessionsRes, activeRes] = await Promise.all([
         ApiService.getPrefillSessions(
@@ -947,7 +951,17 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       setSessionsError(null);
       setSessions(sessionsRes.sessions);
       setTotalCount(sessionsRes.totalCount);
-      setActiveSessions(activeRes);
+      // A row pushed during the read is newer than the answer, and a session created during the
+      // read is missing from it; a row the answer leaves out that nothing pushed has ended.
+      setActiveSessions((prev) => {
+        const pushed = prev.filter(
+          (s) => sessionPushesRef.current.get(s.id) !== pushesAtStart.get(s.id)
+        );
+        return [
+          ...activeRes.map((s) => pushed.find((p) => p.id === s.id) ?? s),
+          ...pushed.filter((p) => !activeRes.some((s) => s.id === p.id))
+        ];
+      });
       setCacheRoute({
         ip: sessionsRes.lastPrefillCacheIp ?? null,
         source: sessionsRes.lastPrefillCacheIpSource ?? null
@@ -1103,6 +1117,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   // SignalR subscriptions
   useEffect(() => {
     const handleSessionCreated = (session: DaemonSessionCreatedEvent) => {
+      sessionPushesRef.current.set(session.id, (sessionPushesRef.current.get(session.id) ?? 0) + 1);
       setActiveSessions((prev) => {
         if (prev.some((s) => s.id === session.id)) return prev;
         return [...prev, session as DaemonSessionDto];
@@ -1110,6 +1125,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     };
 
     const handleSessionUpdated = (session: DaemonSessionUpdatedEvent) => {
+      sessionPushesRef.current.set(session.id, (sessionPushesRef.current.get(session.id) ?? 0) + 1);
       setActiveSessions((prev) =>
         prev.map((s) => (s.id === session.id ? (session as DaemonSessionDto) : s))
       );

@@ -35,7 +35,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, 
     identity
   } = useEpicMappingAuth({
     onSuccess: () => {
-      setShowAuthModal(false);
+      // The dialog stays open for the mapping's progress; the user closes it.
       loadStatus();
       onSuccess?.(t('management.sections.integrations.epicDaemonStatus.authSuccess'));
     }
@@ -176,7 +176,8 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, 
       </DaemonStatusCard>
 
       <EpicAuthModal
-        loginDeadline={loginDeadline}
+        dismissBehavior="background"
+        loginDeadline={loginState.codeAccepted ? null : loginDeadline}
         opened={showAuthModal}
         onClose={() => setShowAuthModal(false)}
         state={loginState}

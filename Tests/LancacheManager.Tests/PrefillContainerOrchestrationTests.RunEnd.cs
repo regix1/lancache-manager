@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
@@ -34,7 +35,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         client.AbortCancelFor = caller;
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, run.PrefillRunId, caller.Token));
+            () => fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, run.PrefillRunId, true, caller.Token));
 
         Assert.False(fixture.Session.Recovering);
         Assert.False(run.Recovering);
@@ -248,6 +249,101 @@ public sealed partial class PrefillContainerOrchestrationTests
         Assert.Equal("auth-lost", run.Snapshot.Reason);
     }
 
+    /// <summary>
+    /// A Start the daemon refuses with neither a code nor the sign-in flag stores the typed refusal code, which
+    /// the browser shows as "request failed" instead of a blank reason.
+    /// </summary>
+    [Fact]
+    public async Task AStartRefusedWithoutACodeStoresTheRequestFailedReason()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        var client = (CodelessRefusalRunClient)(object)DispatchProxy.Create<IDaemonClient, CodelessRefusalRunClient>();
+        client.InstanceId = fixture.Client.InstanceId;
+        fixture.Session.Client = (IDaemonClient)(object)client;
+
+        await Assert.ThrowsAsync<DaemonCommandException>(
+            () => fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["10"]));
+
+        var run = Assert.Single(fixture.Session.Runs.Values);
+        Assert.Equal("failed", run.Snapshot.State);
+        Assert.Equal("prefill-failed", run.Snapshot.Reason);
+    }
+
+    /// <summary>
+    /// A sign-out during a scheduled run that never reports its end waits for the schedule's own stall timeout,
+    /// not the shorter one set for manual runs.
+    /// </summary>
+    [Fact]
+    public async Task ALogoutDuringAScheduledRunWaitsForTheSchedulesStallTimeout()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        PrefillRunTests.UseStallTimeout(fixture.Daemon, 2);
+        var defaults = Config(PersistenceMode.FullPersistence, steamEnabled: true);
+        var config = new ScheduledPrefillConfigDto
+        {
+            Version = defaults.Version,
+            MaxServiceRuntime = defaults.MaxServiceRuntime,
+            StallTimeout = TimeSpan.FromSeconds(6),
+            Steam = defaults.Steam,
+            Epic = defaults.Epic,
+            Xbox = defaults.Xbox,
+            BattleNet = defaults.BattleNet,
+            Riot = defaults.Riot,
+            PersistenceMode = defaults.PersistenceMode
+        };
+        PrefillRunTests.SetField(fixture.Daemon, "_stateService", OrchestrationStateService.New(config, 90));
+        var client = (RunClient)(object)DispatchProxy.Create<IDaemonClient, RunClient>();
+        client.InstanceId = fixture.Client.InstanceId;
+        client.CompleteCancellation = false;
+        fixture.Session.Client = (IDaemonClient)(object)client;
+        await fixture.StartAsync("10", Guid.NewGuid());
+        var clock = Stopwatch.StartNew();
+
+        var logout = fixture.Daemon.LogoutPersistentSessionAsync(fixture.Session.Id);
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        Assert.False(logout.IsCompleted);
+
+        Assert.False((await logout.WaitAsync(TimeSpan.FromSeconds(10))).LoggedOut);
+        Assert.InRange(clock.Elapsed, TimeSpan.FromSeconds(6), TimeSpan.FromSeconds(8));
+    }
+
+    /// <summary>
+    /// Clear stored logins on a session whose run never reports its end removes the container and its login once
+    /// the stall timeout passes, instead of refusing.
+    /// </summary>
+    [Fact]
+    public async Task ClearLogins_WhileARunNeverEnds_RemovesTheContainerAndItsLogin()
+    {
+        var database = new PooledDbFactory(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"prefill_orchestration_{Guid.NewGuid():N}")
+            .ConfigureWarnings(warnings => warnings.Ignore(InMemoryEventId.TransactionIgnoredWarning))
+            .Options);
+        var sessionService = new PrefillSessionService(database, NullLogger<PrefillSessionService>.Instance);
+        var gateway = new RecordingContainerGateway();
+        using var daemon = new TestSteamDaemon(
+            MakeDeps(database, sessionService, Config(PersistenceMode.FullPersistence, steamEnabled: true)), gateway);
+        PrefillRunTests.UseStallTimeout(daemon, 2);
+        var client = (RunClient)(object)DispatchProxy.Create<IDaemonClient, RunClient>();
+        client.CompleteCancellation = false;
+        var session = InjectedPersistentSession(daemon, (IDaemonClient)(object)client);
+        session.AuthState = DaemonAuthState.Authenticated;
+        session.Capabilities = RunClient.Capabilities(client.InstanceId);
+        session.ContainerId = "container-a";
+        gateway.AddContainer(new FakeContainer { Id = session.ContainerId, Name = SteamPersistentContainerName, Running = true });
+        await sessionService.CreateSessionAsync(
+            session.Id, session.UserId, session.ContainerId, SteamPersistentContainerName, session.ExpiresAt, DateTime.UtcNow);
+        await daemon.PrefillAsync(session.Id, appIds: ["10"], notificationMode: "silent");
+
+        var results = await PrefillDaemonServiceBase.ClearAllPersistentLoginsAsync(
+            new SingleDaemonServiceProvider(daemon), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(15));
+
+        var steam = Assert.Single(results, result => result.Service == PrefillPlatform.Steam);
+        Assert.True(steam.Success);
+        Assert.Contains(gateway.Calls, call => call == $"Remove:{session.ContainerId}");
+        Assert.Equal(1, gateway.CountOf("RemoveVolume:"));
+        Assert.Null(daemon.GetActivePersistentSession());
+    }
+
     private async Task<(TestSteamDaemon Daemon, DaemonSession Session, DaemonRun Run, RecordingContainerGateway Gateway,
         PooledDbFactory Database, RecordingNotificationProxy Recorder)> StoppableSessionWithARunAsync()
     {
@@ -322,5 +418,16 @@ internal class SignedOutRunClient : RunClient
     protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         => targetMethod?.Name == nameof(IDaemonClient.PrefillAsync)
             ? Task.FromResult(new PrefillResult { Success = false, RequiresLogin = true })
+            : base.Invoke(targetMethod, args);
+}
+
+/// <summary>
+/// A daemon client that refuses every Start with only an error text, as the Epic daemon's Start refusal does.
+/// </summary>
+internal class CodelessRefusalRunClient : RunClient
+{
+    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        => targetMethod?.Name == nameof(IDaemonClient.PrefillAsync)
+            ? Task.FromResult(new PrefillResult { Success = false, ErrorMessage = "Start refused" })
             : base.Invoke(targetMethod, args);
 }

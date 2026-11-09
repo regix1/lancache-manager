@@ -174,6 +174,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const [pendingLogFileDeletion, setPendingLogFileDeletion] = useState<string | null>(null);
   // Datasources whose log file delete is in flight; each busies only its own Delete button.
   const deletingLogFiles = useSelectionSet<string>();
+  const deletingLogFileRef = useRef(new Set<string>());
   const shownLogFileDeletion = useHeldValue(pendingLogFileDeletion);
   // Read when a delete answers, to learn whether the person closed the dialog while it waited.
   const pendingLogFileDeletionRef = useRef(pendingLogFileDeletion);
@@ -230,7 +231,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const logRemovalActiveReason =
     logRemovalRowBusy || anyServiceRemovalPending ? t('management.logRemoval.removalRunning') : '';
   const activeOtherRemoval = runs.find(
-    (n) => REMOVAL_TYPES.includes(n.type) && n.status === 'running'
+    (n) => REMOVAL_TYPES.includes(n.type) && (n.status === 'running' || n.status === 'cancelling')
   );
   const otherRemovalTitleKey = activeOtherRemoval
     ? NOTIFICATION_TITLE_KEYS[activeOtherRemoval.type]
@@ -381,7 +382,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
     }
 
     // A repeat press for a log whose delete runs is ignored; another datasource's delete is sent.
-    if (deletingLogFiles.isSelected(datasourceName)) return;
+    // The ref answers for a press handled before the busy state reaches a render.
+    if (deletingLogFileRef.current.has(datasourceName)) return;
+    deletingLogFileRef.current.add(datasourceName);
     deletingLogFiles.setMany([datasourceName], true);
 
     try {
@@ -411,6 +414,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       // A delete that fails partway has still removed files, so the counts reload either way.
       await loadData(true);
       deletingLogFiles.setMany([datasourceName], false);
+      deletingLogFileRef.current.delete(datasourceName);
     }
   };
 

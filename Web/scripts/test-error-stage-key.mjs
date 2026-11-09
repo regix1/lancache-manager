@@ -8,6 +8,7 @@ import {
   compileToUrl,
   compileTree,
   findSoleNode,
+  liftHookCallback,
   moduleUrl,
   parseSource
 } from './transpile-module.mjs';
@@ -66,13 +67,11 @@ const { translateStageKeyMessage, translateRecoveryStage, datasourceFailureValue
   await compileTree('../src/utils/stageKeyMessage.ts', { '@/i18n': i18nStub })
 );
 
+/** The failed response for a status whose body is exactly `text`, as the browser hands it over. */
+const failedWith = (status, text) => buildApiError(new Response(text, { status }));
+
 /** The failed response the browser gets, with the body the API wrote into it. */
-const refusal = (body) =>
-  buildApiError({
-    status: 400,
-    statusText: 'Bad Request',
-    text: async () => JSON.stringify(body)
-  });
+const refusal = (body) => failedWith(400, JSON.stringify(body));
 
 /** What one refusal body reads as, for a reader of that language. */
 const shownFor = async (body, language) => {
@@ -95,9 +94,6 @@ test('the typed error rejects empty messages at construction', () => {
   });
   assert.equal(getErrorMessage(error), 'Authoritative sentence');
 });
-
-/** The failed response for a status whose body is exactly `text`, as the browser hands it over. */
-const failedWith = (status, text) => buildApiError(new Response(text, { status }));
 
 /** The current language's sentence for `key`, failing when the locale has no words for it. */
 const sentence = (key) => {
@@ -437,4 +433,146 @@ test('a Run Now refused because the scan program is missing reads in the reader 
   }
   await translator.changeLanguage('zh');
   assert.notEqual(getErrorMessage(error), body.error);
+});
+
+// ---------------------------------------------------------------------------
+// The database setup screens, which answer a refusal from SetupController
+// ---------------------------------------------------------------------------
+
+/** A failed fetch answer carrying the body SetupController writes for one refusal. */
+const refusedWith = (status, body) => new Response(JSON.stringify(body), { status });
+
+/** The success branch of ApiService.handleResponse is not under test; its failure branch is buildApiError. */
+const handleResponse = async (response) => {
+  if (!response.ok) throw await buildApiError(response);
+  return JSON.parse(await response.text());
+};
+
+/** ApiService.setExternalDbCredentials as it ships, with its fetch and helpers supplied. */
+const liftExternalCredentialsRequest = (fetch) => {
+  const service = parseSource('src/services/api.service.ts');
+  const method = findSoleNode(
+    service,
+    'setExternalDbCredentials method',
+    (node) =>
+      ts.isMethodDeclaration(node) && node.name.getText(service) === 'setExternalDbCredentials'
+  );
+  const parameters = method.parameters.map((parameter) => parameter.getText(service)).join(', ');
+  return bindLifted(`async (${parameters}) => ${method.body.getText(service)}`, {
+    fetch,
+    API_BASE: '/api',
+    ApiService: { getJsonFetchOptions: () => ({}), handleResponse }
+  });
+};
+
+const passwordIsTheUsername = {
+  error: 'Password cannot be the same as the username',
+  stageKey: 'initialization.databaseSetup.errors.passwordSameAsUsername'
+};
+
+test('the password recovery form reads a refusal in the reader language', async () => {
+  await translator.changeLanguage('zh');
+  const shown = [];
+  const handleSubmit = bindLifted(
+    liftHookCallback('src/contexts/ConfigContext.tsx', 'useCallback', 'setup/credentials'),
+    {
+      canSubmit: true,
+      isSaving: false,
+      setIsSaving: () => undefined,
+      setFailureMessage: (message) => shown.push(message),
+      setSavedMessage: () => undefined,
+      fetch: async () => refusedWith(400, passwordIsTheUsername),
+      API_BASE: '/api',
+      ApiService: { getJsonFetchOptions: () => ({}), handleResponse },
+      username: 'lancache',
+      password: 'lancache',
+      apiKey: 'key',
+      setApiKey: () => undefined,
+      setPassword: () => undefined,
+      t: (key, options) => translator.t(key, options),
+      onSaved: () => assert.fail('a refusal is not a save'),
+      getErrorMessage
+    }
+  );
+  await handleSubmit();
+
+  assert.equal(shown.at(-1), zh.initialization.databaseSetup.errors.passwordSameAsUsername);
+});
+
+test('the setup wizard database step reads a refusal in the reader language', async () => {
+  await translator.changeLanguage('zh');
+  const shown = [];
+  const handleSubmit = bindLifted(
+    liftHookCallback(
+      'src/components/initialization/steps/DatabaseSetupStep.tsx',
+      'useCallback',
+      'setup/credentials'
+    ),
+    {
+      validateForm: () => true,
+      setIsSubmitting: () => undefined,
+      setSubmitError: (message) => shown.push(message),
+      fetch: async () => refusedWith(400, passwordIsTheUsername),
+      API_BASE: '/api',
+      ApiService: { getJsonFetchOptions: () => ({}), handleResponse },
+      authenticationEnabled: false,
+      form: {
+        username: 'lancache',
+        password: 'lancache',
+        confirmPassword: 'lancache',
+        apiKey: 'k'
+      },
+      setSetupSuccess: () => assert.fail('a refusal is not a save'),
+      onSetupComplete: () => undefined,
+      t: (key, options) => translator.t(key, options),
+      getErrorMessage
+    }
+  );
+  await handleSubmit();
+
+  assert.equal(shown.at(-1), zh.initialization.databaseSetup.errors.passwordSameAsUsername);
+});
+
+test('the external database step reads a refusal and its values in the reader language', async () => {
+  await translator.changeLanguage('zh');
+  const unreachable = {
+    error: 'Could not connect to db:5432/lancache',
+    stageKey: 'errors.setup.connectFailed',
+    context: { host: 'db', port: 5432, database: 'lancache' }
+  };
+  const shown = [];
+  const handleSubmit = bindLifted(
+    liftHookCallback(
+      'src/components/initialization/steps/ExternalDatabaseSetupStep.tsx',
+      'useCallback',
+      'setExternalDbCredentials'
+    ),
+    {
+      validateForm: () => true,
+      setIsSubmitting: () => undefined,
+      setSubmitError: (message) => shown.push(message),
+      ApiService: {
+        setExternalDbCredentials: liftExternalCredentialsRequest(async () =>
+          refusedWith(400, unreachable)
+        )
+      },
+      form: {
+        host: 'db',
+        port: '5432',
+        database: 'lancache',
+        username: 'lancache',
+        password: 'a-password',
+        apiKey: 'k'
+      },
+      setSetupSuccess: () => assert.fail('a refusal is not a save'),
+      onSetupComplete: () => undefined,
+      t: (key, options) => translator.t(key, options),
+      getErrorMessage
+    }
+  );
+  await handleSubmit();
+
+  assert.equal(shown.at(-1), translator.t('errors.setup.connectFailed', unreachable.context));
+  assert.match(shown.at(-1), /db:5432\/lancache/);
+  assert.notEqual(shown.at(-1), unreachable.error);
 });

@@ -77,13 +77,11 @@ public sealed class StateSaveFailureTests : IDisposable
     }
 
     /// <summary>
-    /// Past the failure count that stops the service attempting the write at all. That lockout used
-    /// to return as if the save had happened, which made every later setting change silently do
-    /// nothing for the rest of the process's life. The blocker is removed before the last call, so
-    /// the throw can only come from the lockout refusing to write, not from a write that failed.
+    /// A run of failed writes never stops later saves from trying the write, so a disk that comes
+    /// back starts saving again without a restart. The blocker is removed before the last call.
     /// </summary>
     [Fact]
-    public void SettingChange_AfterTheLockoutStopsAttemptingWrites_StillThrows()
+    public void SettingChange_AfterRepeatedWriteFailures_WritesOnceTheDiskIsBack()
     {
         BlockStateFileWrites();
         var service = CreateStateService();
@@ -95,10 +93,9 @@ public sealed class StateSaveFailureTests : IDisposable
 
         Directory.Delete(TempStateFilePath);
 
-        var thrown = Assert.Throws<ServiceUnavailableException>(() => service.SetTopGameCount(99));
+        service.SetTopGameCount(99);
 
-        Assert.Equal(SaveFailedMessage, thrown.Message);
-        Assert.False(File.Exists(StateFilePath));
+        Assert.True(File.Exists(StateFilePath));
     }
 
     [Fact]

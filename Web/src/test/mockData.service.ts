@@ -1117,6 +1117,7 @@ class MockDataService {
       activeDownloads: downloads.filter((d) => d.isActive).length,
       uniqueClients: clientStats.length,
       topService: topServiceStat?.service || 'steam',
+      prefillSeparated: false,
       period: {
         duration: 'all',
         since: null,

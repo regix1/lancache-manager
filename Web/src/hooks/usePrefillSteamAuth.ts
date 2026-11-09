@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type { HubConnection } from '@microsoft/signalr';
 import { useNotifications } from '@contexts/notifications';
 import { useErrorHandler, useNotifySuccess } from './useErrorHandler';
@@ -27,6 +28,25 @@ export interface CredentialChallenge {
   operationId?: string;
   /** The server's attempt number: a persistent cancel names it, and a missed sign-in ending is matched by it. */
   loginAttempt?: number | null;
+}
+
+// The hub's Log in answer: the first challenge, or the key and values of the refusal.
+type StartLoginResult =
+  | { challenge: CredentialChallenge | null; stageKey: null; context: null }
+  | { challenge: null; stageKey: string; context: Record<string, unknown> | null };
+
+// Starts the sign-in and returns its first challenge. A refusal carries its reason as a key, so it is thrown
+// translated into the start's own failure path.
+async function startLogin(
+  hubConnection: HubConnection,
+  sessionId: string,
+  t: TFunction
+): Promise<CredentialChallenge | null> {
+  const started = await hubConnection.invoke<StartLoginResult>('BeginLoginAsync', sessionId);
+  if (started.stageKey !== null) {
+    throw new Error(t(started.stageKey, started.context ?? {}));
+  }
+  return started.challenge;
 }
 
 interface UsePrefillSteamAuthOptions {
@@ -948,10 +968,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       startedAfterAttemptRef.current = sessionLoginAttempt;
 
       try {
-        const challenge = await hubConnection.invoke<CredentialChallenge | null>(
-          'StartLoginAsync',
-          sessionId
-        );
+        const challenge = await startLogin(hubConnection, sessionId, t);
         if (
           attemptEpoch !== loginEpochRef.current ||
           sessionIdRef.current !== sessionId ||
@@ -1018,10 +1035,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       startedAfterAttemptRef.current = sessionLoginAttempt;
 
       try {
-        const challenge = await hubConnection.invoke<CredentialChallenge | null>(
-          'StartLoginAsync',
-          sessionId
-        );
+        const challenge = await startLogin(hubConnection, sessionId, t);
         if (
           attemptEpoch !== loginEpochRef.current ||
           sessionIdRef.current !== sessionId ||
@@ -1096,10 +1110,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
     try {
       // Start login to get initial challenge (username)
-      const challenge = await hubConnection.invoke<CredentialChallenge | null>(
-        'StartLoginAsync',
-        sessionId
-      );
+      const challenge = await startLogin(hubConnection, sessionId, t);
       if (
         attemptEpoch !== loginEpochRef.current ||
         sessionIdRef.current !== sessionId ||

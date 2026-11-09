@@ -513,7 +513,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             await ReportBandAsync(reporter, EpicBand, 1, missingEpicCount.Value, missingEpicCount.Value);
 
             var nameKeyed = await FetchMissingNameKeyedImagesAsync(
-                scopedServices, db, client, nameKeyedDownloads, steamCoveredSlugs, InBand(NameKeyedBand), stoppingToken);
+                scopedServices, reporter, db, client, nameKeyedDownloads, steamCoveredSlugs, InBand(NameKeyedBand), stoppingToken);
             if (nameKeyed == null) return PassEnd.Stopped;
             await ReportBandAsync(reporter, NameKeyedBand, 1, nameKeyed.Value.Attempted, nameKeyed.Value.Attempted);
 
@@ -757,6 +757,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// </returns>
     private async Task<(int Attempted, int Stored)?> FetchMissingNameKeyedImagesAsync(
         IServiceProvider scopedServices,
+        ScheduledRunReporter? reporter,
         AppDbContext db,
         HttpClient client,
         IReadOnlyList<(string Service, string GameName)> nameKeyedDownloads,
@@ -764,7 +765,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         ReportPhaseProgress report,
         CancellationToken ct)
     {
-        await BackfillXboxBannerUrlsAsync(scopedServices, ct);
+        await BackfillXboxBannerUrlsAsync(scopedServices, reporter, ct);
 
         var xboxImageUrlBySlug = await LoadXboxBannerUrlsBySlugAsync(db, nameKeyedDownloads, ct);
 
@@ -828,14 +829,15 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// ImageUrl map is read. The per-resolve fetch (EnsureBannerArtAsync) only runs for the products
     /// resolved in a single pass and never retries a transient miss, so without this an art-less title
     /// (e.g. Minecraft Dungeons) would never get its banner here. Best-effort: a backfill failure must
-    /// never abort the image run.
+    /// never abort the image run, so it leaves a warning on the run instead.
     /// </summary>
-    private async Task BackfillXboxBannerUrlsAsync(IServiceProvider scopedServices, CancellationToken ct)
+    private async Task BackfillXboxBannerUrlsAsync(IServiceProvider scopedServices, ScheduledRunReporter? reporter, CancellationToken ct)
     {
+        bool bannersFailed;
         try
         {
             var xboxMappingService = scopedServices.GetRequiredService<LancacheManager.Core.Services.Xbox.XboxMappingService>();
-            await xboxMappingService.BackfillMissingBannerArtAsync(ct);
+            bannersFailed = (await xboxMappingService.BackfillMissingBannerArtAsync(ct)).Failed > 0;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -844,7 +846,15 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
         catch (Exception ex)
         {
+            bannersFailed = true;
             _logger.LogWarning(ex, "[GameImageFetch] Xbox banner URL backfill failed (non-fatal)");
+        }
+
+        if (bannersFailed)
+        {
+            reporter?.SetWarning(new RunWarning(
+                "common.notifications.warnings.xboxBannersNotRefreshed",
+                new Dictionary<string, object?>()));
         }
     }
 

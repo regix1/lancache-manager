@@ -54,7 +54,8 @@ public class XboxApiDirectClient
     /// <summary>
     /// Resolves a banner art URL for the given Microsoft Store ProductId via DisplayCatalog.
     /// Returns an absolute, resized https URL, or null when the catalog has no product / no image
-    /// (caller should then use the service-icon placeholder, never a wrong image).
+    /// (caller should then use the service-icon placeholder, never a wrong image). A lookup that
+    /// fails (refused status, transport error, unreadable body) throws, so the caller can count it.
     /// </summary>
     public async Task<string?> GetBannerImageUrlAsync(string productId, CancellationToken ct = default)
     {
@@ -63,27 +64,12 @@ public class XboxApiDirectClient
             return null;
         }
 
-        DisplayCatalogResponse? catalog;
-        try
-        {
-            var url = string.Format(CultureInfo.InvariantCulture, _displayCatalogUrlFormat, Uri.EscapeDataString(productId));
-            var response = await _httpClient.GetAsync(url, ct);
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning(
-                    "DisplayCatalog lookup for Xbox ProductId {ProductId} returned {StatusCode}",
-                    productId, response.StatusCode);
-                return null;
-            }
+        var url = string.Format(CultureInfo.InvariantCulture, _displayCatalogUrlFormat, Uri.EscapeDataString(productId));
+        var response = await _httpClient.GetAsync(url, ct);
+        response.EnsureSuccessStatusCode();
 
-            var json = await response.Content.ReadAsStringAsync(ct);
-            catalog = JsonSerializer.Deserialize<DisplayCatalogResponse>(json);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to query DisplayCatalog for Xbox ProductId {ProductId}", productId);
-            return null;
-        }
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var catalog = JsonSerializer.Deserialize<DisplayCatalogResponse>(json);
 
         var product = catalog?.Products?.FirstOrDefault();
         if (product == null)

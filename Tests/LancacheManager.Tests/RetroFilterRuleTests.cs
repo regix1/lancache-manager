@@ -459,6 +459,7 @@ public class RetroFilterRuleTests
             {
                 nameof(IStateService.GetHiddenClientIps) => new List<string>(),
                 nameof(IStateService.GetEvictedDataMode) => EvictedMode,
+                nameof(IStateService.GetHiddenPrefillRules) => new List<ClientExclusionRule>(),
                 _ => base.Invoke(targetMethod, args)
             };
     }

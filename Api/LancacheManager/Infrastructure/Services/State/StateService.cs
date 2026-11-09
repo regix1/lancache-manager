@@ -37,7 +37,6 @@ public class StateService : IStateService
     private List<CacheClearOperation>? _cachedCacheClearOperations;
     private List<OperationRepair>? _cachedOperationRepairs;
     private int _consecutiveFailures = 0;
-    private bool _stateSavesDisabledLogged = false;
     private bool _migrationAttempted = false;
 
     // Retention windows for the two persisted operation lists. Both prune on the same
@@ -197,17 +196,6 @@ public class StateService : IStateService
     /// </summary>
     public void SaveState(AppState state)
     {
-        // Skip saves if we've had too many failures
-        if (_consecutiveFailures > 5)
-        {
-            if (!_stateSavesDisabledLogged)
-            {
-                _logger.LogError("State persistence is disabled after repeated save failures");
-                _stateSavesDisabledLogged = true;
-            }
-            throw new ServiceUnavailableException(SaveFailedMessage) { StageKey = SaveFailedStageKey };
-        }
-
         lock (_lock)
         {
             try
@@ -223,7 +211,6 @@ public class StateService : IStateService
 
                 _cachedState = state;
                 _consecutiveFailures = 0; // Reset on success
-                _stateSavesDisabledLogged = false;
                 _logger.LogTrace("State saved successfully with encrypted sensitive data");
             }
             catch (Exception ex)
@@ -237,7 +224,7 @@ public class StateService : IStateService
                 }
                 else if (_consecutiveFailures == 6)
                 {
-                    _logger.LogError("Too many consecutive save failures ({Count}), disabling state saves", _consecutiveFailures);
+                    _logger.LogError("Too many consecutive save failures ({Count}); every later save still tries the write", _consecutiveFailures);
                 }
 
                 throw new ServiceUnavailableException(SaveFailedMessage) { StageKey = SaveFailedStageKey };
@@ -1620,7 +1607,7 @@ public class StateService : IStateService
         return GetState().EpicMappingLastCollection;
     }
 
-    public void SetEpicMappingLastCollection(DateTime collectionTime)
+    public void SetEpicMappingLastCollection(DateTime? collectionTime)
     {
         UpdateState(state => state.EpicMappingLastCollection = collectionTime);
     }
@@ -2880,6 +2867,7 @@ public class StateService : IStateService
         var state = GetState();
         var rules = ResolveExcludedClientRules(state);
         return rules
+            .Where(rule => rule.Traffic == ClientExclusionTraffic.All)
             .Where(rule => NormalizeMode(rule.Mode) == ClientExclusionModes.Exclude)
             .Select(rule => rule.Ip)
             .Distinct()
@@ -2892,8 +2880,8 @@ public class StateService : IStateService
         {
             var normalizedIps = ips ?? new List<string>();
             var existingHiddenRules = ResolveExcludedClientRules(state)
-                .Where(rule => NormalizeMode(rule.Mode) == ClientExclusionModes.Hide)
-                .Where(rule => !normalizedIps.Contains(rule.Ip))
+                .Where(rule => rule.Traffic == ClientExclusionTraffic.Prefill
+                    || (NormalizeMode(rule.Mode) == ClientExclusionModes.Hide && !normalizedIps.Contains(rule.Ip)))
                 .ToList();
 
             state.ExcludedClientRules = existingHiddenRules
@@ -2911,7 +2899,13 @@ public class StateService : IStateService
     {
         var state = GetState();
         return ResolveExcludedClientRules(state)
-            .Select(rule => new ClientExclusionRule { Ip = rule.Ip, Mode = NormalizeMode(rule.Mode) })
+            .Select(rule => new ClientExclusionRule
+            {
+                Ip = rule.Ip,
+                Mode = NormalizeMode(rule.Mode),
+                Traffic = rule.Traffic,
+                Services = rule.Services.ToList()
+            })
             .ToList();
     }
 
@@ -2919,11 +2913,21 @@ public class StateService : IStateService
     {
         UpdateState(state =>
         {
+            // Read before the switch is cleared: an upgraded install keeps its marking start.
+            var switchSince = state.SeparatePrefillTraffic ? state.SeparatePrefillTrafficSinceUtc : null;
+            // The incoming list is stored as sent, never resolved: resolving it while the old switch
+            // is still on would put back a migrated rule the user just deleted.
             var normalized = rules.Count == 0
                 ? new List<ClientExclusionRule>()
                 : NormalizeRules(rules, state.ExcludedClientIps);
             state.ExcludedClientRules = normalized;
             state.ExcludedClientIps = normalized.Select(rule => rule.Ip).ToList();
+            state.SeparatePrefillTraffic = false;
+            // Cleared when the last prefill rule goes, so a rule added later starts a new window
+            // instead of marking every run from the gap.
+            state.PrefillMarkingSinceUtc = normalized.Any(rule => rule.Traffic == ClientExclusionTraffic.Prefill)
+                ? state.PrefillMarkingSinceUtc ?? switchSince ?? DateTime.UtcNow
+                : null;
         });
     }
 
@@ -2932,10 +2936,31 @@ public class StateService : IStateService
         var state = GetState();
         var rules = ResolveExcludedClientRules(state);
         return rules
+            .Where(rule => rule.Traffic == ClientExclusionTraffic.All)
             .Where(rule => NormalizeMode(rule.Mode) == ClientExclusionModes.Hide)
             .Select(rule => rule.Ip)
             .Distinct()
             .ToList();
+    }
+
+    public List<ClientExclusionRule> GetHiddenPrefillRules()
+    {
+        return GetPrefillRules()
+            .Where(rule => rule.Mode == ClientExclusionModes.Hide)
+            .ToList();
+    }
+
+    public List<ClientExclusionRule> GetPrefillRules()
+    {
+        return ResolveExcludedClientRules(GetState())
+            .Where(rule => rule.Traffic == ClientExclusionTraffic.Prefill)
+            .ToList();
+    }
+
+    public DateTime? GetPrefillMarkingSinceUtc()
+    {
+        var state = GetState();
+        return state.PrefillMarkingSinceUtc ?? (state.SeparatePrefillTraffic ? state.SeparatePrefillTrafficSinceUtc : null);
     }
 
     public string GetEvictedDataMode()
@@ -2957,6 +2982,16 @@ public class StateService : IStateService
     public void SetClientHostnameLookup(bool enabled)
     {
         UpdateState(state => state.ClientHostnameLookup = enabled);
+    }
+
+    public long? GetCacheSliceSizeBytes()
+    {
+        return GetState().CacheSliceSizeBytes;
+    }
+
+    public void SetCacheSliceSizeBytes(long? bytes)
+    {
+        UpdateState(state => state.CacheSliceSizeBytes = bytes);
     }
 
     public string? GetClientHostnameResolver()
@@ -3001,19 +3036,33 @@ public class StateService : IStateService
 
     private static List<ClientExclusionRule> ResolveExcludedClientRules(AppState state)
     {
-        if (state.ExcludedClientRules != null && state.ExcludedClientRules.Count > 0)
+        var resolved = state.ExcludedClientRules != null && state.ExcludedClientRules.Count > 0
+            ? NormalizeRules(state.ExcludedClientRules, state.ExcludedClientIps)
+            : NormalizeRules(null, state.ExcludedClientIps);
+        if (!state.SeparatePrefillTraffic)
         {
-            return NormalizeRules(state.ExcludedClientRules, state.ExcludedClientIps);
+            return resolved;
         }
 
-        return NormalizeRules(null, state.ExcludedClientIps);
+        // An install that had the separate-prefill switch on reads it as one hidden prefill rule for
+        // every address. The load stores this list back, so it goes through the key dedupe to stay
+        // a single rule once a later save wrote it while the switch was still on.
+        return NormalizeRules(
+            [.. resolved, new ClientExclusionRule { Mode = ClientExclusionModes.Hide, Traffic = ClientExclusionTraffic.Prefill }],
+            null);
     }
 
     private static List<string> BuildExcludedIpList(List<ClientExclusionRule>? rules, List<string>? fallback)
     {
         if (rules != null && rules.Count > 0)
         {
-            return rules.Select(rule => rule.Ip).Distinct().ToList();
+            // The legacy list means "this client's whole traffic"; a prefill rule's address there
+            // would come back as an All-traffic rule through the legacy fallback.
+            return rules
+                .Where(rule => rule.Traffic == ClientExclusionTraffic.All)
+                .Select(rule => rule.Ip)
+                .Distinct()
+                .ToList();
         }
 
         return fallback ?? new List<string>();
@@ -3026,19 +3075,29 @@ public class StateService : IStateService
         {
             foreach (var rule in rules)
             {
-                var ip = rule.Ip?.Trim();
-                if (string.IsNullOrWhiteSpace(ip))
+                var ip = rule.Ip?.Trim() ?? string.Empty;
+                var traffic = string.Equals(rule.Traffic, ClientExclusionTraffic.Prefill, StringComparison.OrdinalIgnoreCase)
+                    ? ClientExclusionTraffic.Prefill
+                    : ClientExclusionTraffic.All;
+                // An empty address means "every address", which only a prefill rule may say.
+                if (ip.Length == 0 && traffic == ClientExclusionTraffic.All)
                 {
                     continue;
                 }
 
-                var mode = NormalizeMode(rule.Mode);
-                if (normalized.Any(r => r.Ip == ip))
+                var candidate = new ClientExclusionRule
+                {
+                    Ip = ip,
+                    Mode = NormalizeMode(rule.Mode),
+                    Traffic = traffic,
+                    Services = (rule.Services ?? []).ToList()
+                };
+                if (normalized.Any(r => r.RuleKey == candidate.RuleKey))
                 {
                     continue;
                 }
 
-                normalized.Add(new ClientExclusionRule { Ip = ip, Mode = mode });
+                normalized.Add(candidate);
             }
 
             return normalized;

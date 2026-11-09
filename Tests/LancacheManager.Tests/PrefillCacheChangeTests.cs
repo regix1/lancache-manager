@@ -120,7 +120,8 @@ public sealed class PrefillCacheChangeTests
             notifications,
             new ConfigurationBuilder().Build(),
             (IPathResolver)DispatchProxy.Create<IPathResolver, NullReturningProxy>(),
-            (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>(),
+            // The state service always holds a scheduled config, which a scheduled run's stall timeout reads.
+            (IStateService)DispatchProxy.Create<IStateService, ScheduleState>(),
             new PrefillSessionService(factory, NullLogger<PrefillSessionService>.Instance),
             new PrefillCacheService(factory, NullLogger<PrefillCacheService>.Instance),
             new StaticOptionsMonitor<PrefillNetworkOptions>(new PrefillNetworkOptions()),

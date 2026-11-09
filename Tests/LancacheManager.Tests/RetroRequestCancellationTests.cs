@@ -174,7 +174,7 @@ public sealed class RetroRequestCancellationTests
         var controller = new DownloadsController(
             context,
             state,
-            new EventsService(context, NullLogger<EventsService>.Instance),
+            new EventsService(context, NullLogger<EventsService>.Instance, state),
             logger)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
@@ -212,6 +212,8 @@ public sealed class RetroRequestCancellationTests
             {
                 nameof(IStateService.GetHiddenClientIps) => new List<string>(),
                 "GetEvictedDataMode" => EvictedDataMode.Show.ToWireString(),
+                nameof(IStateService.GetHiddenPrefillRules) => new List<ClientExclusionRule>(),
+                nameof(IStateService.GetPrefillRules) => new List<ClientExclusionRule>(),
                 _ => throw new NotSupportedException(targetMethod?.Name)
             };
     }

@@ -356,6 +356,47 @@ public sealed partial class PrefillContainerOrchestrationTests
         Assert.True(gateway.Removals.Last().Parameters.RemoveVolumes);
     }
 
+    // Docker answers 409 to a kill when the container already exited; the stop removes it without a warning.
+    [Fact]
+    public async Task Stop_ContainerAlreadyExited_RemovesItWithoutAWarning()
+    {
+        var (_, contexts) = NewDatabase();
+        var history = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var gateway = new RecordingContainerGateway();
+        var logger = new CapturingLogger();
+        using var daemon = new TestSteamDaemon(MakeDeps(contexts, history, Config(PersistenceMode.FullPersistence, true)), gateway, logger: logger);
+        var session = AddGuest(daemon, gateway, Guid.NewGuid());
+        gateway.FailNextKillContainer(new DockerApiException(HttpStatusCode.Conflict, "container is not running"));
+
+        await daemon.TerminateSessionAsync(session.Id, force: true);
+
+        Assert.False(gateway.ContainsContainer(session.ContainerId));
+        Assert.True(gateway.Removals.Last().Parameters.Force);
+        Assert.DoesNotContain(logger.Entries, entry => entry.Level >= LogLevel.Warning);
+    }
+
+    // A failed removal answers the Stop with its failure, then tells the admin page the session is in error.
+    [Fact]
+    public async Task Stop_RemovalFails_AdminPageReceivesTheErrorState()
+    {
+        var (_, contexts) = NewDatabase();
+        var history = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
+        var recorder = (RecordingNotificationProxy)(object)notifications;
+        var gateway = new RecordingContainerGateway();
+        using var daemon = new TestSteamDaemon(
+            MakeDeps(contexts, history, Config(PersistenceMode.FullPersistence, true), notifications: notifications), gateway);
+        var session = AddGuest(daemon, gateway, Guid.NewGuid());
+        gateway.FailNextRemoveContainer(new IOException("simulated remove failure"));
+
+        await Assert.ThrowsAsync<ServiceUnavailableException>(() => daemon.TerminateSessionAsync(session.Id, force: true));
+
+        var update = recorder.Invocations.ToArray().Last(call =>
+            call.Method == nameof(ISignalRNotificationService.NotifyAdminAsync)
+            && (string?)call.Args[0] == SignalREvents.DaemonSessionUpdated);
+        Assert.Equal("Error", Assert.IsType<DaemonSessionDto>(update.Args[1]).Status);
+    }
+
     [Fact]
     public async Task GuestCreate_AmbiguousOutcomeRetainsExactNameUntilExplicitRetry()
     {
@@ -630,6 +671,67 @@ public sealed partial class PrefillContainerOrchestrationTests
         gate.FinishCreate(next, cleanupPending: false);
     }
 
+    // A non-persistent session whose daemon container stopped while it recovers from a drop is ended and its container
+    // removed: it keeps no saved login and its container is never restarted. A persistent one keeps recovering.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RecoveringSession_ContainerStopped_EndsOnlyANonPersistentOneAsync(bool persistent)
+    {
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, EventRecordingNotificationsProxy>();
+        var (_, contexts) = NewDatabase();
+        var history = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var gateway = new RecordingContainerGateway();
+        using var daemon = new TestSteamDaemon(
+            MakeDeps(contexts, history, Config(PersistenceMode.FullPersistence, true), notifications: notifications), gateway);
+        // The stand-in daemon answers no status read, as a stopped container does.
+        var owner = Guid.NewGuid();
+        var session = AddGuest(daemon, gateway, owner, temporary: !persistent, persistent: persistent);
+        session.Recovering = true;
+        gateway.FindByName(session.ContainerName)!.Running = false;
+        daemon.AddSubscriber(session.Id, "connection-1");
+        // An earlier failed teardown of this session holds the owner's cleanup; the end must release it.
+        if (!persistent) PrefillDaemonServiceBase.GuestGate.Retain(owner, session.Id);
+
+        await daemon.RefreshRunsAsync(session.Id);
+
+        if (persistent)
+        {
+            Assert.Same(session, daemon.GetSession(session.Id));
+            Assert.True(session.Recovering);
+            Assert.True(gateway.ContainsContainer(session.ContainerId));
+            return;
+        }
+        await WaitUntilAsync(() => session.Status == DaemonSessionStatus.Terminated);
+        Assert.False(gateway.ContainsContainer(session.ContainerId));
+        Assert.Equal("signalr.prefillSession.daemonDisconnected",
+            SessionEndedReasonKey((EventRecordingNotificationsProxy)(object)notifications));
+        await WaitUntilAsync(() => !PrefillDaemonServiceBase.GuestGate.GetPendingOwners().Contains(owner));
+    }
+
+    // A guest's Start that finds the guest's own session recovering on a stopped container ends that session and builds
+    // a new one, instead of handing back the dead one.
+    [Fact]
+    public async Task GuestCreate_RecoveringSessionOnAStoppedContainer_StartsANewSessionAsync()
+    {
+        var (_, contexts) = NewDatabase();
+        var owner = await SeedGuestAsync(contexts);
+        var history = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var gateway = new RecordingContainerGateway();
+        using var daemon = BuildDaemon(PrefillPlatform.Steam, MakeDeps(contexts, history, Config(PersistenceMode.FullPersistence, true)), gateway);
+        var first = await daemon.CreateSessionAsync(owner, sessionType: SessionType.Guest);
+        first.Recovering = true;
+        gateway.FindByName(first.ContainerName)!.Running = false;
+
+        var second = await daemon.CreateSessionAsync(owner, sessionType: SessionType.Guest);
+
+        Assert.NotEqual(first.Id, second.Id);
+        Assert.Null(daemon.GetSession(first.Id));
+        Assert.False(gateway.ContainsContainer(first.ContainerId));
+        Assert.Same(second, daemon.GetSession(second.Id));
+        await daemon.TerminateSessionAsync(second.Id, force: true);
+    }
+
     private static DaemonSession AddGuest(PrefillDaemonServiceBase daemon, RecordingContainerGateway gateway,
         Guid owner, bool temporary = true, bool persistent = false)
     {
@@ -730,15 +832,19 @@ public sealed partial class PrefillContainerOrchestrationTests
         DictionaryKeyPolicy = JsonNamingPolicy.CamelCase
     };
 
-    // Creates a session through the hub method the current page invokes, by name as SignalR resolves it, and
-    // returns the answer the page reads.
-    private static async Task<object> CreateAsPageAsync(SteamDaemonHub hub)
+    // Creates a session through the hub method the current page invokes, and returns the answer the page reads.
+    private static async Task<object> CreateAsPageAsync(SteamDaemonHub hub) =>
+        (await InvokeAsPageAsync(hub, "OpenSessionAsync"))!;
+
+    // Calls the hub method the current page invokes, by name as SignalR resolves it, and returns the answer the
+    // page reads.
+    private static async Task<object?> InvokeAsPageAsync(SteamDaemonHub hub, string methodName, params object?[] arguments)
     {
-        var method = typeof(SteamDaemonHub).GetMethod("OpenSessionAsync");
+        var method = typeof(SteamDaemonHub).GetMethod(methodName);
         Assert.NotNull(method);
-        var call = (Task)method.Invoke(hub, [])!;
+        var call = (Task)method.Invoke(hub, arguments)!;
         await call;
-        return call.GetType().GetProperty(nameof(Task<object>.Result))!.GetValue(call)!;
+        return call.GetType().GetProperty(nameof(Task<object>.Result))!.GetValue(call);
     }
 
     // The id of the session a create answered with, read from the shape the browser receives.

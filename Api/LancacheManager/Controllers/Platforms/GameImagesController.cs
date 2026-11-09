@@ -209,7 +209,6 @@ public class GameImagesController : ControllerBase
     /// each version in that image's URL so one game's new artwork re-fetches one banner.
     /// </remarks>
     [HttpGet("available")]
-    [AllowAnonymous]
     [ProducesResponseType(typeof(AvailableGameImagesResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<AvailableGameImagesResponse>> GetAvailableImageIdsAsync(CancellationToken cancellationToken = default)
     {

@@ -1,12 +1,14 @@
 using System.Reflection;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -774,6 +776,69 @@ public sealed class AccountManagementTests : IDisposable
         Assert.True(claimWindow.IsOpen);
     }
 
+    /// <summary>
+    /// The SSO link is removed only after the account delete is saved, so a failed save leaves the
+    /// account still able to sign in through its link.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedAccountDeleteKeepsTheSignInLink(bool wipe)
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        using var files = new IntegrationFixture();
+        var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var member = await SeedAccountAsync(database.Factory, "member", SessionType.User);
+        files.State.UpdateAccess(access => access.Logins =
+        [
+            new OidcSettings
+            {
+                Id = "customOidc",
+                DisplayName = string.Empty,
+                IdentityVersion = 1,
+                AccountIds = new Dictionary<string, Guid>(StringComparer.Ordinal)
+                {
+                    [AccessService.IdentityKey("https://sso.example.test", "member")] = member.Id
+                }
+            }
+        ]);
+        var access = new AccessService(files.State, new ConfigurationBuilder().Build(), database.Factory);
+        var failing = new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>(database.Options)
+            .AddInterceptors(new AccountDeleteFails())
+            .Options);
+        var controller = NewController(failing, await SeedSessionAsync(database.Factory, owner), accessService: access);
+
+        await Assert.ThrowsAnyAsync<DbUpdateException>(async () =>
+        {
+            if (wipe)
+            {
+                await controller.WipeAccountsAsync();
+            }
+            else
+            {
+                await controller.DeleteAccountAsync(member.Id);
+            }
+        });
+
+        Assert.Contains(member.Id, files.State.GetState().Access.Logins.Single().AccountIds.Values);
+    }
+
+    /// <summary>Fails the save that deletes accounts, the way a lost database connection would.</summary>
+    private sealed class AccountDeleteFails : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData saving,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (saving.Context?.ChangeTracker.Entries<UserAccount>().Any(entry => entry.State == EntityState.Deleted) == true)
+            {
+                throw new DbUpdateException("The account delete could not be saved");
+            }
+            return base.SavingChangesAsync(saving, result, cancellationToken);
+        }
+    }
+
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
     private async Task<AccountsController> NewControllerAsync(TestDbContextFactory factory, UserAccount caller)
@@ -788,7 +853,8 @@ public sealed class AccountManagementTests : IDisposable
         IdentityAuditService? auditService = null,
         AccountLockout? lockout = null,
         AccountClaimWindow? claimWindow = null,
-        ISignalRNotificationService? notifications = null)
+        ISignalRNotificationService? notifications = null,
+        AccessService? accessService = null)
     {
         var configuration = NewConfiguration(authenticationEnabled);
         var controller = new AccountsController(
@@ -805,7 +871,8 @@ public sealed class AccountManagementTests : IDisposable
             lockout ?? new AccountLockout(NullLogger<AccountLockout>.Instance),
             claimWindow ?? new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
             notifications ?? DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
-            NullLogger<AccountsController>.Instance);
+            NullLogger<AccountsController>.Instance,
+            accessService);
 
         var httpContext = new DefaultHttpContext();
         httpContext.Items["Session"] = caller;

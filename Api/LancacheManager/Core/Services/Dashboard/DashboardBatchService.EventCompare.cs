@@ -40,6 +40,7 @@ public partial class DashboardBatchService
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
+        var prefillRules = _stateRepository.GetPrefillRules();
 
         // EndTimeUtc is the planned end, so a running event carries a timestamp in the future and a
         // window that runs to it fills buckets for time that has not happened.
@@ -70,10 +71,21 @@ public partial class DashboardBatchService
                 .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
 
             var spans = await query
+                .ApplyPrefillFilter(prefillRules)
                 .Select(d => new HourOfDayBuckets.Span(d.StartTimeUtc, d.EndTimeUtc, d.CacheHitBytes, d.CacheMissBytes))
                 .ToListAsync(ct);
             var present = SparklineBuckets.Spread(spans, bucketMinutes, start, end);
             var filled = SparklineBuckets.Fill(start, end, bucketMinutes, present);
+
+            // Missed is what the event added to the cache, which a prefill still does, so it reads
+            // the rows without the prefill filter. With no prefill rule that is the same list.
+            var addedToCache = prefillRules.Count > 0
+                ? SparklineBuckets.Fill(start, end, bucketMinutes, SparklineBuckets.Spread(
+                    await query
+                        .Select(d => new HourOfDayBuckets.Span(d.StartTimeUtc, d.EndTimeUtc, d.CacheHitBytes, d.CacheMissBytes))
+                        .ToListAsync(ct),
+                    bucketMinutes, start, end))
+                : filled;
             series.Add(
                 new EventCompareSeries
                 {
@@ -93,7 +105,7 @@ public partial class DashboardBatchService
                         elapsed,
                         b => b.CacheHitBytes),
                     Missed = SparklineBuckets.ProjectElapsed(
-                        filled,
+                        addedToCache,
                         start,
                         bucketMinutes,
                         elapsed,

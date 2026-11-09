@@ -291,6 +291,35 @@ public class GameDetectionVisibilityRaceTests
         Assert.Same(silent, ctx.Tracker.NoticeOf(firstId.Value));
     }
 
+    // A person can start a detection in the second between recovery releasing its ownership and the
+    // startup restore. The interrupted run is then not restored beside it, and the running one keeps
+    // its worker, so a later start does not take it for stale.
+    [Fact]
+    public async Task ARestoreAfterAManualStartLeavesTheManualRunAlone()
+    {
+        using var ctx = new ServiceContext();
+        var manualId = (await ctx.Service.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual), incremental: true))!.Value;
+        var currentDetectionTask = typeof(GameCacheDetectionService)
+            .GetField("_currentDetectionTask", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        currentDetectionTask.SetValue(ctx.Service, ((Guid, Task)?)(manualId, new TaskCompletionSource().Task));
+        var interruptedId = Guid.NewGuid();
+        ctx.States.SaveState($"gameDetection_{interruptedId}", new LancacheManager.Core.Services.OperationState
+        {
+            Key = $"gameDetection_{interruptedId}", Type = OperationType.GameDetection.ToWireString(), Status = "running",
+            Fields = JsonSerializer.SerializeToElement(new
+            {
+                operationId = interruptedId, startedAt = DateTime.UtcNow.AddMinutes(-1),
+                scanType = DetectionScanType.Full, showNotification = true
+            })
+        });
+
+        await ctx.Service.RestoreInterruptedOperations(CancellationToken.None);
+
+        Assert.Null(ctx.Tracker.Get(interruptedId));
+        var worker = ((Guid, Task)?)currentDetectionTask.GetValue(ctx.Service);
+        Assert.Equal(manualId, worker!.Value.Item1);
+    }
+
     [Theory]
     [InlineData(NotificationMode.All, RunTrigger.Manual)]
     [InlineData(NotificationMode.Manual, RunTrigger.Scheduled)]
@@ -411,6 +440,30 @@ public class GameDetectionVisibilityRaceTests
         Assert.Equal(1, complete.TotalGamesDetected);
     }
 
+    [Fact]
+    public async Task AFullScanThatCouldNotReadCacheItemsEndsWithAWarningAsync()
+    {
+        await using var unreadable = await DetectionRun.CreateAsync();
+        unreadable.UnreadableCacheItems = 2;
+
+        var id = (await unreadable.Detection.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual), incremental: false))!.Value;
+        await unreadable.WaitForTerminalAsync(id).WaitAsync(TimeSpan.FromSeconds(5));
+
+        var warning = Assert.Single(
+            Assert.Single(unreadable.Repairs.Tracker.GetRuns().Runs, row => row.OperationId == id).Warnings);
+        Assert.Equal("common.notifications.warnings.cacheItemsUnreadable", warning.StageKey);
+        Assert.Equal(2L, warning.Context["count"]);
+
+        await using var readable = await DetectionRun.CreateAsync();
+
+        var readableId = (await readable.Detection.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual), incremental: false))!.Value;
+        await readable.WaitForTerminalAsync(readableId).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.DoesNotContain(
+            Assert.Single(readable.Repairs.Tracker.GetRuns().Runs, row => row.OperationId == readableId).Warnings,
+            item => item.StageKey == "common.notifications.warnings.cacheItemsUnreadable");
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -481,6 +534,7 @@ public class GameDetectionVisibilityRaceTests
         public RecordingNotificationsProxy Notifications { get; private set; } = null!;
         public string? CancelAtStage { get; set; }
         public bool CancelOnFirstSave { get; set; }
+        public int? UnreadableCacheItems { get; set; }
 
         public static async Task<DetectionRun> CreateAsync()
         {
@@ -539,12 +593,13 @@ public class GameDetectionVisibilityRaceTests
                 new GameCacheDetectionDataService(contexts, NullLogger<GameCacheDetectionDataService>.Instance),
                 evictedDetectionPreservationService: null!,
                 unknownGameResolutionService: new UnknownGameResolutionService(contexts, NullLogger<UnknownGameResolutionService>.Instance),
-                new OneGameReport(paths, run.Repairs.Tracker, paths.GetOperationsDirectory()),
+                new OneGameReport(run, paths, run.Repairs.Tracker, paths.GetOperationsDirectory()),
                 (ISignalRNotificationService)(object)notifications,
                 datasources,
                 new DatasourceCapabilityService(datasources),
                 run.Repairs.Tracker,
-                CacheScanGateHarness.Idle());
+                CacheScanGateHarness.Idle(),
+                run.State);
             return run;
         }
 
@@ -600,7 +655,7 @@ public class GameDetectionVisibilityRaceTests
             }
         }
 
-        private sealed class OneGameReport(IPathResolver paths, IUnifiedOperationTracker tracker, string reportDirectory)
+        private sealed class OneGameReport(DetectionRun run, IPathResolver paths, IUnifiedOperationTracker tracker, string reportDirectory)
             : RustProcessHelper(
                 NullLogger<RustProcessHelper>.Instance,
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
@@ -632,6 +687,10 @@ public class GameDetectionVisibilityRaceTests
                     ["games"] = new[] { game },
                     ["services"] = Array.Empty<ServiceCacheInfo>()
                 };
+                if (run.UnreadableCacheItems is { } count)
+                {
+                    report["unreadable_cache_items"] = count;
+                }
                 await File.WriteAllTextAsync(output, JsonSerializer.Serialize(report), cancellationToken);
                 return new ProcessExecutionResult { ExitCode = 0 };
             }
@@ -721,7 +780,8 @@ public class GameDetectionVisibilityRaceTests
                 datasourceService,
                 capabilityService,
                 tracker,
-                CacheScanGateHarness.Idle());
+                CacheScanGateHarness.Idle(),
+                stateService);
             Service = _create((IUnifiedOperationTracker)(object)Tracker);
             repairOwner = Service;
             _services.GetRequiredService<GameCacheDetectionService>();

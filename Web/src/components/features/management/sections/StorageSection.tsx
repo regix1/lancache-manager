@@ -62,6 +62,7 @@ import OrphanedDownloadsList from '../game-detection/OrphanedDownloadsList';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
 import LogRemovalManager from '../log-processing/LogRemovalManager';
 import CacheManager from '../cache/CacheManager';
+import CacheSettings from '../cache/CacheSettings';
 import CorruptionManager from '../cache/CorruptionManager';
 import GameCacheDetector from '../game-detection/GameCacheDetector';
 import {
@@ -911,6 +912,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         <GroupHeading label={t('management.sections.storage.cacheOperations')} />
 
         <div className="space-y-4">
+          <CacheSettings authMode={authMode} mockMode={mockMode} onError={onError} />
+
           {/* Cache Clearing. HighlightGlow scrolls to and glows this card when the user jumps
             here from the dashboard's stale Cache Files chip, which this card's scan refreshes. */}
           <HighlightGlow enabled={highlightCacheScan} scrollIntoView>

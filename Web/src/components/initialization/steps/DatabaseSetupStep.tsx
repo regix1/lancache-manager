@@ -34,7 +34,6 @@ interface FormErrors {
 interface CredentialsResponse {
   success: boolean;
   message: string;
-  error?: string;
 }
 
 export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupComplete }) => {
@@ -140,24 +139,19 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
         )
       );
 
-      const data: CredentialsResponse = await response.json();
+      // A refusal throws here and carries its i18n key to getErrorMessage below.
+      await ApiService.handleResponse<CredentialsResponse>(response);
 
-      if (response.ok && data.success) {
-        setSetupSuccess(true);
-        setTimeout(() => {
-          onSetupComplete();
-        }, 1500);
-      } else {
-        setSubmitError(
-          data.error || data.message || t('initialization.databaseSetup.errors.saveFailed')
-        );
-      }
+      setSetupSuccess(true);
+      setTimeout(() => {
+        onSetupComplete();
+      }, 1500);
     } catch (error: unknown) {
       setSubmitError(getErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
-  }, [authenticationEnabled, form, validateForm, onSetupComplete, t]);
+  }, [authenticationEnabled, form, validateForm, onSetupComplete]);
 
   if (setupSuccess) {
     return (
@@ -199,7 +193,8 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
               placeholder={t('initialization.databaseSetup.usernamePlaceholder')}
               className="themed-input setup-input"
               autoComplete="username"
-              disabled={isSubmitting}
+              // Held while Submit sends it, so the credentials saved are the ones on screen.
+              readOnly={isSubmitting}
             />
           )}
         </FormField>
@@ -214,7 +209,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
           error={errors.password}
           placeholder={t('initialization.databaseSetup.passwordPlaceholder')}
           autoComplete="new-password"
-          disabled={isSubmitting}
+          readOnly={isSubmitting}
           inputClassName="themed-input setup-input"
           showPasswordLabel={t('aria.showPassword')}
           hidePasswordLabel={t('aria.hidePassword')}
@@ -236,7 +231,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
           error={errors.confirmPassword}
           placeholder={t('initialization.databaseSetup.confirmPasswordPlaceholder')}
           autoComplete="new-password"
-          disabled={isSubmitting}
+          readOnly={isSubmitting}
           inputClassName="themed-input setup-input"
           showPasswordLabel={t('aria.showPassword')}
           hidePasswordLabel={t('aria.hidePassword')}
@@ -259,7 +254,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
                 onChange={handleInputChange('apiKey')}
                 placeholder={t('initialization.databaseSetup.apiKeyPlaceholder')}
                 className="themed-input setup-input"
-                disabled={isSubmitting}
+                readOnly={isSubmitting}
               />
             )}
           </FormField>

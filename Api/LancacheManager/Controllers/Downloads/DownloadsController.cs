@@ -47,14 +47,10 @@ public class DownloadsController : ControllerBase
     {
         var download = await _context.Downloads
             .AsNoTracking()
+            .ApplyHiddenClientFilter(_stateRepository.GetHiddenClientIps())
+            .ApplyPrefillFilter(_stateRepository.GetHiddenPrefillRules())
             .FirstOrDefaultAsync(d => d.Id == id)
             ?? throw new NotFoundException("Download");
-
-        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
-        if (hiddenClientIps.Contains(download.ClientIp))
-        {
-            throw new NotFoundException("Download");
-        }
 
         // Hide evicted downloads in hide/remove mode
         var evictedMode = _stateRepository.GetEvictedDataMode();
@@ -168,6 +164,7 @@ public class DownloadsController : ControllerBase
         var baseQuery = _context.Downloads
             .AsNoTracking()
             .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp))
+            .ApplyPrefillFilter(_stateRepository.GetHiddenPrefillRules())
             .Where(d => (d.EndTimeUtc >= startDate || d.StartTimeUtc >= startDate)
                 && d.StartTimeUtc <= endDate);
 
@@ -797,7 +794,8 @@ public class DownloadsController : ControllerBase
     {
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
 
-        var baseQuery = _context.Downloads.AsNoTracking();
+        var baseQuery = _context.Downloads.AsNoTracking()
+            .ApplyPrefillFilter(_stateRepository.GetHiddenPrefillRules());
 
         // Only completed downloads for the retro view. The grouped Downloads views ask for the
         // running one as well, so it stays on screen while it downloads instead of appearing only
@@ -1141,6 +1139,7 @@ public class DownloadsController : ControllerBase
             .Where(d => request.DownloadIds.Contains(d.Id))
             .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp))
             .ApplyEvictedFilter(evictedMode)
+            .ApplyPrefillFilter(_stateRepository.GetHiddenPrefillRules())
             .ApplyEmptySessionFilter()
             .OrderByDescending(d => d.StartTimeUtc)
             .ThenByDescending(d => d.Id)

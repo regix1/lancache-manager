@@ -353,15 +353,15 @@ test('neutral buttons have no decorative ring and retain keyboard focus styling'
   );
 });
 
-test('active prefill progress uses a separate track surface without an outline', () => {
+test('active prefill progress is the shared thin ProgressBar, not a styled native progress', () => {
   const css = readFileSync(new URL('../src/styles/features/prefill.css', import.meta.url), 'utf8');
-  assert.match(css, /\.prefill-run-progress\s*\{[^}]*background: var\(--theme-bg-primary\);/);
-  assert.match(css, /\.prefill-run-progress\s*\{[^}]*border: 0;/);
-  assert.match(css, /\.prefill-run-progress\s*\{[^}]*appearance: none;/);
-  assert.match(
-    css,
-    /\.prefill-run-progress::-webkit-progress-bar\s*\{[^}]*background: var\(--theme-bg-primary\);/
+  const card = readFileSync(
+    new URL('../src/components/features/prefill/PrefillProgressCard.tsx', import.meta.url),
+    'utf8'
   );
+  assert.match(card, /<ProgressBar[^>]*height="sm"/);
+  assert.doesNotMatch(card, /<progress\b/);
+  assert.doesNotMatch(css, /prefill-run-progress/);
 });
 
 test('a container row names the game and bytes of the run it describes', () => {
@@ -459,6 +459,7 @@ const historySection = () => {
     statusFilter: '',
     platformFilter: 'all',
     sessionsRequestRef: { current: 0 },
+    sessionPushesRef: { current: new Map() },
     newestHistoryReadRef,
     pendingHistoryRef: { current: new Set() },
     failingHistoryRef: { current: new Set() },

@@ -20,6 +20,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import Badge from '@components/ui/Badge';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { useMediaQuery } from '@hooks/useMediaQuery';
+import { rowToggleHandlers } from '@utils/rowToggle';
 import CalendarSettingsPopover from './CalendarSettingsPopover';
 import type { Event } from '../../../types';
 
@@ -611,15 +612,15 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                 return (
                   <div
                     key={day}
-                    onClick={() => {
-                      if (!pastDay) {
-                        onDayClick(
-                          new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
-                        );
-                      }
-                    }}
+                    {...(pastDay
+                      ? {}
+                      : rowToggleHandlers(() =>
+                          onDayClick(
+                            new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
+                          )
+                        ))}
                     aria-current={today ? 'date' : undefined}
-                    className={`calendar-cell calendar-day ${pastDay ? 'calendar-day--past' : 'group'}`}
+                    className={`calendar-cell calendar-day ${pastDay ? 'calendar-day--past' : 'group focus-ring--inset'}`}
                   >
                     {/* Day number */}
                     <div className="calendar-day-head">

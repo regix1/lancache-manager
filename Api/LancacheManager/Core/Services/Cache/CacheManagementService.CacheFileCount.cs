@@ -67,7 +67,7 @@ public partial class CacheManagementService
                     {
                         var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                             rustBinaryPath,
-                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" {identityArgument} \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --count-only --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}");
+                            $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" {identityArgument} \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --count-only --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}{RustProcessHelper.SliceSizeFlag(_stateService.GetCacheSliceSizeBytes())}");
                         _logger.LogInformation("{LogPrefix} Running count for datasource '{DatasourceName}': {Binary} {Args}",
                             logPrefix, datasource.Name, rustBinaryPath, startInfo.Arguments);
                         return startInfo;

@@ -9,6 +9,7 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -202,6 +203,114 @@ public sealed class DatabaseResetFullWipeTablesTests
         Assert.DoesNotContain(recorder.Commands, command => command.Contains("session_replication_role", StringComparison.OrdinalIgnoreCase));
         await using var verify = new AppDbContext(database.Options);
         Assert.Empty(await verify.ClientGroupMembers.AsNoTracking().ToListAsync());
+    }
+
+    // The import reads every log from the first line again after this reset, so rows of runs that
+    // ended long before the last marking pass come back and must be marked.
+    [Fact]
+    public async Task ALogEntriesResetLetsTheNextMarkingPassReadEveryEndedRunAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lcm-reset-marking-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            await using var database = await TestDatabase.CreateAsync();
+            var window = DateTime.UtcNow.AddHours(-2);
+            const string container = "172.17.0.2";
+            await using (var seed = new AppDbContext(database.Options))
+            {
+                seed.PrefillSessions.Add(new PrefillSession
+                {
+                    SessionId = "steam-session",
+                    Platform = PrefillPlatform.Steam,
+                    CreatedAtUtc = window,
+                    LastLoginAtUtc = window,
+                    ExpiresAtUtc = window.AddDays(1)
+                });
+                seed.PrefillRuns.Add(new PrefillRun
+                {
+                    Id = Guid.NewGuid(),
+                    SessionId = "steam-session",
+                    DaemonInstanceId = Guid.NewGuid().ToString(),
+                    OptionsJson = "{}",
+                    SnapshotJson = "{}",
+                    ClientAddressesJson = $"[\"{container}\"]",
+                    StartedAtUtc = window,
+                    CompletedAtUtc = window.AddMinutes(10)
+                });
+                await seed.SaveChangesAsync();
+            }
+            var sessions = new PrefillSessionService(database.Factory, NullLogger<PrefillSessionService>.Instance);
+            // A pass that read to the end after the run ended: the next pass skips that run.
+            await sessions.MarkPrefillRowsAsync(window, "alpha", DateTime.UtcNow, CancellationToken.None);
+
+            await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(root);
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["LanCache:DataSources:0:Name"] = "alpha",
+                    ["LanCache:DataSources:0:CachePath"] = Path.Combine(root, "cache"),
+                    ["LanCache:DataSources:0:LogPath"] = Path.Combine(root, "logs"),
+                    ["LanCache:DataSources:0:Enabled"] = "false"
+                })
+                .Build();
+            var paths = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+            ((PathResolverProxy)(object)paths).Root = root;
+            var datasources = new DatasourceService(configuration, paths, NullLogger<DatasourceService>.Instance);
+            await using var resetServices = new ServiceCollection()
+                .AddSingleton(harness.Owner)
+                .AddSingleton(sessions)
+                .BuildServiceProvider();
+            await using var serviceContext = new AppDbContext(database.Options);
+            var service = new DatabaseService(
+                serviceContext,
+                DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>(),
+                NullLogger<DatabaseService>.Instance,
+                paths,
+                database.Factory,
+                steamKit2Service: null!,
+                xboxCatalogMappingService: null!,
+                epicMappingService: null!,
+                serviceProvider: resetServices,
+                cacheManagementService: null!,
+                StateTestMethods.CreateStateService(Path.Combine(root, "state")),
+                datasources,
+                harness.Tracker);
+            var operationId = harness.Tracker.RegisterOperation(
+                OperationType.DatabaseReset,
+                "Database reset",
+                new CancellationTokenSource());
+            var reset = typeof(DatabaseService).GetMethod(
+                "DoResetAsync",
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            await ((Task)reset.Invoke(
+                service,
+                [operationId, new List<string> { "LogEntries" }, false, CancellationToken.None])!);
+            Assert.Equal(OperationStatus.Completed, harness.Tracker.GetOperation(operationId)!.Status);
+
+            // The re-import brings the run's download back, then marks.
+            var row = new Download
+            {
+                Service = "steam",
+                ClientIp = container,
+                StartTimeUtc = window.AddMinutes(1),
+                EndTimeUtc = window.AddMinutes(5),
+                CacheMissBytes = 100
+            };
+            await using (var seed = new AppDbContext(database.Options))
+            {
+                seed.Downloads.Add(row);
+                await seed.SaveChangesAsync();
+            }
+            await sessions.MarkPrefillRowsAsync(window, "alpha", DateTime.UtcNow, CancellationToken.None);
+
+            await using var read = new AppDbContext(database.Options);
+            Assert.True(await read.Downloads.Where(d => d.Id == row.Id).Select(d => d.IsPrefill).SingleAsync());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

@@ -124,8 +124,8 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
         surface === 'well'
           ? 'bg-transparent border-themed-well'
           : isExpanded
-            ? 'bg-themed-card border-themed-primary shadow-[0_4px_16px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.12)]'
-            : 'bg-[var(--theme-card-bg-emphasis)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.1)]'
+            ? 'light-card-shadow bg-themed-card border-themed-primary'
+            : 'light-card-shadow bg-[var(--theme-card-bg-emphasis)] border-themed-secondary'
       }`}
     >
       {/* Header - using div with role="button" to allow nested interactive elements */}

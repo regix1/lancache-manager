@@ -24,9 +24,11 @@ const EventsTab: React.FC = () => {
   // The editor stays mounted so it can fade out; each open gets a fresh instance, because the
   // editor reads its form values from `event` only when it mounts.
   const [editorKey, setEditorKey] = useState(0);
+  const [initialStart, setInitialStart] = useState<Date>();
 
-  const handleCreateEvent = useCallback(() => {
+  const handleCreateEvent = useCallback((date?: Date) => {
     setEditingEvent(null);
+    setInitialStart(date);
     setEditorKey((key) => key + 1);
     setShowCreateModal(true);
   }, []);
@@ -41,11 +43,6 @@ const EventsTab: React.FC = () => {
   const handleCloseModal = useCallback(() => {
     setShowCreateModal(false);
   }, []);
-
-  const handleEventSaved = useCallback(() => {
-    handleCloseModal();
-    refreshEvents();
-  }, [handleCloseModal, refreshEvents]);
 
   if (loading && events.length === 0) {
     return (
@@ -83,7 +80,7 @@ const EventsTab: React.FC = () => {
 
           {/* Create Event Button */}
           <Button
-            onClick={handleCreateEvent}
+            onClick={() => handleCreateEvent()}
             color="primary"
             variant="filled"
             leftSection={<Plus className="w-4 h-4" />}
@@ -118,7 +115,7 @@ const EventsTab: React.FC = () => {
               <button
                 key={event.id}
                 onClick={() => handleEditEvent(event)}
-                className="event-active-chip inline-flex items-center gap-1.5 px-2.5 py-1 text-sm themed-border-radius-sm font-medium transition hover:scale-105"
+                className="event-active-chip inline-flex items-center gap-1.5 px-2.5 py-1 text-sm themed-border-radius-sm font-medium transition"
                 style={
                   {
                     '--event-chip-color': themeColorVar(colorToken),
@@ -154,8 +151,10 @@ const EventsTab: React.FC = () => {
         key={editorKey}
         opened={showCreateModal}
         event={editingEvent}
+        initialStart={initialStart}
         onClose={handleCloseModal}
-        onSave={handleEventSaved}
+        // The context's create, update and delete reload the event list before they resolve.
+        onSave={handleCloseModal}
       />
     </div>
   );

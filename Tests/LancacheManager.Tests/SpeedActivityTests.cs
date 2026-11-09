@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Text.Json;
 using System.Threading.Channels;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -806,6 +808,71 @@ public sealed class SpeedActivityTests
         Assert.Null(tracker.ReadReportingChild());
         await tracker.AcceptNativeSnapshotAsync(QuietFrame(1), secondRun, CancellationToken.None);
         Assert.Equal(1, tracker.ReadReportingChild());
+    }
+
+    [Fact]
+    public async Task AReaderThatFaultsAfterReportingStopsShowingItsSpeedsAsLiveAsync()
+    {
+        var root = Path.Combine(FixtureRoot, Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(root, start: false);
+        var logger = new CapturingLogger<RustSpeedTrackerService>();
+        using var stop = new CancellationTokenSource();
+        var frame = JsonSerializer.Serialize(new DownloadSpeedSnapshot
+        {
+            Version = 2,
+            StreamId = string.Empty,
+            Revision = 1,
+            TimestampUtc = DateTime.UtcNow.AddMinutes(-1),
+            IsAvailable = true,
+            WindowSeconds = 2
+        });
+        // A stand-in for the native tracker that prints one snapshot line, then idles until it is killed.
+        string script;
+        if (OperatingSystem.IsWindows())
+        {
+            script = Path.Combine(root, "tracker.cmd");
+            File.WriteAllText(script, $"@echo off\r\necho {frame}\r\n:loop\r\nping -n 2 127.0.0.1 >nul\r\ngoto loop\r\n");
+        }
+        else
+        {
+            script = Path.Combine(root, "tracker.sh");
+            File.WriteAllText(script, $"#!/bin/sh\nprintf '%s\\n' '{frame}'\nwhile true; do sleep 1; done\n");
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        var (tracker, loop) = StartLoop(harness.Owner, script, logger, stop.Token);
+        // Reading the visibility rules fails while the child counts as reporting, so the reader
+        // faults on its first report with an error that is not a cancel. Once the run is marked
+        // unreported the reads answer again.
+        var unreportedSince = typeof(RustSpeedTrackerService).GetField(
+            "_unreportedSinceUtc",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var state = typeof(RustSpeedTrackerService).GetField(
+            "_stateService",
+            BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker)!;
+        CacheScanGateHarness.SetField(tracker, "_stateService", CacheScanGateHarness.CreateProxy<IStateService>(
+            (method, arguments) => unreportedSince.GetValue(tracker) is null
+                ? throw new InvalidOperationException("state read failed")
+                : method.Invoke(state, arguments)));
+
+        Assert.True(SpinWait.SpinUntil(
+            () => logger.Entries.Any(entry => entry.Message.StartsWith("Error in RustSpeedTrackerService", StringComparison.Ordinal)),
+            TimeSpan.FromSeconds(20)));
+        var snapshotLock = typeof(RustSpeedTrackerService).GetField(
+            "_snapshotLock",
+            BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker)!;
+        lock (snapshotLock)
+        {
+            var current = (DownloadSpeedSnapshot)typeof(RustSpeedTrackerService).GetField(
+                "_currentSnapshot",
+                BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker)!;
+            Assert.False(current.IsAvailable);
+            Assert.NotNull(unreportedSince.GetValue(tracker));
+        }
+
+        await stop.CancelAsync();
+        await loop.WaitAsync(TimeSpan.FromSeconds(20));
     }
 
     private static Task BeginChildAsync(RustSpeedTrackerService tracker, Guid runId, DatasourceService datasources) =>

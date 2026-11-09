@@ -393,6 +393,7 @@ public sealed class CacheScanDetectionPhaseTests
         CorruptionDetectionService corruptionDetection = null!;
         var registrations = new ServiceCollection();
         registrations.AddScoped(_ => new AppDbContext(database.Options));
+        registrations.AddSingleton(new PrefillSessionService(database.Factory, NullLogger<PrefillSessionService>.Instance));
         registrations.AddSingleton(_ => operationState!);
         registrations.AddSingleton(_ => repairService!);
         registrations.AddSingleton(_ => logProcessor!);
@@ -430,7 +431,8 @@ public sealed class CacheScanDetectionPhaseTests
             ctx.Datasources,
             capability,
             tracker,
-            gate);
+            gate,
+            new StateService(NullLogger<StateService>.Instance, paths, null!, null!));
         var conflicts = new OperationConflictChecker(
             tracker,
             operationState,
@@ -510,7 +512,8 @@ public sealed class CacheScanDetectionPhaseTests
             new ProcessManager(NullLogger<ProcessManager>.Instance),
             capability,
             ctx.State,
-            operationState);
+            operationState,
+            services);
         var controller = new StatsController(
             requestContext,
             clientGroupsRepository: null!,
@@ -519,13 +522,13 @@ public sealed class CacheScanDetectionPhaseTests
             (ISignalRNotificationService)(object)ctx.Notifications,
             reconciliation,
             tracker,
-            conflicts,
             queue,
             capability,
             clientHostnameService: null!,
             eventsService: null!,
             speedTracker,
-            operationState)
+            operationState,
+            prefillSessions: null!)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -1786,13 +1789,13 @@ public sealed class CacheScanDetectionPhaseTests
             (ISignalRNotificationService)(object)ctx.Notifications,
             ctx.Scan,
             operationTracker: null!,
-            conflictChecker: null!,
             queue,
             new DatasourceCapabilityService(ctx.Datasources),
             clientHostnameService: null!,
             eventsService: null!,
             (RustSpeedTrackerService)RuntimeHelpers.GetUninitializedObject(typeof(RustSpeedTrackerService)),
-            operationStateService: null!)
+            operationStateService: null!,
+            prefillSessions: null!)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
@@ -1802,6 +1805,79 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.IsType<OkObjectResult>(result.Result);
         Assert.Equal([OperationType.EvictionScan], enqueued);
     }
+
+    // Two tabs saving Remove mode, or a save and the Remove-all button, land together. The second
+    // request waits behind the removal the first started instead of running another over the same rows.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TwoBulkEvictionRemovalsArrivingTogetherStartOneRemoval(bool secondIsRemoveAll)
+    {
+        using var ctx = new PhaseContext();
+        var tracker = (IUnifiedOperationTracker)(object)ctx.Tracker;
+        var conflicts = new SecondCallerBarrier(new OperationConflictChecker(
+            tracker,
+            ctx._operationStateService,
+            NullLogger<OperationConflictChecker>.Instance));
+        var queue = new OperationQueueService(tracker, conflicts, NullLogger<OperationQueueService>.Instance);
+        var capability = new DatasourceCapabilityService(ctx.Datasources);
+        var save = new StatsController(
+            context: null!,
+            clientGroupsRepository: null!,
+            ctx.State,
+            Options.Create(new ApiOptions()),
+            (ISignalRNotificationService)(object)ctx.Notifications,
+            ctx.Scan,
+            operationTracker: null!,
+            queue,
+            capability,
+            clientHostnameService: null!,
+            eventsService: null!,
+            (RustSpeedTrackerService)RuntimeHelpers.GetUninitializedObject(typeof(RustSpeedTrackerService)),
+            operationStateService: null!,
+            prefillSessions: null!)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+        var removeAll = new CacheController(
+            cacheService: null!,
+            cacheClearingService: null!,
+            corruptionDetectionService: null!,
+            logger: NullLogger<CacheController>.Instance,
+            pathResolver: CreateProxy<IPathResolver>((method, _) =>
+                method.Name is nameof(IPathResolver.IsCacheWritable) or nameof(IPathResolver.IsLogsWritable) ? true : null),
+            notifications: null!,
+            rustProcessHelper: null!,
+            nginxLogRotationService: null!,
+            operationTracker: null!,
+            datasourceService: null!,
+            dbContextFactory: null!,
+            reconciliationService: ctx.Scan,
+            conflictChecker: conflicts,
+            operationQueue: queue,
+            capabilityService: capability,
+            cacheScanGate: Idle(),
+            cacheSizeScan: null!,
+            operationStateService: null!,
+            stateService: null!);
+        var request = new UpdateEvictionSettingsRequest { EvictedDataMode = EvictedDataMode.Remove.ToWireString() };
+        async Task<IActionResult> SaveAgainAsync() => (await save.UpdateEvictionSettingsAsync(request)).Result!;
+
+        var first = save.UpdateEvictionSettingsAsync(request);
+        var second = secondIsRemoveAll ? removeAll.RemoveAllEvictedAsync(CancellationToken.None) : SaveAgainAsync();
+        var firstAccepted = Assert.IsType<AcceptedResult>((await first.WaitAsync(TimeSpan.FromSeconds(10))).Result);
+        var secondAccepted = Assert.IsType<AcceptedResult>(await second.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var running = Assert.Single(tracker.GetActiveOperations(OperationType.EvictionRemoval));
+        Assert.Equal(running.Id, AnswerField<Guid>(firstAccepted.Value, "operationId"));
+        Assert.False(AnswerField<bool>(firstAccepted.Value, "queued"));
+        Assert.True(AnswerField<bool>(secondAccepted.Value, "queued"));
+    }
+
+    private static T AnswerField<T>(object? accepted, string name) =>
+        (T)accepted!.GetType()
+            .GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase)!
+            .GetValue(accepted)!;
 
     [Fact]
     public async Task ACanceledEvictionScanStaysCanceledAsync()
@@ -4098,7 +4174,8 @@ public sealed class CacheScanDetectionPhaseTests
                 datasources,
                 capabilityService: null!,
                 operationTracker: null!,
-                Idle());
+                Idle(),
+                new StateService(NullLogger<StateService>.Instance, paths, null!, null!));
             var registrations = new ServiceCollection();
             registrations.AddScoped(_ => new AppDbContext(scopedOptions));
             registrations.AddSingleton(new CorruptionDetectionService(
@@ -4237,6 +4314,7 @@ public sealed class CacheScanDetectionPhaseTests
             GameCacheDetectionService detection = null!;
             var registrations = new ServiceCollection();
             registrations.AddScoped(_ => new AppDbContext(database.Options));
+            registrations.AddSingleton(new PrefillSessionService(database.Factory, NullLogger<PrefillSessionService>.Instance));
             registrations.AddSingleton(datasourceService);
             registrations.AddSingleton(capability);
             registrations.AddSingleton(notifications);
@@ -4336,7 +4414,8 @@ public sealed class CacheScanDetectionPhaseTests
                 datasourceService,
                 capability,
                 tracker,
-                Idle());
+                Idle(),
+                new StateService(NullLogger<StateService>.Instance, paths, null!, null!));
             await operationState.StartAsync(CancellationToken.None);
             return new RepairRun(root, database, services, lifetime, state, rust, nginx, notificationState);
         }
@@ -4536,7 +4615,8 @@ public sealed class CacheScanDetectionPhaseTests
                 datasourceService,
                 capabilityService,
                 (IUnifiedOperationTracker)(object)Tracker,
-                Idle());
+                Idle(),
+                new StateService(NullLogger<StateService>.Instance, pathResolver, null!, null!));
             _operationStateService.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
 
             _scan = reconciliationService = new PhaseReconciliation(
@@ -4887,6 +4967,33 @@ public sealed class CacheScanDetectionPhaseTests
     /// service's own CompleteOperation call (its background run failing) is ignored on purpose:
     /// the phase must keep waiting until the test ends the detection. Not sealed for DispatchProxy.
     /// </summary>
+    /// <summary>Answers from the real checker, then holds the first caller until a second caller has
+    /// asked as well (at most 2 s). Two requests that check outside one lock therefore both act on
+    /// an answer given before either of them started anything.</summary>
+    private sealed class SecondCallerBarrier(IOperationConflictChecker checker) : IOperationConflictChecker
+    {
+        private readonly TaskCompletionSource _secondAsked = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _calls;
+
+        public async Task<OperationConflictResponse?> CheckAsync(OperationType newType, ConflictScope newScope, CancellationToken ct)
+        {
+            var conflict = await checker.CheckAsync(newType, newScope, ct);
+            if (Interlocked.Increment(ref _calls) == 1)
+            {
+                await Task.WhenAny(_secondAsked.Task, Task.Delay(TimeSpan.FromSeconds(2), CancellationToken.None));
+            }
+            else
+            {
+                _secondAsked.TrySetResult();
+            }
+
+            return conflict;
+        }
+
+        public IDisposable HoldRun(OperationType type, IReadOnlyList<ConflictScope> scopes, Func<Guid> currentOperationId) =>
+            checker.HoldRun(type, scopes, currentOperationId);
+    }
+
     public class FakeTracker : DispatchProxy
     {
         private readonly object _sync = new();

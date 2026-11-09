@@ -1481,3 +1481,30 @@ test('a skipped eviction scan keeps the reason whichever of its two terminal eve
     }
   }
 });
+
+test("a scheduled prefill's byte line carries the percent of those bytes in both locales", async () => {
+  const key = 'management.schedules.services.scheduledPrefill.events.downloadedOfTotal';
+  for (const [locale, expected] of [
+    ['en', / of .+ \(30%\)$/],
+    ['zh', /\/.+（30%）$/]
+  ]) {
+    const text = JSON.parse(readFileSync(`src/i18n/locales/${locale}.json`, 'utf8')).management
+      .schedules.services.scheduledPrefill.events.downloadedOfTotal;
+    const i18n = moduleUrl(`
+      export default {
+        exists: (key) => key === ${JSON.stringify(key)},
+        t: (key, context = {}) => (key === ${JSON.stringify(key)} ? ${JSON.stringify(text)} : key)
+          .replace(/{{(\\w+)}}/g, (token, name) => context[name] === undefined ? token : String(context[name]))
+      };
+    `);
+    const { formatScheduledPrefillDetailMessage } = await loadNotificationModules(i18n);
+    assert.match(
+      formatScheduledPrefillDetailMessage({
+        bytesDownloaded: 18_480_000_000,
+        totalBytes: 59_800_000_000
+      }),
+      expected,
+      locale
+    );
+  }
+});

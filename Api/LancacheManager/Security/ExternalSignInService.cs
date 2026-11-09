@@ -50,11 +50,48 @@ public sealed class ExternalSignInService
         }
         else
         {
-            accountId = _accessService.GetOrCreateAccountId(
-                settings.Id,
-                issuer,
-                subject,
-                settings.Revision);
+            try
+            {
+                accountId = _accessService.GetOrCreateAccountId(
+                    settings.Id,
+                    issuer,
+                    subject,
+                    settings.Revision);
+            }
+            catch (ValidationException)
+            {
+                // An account delete, reset or key rotation moves the login's revision without
+                // changing how it signs in; re-read once and keep the sign-in when the provider and
+                // this identity are unchanged.
+                var current = _accessService.GetLoginSettings(settings.Id, setup: false);
+                if (current is null
+                    || current.Revision == settings.Revision
+                    || current.Kind != settings.Kind
+                    || !string.Equals(current.Authority, settings.Authority, StringComparison.Ordinal)
+                    || !string.Equals(current.ClientId, settings.ClientId, StringComparison.Ordinal)
+                    || !string.Equals(current.ClientSecret, settings.ClientSecret, StringComparison.Ordinal)
+                    || !string.Equals(current.Tenant, settings.Tenant, StringComparison.Ordinal)
+                    || !string.Equals(current.TeamId, settings.TeamId, StringComparison.Ordinal)
+                    || !string.Equals(current.KeyId, settings.KeyId, StringComparison.Ordinal)
+                    || !string.Equals(current.PrivateKey, settings.PrivateKey, StringComparison.Ordinal)
+                    || !_accessService.IdentityAllowed(
+                        settings.Id,
+                        current.Revision,
+                        setup: false,
+                        ownerOnly: false,
+                        issuer,
+                        subject))
+                {
+                    throw;
+                }
+
+                accountId = _accessService.GetOrCreateAccountId(
+                    settings.Id,
+                    issuer,
+                    subject,
+                    current.Revision);
+            }
+
             account = await context.UserAccounts.SingleOrDefaultAsync(candidate => candidate.Id == accountId);
         }
 
@@ -83,11 +120,28 @@ public sealed class ExternalSignInService
         }
 
         account.LastLoginAtUtc = DateTime.UtcNow;
-        await context.SaveChangesAsync();
+        try
+        {
+            await context.SaveChangesAsync();
+        }
+        catch (DbUpdateException) when (accountCreated && !owner)
+        {
+            // Another callback for the same new identity created this account first (both read
+            // the same id from the login's account links): continue with the row it stored.
+            context.Entry(account).State = EntityState.Detached;
+            account = await context.UserAccounts.SingleAsync(candidate => candidate.Id == accountId);
+            accountCreated = false;
+            if (account.IsDisabled || (owner && !account.IsMainAdmin))
+            {
+                return null;
+            }
+            account.LastLoginAtUtc = DateTime.UtcNow;
+            await context.SaveChangesAsync();
+        }
 
         if (owner && settings.OwnerAccountId != account.Id)
         {
-            _accessService.SetOidcOwnerAccount(account.Id, settings.Revision);
+            _accessService.SetOidcOwnerAccount(settings.Id, account.Id, settings.Revision);
         }
 
         var session = await _sessionService.CreateAccountSessionAsync(httpContext, account);

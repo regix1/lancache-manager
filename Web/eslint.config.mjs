@@ -38,6 +38,16 @@ const DIALOG_RULES = [
     message: DIALOG_MOUNT_MESSAGE
   }
 ];
+// A shared saving flag on a field grays out the whole form while one action runs. Scan locks
+// such as isScanBusy are operation locks and are not in the list.
+const SAVE_FLAG_RULES = [
+  {
+    selector:
+      "JSXOpeningElement[name.name=/^(SettingRow|Checkbox|ToggleSwitch|TogglePill|EnhancedDropdown|MultiSelectDropdown|SearchInput|NumberInput|TextInput|PasswordField|SelectableCard|SegmentedControl|CredentialFields|PostgresConnectionFields|Slider|input|textarea|select)$/] > JSXAttribute[name.name='disabled'] Identifier[name=/^(busy|isSubmitting|saving|isSaving|savingHostnames|savingExcluded|cacheSizeSaving|authenticating|authLoading|loading|updating|actionPending|clearing|resetting|runningAll|removeBusy|isResetting|testing)$/]",
+    message:
+      'Buttons never flicker: do not gray out a field from the shared saving or busy flag. Only the control whose action is running shows busy (Button loading), and its handler ignores a repeat click.'
+  }
+];
 
 export default tseslint.config(
   // Ignore patterns
@@ -50,7 +60,8 @@ export default tseslint.config(
       '*.config.ts',
       'vite.config.ts',
       'tailwind.config.js',
-      'postcss.config.js'
+      'postcss.config.js',
+      '.tmp/**'
     ]
   },
 
@@ -149,7 +160,8 @@ export default tseslint.config(
           message:
             'Do not hand-roll a reconnect latch. useReconnectRefetch(isConnected, callback) from @hooks/useReconnectRefetch already tracks the drop-and-return transition and is covered by scripts/test-reconnect-refetch.mjs.'
         },
-        ...DIALOG_RULES
+        ...DIALOG_RULES,
+        ...SAVE_FLAG_RULES
       ]
     }
   },
@@ -197,7 +209,8 @@ export default tseslint.config(
           message:
             'Do not hand-roll a reconnect latch. useReconnectRefetch(isConnected, callback) from @hooks/useReconnectRefetch already tracks the drop-and-return transition and is covered by scripts/test-reconnect-refetch.mjs.'
         },
-        ...DIALOG_RULES
+        ...DIALOG_RULES,
+        ...SAVE_FLAG_RULES
       ]
     }
   },

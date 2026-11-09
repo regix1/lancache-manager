@@ -31,6 +31,8 @@ public interface IPrefillContainerGateway : IDisposable
 
     Task<IList<ContainerListResponse>> ListContainersAsync(ContainersListParameters parameters, CancellationToken cancellationToken);
 
+    Task<IList<NetworkResponse>> ListNetworksAsync(CancellationToken cancellationToken);
+
     Task<CreateContainerResponse> CreateContainerAsync(CreateContainerParameters parameters, CancellationToken cancellationToken);
 
     Task<bool> StartContainerAsync(string id, ContainerStartParameters? parameters, CancellationToken cancellationToken);

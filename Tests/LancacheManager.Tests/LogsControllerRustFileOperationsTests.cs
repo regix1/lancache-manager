@@ -1755,6 +1755,8 @@ public sealed class LogsControllerRustFileOperationsTests
             _services = new ServiceCollection()
                 .AddSingleton(_ => repairOwner!)
                 .AddSingleton(_ => processor!)
+                // A log reset forgets the marking record; no prefill rule is saved here, so it never reads rows.
+                .AddSingleton(new PrefillSessionService(contextFactory: null!, NullLogger<PrefillSessionService>.Instance))
                 .BuildServiceProvider();
             _repairOwner = repairOwner = new OperationStateService(
                 NullLogger<OperationStateService>.Instance,

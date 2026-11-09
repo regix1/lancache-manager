@@ -5,6 +5,7 @@ using LancacheManager.Models;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace LancacheManager.Security;
 
@@ -55,7 +56,7 @@ public sealed class OidcEvents : OpenIdConnectEvents
             || schemeKind != settings.Kind
             || schemeSetup != setup)
         {
-            context.Fail("OIDC transaction state is missing");
+            context.Fail(new SignInFailureException("state", "OIDC transaction state is missing"));
             return Task.CompletedTask;
         }
 
@@ -65,7 +66,7 @@ public sealed class OidcEvents : OpenIdConnectEvents
             || string.IsNullOrWhiteSpace(subject)
             || !_accessService.IdentityAllowed(loginId, revision, setup, ownerOnly, issuer, subject))
         {
-            context.Fail("OIDC identity is not allowed");
+            context.Fail(new SignInFailureException("identity", "OIDC identity is not allowed"));
             return Task.CompletedTask;
         }
 
@@ -100,7 +101,7 @@ public sealed class OidcEvents : OpenIdConnectEvents
             return;
         }
 
-        var deferOwner = setup && _accessService.CanDeferOidcAccount(revision);
+        var deferOwner = setup && _accessService.CanDeferOidcAccount(loginId, revision);
         var signIn = deferOwner
             ? null
             : await _signInService.TryCreateSessionAsync(
@@ -159,7 +160,11 @@ public sealed class OidcEvents : OpenIdConnectEvents
         var returnToSetup = context.Properties is { } properties
             && TryReadTransaction(properties, out _, out _, out var setup, out var ownerOnly)
             && (setup || ownerOnly);
-        var code = FailureCode(context.Failure);
+        var code = FailureCode(
+            context.Failure,
+            context.Properties,
+            context.Options.RemoteAuthenticationTimeout,
+            _timeProvider.GetUtcNow());
         context.Response.Redirect(returnToSetup
             ? $"/?accessSetup=1&oidcError={code}"
             : $"/?oidcError={code}");
@@ -215,7 +220,7 @@ public sealed class OidcEvents : OpenIdConnectEvents
             && long.TryParse(revisionValue, NumberStyles.None, CultureInfo.InvariantCulture, out revision);
     }
 
-    private static void RedirectFailure(TicketReceivedContext context, string code, bool returnToSetup)
+    internal static void RedirectFailure(TicketReceivedContext context, string code, bool returnToSetup)
     {
         context.HandleResponse();
         context.Response.Redirect(returnToSetup
@@ -223,26 +228,37 @@ public sealed class OidcEvents : OpenIdConnectEvents
             : $"/?oidcError={code}");
     }
 
-    private static string FailureCode(Exception? failure)
+    internal static string FailureCode(
+        Exception? failure,
+        AuthenticationProperties? properties,
+        TimeSpan remoteTimeout,
+        DateTimeOffset now)
     {
+        var heldAuthenticationFailure = false;
         for (var current = failure; current is not null; current = current.InnerException)
         {
             if (current is HttpRequestException or IOException)
             {
                 return "connection";
             }
+            heldAuthenticationFailure |= current is AuthenticationFailureException;
         }
 
-        var message = failure?.Message ?? string.Empty;
-        if (message.Contains("identity is not allowed", StringComparison.Ordinal)
-            || message.Contains("invalid user", StringComparison.Ordinal))
+        if (failure is SignInFailureException typed)
         {
-            return "identity";
+            return typed.Code;
         }
-        if (message.Contains("transaction state", StringComparison.Ordinal)
-            || message.Contains("correlation", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("nonce", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("state", StringComparison.OrdinalIgnoreCase))
+        if (failure is OpenIdConnectProtocolInvalidStateException or OpenIdConnectProtocolInvalidNonceException)
+        {
+            return "state";
+        }
+
+        // The correlation and nonce cookies expire RemoteAuthenticationTimeout after the challenge, so a
+        // failure after that time is an expired attempt, and a failure before it is a configuration or
+        // provider problem.
+        if (heldAuthenticationFailure
+            && properties?.IssuedUtc is { } issued
+            && now - issued >= remoteTimeout)
         {
             return "expired";
         }

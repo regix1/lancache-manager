@@ -29,6 +29,9 @@ public class AntiforgeryToken
     public const string MissingTokenMessage =
         "The antiforgery token is missing or does not match this session";
 
+    /// <summary>The i18n key both of those places send beside <see cref="MissingTokenMessage"/>.</summary>
+    public const string MissingTokenStageKey = "errors.antiforgery.tokenMismatch";
+
     private readonly IAntiforgery _antiforgery;
     private readonly IConfiguration _configuration;
 

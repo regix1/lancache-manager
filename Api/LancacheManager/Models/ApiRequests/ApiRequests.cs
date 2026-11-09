@@ -200,6 +200,14 @@ public class SetCacheDeleteModeRequest
     public CacheDeleteMode DeleteMode { get; set; } = CacheDeleteMode.Preserve;
 }
 
+public class CacheSliceSizeRequest
+{
+    /// <summary>
+    /// Slice size in bytes; null selects Auto.
+    /// </summary>
+    public long? SliceSizeBytes { get; set; }
+}
+
 public class SetRefreshRateRequest
 {
     public string RefreshRate { get; set; } = string.Empty;

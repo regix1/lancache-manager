@@ -9,6 +9,7 @@ using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 
 namespace LancacheManager.Tests;
 
@@ -62,6 +63,69 @@ public sealed partial class DatabaseResetOfferedTablesTests
         Assert.Equal(later, (await context.UserAccounts.SingleAsync()).Id);
         Assert.Equal(remaining, await DatabaseService.CountResetTableRowsAsync(context, "PrefillCachedApps", CancellationToken.None));
         if (remaining > 0) Assert.Equal(PrefillPlatform.Epic, (await context.PrefillCachedApps.AsNoTracking().SingleAsync()).Platform);
+    }
+
+    [Fact]
+    public async Task DepotMappingResetWaitsForTheDepotOwnerKeyAndClearsEveryTable()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = new AppDbContext(database.Options);
+        using var files = new IntegrationFixture();
+        await AccountResetTests.RunAsync(database, files);
+        context.SteamDepotMappings.Add(new SteamDepotMapping
+        {
+            DepotId = 1000, AppId = 1, AppName = "Game", IsOwner = true, Source = "SteamKit2-PICS"
+        });
+        context.PrefillCachedApps.Add(
+            new PrefillCachedApp { Platform = PrefillPlatform.Steam, AppId = "1", CachedAtUtc = DateTime.UtcNow });
+        await context.SaveChangesAsync();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        // The depot-mapping reset looks for the PICS file under the PICS directory, which does not exist here.
+        var paths = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+        ((PathResolverProxy)(object)paths).Root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var service = new DatabaseService(context, notifications, NullLogger<DatabaseService>.Instance,
+            paths, new TestDbContextFactory(database.Options), null!, null!, null!,
+            new ServiceCollection().BuildServiceProvider(), null!, null!, null!, tracker);
+        var id = tracker.RegisterOperation(OperationType.DatabaseReset, "reset", new CancellationTokenSource());
+        var method = typeof(DatabaseService).GetMethod("DoResetAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        await using var holder = new NpgsqlConnection(database.ConnectionString + ";Application Name=depot-key-holder");
+        await holder.OpenAsync();
+        await using var held = await holder.BeginTransactionAsync();
+        await using (var take = holder.CreateCommand())
+        {
+            take.CommandText = $"SELECT pg_advisory_xact_lock({PrefillCacheService.DepotOwnerLockKey})";
+            await take.ExecuteNonQueryAsync();
+        }
+
+        var reset = Task.Run(() => (Task)method.Invoke(service,
+            [id, new List<string> { "SteamDepotMappings", "PrefillCachedApps" }, false, CancellationToken.None])!);
+        await using (var reader = new NpgsqlConnection(database.ConnectionString + ";Application Name=depot-key-reader"))
+        {
+            await reader.OpenAsync();
+            await using var count = reader.CreateCommand();
+            // classid and objid of the bigint key in pg_locks: its high and low 32 bits.
+            count.CommandText = $"""
+                SELECT count(*) FROM pg_locks
+                WHERE locktype = 'advisory' AND NOT granted
+                  AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+                  AND classid = {PrefillCacheService.DepotOwnerLockKey >> 32}::oid
+                  AND objid = {PrefillCacheService.DepotOwnerLockKey & 0xFFFFFFFF}::oid
+                  AND objsubid = 1
+                """;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            while (!reset.IsCompleted && (long)(await count.ExecuteScalarAsync())! < 1)
+                await Task.Delay(10, timeout.Token);
+        }
+        Assert.False(reset.IsCompleted);
+        await held.CommitAsync();
+        await reset.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(OperationStatus.Completed, tracker.GetOperation(id)!.Status);
+        await using var check = new AppDbContext(database.Options);
+        Assert.Empty(await check.SteamDepotMappings.ToListAsync());
+        Assert.Empty(await check.PrefillCachedApps.ToListAsync());
     }
 
     [Fact]

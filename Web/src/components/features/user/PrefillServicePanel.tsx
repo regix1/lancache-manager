@@ -10,6 +10,7 @@ import Badge from '@components/ui/Badge';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import type { ColorToken } from '@utils/eventColors';
+import type { GuestPrefillConfigField } from './guestPrefillConfig';
 
 type PrefillServiceIcon = React.ComponentType<{
   size?: number;
@@ -29,8 +30,7 @@ interface PrefillServicePanelProps {
   onToggleEnabled: () => void;
   onDurationChange: (hours: number) => void;
   onMaxThreadsChange: (threads: number | null) => void;
-  loading: boolean;
-  updating: boolean;
+  updating: GuestPrefillConfigField | null;
   warningText: string;
   durationLabel: string;
   durationHelpText: string;
@@ -60,7 +60,6 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
   onToggleEnabled,
   onDurationChange,
   onMaxThreadsChange,
-  loading,
   updating,
   warningText,
   durationLabel,
@@ -126,7 +125,7 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
               ]}
               value={config.enabledByDefault ? 'on' : 'off'}
               onChange={() => onToggleEnabled()}
-              disabled={loading || updating}
+              loading={updating === 'enabled'}
               size="sm"
             />
           </div>
@@ -148,10 +147,12 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
               options={prefillDurationOptions}
               value={config.durationHours.toString()}
               onChange={handleDurationChange}
-              disabled={updating || loading}
               size="md"
               className="w-40"
             />
+            {updating === 'duration' && (
+              <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
+            )}
           </span>
         </div>
 
@@ -166,11 +167,10 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
                 options={maxThreadOptions}
                 value={config.maxThreadCount != null ? String(config.maxThreadCount) : ''}
                 onChange={handleMaxThreadsChange}
-                disabled={updating || loading}
                 size="md"
                 className="w-40"
               />
-              {updating && (
+              {updating === 'maxThreads' && (
                 <LoadingSpinner inline size="sm" className="user-settings-inline-spinner" />
               )}
             </span>

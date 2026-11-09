@@ -443,7 +443,7 @@ internal sealed class IntegrationFixture : IDisposable
     public IntegrationCaller Owner { get; } = new(Guid.NewGuid(), Guid.NewGuid(), true);
     public IntegrationCaller Other { get; } = new(Guid.NewGuid(), Guid.NewGuid(), true, true);
     public FailingStorage Storage { get; }
-    public StateService State { get; }
+    public ScheduledPrefillServiceTests.TestStateService State { get; }
     public EpicAuthStorageService Epic { get; }
     public XboxAuthStorageService Xbox { get; }
 
@@ -458,7 +458,7 @@ internal sealed class IntegrationFixture : IDisposable
         Storage = new FailingStorage(_paths, _encryption);
         Epic = new EpicAuthStorageService(NullLogger<EpicAuthStorageService>.Instance, _paths, _encryption);
         Xbox = new XboxAuthStorageService(NullLogger<XboxAuthStorageService>.Instance, _paths, _encryption);
-        State = new StateService(NullLogger<StateService>.Instance, _paths, _encryption, Storage);
+        State = new ScheduledPrefillServiceTests.TestStateService(NullLogger<StateService>.Instance, _paths, _encryption, Storage);
     }
 
     public SteamAuthStorageService FreshStorage() => new(NullLogger<SteamAuthStorageService>.Instance, _paths, _encryption);

@@ -94,7 +94,7 @@ public partial class GameCacheDetectionService
                     var modeFlags = removeLimits is { } limits
                         ? $"--unmapped-files remove --max-files {Math.Max(0, limits.MaxFiles - removedFiles)} --max-bytes {Math.Max(0, limits.MaxBytes - removedBytes)}"
                         : "--unmapped-files count";
-                    var arguments = $"\"{cachePath}\" \"{outputJson}\" --progress-file \"{progressFilePath}\" --progress --key-scheme {keyScheme} {modeFlags}";
+                    var arguments = $"\"{cachePath}\" \"{outputJson}\" --progress-file \"{progressFilePath}\" --progress --key-scheme {keyScheme}{RustProcessHelper.SliceSizeFlag(_stateService.GetCacheSliceSizeBytes())} {modeFlags}";
                     var detector = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 
                     ProcessExecutionResult? result = null;

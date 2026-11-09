@@ -1802,31 +1802,27 @@ impl Processor {
 
     /// Depot -> (AppId, AppName) via the lazy per-depot memo. At most ONE indexed SELECT per
     /// new depot per run (a batch resolves a single primary depot); already-seen depots and
-    /// confirmed-unmapped depots never touch the DB again this run. A transient query error
-    /// is NOT negative-memoized, so the depot retries on the next batch.
-    async fn lookup_depot_mapping(&mut self, depot_id: u32) -> Option<(u32, Option<String>)> {
+    /// confirmed-unmapped depots never touch the DB again this run. A query error fails the
+    /// batch, as any other database error in it does, so the download is never saved unmapped.
+    async fn lookup_depot_mapping(
+        &mut self,
+        depot_id: u32,
+    ) -> Result<Option<(u32, Option<String>)>> {
         if let Some(mapped) = self.depot_map.get(&depot_id) {
-            return Some(mapped.clone());
+            return Ok(Some(mapped.clone()));
         }
         if self.depots_unmapped.contains(&depot_id) {
-            return None;
+            return Ok(None);
         }
 
         // ORDER BY makes the pick deterministic for shared depots with multiple owner rows,
         // and lowest-AppId matches the representative SteamService.GetAppIdFromDepot uses.
-        let row = match sqlx::query(
+        let row = sqlx::query(
             r#"SELECT "AppId", "AppName" FROM "SteamDepotMappings" WHERE "DepotId" = $1 AND "IsOwner" = true ORDER BY "AppId" LIMIT 1"#,
         )
         .bind(depot_id as i64)
         .fetch_optional(&self.pool)
-        .await
-        {
-            Ok(row) => row,
-            Err(e) => {
-                eprintln!("Warning: Failed to look up depot mapping for {}: {}", depot_id, e);
-                return None;
-            }
-        };
+        .await?;
 
         match row {
             Some(row) => {
@@ -1834,11 +1830,11 @@ impl Processor {
                 let app_name: Option<String> = row.get("AppName");
                 let mapped = (app_id as u32, app_name);
                 self.depot_map.insert(depot_id, mapped.clone());
-                Some(mapped)
+                Ok(Some(mapped))
             }
             None => {
                 self.depots_unmapped.insert(depot_id);
-                None
+                Ok(None)
             }
         }
     }
@@ -2195,7 +2191,7 @@ impl Processor {
             (None, Some(title.clone()))
         } else if self.auto_map_depots && service.to_lowercase() == "steam" {
             if let Some(depot_id) = primary_depot_id {
-                match self.lookup_depot_mapping(depot_id).await {
+                match self.lookup_depot_mapping(depot_id).await? {
                     Some((app_id, app_name)) => {
                         // Only log each depot mapping once to avoid log spam
                         if !self.logged_depots.contains(&depot_id) {
@@ -5471,9 +5467,19 @@ mod session_continuity_tests {
             .process()
             .await
             .expect("line skip past a member that once would not open");
-        assert!(stored_rows(pool, "resume-unreadable")
-            .await
-            .contains(&("/resume/unreadable/00-old".to_string(), 5)));
+        // The bulk duplicate check would drop a second copy of 02-current and 03-new, so only the
+        // parsed count shows whether the skip passed over them.
+        assert_eq!(unreadable_fourth.parsed_records, 1);
+        assert_eq!(
+            stored_rows(pool, "resume-unreadable").await,
+            vec![
+                ("/resume/unreadable/00-old".to_string(), 5),
+                ("/resume/unreadable/01-current".to_string(), 70),
+                ("/resume/unreadable/02-current".to_string(), 80),
+                ("/resume/unreadable/03-new".to_string(), 90),
+            ]
+        );
+        assert_eq!(stored_totals(pool, "resume-unreadable").await, (4, 245, 0));
     }
 
     #[cfg(unix)]
@@ -5734,6 +5740,46 @@ mod session_continuity_tests {
             "a 2.5 s hold must cost at least two 1 s tries, got {}",
             processor.lock_retries
         );
+        drop_schema(pool, &schema, options).await;
+    }
+
+    #[tokio::test]
+    async fn a_failed_depot_lookup_stops_the_batch_instead_of_saving_an_unmapped_download() {
+        let name = "a_failed_depot_lookup_stops_the_batch_instead_of_saving_an_unmapped_download";
+        let Some((pool, schema, options)) = isolated_pool(name).await else {
+            return;
+        };
+        let directory = tempfile::tempdir().expect("create database fixture");
+        // The test schema has no "SteamDepotMappings" table, so the depot lookup fails as a
+        // database error.
+        let mut processor = Processor::new(
+            pool.clone(),
+            directory.path().to_path_buf(),
+            directory.path().join("progress.json"),
+            true,
+            "depots".to_string(),
+            HashMap::new(),
+            "depots-run".to_string(),
+        );
+        let entry = parsed_entry(&processor, "01/Jan/2026:12:00:00", "/depot/101/chunk/a");
+
+        let result = processor.process_batch(&[entry]).await;
+
+        let error = result.expect_err("a failed depot lookup must fail the batch");
+        assert!(
+            format!("{error}").contains("error returned from database"),
+            "the run stops only on a database error message, got: {error}"
+        );
+        for table in ["Downloads", "LogEntries"] {
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>(&format!(r#"SELECT COUNT(*) FROM "{table}""#))
+                    .fetch_one(&pool)
+                    .await
+                    .expect("count saved rows"),
+                0,
+                "{table} must hold nothing from the failed batch"
+            );
+        }
         drop_schema(pool, &schema, options).await;
     }
 

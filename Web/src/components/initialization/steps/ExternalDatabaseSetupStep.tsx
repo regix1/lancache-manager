@@ -104,7 +104,8 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
     setSubmitError(null);
 
     try {
-      const result = await ApiService.setExternalDbCredentials(
+      // A refusal throws and carries its i18n key to getErrorMessage below.
+      await ApiService.setExternalDbCredentials(
         {
           host: form.host.trim(),
           port: Number.parseInt(form.port, 10),
@@ -115,20 +116,14 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
         form.apiKey.trim()
       );
 
-      if (result.success) {
-        setSetupSuccess(true);
-        onSetupComplete();
-      } else {
-        setSubmitError(
-          result.error || result.message || t('initialization.externalDb.errors.saveFailed')
-        );
-      }
+      setSetupSuccess(true);
+      onSetupComplete();
     } catch (err) {
       setSubmitError(getErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
-  }, [form, validateForm, onSetupComplete, t]);
+  }, [form, validateForm, onSetupComplete]);
 
   if (setupSuccess) {
     return (
@@ -183,7 +178,8 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
         }}
         onFieldChange={handlePostgresFieldChange}
         inputClassName="themed-input setup-input"
-        disabled={isSubmitting}
+        // Held while Submit sends them, so the connection saved is the one on screen.
+        readOnly={isSubmitting}
         passwordReveal={{ showLabel: t('aria.showPassword'), hideLabel: t('aria.hidePassword') }}
       />
 
@@ -201,8 +197,8 @@ export const ExternalDatabaseSetupStep: React.FC<ExternalDatabaseSetupStepProps>
               value={form.apiKey}
               onChange={handleFieldChange('apiKey')}
               placeholder={t('initialization.apiKey.placeholder')}
-              disabled={isSubmitting}
               className="themed-input setup-input"
+              readOnly={isSubmitting}
             />
           )}
         </FormField>

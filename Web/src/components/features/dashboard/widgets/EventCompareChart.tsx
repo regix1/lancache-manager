@@ -59,15 +59,17 @@ const EVENT_REPEAT_DASH = [6, 4];
 // collapses into one fetch of the aggregates.
 const REFRESH_DEBOUNCE_MS = 1000;
 
-// The first four redefine what is being compared; the last two move a running event's totals. The
-// aggregates come from their own endpoint, so nothing else on the dashboard refreshes them.
+// The first four redefine what is being compared; the next two move a running event's totals; the
+// prefill split setting decides which traffic counts as served, saved and missed. The aggregates
+// come from their own endpoint, so nothing else on the dashboard refreshes them.
 const EVENT_COMPARE_EVENTS: readonly SignalREventName[] = [
   'EventCreated',
   'EventUpdated',
   'EventDeleted',
   'EventsCleared',
   'DownloadsRefresh',
-  'LogProcessingComplete'
+  'LogProcessingComplete',
+  'PrefillTrafficSettingChanged'
 ];
 
 const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tabControl }) => {

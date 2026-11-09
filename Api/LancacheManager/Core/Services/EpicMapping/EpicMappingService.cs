@@ -129,7 +129,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(3), CancellationToken.None);
-                    await TryAutoReconnectAsync();
+                    await TryAutoReconnectAsync(_cancellationTokenSource.Token);
                 }
                 finally
                 {
@@ -179,11 +179,12 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         {
             IsAuthenticated = _isAuthenticated,
             CanManage = access?.CanManage ?? false,
-            CanSignIn = access?.CanSignIn ?? false,
+            CanSignIn = _processingLogin is null && (access?.CanSignIn ?? false),
             CanLogout = access?.CanLogout ?? false,
             CanCancel = access?.CanCancel ?? false,
             CanRecover = access?.CanRecover ?? false,
-            OwnershipReason = access?.OwnershipReason,
+            // The browser words every refused sign-in from its reason, so the mapping's refusal carries one too.
+            OwnershipReason = _processingLogin is not null && access?.CanSignIn == true ? "login-in-progress" : access?.OwnershipReason,
             AttemptId = access?.AttemptId,
             LoginExpiresAtUtc = access?.LoginExpiresAtUtc,
             LoginEnding = loginEnding,
@@ -260,9 +261,6 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
 
         // Unsubscribe from Epic daemon events
         UnsubscribeDaemonEvents();
-
-        _currentRefreshCts?.Dispose();
-        _currentRefreshCts = null;
 
         try
         {

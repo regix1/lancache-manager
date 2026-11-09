@@ -27,6 +27,7 @@ public partial class GameCacheDetectionService : IDisposable
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly CacheScanGate _cacheScanGate;
+    private readonly IStateService _stateService;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
@@ -100,7 +101,8 @@ public partial class GameCacheDetectionService : IDisposable
         DatasourceService datasourceService,
         DatasourceCapabilityService capabilityService,
         IUnifiedOperationTracker operationTracker,
-        CacheScanGate cacheScanGate)
+        CacheScanGate cacheScanGate,
+        IStateService stateService)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -115,6 +117,7 @@ public partial class GameCacheDetectionService : IDisposable
         _capabilityService = capabilityService;
         _operationTracker = operationTracker;
         _cacheScanGate = cacheScanGate;
+        _stateService = stateService;
 
         _logger.LogInformation("GameCacheDetectionService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
     }
@@ -560,6 +563,7 @@ public partial class GameCacheDetectionService : IDisposable
             // non-empty snapshot instead of silently wiping it.
             var fullScanReports = 0;
             var emptyIndexFullScanReports = 0;
+            long unreadableCacheItems = 0;
 
             // Each datasource is scanned by its own process, which sizes only the files under the
             // root it was given, and the per-identity merge below ADDS those figures. Two
@@ -612,8 +616,8 @@ public partial class GameCacheDetectionService : IDisposable
                 // stdout progress events, which the hybrid callback below waits on; without it
                 // ProgressReporter.is_enabled() is false and no events flow.
                 string arguments = !string.IsNullOrEmpty(excludedIdsPath)
-                    ? $"\"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\" --progress --key-scheme {keyScheme}"
-                    : $"\"{cachePath}\" \"{outputJson}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\" --progress --key-scheme {keyScheme}";
+                    ? $"\"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\" --progress --key-scheme {keyScheme}{RustProcessHelper.SliceSizeFlag(_stateService.GetCacheSliceSizeBytes())}"
+                    : $"\"{cachePath}\" \"{outputJson}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\" --progress --key-scheme {keyScheme}{RustProcessHelper.SliceSizeFlag(_stateService.GetCacheSliceSizeBytes())}";
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 
@@ -738,6 +742,8 @@ public partial class GameCacheDetectionService : IDisposable
                     }
                 }
 
+                unreadableCacheItems += detectionResult.UnreadableCacheItems ?? 0;
+
                 // Aggregate games (deduplicate by GameAppId)
                 // Progress range for game aggregation: from current progress to next datasource's base
                 var totalGamesInResult = detectionResult.Games.Count;
@@ -839,6 +845,16 @@ public partial class GameCacheDetectionService : IDisposable
                     throw new InvalidOperationException(
                         $"Game detection indexed zero cache files in every scanned cache directory, but {previousDetections} previously detected entries exist. The previous snapshot was kept; verify the datasource cache paths point at real cache data.");
                 }
+            }
+
+            // Games stored in a cache folder or file the scan could not read show as not cached,
+            // so the run says so instead of ending as a clean success.
+            if (unreadableCacheItems > 0)
+            {
+                _logger.LogWarning("[GameDetection] Cache items the scan could not read: {Count}", unreadableCacheItems);
+                _operationTracker.SetWarning(operationId, new RunWarning(
+                    "common.notifications.warnings.cacheItemsUnreadable",
+                    new Dictionary<string, object?> { ["count"] = unreadableCacheItems }));
             }
 
             // Progress: Datasource scanning complete
@@ -1576,79 +1592,96 @@ public partial class GameCacheDetectionService : IDisposable
                     ParentOperationId = parentOperationId
                 };
 
-                if (!_operationTracker.TryRestoreOperation(
-                        persistedGuid,
-                        OperationType.GameDetection,
-                        "Game Detection",
-                        cancellationSource,
-                        metadata,
-                        onTerminalCleanup: () =>
-                        {
-                            lock (_startLock)
-                            {
-                                if (_currentTrackerOperationId == persistedGuid) _currentTrackerOperationId = null;
-                            }
-                        },
-                        onTerminalEmit: info => EmitTerminalAsync(persistedGuid, info, metadata),
-                        parentOperationId: parentOperationId,
-                        startedAt: startedAt,
-                        notice: notice,
-                        ownerCompletes: true,
-                        detectionScanType: scanType))
-                {
-                    // The tracker did NOT adopt this CTS (ID already in use), so we still own it.
-                    // Dispose the just-created CTS before continuing so it is not leaked.
-                    cancellationSource.Dispose();
-                    _logger.LogWarning("[GameDetection] Persisted operation {Id} already registered - skipping", persistedGuid);
-                    continue;
-                }
-
-                if (parentOperationId != null)
-                {
-                    _operationTracker.CompleteOperation(persistedGuid, success: false,
-                        cancelled: true);
-                    continue;
-                }
-
+                // Held through the worker start, as StartDetectionAsync holds it: a detection a person
+                // started in the first second after recovery must not get a second worker beside it.
+                await _startLock.WaitAsync(stoppingToken);
                 try
                 {
-                    await _operationStateService.PrepareRepairAsync(
-                        new OperationRepair
-                        {
-                            Id = persistedGuid,
-                            Type = OperationType.GameDetection,
-                            Name = "Game Detection",
-                            StartedAt = startedAt,
-                            Notice = notice,
-                            GameDetection = SnapshotDetectionMetrics(metadata)
-                        },
-                        stoppingToken);
+                    if (parentOperationId == null && _operationTracker.GetActiveOperations(OperationType.GameDetection).Any())
+                    {
+                        cancellationSource.Dispose();
+                        _logger.LogWarning("[GameDetection] A detection is already running - not restoring interrupted operation {Id}", persistedGuid);
+                        continue;
+                    }
+
+                    if (!_operationTracker.TryRestoreOperation(
+                            persistedGuid,
+                            OperationType.GameDetection,
+                            "Game Detection",
+                            cancellationSource,
+                            metadata,
+                            onTerminalCleanup: () =>
+                            {
+                                lock (_startLock)
+                                {
+                                    if (_currentTrackerOperationId == persistedGuid) _currentTrackerOperationId = null;
+                                }
+                            },
+                            onTerminalEmit: info => EmitTerminalAsync(persistedGuid, info, metadata),
+                            parentOperationId: parentOperationId,
+                            startedAt: startedAt,
+                            notice: notice,
+                            ownerCompletes: true,
+                            detectionScanType: scanType))
+                    {
+                        // The tracker did NOT adopt this CTS (ID already in use), so we still own it.
+                        // Dispose the just-created CTS before continuing so it is not leaked.
+                        cancellationSource.Dispose();
+                        _logger.LogWarning("[GameDetection] Persisted operation {Id} already registered - skipping", persistedGuid);
+                        continue;
+                    }
+
+                    if (parentOperationId != null)
+                    {
+                        _operationTracker.CompleteOperation(persistedGuid, success: false,
+                            cancelled: true);
+                        continue;
+                    }
+
+                    try
+                    {
+                        await _operationStateService.PrepareRepairAsync(
+                            new OperationRepair
+                            {
+                                Id = persistedGuid,
+                                Type = OperationType.GameDetection,
+                                Name = "Game Detection",
+                                StartedAt = startedAt,
+                                Notice = notice,
+                                GameDetection = SnapshotDetectionMetrics(metadata)
+                            },
+                            stoppingToken);
+                    }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _operationTracker.CompleteOperation(persistedGuid, success: false, error: ex.Message);
+                        _logger.LogError(ex, "[GameDetection] Failed to retain interrupted operation {OperationId}", persistedGuid);
+                        continue;
+                    }
+
+                    _cancellationTokenSource = cancellationSource;
+                    lock (_startLock) _currentTrackerOperationId = persistedGuid;
+                    notice.Attach(_operationTracker, persistedGuid);
+                    _operationTracker.UpdateProgress(persistedGuid, 0, state.Message ?? "signalr.gameDetect.resuming");
+
+                    _logger.LogInformation("[GameDetection] Restored interrupted operation {OperationId}", persistedGuid);
+
+                    var cancellationToken = cancellationSource.Token;
+                    _currentDetectionTask = (persistedGuid, Task.Run(
+                        async () => await RunDetectionAsync(
+                            persistedGuid,
+                            incremental: scanType == DetectionScanType.Incremental,
+                            cancellationToken),
+                        CancellationToken.None));
                 }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                finally
                 {
-                    throw;
+                    _startLock.Release();
                 }
-                catch (Exception ex)
-                {
-                    _operationTracker.CompleteOperation(persistedGuid, success: false, error: ex.Message);
-                    _logger.LogError(ex, "[GameDetection] Failed to retain interrupted operation {OperationId}", persistedGuid);
-                    continue;
-                }
-
-                _cancellationTokenSource = cancellationSource;
-                lock (_startLock) _currentTrackerOperationId = persistedGuid;
-                notice.Attach(_operationTracker, persistedGuid);
-                _operationTracker.UpdateProgress(persistedGuid, 0, state.Message ?? "signalr.gameDetect.resuming");
-
-                _logger.LogInformation("[GameDetection] Restored interrupted operation {OperationId}", persistedGuid);
-
-                var cancellationToken = cancellationSource.Token;
-                _currentDetectionTask = (persistedGuid, Task.Run(
-                    async () => await RunDetectionAsync(
-                        persistedGuid,
-                        incremental: scanType == DetectionScanType.Incremental,
-                        cancellationToken),
-                    CancellationToken.None));
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -1786,6 +1819,13 @@ public partial class GameCacheDetectionService : IDisposable
         /// </summary>
         [System.Text.Json.Serialization.JsonPropertyName("indexed_cache_files")]
         public long? IndexedCacheFiles { get; set; }
+
+        /// <summary>
+        /// Full-scan only (null for incremental reports): cache folders or files the Rust walk
+        /// could not read, so games stored there may read as not cached.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonPropertyName("unreadable_cache_items")]
+        public long? UnreadableCacheItems { get; set; }
 
         /// <summary>
         /// Full-scan only (null for incremental reports): indexed cache files no matcher claimed,

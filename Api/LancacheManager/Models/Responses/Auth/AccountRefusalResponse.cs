@@ -32,6 +32,13 @@ public class AccountRefusalResponse
     /// </summary>
     public const string SelfProtected = "errors.accounts.selfProtected";
 
+    /// <summary>
+    /// A <c>Security__*</c> environment variable allows this account (its owner subject or subject
+    /// allow list), so deleting it would only let its next sign-in create it again. It is removed
+    /// from the variable first.
+    /// </summary>
+    public const string EnvironmentManaged = "errors.accounts.environmentManaged";
+
     /// <summary>Another account already holds that username.</summary>
     public const string UsernameTaken = "errors.accounts.usernameTaken";
 

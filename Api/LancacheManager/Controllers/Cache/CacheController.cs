@@ -71,6 +71,7 @@ public class CacheController : ControllerBase
     private readonly CacheScanGate _cacheScanGate;
     private readonly CacheSizeScanScheduledService _cacheSizeScan;
     private readonly OperationStateService _operationStateService;
+    private readonly IStateService _stateService;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -90,9 +91,11 @@ public class CacheController : ControllerBase
         DatasourceCapabilityService capabilityService,
         CacheScanGate cacheScanGate,
         CacheSizeScanScheduledService cacheSizeScan,
-        OperationStateService operationStateService)
+        OperationStateService operationStateService,
+        IStateService stateService)
     {
         _operationStateService = operationStateService;
+        _stateService = stateService;
         _capabilityService = capabilityService;
         _cacheScanGate = cacheScanGate;
         _cacheSizeScan = cacheSizeScan;
@@ -764,7 +767,7 @@ public class CacheController : ControllerBase
 
         return Ok(new CorruptionDetectionStatusResponse
         {
-            IsRunning = activeOp.Status == OperationStatus.Running,
+            IsRunning = activeOp.Status == OperationStatus.Running || activeOp.Status == OperationStatus.Cancelling,
             OperationId = activeOp.Id,
             Status = activeOp.Status,
             Message = activeOp.Message,
@@ -2315,6 +2318,7 @@ public class CacheController : ControllerBase
                         evidenceFile: evidenceFilePath,
                         progressFile: progressFilePath,
                         keyScheme: keyScheme,
+                        sliceSizeBytes: _stateService.GetCacheSliceSizeBytes(),
                         cancellationToken: cancellationToken,
                         operationId: operationId,
                         onProgressEvent: async _ =>
@@ -3224,12 +3228,11 @@ public class CacheController : ControllerBase
     /// which rewrote the logs once per entity and emitted no SignalR events.
     /// Progress/cancel/recovery flow through the standard eviction_removal notification
     /// (EvictionRemovalStarted with the bulk stage key, Progress ticks, terminal Complete).
-    /// Returns 202 Accepted with { operationId }. Returns 409 Conflict if another eviction
-    /// removal is already in progress.
+    /// Returns 202 Accepted with { operationId, queued }: started, or parked behind a conflicting
+    /// operation, another eviction removal included.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("evicted")]
-    [ProducesResponseType(typeof(EvictionRemovalStartResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveAllEvictedAsync(CancellationToken cancellationToken = default)
     {
@@ -3247,24 +3250,15 @@ public class CacheController : ControllerBase
         }
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        // The closure uses CancellationToken.None: at promotion time the originating HTTP
-        // request is long gone; the started op runs on its own registered CTS.
+        // The queue checks and starts under one lock, so this and the Remove-mode save cannot
+        // both start a removal. The closure uses CancellationToken.None: at promotion time the
+        // originating HTTP request is long gone; the started op runs on its own registered CTS.
         async Task<Guid?> StartBulkEvictedRemovalAsync() =>
             await _reconciliationService.StartBulkEvictionRemovalAsync(CancellationToken.None);
 
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.EvictionRemoval,
-            ConflictScope.Bulk(),
-            cancellationToken);
-        if (conflict != null)
-        {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.EvictionRemoval, ConflictScope.Bulk(),
-                "Evicted Data Removal (all)", StartBulkEvictedRemovalAsync, cancellationToken));
-        }
-
-        var operationId = await _reconciliationService.StartBulkEvictionRemovalAsync(cancellationToken);
-        return Accepted(new EvictionRemovalStartResponse { OperationId = operationId });
+        return Accepted(await _operationQueue.EnqueueAsync(
+            OperationType.EvictionRemoval, ConflictScope.Bulk(),
+            "Evicted Data Removal (all)", StartBulkEvictedRemovalAsync, cancellationToken));
     }
 
     /// <summary>

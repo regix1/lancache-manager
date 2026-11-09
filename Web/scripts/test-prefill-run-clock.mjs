@@ -60,38 +60,37 @@ const component = findSoleNode(
   (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'PrefillProgressCard'
 );
 const content = ({ children }) => React.createElement(React.Fragment, null, children);
-const PrefillProgressCard = bindLifted(
-  component.getText(source).replace(/^export\s+/, ''),
-  {
-    React,
-    useTranslation: () => ({ t: (key) => key }),
-    useContext: React.useContext,
-    useEffect: React.useEffect,
-    useId: React.useId,
-    useState: React.useState,
-    PrefillContext: React.createContext(null),
-    FormattedTimestamp,
-    Card: content,
-    Button: content,
-    Tooltip: content,
-    Alert: content,
-    CollapsibleRegion: content,
-    Badge: content,
-    ChevronDown: () => null,
-    Download: () => null,
-    LoadingSpinner: () => null,
-    isPrefillRunActive,
-    getPrefillProgressStateKey,
-    getPrefillRunReasonKey,
-    formatBytes: String,
-    formatSpeed: String,
-    formatPercent: String,
-    formatCount: String,
-    formatTimeRemaining: String,
-    formatEtaShort: String
-  },
-  { jsx: ts.JsxEmit.React }
-);
+const cardSource = component.getText(source).replace(/^export\s+/, '');
+const cardScope = {
+  React,
+  useTranslation: () => ({ t: (key) => key }),
+  useContext: React.useContext,
+  useEffect: React.useEffect,
+  useId: React.useId,
+  useState: React.useState,
+  PrefillContext: React.createContext(null),
+  FormattedTimestamp,
+  Card: content,
+  Button: content,
+  Tooltip: content,
+  Alert: content,
+  CollapsibleRegion: content,
+  ProgressBar: () => null,
+  Badge: content,
+  ChevronDown: () => null,
+  Download: () => null,
+  LoadingSpinner: () => null,
+  isPrefillRunActive,
+  getPrefillProgressStateKey,
+  getPrefillRunReasonKey,
+  formatBytes: String,
+  formatSpeed: String,
+  formatPercent: String,
+  formatCount: String,
+  formatTimeRemaining: String,
+  formatEtaShort: String
+};
+const PrefillProgressCard = bindLifted(cardSource, cardScope, { jsx: ts.JsxEmit.React });
 const startedAt = '2026-09-13T23:42:13Z';
 const render = (setting, state, timestamp = startedAt) => {
   const run = {
@@ -206,6 +205,64 @@ test('a card says reconnecting once, and the older card says a cached or finishe
   const finished = older('app_completed');
   assert.equal(finished.match(/prefill\.progress\.loadingNextGame/g).length, 1);
   assert.doesNotMatch(finished, /prefill\.progress\.complete\b/);
+});
+
+test('on a multi-game run the percent beside the bytes is that game, and the bar keeps the run', () => {
+  const ParamCard = bindLifted(
+    cardSource,
+    {
+      ...cardScope,
+      useTranslation: () => ({
+        t: (key, params) => (params ? `${key}${JSON.stringify(params)}` : key)
+      }),
+      ProgressBar: ({ value }) => React.createElement('progress', { value })
+    },
+    { jsx: ts.JsxEmit.React }
+  );
+  const run = {
+    runId: 'run',
+    sessionId: 'session',
+    daemonInstanceId: 'daemon',
+    scheduleName: 'Daily',
+    options: { selection: 'selected', appIds: ['1', '2', '3'], operatingSystems: ['windows'] },
+    snapshot: {
+      startedAt,
+      state: 'running',
+      totalApps: 3,
+      completedApps: 2,
+      cachedApps: 0,
+      failedApps: 0,
+      skippedApps: 0,
+      cancelledApps: 0,
+      bytesTransferred: 0,
+      currentItem: {
+        appId: '3',
+        name: 'Battlefield 1',
+        bytesTransferred: 18_480_000_000,
+        totalBytes: 59_800_000_000
+      }
+    },
+    progress: { state: 'downloading', bytesPerSecond: 1000 },
+    recovering: false,
+    cancelRequested: false
+  };
+  const html = renderToStaticMarkup(
+    React.createElement(
+      ClockContext.Provider,
+      { value: { ...clockFromTimeSetting('utc'), refreshKey: 0 } },
+      React.createElement(ParamCard, { run, progress: getPrefillRunProgress(run) })
+    )
+  );
+  const line = html.match(/prefill\.runs\.progressLine(\{.*?\})</)?.[1];
+  assert.ok(line, html);
+  assert.deepEqual(JSON.parse(line.replaceAll('&quot;', '"')), {
+    done: '18480000000',
+    total: '59800000000',
+    speed: '1000',
+    percent: '30'
+  });
+  assert.match(html, /<progress value="76"/);
+  assert.match(html, /prefill\.runs\.items\{&quot;count&quot;:2,&quot;total&quot;:3\}/);
 });
 
 test('missing and invalid run starts use the shared timestamp placeholders', () => {

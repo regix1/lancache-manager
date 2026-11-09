@@ -64,6 +64,7 @@ internal class RetroStateProxy : NullReturningProxy
         {
             nameof(IStateService.GetHiddenClientIps) => new List<string>(),
             nameof(IStateService.GetEvictedDataMode) => "show",
+            nameof(IStateService.GetHiddenPrefillRules) => new List<ClientExclusionRule>(),
             _ => base.Invoke(targetMethod, args)
         };
 }

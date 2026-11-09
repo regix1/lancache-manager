@@ -50,6 +50,10 @@ struct Args {
     #[arg(long = "key-scheme", default_value = "monolithic")]
     key_scheme: String,
 
+    /// Cache slice size in bytes, or `auto` to read it from the cache files
+    #[arg(long = "slice-size", default_value = "auto")]
+    slice_size: String,
+
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
@@ -305,6 +309,8 @@ pub async fn run(service: &str) -> Result<()> {
 
     let log_dir = PathBuf::from(&args.log_dir);
     let cache_dir = PathBuf::from(&args.cache_dir);
+    let manual_slice_size =
+        cache_utils::parse_slice_size_arg(&args.slice_size).map_err(anyhow::Error::msg)?;
     // The service is pinned by the wrapper; normalize to lowercase so the DB gate
     // (LOWER(Service) = $2) matches.
     let service = normalize_service(service);
@@ -328,6 +334,8 @@ pub async fn run(service: &str) -> Result<()> {
         eprintln!("  Cache directory: {}", cache_dir.display());
         eprintln!("  Service: {}", service);
         eprintln!("  Game name: {}", game_name);
+        // A sample read error stops the removal here, before it touches anything.
+        let slice_sizes = cache_utils::slice_sizes_for_run(&cache_dir, manual_slice_size)?;
 
         // Per-game Riot removal works the same on bare-metal as on monolithic: the game -> URL
         // mapping is materialized in the database at ingest (the CDN host names the game, the
@@ -395,6 +403,7 @@ pub async fn run(service: &str) -> Result<()> {
                 &output_json,
                 game_name,
                 cache_utils::active_key_scheme(),
+                &slice_sizes,
                 removal_core::SliceReach::SweepKeyHeaders {
                     stage_key: NAMED_SWEEP_STAGE_KEY,
                 },
@@ -470,6 +479,7 @@ pub async fn run(service: &str) -> Result<()> {
             &NAMED_STAGE_KEYS,
             &lifecycle,
             ProgressCadence::OnPercentAdvance,
+            &slice_sizes,
             // Blizzard TACT archives, Riot bundles and Xbox payloads are range-served, so a slice
             // can sit behind an eviction hole the forward walk cannot cross.
             removal_core::SliceReach::SweepKeyHeaders {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { Key } from 'lucide-react';
 import { Button } from '@components/ui/Button';
@@ -29,11 +29,17 @@ const AuthenticateTab: React.FC = () => {
   // like a button that did nothing.
   const [authError, setAuthError] = useState<string | null>(null);
 
+  const authenticateInProgressRef = useRef(false);
+
   const handleAuthenticate = async () => {
+    if (authenticateInProgressRef.current) {
+      return;
+    }
     if (requiresApiKey(accountMode) && !apiKey.trim()) {
       setAuthError(t('auth.errors.missingKey'));
       return;
     }
+    authenticateInProgressRef.current = true;
 
     setLoading(true);
     setAuthError(null);
@@ -68,6 +74,7 @@ const AuthenticateTab: React.FC = () => {
       notifyError(t('auth.errors.failed'), err, { logLabel: 'Authentication error' });
     } finally {
       setLoading(false);
+      authenticateInProgressRef.current = false;
     }
   };
 
@@ -79,6 +86,7 @@ const AuthenticateTab: React.FC = () => {
   // none and keeps the compatibility button below.
   const services = signInServices(loginServices, accountMode);
   const startService = async (service: LoginService) => {
+    if (startingService !== null) return;
     if (requiresApiKey(accountMode) && !apiKey.trim()) {
       setAuthError(t('auth.errors.missingKey'));
       return;
@@ -139,7 +147,6 @@ const AuthenticateTab: React.FC = () => {
             password={password}
             onChange={handleCredentialChange}
             onSubmit={handleAuthenticate}
-            disabled={loading}
             apiKeyPlaceholder={t('auth.form.placeholder')}
           />
 
@@ -149,7 +156,7 @@ const AuthenticateTab: React.FC = () => {
             <LoginServiceButtons
               services={services}
               starting={startingService}
-              disabled={startingService !== null || !credentialsFilled}
+              disabled={!credentialsFilled}
               onStart={(service) => void startService(service)}
             />
           ) : (

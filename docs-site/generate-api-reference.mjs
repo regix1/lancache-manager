@@ -117,8 +117,10 @@ function buildMarkdown(doc) {
   );
   out.push(
     '- Endpoints marked **requires a signed-in session** need the `LancacheManager.Session` ' +
-      'cookie. Sign in once at `POST /api/auth/login`, which takes an API key, a username and a ' +
-      'password together, and send the cookie it returns on every later call. A call that changes ' +
+      'cookie. Sign in once at `POST /api/auth/login`, which takes a username and a ' +
+      'password, plus the API key in the `ApiKeyPassword` and `ApiKeyOidc` modes. In the `Oidc` and ' +
+      '`ApiKeyOidc` modes only the primary administrator\'s local password works. Send the cookie the ' +
+      'call returns on every later call. A call that changes ' +
       'something (POST, PUT, PATCH, DELETE) also needs the value of the `LancacheManager.Antiforgery` ' +
       'cookie sent back as an `X-Antiforgery-Token` header.'
   );

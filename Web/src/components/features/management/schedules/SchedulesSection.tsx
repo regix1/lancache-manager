@@ -14,6 +14,7 @@ import { HelpPopover, HelpNote, HelpSection } from '@components/ui/HelpPopover';
 import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
+import { Alert } from '@components/ui/Alert';
 import { LoadingState } from '@components/ui/ManagerCard';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
 import ApiService, { type IncrementalViabilityCheck } from '@services/api.service';
@@ -1395,6 +1396,8 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   // first rather than acting on the click.
   const [runAllConfirmOpen, setRunAllConfirmOpen] = useState(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [runAllError, setRunAllError] = useState<string | null>(null);
+  const [resetError, setResetError] = useState<string | null>(null);
   // Map of schedule key -> glow variant. `navigate` is the default (2-pulse attention
   // grab) used by Run Now and external View Schedule navigation. `subtle` is used by
   // Reset to Defaults where every row flashes at once and needs to feel like an
@@ -1766,6 +1769,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
     scheduleFlashClear(() => setCompletedKeys({}));
   }, [schedules, scheduleFlashClear]);
 
+  // A failed reset or Run all keeps its dialog open with the reason inside, so it can be retried.
   const handleResetDefaults = useCallback(async () => {
     setResetting(true);
     try {
@@ -1775,11 +1779,12 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       notifySuccess(t('management.schedules.resetComplete'));
 
       flashAll();
+      setResetConfirmOpen(false);
     } catch (err) {
-      notifyError(t('management.schedules.resetFailed'), err);
+      setResetError(getErrorMessage(err));
+      notifyError(t('management.schedules.resetFailed'), err, { silent: true });
     } finally {
       setResetting(false);
-      setResetConfirmOpen(false);
     }
   }, [fetchSchedules, flashAll, notifySuccess, notifyError, t]);
 
@@ -1799,11 +1804,12 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           details: { notificationType: 'info' }
         });
       }
+      setRunAllConfirmOpen(false);
     } catch (err: unknown) {
-      notifyError(t('management.schedules.runAllFailed'), err);
+      setRunAllError(getErrorMessage(err));
+      notifyError(t('management.schedules.runAllFailed'), err, { silent: true });
     } finally {
       setRunningAll(false);
-      setRunAllConfirmOpen(false);
     }
   }, [fetchSchedules, flashAll, addNotification, notifyError, t]);
 
@@ -1930,7 +1936,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
                 options={getNotificationStyleOptions(t)}
                 value={defaultMode}
                 onChange={handleDefaultNotificationDisplayModeChange}
-                disabled={!isAdmin || resetting || runningAll}
+                disabled={!isAdmin}
                 variant="button"
                 size="md"
                 className="w-full"
@@ -1942,7 +1948,10 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
             variant="filled"
             color="run"
             size="md"
-            onClick={() => setRunAllConfirmOpen(true)}
+            onClick={() => {
+              setRunAllError(null);
+              setRunAllConfirmOpen(true);
+            }}
             disabled={!isAdmin || runningAll || resetting}
             loading={runningAll}
           >
@@ -1951,7 +1960,10 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           <Button
             variant="default"
             size="md"
-            onClick={() => setResetConfirmOpen(true)}
+            onClick={() => {
+              setResetError(null);
+              setResetConfirmOpen(true);
+            }}
             disabled={!isAdmin || resetting || runningAll}
             loading={resetting}
           >
@@ -2038,6 +2050,13 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         <p className="text-sm text-themed-muted">
           {t('management.schedules.runAllConfirmBody', { count: schedules.length })}
         </p>
+        {runAllError !== null && (
+          <div role="alert">
+            <Alert color="error" icon={null} title={t('management.schedules.runAllFailed')}>
+              {runAllError}
+            </Alert>
+          </div>
+        )}
       </ConfirmationModal>
 
       <ConfirmationModal
@@ -2050,6 +2069,13 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
         loading={resetting}
       >
         <p className="text-sm text-themed-muted">{t('management.schedules.resetConfirmBody')}</p>
+        {resetError !== null && (
+          <div role="alert">
+            <Alert color="error" icon={null} title={t('management.schedules.resetFailed')}>
+              {resetError}
+            </Alert>
+          </div>
+        )}
       </ConfirmationModal>
     </TabPanel>
   );

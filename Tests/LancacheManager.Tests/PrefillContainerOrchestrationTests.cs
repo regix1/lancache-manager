@@ -74,6 +74,189 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
         daemon.Dispose();
     }
 
+    // A host-network container has no address of its own: a request to a cache on the same machine
+    // leaves from the cache address it dials, so that is the address the cache logs for its traffic.
+    [Fact]
+    public async Task StartAsync_ReadoptedHostNetworkContainer_RecordsTheCacheAddressItDials()
+    {
+        var (_, contexts) = NewDatabase();
+        var sessionService = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var sessionId = await SeedActivePersistentRowAsync(sessionService, expiresAt: DateTime.UtcNow.AddDays(30));
+        var gateway = new RecordingContainerGateway();
+        gateway.AddContainer(RunningHostNetworkContainer(sessionId, "192.168.1.10"));
+
+        var daemon = new TestSteamDaemon(MakeDeps(contexts, sessionService, Config(PersistenceMode.KeepAcrossRestart, steamEnabled: true)), gateway);
+        await daemon.StartAsync(CancellationToken.None);
+
+        var session = SessionsOf(daemon).Values.Single(s => s.IsPersistent);
+        Assert.Equal(new[] { "192.168.1.10" }, session.PrefillAddresses);
+
+        daemon.Dispose();
+    }
+
+    // A cache address that is also a Docker network's gateway is shared by every container that reaches
+    // the cache through that gateway, so marking it would hide their downloads too.
+    [Fact]
+    public async Task StartAsync_ReadoptedHostNetworkContainerDialingAGateway_RecordsNothing()
+    {
+        var (_, contexts) = NewDatabase();
+        var sessionService = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var sessionId = await SeedActivePersistentRowAsync(sessionService, expiresAt: DateTime.UtcNow.AddDays(30));
+        var gateway = new RecordingContainerGateway();
+        gateway.AddContainer(RunningHostNetworkContainer(sessionId, "172.17.0.1"));
+        gateway.AddNetwork("bridge", "172.17.0.1");
+        gateway.AddContainer(new FakeContainer
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = "lancache-monolithic",
+            Running = true,
+            Networks = new Dictionary<string, Docker.DotNet.Models.EndpointSettings>
+            {
+                ["bridge"] = new() { IPAddress = "172.17.0.3", Gateway = "172.17.0.1" }
+            }
+        });
+
+        var daemon = new TestSteamDaemon(MakeDeps(contexts, sessionService, Config(PersistenceMode.KeepAcrossRestart, steamEnabled: true)), gateway);
+        await daemon.StartAsync(CancellationToken.None);
+
+        var session = SessionsOf(daemon).Values.Single(s => s.IsPersistent);
+        Assert.Empty(session.PrefillAddresses);
+
+        daemon.Dispose();
+    }
+
+    // The gateway is read from the network itself: a container that starts on that network later still
+    // reaches the cache through it, so the answer must not depend on which containers run right now.
+    [Fact]
+    public async Task StartAsync_ReadoptedHostNetworkContainerDialingAGatewayWithNoRunningContainer_RecordsNothing()
+    {
+        var (_, contexts) = NewDatabase();
+        var sessionService = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var sessionId = await SeedActivePersistentRowAsync(sessionService, expiresAt: DateTime.UtcNow.AddDays(30));
+        var gateway = new RecordingContainerGateway();
+        gateway.AddContainer(RunningHostNetworkContainer(sessionId, "172.17.0.1"));
+        gateway.AddNetwork("bridge", "172.17.0.1");
+        gateway.AddContainer(new FakeContainer
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = "lancache-monolithic",
+            Running = false,
+            Networks = new Dictionary<string, Docker.DotNet.Models.EndpointSettings>
+            {
+                ["bridge"] = new() { IPAddress = "172.17.0.3", Gateway = "172.17.0.1" }
+            }
+        });
+
+        var daemon = new TestSteamDaemon(MakeDeps(contexts, sessionService, Config(PersistenceMode.KeepAcrossRestart, steamEnabled: true)), gateway);
+        await daemon.StartAsync(CancellationToken.None);
+
+        var session = SessionsOf(daemon).Values.Single(s => s.IsPersistent);
+        Assert.Empty(session.PrefillAddresses);
+
+        daemon.Dispose();
+    }
+
+    [Fact]
+    public async Task CreateSession_HostNetworkDialingAGatewayWithNoRunningContainer_RecordsNothing()
+    {
+        var (_, contexts) = NewDatabase();
+        var sessionService = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var deps = MakeDeps(contexts, sessionService, Config(PersistenceMode.KeepAcrossRestart, steamEnabled: true)) with
+        {
+            NetworkOptions = new StaticOptionsMonitor(new PrefillNetworkOptions { NetworkMode = "host" }),
+            Locator = new TestLancacheServerLocator(location: new LancacheServerLocation { CacheIps = ["172.17.0.1"], Source = "dns" })
+        };
+        var gateway = new RecordingContainerGateway();
+        gateway.AddNetwork("bridge", "172.17.0.1");
+        var daemon = new TestSteamDaemon(deps, gateway);
+
+        await daemon.CreateSessionAsync(ScheduledPrefillConstants.DeriveSystemUserId(), isPersistent: true);
+
+        var session = SessionsOf(daemon).Values.Single(s => s.IsPersistent);
+        Assert.Empty(session.PrefillAddresses);
+        Assert.True(gateway.ContainsContainer(session.ContainerId));
+
+        daemon.Dispose();
+    }
+
+    [Fact]
+    public async Task CreateSession_HostNetwork_RecordsTheCacheAddressItDials()
+    {
+        var (_, contexts) = NewDatabase();
+        var sessionService = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var deps = MakeDeps(contexts, sessionService, Config(PersistenceMode.KeepAcrossRestart, steamEnabled: true)) with
+        {
+            NetworkOptions = new StaticOptionsMonitor(new PrefillNetworkOptions { NetworkMode = "host" }),
+            Locator = new TestLancacheServerLocator(location: new LancacheServerLocation { CacheIps = ["192.168.1.10"], Source = "dns" })
+        };
+        var daemon = new TestSteamDaemon(deps, new RecordingContainerGateway());
+
+        await daemon.CreateSessionAsync(ScheduledPrefillConstants.DeriveSystemUserId(), isPersistent: true);
+
+        var session = SessionsOf(daemon).Values.Single(s => s.IsPersistent);
+        Assert.Equal(new[] { "192.168.1.10" }, session.PrefillAddresses);
+
+        daemon.Dispose();
+    }
+
+    // The address lookup only marks prefill traffic, so a Docker error while it lists networks
+    // must leave the signed-in container running and its session adopted.
+    [Fact]
+    public async Task StartAsync_ReadoptedHostNetworkContainer_ListFailure_KeepsTheSessionAndRecordsNothing()
+    {
+        var (_, contexts) = NewDatabase();
+        var sessionService = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var sessionId = await SeedActivePersistentRowAsync(sessionService, expiresAt: DateTime.UtcNow.AddDays(30));
+        var gateway = new RecordingContainerGateway();
+        var container = RunningHostNetworkContainer(sessionId, "192.168.1.10");
+        gateway.AddContainer(container);
+        gateway.FailNextNetworkList(new DockerApiException(HttpStatusCode.InternalServerError, "daemon error"));
+
+        var daemon = new TestSteamDaemon(MakeDeps(contexts, sessionService, Config(PersistenceMode.KeepAcrossRestart, steamEnabled: true)), gateway);
+        await daemon.StartAsync(CancellationToken.None);
+
+        var session = SessionsOf(daemon).Values.Single(s => s.IsPersistent);
+        Assert.Equal(sessionId, session.Id);
+        Assert.Empty(session.PrefillAddresses);
+        Assert.True(gateway.ContainsContainer(container.Id));
+        Assert.Equal(0, gateway.DestructiveCallCount);
+
+        daemon.Dispose();
+    }
+
+    // A timed-out lookup on create records no address, and the started container is kept for its session.
+    // An empty list also shows the failure hit the address lookup: the cache address is recorded otherwise.
+    [Fact]
+    public async Task CreateSession_HostNetwork_ListTimeout_StartsTheSessionAndRecordsNothing()
+    {
+        var (_, contexts) = NewDatabase();
+        var sessionService = new PrefillSessionService(contexts, NullLogger<PrefillSessionService>.Instance);
+        var deps = MakeDeps(contexts, sessionService, Config(PersistenceMode.KeepAcrossRestart, steamEnabled: true)) with
+        {
+            NetworkOptions = new StaticOptionsMonitor(new PrefillNetworkOptions { NetworkMode = "host" }),
+            Locator = new TestLancacheServerLocator(location: new LancacheServerLocation { CacheIps = ["192.168.1.10"], Source = "dns" })
+        };
+        var gateway = new RecordingContainerGateway();
+        gateway.FailNextNetworkList(RecordingContainerGateway.NoAnswer());
+        var daemon = new TestSteamDaemon(deps, gateway);
+
+        await daemon.CreateSessionAsync(ScheduledPrefillConstants.DeriveSystemUserId(), isPersistent: true);
+
+        var session = SessionsOf(daemon).Values.Single(s => s.IsPersistent);
+        Assert.Empty(session.PrefillAddresses);
+        Assert.True(gateway.ContainsContainer(session.ContainerId));
+
+        daemon.Dispose();
+    }
+
+    private static FakeContainer RunningHostNetworkContainer(string sessionId, string cacheAddress)
+    {
+        var container = RunningPersistentContainer(sessionId);
+        container.HostConfig.NetworkMode = "host";
+        container.Env.Add($"LANCACHE_IP={cacheAddress}");
+        return container;
+    }
+
     // =============================================================
     // Five services, ONE shared DB: each daemon re-adopts its own running container, and no daemon's
     // platform-scoped orphan sweep re-orphans a row another daemon already reactivated. Every row ends Active.
@@ -3938,6 +4121,8 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
         // import waits on this until the test releases it.
         public TaskCompletionSource? HeldSavedLogin { get; set; }
         public TaskCompletionSource SavedLoginEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Set by a test whose held saved login the daemon accepts, so the sign-in goes on to wait for the daemon's answer.
+        public bool SavedLoginAccepted { get; set; }
 
         public override IntegrationLoginAvailability GetIntegrationLoginAvailability(Guid? accountId, IntegrationCaller? caller = null)
             => HeldSavedLogin is null ? base.GetIntegrationLoginAvailability(accountId, caller) : new(true, "saved-account", null);
@@ -3952,7 +4137,7 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
             onCommandDispatched();
             SavedLoginEntered.TrySetResult();
             await HeldSavedLogin.Task.WaitAsync(cancellationToken);
-            return false;
+            return SavedLoginAccepted;
         }
     }
 
@@ -3978,7 +4163,7 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
         private readonly IDaemonClient? _client;
 
         public TestXboxDaemon(DaemonDeps d, IPrefillContainerGateway g, IDaemonClient? client = null)
-            : base(NullLogger<XboxPrefillDaemonService>.Instance, d.Notifications, d.Configuration, d.PathResolver, d.StateService, d.SessionService, d.CacheService, null!, d.NetworkOptions, d.Locator, new SingleContainerGatewayFactory(g))
+            : base(NullLogger<XboxPrefillDaemonService>.Instance, d.Notifications, d.Configuration, d.PathResolver, d.StateService, d.SessionService, d.CacheService, null!, d.NetworkOptions, d.Locator, new SingleContainerGatewayFactory(g), cacheStatusClock: d.CacheStatusClock)
         {
             _client = client;
         }

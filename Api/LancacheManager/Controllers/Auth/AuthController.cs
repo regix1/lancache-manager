@@ -209,19 +209,35 @@ public class AuthController : ControllerBase
         // that was just refreshed, and no rotation hands out a value that would pass without it.
         antiforgeryToken.Issue(HttpContext);
 
+        // This route is anonymous, so which settings come from the environment is told only to an
+        // account holder, or to whoever is completing setup.
+        var modeState = _accessService?.GetModeState();
+        var showsEnvironment = session?.SessionType.IsAccountHolder() == true
+            || (modeState?.SetupRequired ?? false);
+        var loginServices = _accessService?.GetLoginServices() ?? [];
+        if (!showsEnvironment)
+        {
+            foreach (var loginService in loginServices)
+            {
+                loginService.EnvironmentFields = [];
+            }
+        }
+
         // authenticationEnabled was resolved above (it gates the admin-session mint). When disabled,
         // the minted session makes IsAuthenticated/SessionType below resolve to a real admin session.
         return Ok(new AuthStatusResponse
         {
             AuthenticationEnabled = authenticationEnabled,
-            AccountMode = _accessService?.GetMode()
+            AccountMode = modeState?.Mode
                 ?? (authenticationEnabled ? AccountMode.ApiKeyPassword : AccountMode.Unauthenticated),
-            AuthenticationSetupRequired = _accessService?.IsSetupRequired() ?? false,
+            AuthenticationSetupRequired = modeState?.SetupRequired ?? false,
             OidcDisplayName = _accessService?.GetOidcDisplayName(),
             OidcPending = _accessService?.HasPendingOidc() ?? false,
             OwnerOidcEnabled = _accessService?.HasOidcOwner() ?? false,
             OwnerPasswordEnabled = ownerPasswordEnabled,
-            LoginServices = _accessService?.GetLoginServices() ?? [],
+            SignInModeFromEnvironment = showsEnvironment && (modeState?.ModeFromEnvironment ?? false),
+            LoginServices = loginServices,
+            IncompleteLoginServices = showsEnvironment ? _accessService?.GetIncompleteLoginServices() ?? [] : [],
             OwnerLoginServices = _accessService?.GetOwnerLoginServices() ?? [],
             LoginSetupPending = _accessService?.HasPendingOidc() ?? false,
             PendingLoginKind = _accessService?.GetPendingLoginKind(),
@@ -288,7 +304,9 @@ public class AuthController : ControllerBase
         var passwordMode = _accessService?.UsesPassword() ?? true;
         var ownerSignIn = _accessService?.AllowsOwnerPassword(account) ?? false;
         passwordMode |= ownerSignIn;
-        var keyRequired = !ownerSignIn && (_accessService?.RequiresApiKeyForPassword() ?? true);
+        var keyRequired = ownerSignIn
+            ? _accessService?.RequiresApiKeyForOidc() ?? true
+            : _accessService?.RequiresApiKeyForPassword() ?? true;
         var keyMatched = !keyRequired || _apiKeyService.ValidateApiKey(request.ApiKey);
 
         // Checked after the password rather than instead of it, for the same reason: a locked account

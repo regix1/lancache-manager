@@ -169,11 +169,13 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
     /// downloaded on a real Xbox/PC is named on the next pass (get-cdn-info returns the FULL owned catalog,
     /// not just prefilled titles). The method lives here because it needs the protected session set.
     /// Best-effort: a failure here never affects the prefill session. Returns the total number of CDN
-    /// patterns newly persisted across all authenticated sessions.
+    /// patterns newly persisted across all authenticated sessions as <see cref="WorkCount.Done"/>, and
+    /// how many sessions failed to give their catalog as <see cref="WorkCount.Failed"/>.
     /// </summary>
-    public async Task<int> RefreshCatalogFromActiveSessionsAsync(CancellationToken ct = default)
+    public async Task<WorkCount> RefreshCatalogFromActiveSessionsAsync(CancellationToken ct = default)
     {
         var totalNewPatterns = 0;
+        var failedSessions = 0;
 
         foreach (var session in _sessions.Values)
         {
@@ -200,13 +202,14 @@ public class XboxPrefillDaemonService : PrefillDaemonServiceBase
             }
             catch (Exception ex)
             {
+                failedSessions++;
                 _logger.LogWarning(ex,
                     "Failed to collect Xbox CDN patterns from session {SessionId} (daemon may not support get-cdn-info yet)",
                     session.Id);
             }
         }
 
-        return totalNewPatterns;
+        return new WorkCount(totalNewPatterns, failedSessions);
     }
 
     /// <summary>

@@ -959,7 +959,8 @@ public class PersistentLoginSessionPinningTests
         await recorder.EmitStatusAsync(new DaemonStatus
         {
             Status = success ? "logged-in" : "awaiting-login",
-            Message = success ? "Authenticated" : "Auto-login failed: Refresh token expired"
+            Message = success ? "Authenticated" : "Auto-login failed: Refresh token expired",
+            ErrorCode = success ? null : "login-failed"
         });
         var result = await pending.WaitAsync(TimeSpan.FromSeconds(2));
         if (success)

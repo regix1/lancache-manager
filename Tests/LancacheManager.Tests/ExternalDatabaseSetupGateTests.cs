@@ -377,6 +377,68 @@ public class ExternalDatabaseSetupGateTests : IDisposable
     }
 
     /// <summary>
+    /// The setup screens show a refusal from its i18n key, so each refusal names one, and the values
+    /// a keyed sentence reads travel beside it. The English sentence stays for logs and older clients.
+    /// </summary>
+    [Fact]
+    public async Task EveryRefusalNamesTheKeyTheScreenTranslates()
+    {
+        _controller.HttpContext.Request.Headers["X-Api-Key"] = "not-the-key";
+        var wrongKey = Assert.IsType<ObjectResult>(
+            (await _controller.SetExternalCredentialsAsync(ConnectionRequest())).Result);
+        Assert.Equal("errors.accountSetup.apiKeyRequired", RefusalOf(wrongKey).StageKey);
+
+        var session = CreateController(authenticationEnabled: true);
+        session.HttpContext.Items["Session"] = new UserSession { SessionType = SessionType.Admin };
+        var noToken = Assert.IsType<BadRequestObjectResult>(
+            await PostInExternalModeAsync(session, ConnectionRequest()));
+        Assert.Equal("errors.antiforgery.tokenMismatch", RefusalOf(noToken).StageKey);
+
+        var closed = new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance);
+        closed.Expire();
+        var late = CreateController(authenticationEnabled: true, claimWindow: closed);
+        late.HttpContext.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
+        var windowClosed = Assert.IsType<ObjectResult>(
+            (await late.SetExternalCredentialsAsync(ConnectionRequest())).Result);
+        Assert.Equal("errors.setup.connectionWindowClosed", RefusalOf(windowClosed).StageKey);
+
+        _controller.HttpContext.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
+        var unreachable = RefusalOf(Assert.IsType<BadRequestObjectResult>(
+            await PostInExternalModeAsync(_controller, ConnectionRequest())));
+        Assert.Equal("errors.setup.connectFailed", unreachable.StageKey);
+        Assert.NotNull(unreachable.Context);
+        Assert.Equal("127.0.0.1", unreachable.Context["host"]);
+        Assert.Equal(1, unreachable.Context["port"]);
+        Assert.Equal("lancache", unreachable.Context["database"]);
+        Assert.Null(unreachable.Details);
+
+        var badName = ConnectionRequest();
+        badName.Username = "lancache;";
+        var nameRefusal = Assert.IsType<BadRequestObjectResult>(
+            await PostInExternalModeAsync(_controller, badName));
+        Assert.Equal("errors.setup.usernameInvalid", RefusalOf(nameRefusal).StageKey);
+
+        var previous = Environment.GetEnvironmentVariable("POSTGRES_MODE");
+        Environment.SetEnvironmentVariable("POSTGRES_MODE", "embedded");
+        try
+        {
+            var shortPassword = Assert.IsType<BadRequestObjectResult>(
+                (await _controller.SetCredentialsAsync(new SetupCredentialsRequest
+                {
+                    Username = "lancache",
+                    Password = "Longer1!"
+                })).Result);
+            Assert.Equal(
+                "initialization.adminAccount.errors.passwordTooShort",
+                RefusalOf(shortPassword).StageKey);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("POSTGRES_MODE", previous);
+        }
+    }
+
+    /// <summary>
     /// The endpoint refuses outright unless POSTGRES_MODE says external, so every test that needs to
     /// get past that line runs inside this, which puts the variable back afterwards.
     /// </summary>
@@ -408,8 +470,10 @@ public class ExternalDatabaseSetupGateTests : IDisposable
         Password = "a-password-nobody-guesses"
     };
 
-    private static string ErrorOf(ObjectResult response) =>
-        Assert.IsType<ErrorResponse>(response.Value).Error;
+    private static string ErrorOf(ObjectResult response) => RefusalOf(response).Error;
+
+    private static ErrorResponse RefusalOf(ObjectResult response) =>
+        Assert.IsType<ErrorResponse>(response.Value);
 
     public void Dispose()
     {

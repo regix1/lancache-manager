@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Calendar,
@@ -27,9 +27,18 @@ import ApiService from '@services/api.service';
 import MockDataService from '@/test/mockData.service';
 import { useMockMode } from '@contexts/useMockMode';
 import { useErrorHandler } from '@hooks/useErrorHandler';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useRefreshRate } from '@contexts/useRefreshRate';
+import { useRefreshThrottle } from '@hooks/useRefreshThrottle';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import type { SignalREventName } from '@contexts/SignalRContext/types';
+import { rowToggleHandlers } from '@utils/rowToggle';
 import type { Event, Download } from '../../../types';
 import { APP_EVENTS } from '@utils/constants';
 import { getGameDisplayName } from '../downloads/liveDownloadPreviews';
+
+// A tag adds a download to an event, and a refresh moves the totals of the ones already tagged.
+const DOWNLOAD_LIST_EVENTS: readonly SignalREventName[] = ['DownloadTagged', 'DownloadsRefresh'];
 
 type EventDownloadsCache = Record<
   number,
@@ -48,7 +57,7 @@ const groupDownloadsByGame = (downloads: Download[], unknownLabel: string) => {
   > = {};
 
   downloads.forEach((d) => {
-    const key = `${getServiceFilterKey(d.service)}-${d.gameName || unknownLabel}`;
+    const key = `${getServiceFilterKey(d.service)}-${d.gameAppId ?? d.epicAppId ?? d.gameName ?? ''}`;
     if (!grouped[key]) {
       grouped[key] = {
         name: getGameDisplayName(d.gameName, d.service, unknownLabel),
@@ -121,9 +130,9 @@ const EventCard = React.memo(
 
     return (
       <div
-        className={`event-list-row${status === 'past' ? ' event-list-row--past' : ''}`}
+        className={`event-list-row focus-ring--inset${status === 'past' ? ' event-list-row--past' : ''}`}
         style={colorStyle}
-        onClick={() => onExpandClick(event.id)}
+        {...rowToggleHandlers(() => onExpandClick(event.id))}
       >
         {/* Event's own colour, now that the status pill no longer carries it */}
         <div className="event-list-row-color" />
@@ -308,7 +317,16 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   const { notifyError } = useErrorHandler();
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
   const [downloadsCache, setDownloadsCache] = useState<EventDownloadsCache>({});
-  const fetchingRef = useRef<Set<number>>(new Set());
+  // Read when a fetch starts, so a refetch knows whether a list is already on screen without
+  // making the fetch callback change on every answer.
+  const downloadsCacheRef = useRef(downloadsCache);
+  downloadsCacheRef.current = downloadsCache;
+  // Each read takes the next number for its event, and only the newest read of an event stores or
+  // reports, so a refetch fired while an older read is in flight is the one that wins.
+  const eventRequestRef = useRef<Map<number, number>>(new Map());
+  const { on, off, isConnected } = useSignalR();
+  const { getRefreshInterval } = useRefreshRate();
+  const scheduleRefetch = useRefreshThrottle(getRefreshInterval);
 
   // Group events by status: active, upcoming, past
   const groupedEvents = useMemo(() => {
@@ -367,16 +385,16 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
 
   const fetchEventDownloads = useCallback(
     async (eventId: number) => {
-      // Already fetching or fetched
-      if (fetchingRef.current.has(eventId)) {
-        return;
+      const request = (eventRequestRef.current.get(eventId) ?? 0) + 1;
+      eventRequestRef.current.set(eventId, request);
+      // A refetch keeps the loaded list on screen until its answer replaces it.
+      const hadList = downloadsCacheRef.current[eventId]?.loaded === true;
+      if (!hadList) {
+        setDownloadsCache((prev) => ({
+          ...prev,
+          [eventId]: { downloads: [], loading: true, loaded: false }
+        }));
       }
-      fetchingRef.current.add(eventId);
-
-      setDownloadsCache((prev) => ({
-        ...prev,
-        [eventId]: { downloads: [], loading: true, loaded: false }
-      }));
 
       try {
         // Use taggedOnly=true to show only downloads explicitly tagged to this event.
@@ -385,6 +403,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
         const downloads = mockMode
           ? MockDataService.generateMockEventDownloads(eventId)
           : await ApiService.getEventDownloads<Download[]>(eventId);
+        if (eventRequestRef.current.get(eventId) !== request) return;
         setDownloadsCache((prev) => ({
           ...prev,
           [eventId]: {
@@ -394,12 +413,14 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
           }
         }));
       } catch (error) {
+        if (eventRequestRef.current.get(eventId) !== request) return;
         notifyError(t('events.list.errors.loadDownloadsFailed'), error, {
           logLabel: 'Failed to fetch event downloads'
         });
-        fetchingRef.current.delete(eventId); // Allow retry on error
-        // A failed read has no list to show, so the row closes rather than claiming the event has
-        // no downloads; the next expand fetches again.
+        // A failed refetch leaves the last list it had in place.
+        if (hadList) return;
+        // A failed first read has no list to show, so the row closes rather than claiming the
+        // event has no downloads; the next expand fetches again.
         setDownloadsCache((prev) => {
           const next = { ...prev };
           delete next[eventId];
@@ -422,6 +443,26 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
     },
     [expandedEventId, fetchEventDownloads]
   );
+
+  // Only the open event shows its downloads, so only it is read again.
+  const refetchExpanded = useCallback(() => {
+    if (expandedEventId !== null) {
+      fetchEventDownloads(expandedEventId);
+    }
+  }, [expandedEventId, fetchEventDownloads]);
+
+  // Tags raised while the socket was down are never delivered.
+  useReconnectRefetch(isConnected, refetchExpanded);
+
+  useEffect(() => {
+    const handleDownloadsChanged = () => {
+      scheduleRefetch(refetchExpanded);
+    };
+    DOWNLOAD_LIST_EVENTS.forEach((eventName) => on(eventName, handleDownloadsChanged));
+    return () => {
+      DOWNLOAD_LIST_EVENTS.forEach((eventName) => off(eventName, handleDownloadsChanged));
+    };
+  }, [on, off, scheduleRefetch, refetchExpanded]);
 
   const handleViewStats = useCallback(
     (event: Event) => {

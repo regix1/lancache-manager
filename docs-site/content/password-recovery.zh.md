@@ -115,6 +115,23 @@ printf %s "$NEW_PASSWORD" | docker exec -i lancache-manager /data/scripts/reset-
 printf %s "$NEW_PASSWORD" | /数据目录/scripts/reset-main-admin-password.sh --local --url http://127.0.0.1:8080 --username admin --password-stdin
 ```
 
+## 仅用单点登录的所有者 { #single-sign-on-owner }
+
+当所有者只通过单点登录登录、没有本地密码时使用，例如环境变量中的登录已回退到 **API 密钥、用户名和密码**。所有者的用户名由服务商的颁发者和账户 ID 生成，以 `oidc-` 开头。
+
+应用创建该账户时不会在日志中记录这个用户名，无法登录的所有者也没有能显示它的界面。请用任意 PostgreSQL 客户端从应用的 PostgreSQL 数据库中读取：
+
+```sql
+SELECT "Username" FROM "UserAccounts" WHERE "IsMainAdmin";
+```
+
+1. 重启应用。
+2. 在一小时内运行主机上的恢复脚本。它会发送恢复令牌和 API 密钥来打开恢复窗口。
+3. 调用 `POST /api/account-setup/recover-main-admin`，在 JSON 请求体中传入 `username`、新的 `password` 和 `apiKey`。
+4. 用该密码登录。
+
+新密码遵循与其他恢复方式相同的规则。第 3 步和第 4 步会让所有者拥有本地密码。在 `Oidc` 和 `ApiKeyOidc` 模式下，该密码可用于 `POST /api/auth/login`，见[从脚本登录](api-reference.md#signing-in-from-a-script)。
+
 ## 处理重置失败
 
 ### `401` 或 `apiKeyRequired`

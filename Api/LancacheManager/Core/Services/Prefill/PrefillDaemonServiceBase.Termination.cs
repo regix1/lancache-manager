@@ -1,3 +1,4 @@
+using System.Net;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Models;
@@ -255,6 +256,10 @@ public abstract partial class PrefillDaemonServiceBase
                 GuestGate.Retain(session.UserId, session.Id);
             _logger.LogWarning(ex, "Session cleanup remains incomplete for {SessionId}", session.Id);
             completion.TrySetException(termination.Removed ? ex : ContainerRemovalFailure());
+            // After the Stop caller has its failure, so the admin Prefill Sessions page shows the error state
+            // without a reload; the answer never waits behind this send. Admins only: the session's own pages
+            // already get the Stop's answer, and a retried Stop resends their end only to unfinished connections.
+            await _notifications.NotifyAdminAsync(EventSessionUpdated, DaemonSessionDto.FromSession(session));
             // The runs ended in the finally above while the session stays listed for a retried Stop, so its
             // downloading mark clears; the report also recomputes the platform's container dot.
             if (termination.ActivityRetired)
@@ -282,7 +287,7 @@ public abstract partial class PrefillDaemonServiceBase
             try
             {
                 if (!string.IsNullOrEmpty(termination.Session.ContainerId))
-                    await RemoveGuestContainerAsync(termination.Session.ContainerId, !termination.Session.IsPersistent);
+                    await KillAndRemoveContainerAsync(termination.Session.ContainerId, !termination.Session.IsPersistent);
                 completion.TrySetResult();
             }
             catch (Exception ex) { completion.TrySetException(ex); }
@@ -318,6 +323,10 @@ public abstract partial class PrefillDaemonServiceBase
                     await _containerGateway.StopContainerAsync(session.ContainerId,
                         new ContainerStopParameters { WaitBeforeKillSeconds = 1 }, CancellationToken.None);
                 }
+                catch (DockerContainerNotFoundException)
+                {
+                    _logger.LogDebug("Container for {SessionId} was already gone before its stop", session.Id);
+                }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Container stop failed for {SessionId}; forcing removal", session.Id);
@@ -327,7 +336,7 @@ public abstract partial class PrefillDaemonServiceBase
         await RemoveContainerAsync(termination);
     }
 
-    private async Task RemoveGuestContainerAsync(string containerId, bool removeVolumes)
+    private async Task KillAndRemoveContainerAsync(string containerId, bool removeVolumes)
     {
         await ConnectDockerAsync(CancellationToken.None);
         if (!_containerGateway.IsAvailable)
@@ -339,6 +348,11 @@ public abstract partial class PrefillDaemonServiceBase
         catch (DockerContainerNotFoundException)
         {
             // Removal below confirms absence and handles an already-removed container.
+        }
+        catch (DockerApiException ex) when (ex.StatusCode == HttpStatusCode.Conflict)
+        {
+            // Docker answers 409 when the container is not running: it exited before the kill.
+            _logger.LogDebug("Container {ContainerId} was already stopped before the kill; removing it", containerId);
         }
         catch (Exception ex)
         {
@@ -525,7 +539,7 @@ public abstract partial class PrefillDaemonServiceBase
                         throw new InvalidOperationException("Container creation has an unresolved outcome.");
                     start.ContainerId = match.ID;
                 }
-                await RemoveGuestContainerAsync(start.ContainerId, removeVolumes: true);
+                await KillAndRemoveContainerAsync(start.ContainerId, removeVolumes: true);
             }
             start.ContainerRemoved = true;
             if (!start.Registered && start.Session != null)

@@ -57,6 +57,32 @@ test('switching to manual code entry still opens the code box', () => {
   ]);
 });
 
+test('switching to manual code entry cancels through the hook once sign-in is allowed', () => {
+  let hookCancels = 0;
+  let propCancels = 0;
+  const noop = () => undefined;
+
+  bindLifted(liftConstArrow(MODAL_PATH, 'handleSwitchToManualCode'), {
+    state: { canAuthenticate: true },
+    cancelPendingRequest: noop,
+    onCancelLogin: () => {
+      propCancels += 1;
+    },
+    actions: {
+      cancelLogin: () => {
+        hookCancels += 1;
+      },
+      setWaitingForMobileConfirmation: noop,
+      setNeedsTwoFactor: noop,
+      setUseManualCode: noop,
+      setTwoFactorCode: noop
+    }
+  })();
+
+  assert.equal(hookCancels, 1);
+  assert.equal(propCancels, 0);
+});
+
 test('a sign-in that succeeded does not cancel itself', async () => {
   let cancelLogins = 0;
   let closes = 0;

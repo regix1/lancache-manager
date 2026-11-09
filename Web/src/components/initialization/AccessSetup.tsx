@@ -14,6 +14,7 @@ import { PasswordStrengthMeter } from '@components/ui/PasswordStrengthMeter';
 import CredentialFields from '@components/ui/CredentialFields';
 import { SelectableCard } from '@components/ui/SelectableCard';
 import { LoginServiceMark } from '@components/features/auth/LoginServiceMark';
+import type { EnvironmentField } from '@contexts/AuthContext.types';
 import { useAuth } from '@contexts/useAuth';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
@@ -71,10 +72,12 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
   const {
     accountMode,
     authenticationSetupRequired,
+    signInModeFromEnvironment,
     oidcPending,
     ownerOidcEnabled,
     ownerPasswordEnabled,
     loginServices,
+    incompleteLoginServices,
     ownerLoginServices,
     loginSetupPending,
     pendingLoginKind,
@@ -93,7 +96,15 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
   // Which connection the stored owner reauthenticates through when more than one is offered.
   const [ownerService, setOwnerService] = useState<string>(ownerLoginServices[0] ?? '');
   const [resumeTest, setResumeTest] = useState(false);
-  const [kind, setKind] = useState<LoginKind>(pendingLoginKind ?? 'google');
+  // A service set by environment variables is already connected, so the picker opens on it. One
+  // the environment left incomplete opens next, so its missing settings are the first thing shown.
+  const [kind, setKind] = useState<LoginKind>(
+    () =>
+      pendingLoginKind ??
+      loginServices.find((service) => service.environmentFields.length > 0)?.kind ??
+      incompleteLoginServices[0]?.kind ??
+      'google'
+  );
   // A connected kind keeps its stored credentials unless the owner asks to enter new ones.
   const [reconfigure, setReconfigure] = useState(false);
   const [authority, setAuthority] = useState('');
@@ -122,6 +133,29 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
     const { errorCode } = readTestResult();
     return errorCode === null ? null : t(loginErrorKey(errorCode));
   });
+  // Read when a save answers: the fields stay editable while it runs, so a change made meanwhile
+  // keeps the page on the form instead of moving on as if that change were saved.
+  const formValues = {
+    mode,
+    apiKey,
+    acknowledged,
+    kind,
+    reconfigure,
+    clientId,
+    clientSecret,
+    displayName,
+    tenant,
+    authority,
+    teamId,
+    keyId,
+    privateKey,
+    allowedSubjects,
+    localUsername,
+    localPassword,
+    localConfirm
+  };
+  const formValuesRef = useRef(formValues);
+  formValuesRef.current = formValues;
   const heading = useRef<HTMLHeadingElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const errorMessage = useRef<HTMLDivElement>(null);
@@ -153,6 +187,11 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
   const connected = (candidate: LoginKind): LoginService | undefined =>
     loginServices.find((service) => service.kind === candidate);
   const selectedConnected = connected(kind);
+  // A save fills an incomplete environment login's environment-set fields from the environment
+  // too, so they are shown read-only the same as a connected one's.
+  const incompleteService = incompleteLoginServices.find((service) => service.kind === kind);
+  const setByEnvironment = (field: EnvironmentField): boolean =>
+    (selectedConnected ?? incompleteService)?.environmentFields.includes(field) === true;
   // New credentials are collected for a kind that has never been tested, or when the owner asks to
   // replace a tested connection's registration. Otherwise the tested connection is kept as it is.
   const credentialsNeeded = oidc && !needsSignIn && (!selectedConnected || reconfigure);
@@ -160,6 +199,10 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
   // In running copy the custom kind is "your identity service", not the card title "Other".
   const serviceLabel = (candidate: LoginKind) =>
     candidate === 'customOidc' ? t('accessSetup.services.customOidc.name') : serviceName(candidate);
+  const sentenceStartLabel = (candidate: LoginKind) =>
+    candidate === 'customOidc'
+      ? t('accessSetup.services.customOidc.nameAtStart')
+      : serviceName(candidate);
   const testedService = testedId
     ? loginServices.find((service) => service.id === testedId)
     : undefined;
@@ -225,6 +268,9 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
     }
     setBusy(true);
     setError(null);
+    let sent = formValues;
+    const editedSince = (): boolean =>
+      JSON.stringify(formValuesRef.current) !== JSON.stringify(sent);
     try {
       if (needsSignIn) {
         if (ownerSso) {
@@ -239,15 +285,36 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
           setError(result.message || t('accessSetup.ownerSignInFailed'));
           return;
         }
-        setPassword('');
+        // A password retyped while the sign-in ran stays in the box.
+        setPassword((current) => (current === password ? '' : current));
         if (resumeTest && pendingTest) changeStep('test');
         else requestAnimationFrame(() => heading.current?.focus());
         return;
       }
       if (needsLocalPassword) {
         await authService.setMainAdminPassword(apiKey.trim(), localUsername.trim(), localPassword);
+        if (editedSince()) {
+          await refreshAuth();
+          setError(t('accessSetup.changedWhileSaving'));
+          return;
+        }
         setLocalPassword('');
         setLocalConfirm('');
+        sent = { ...sent, localPassword: '', localConfirm: '' };
+      }
+      // With the mode and the connection both set by environment variables there is nothing to
+      // save: the owner signs in through that connection, and that sign-in completes setup.
+      if (
+        authenticationSetupRequired &&
+        signInModeFromEnvironment &&
+        oidc &&
+        !credentialsNeeded &&
+        selectedConnected !== undefined &&
+        selectedConnected.environmentFields.length > 0
+      ) {
+        changeStep('test');
+        await startTest(selectedConnected.id);
+        return;
       }
       const subjects = allowedSubjects
         .split('\n')
@@ -259,21 +326,41 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
         acknowledgeUnauthenticated: acknowledged,
         ...(credentialsNeeded
           ? {
+              // Environment-set fields stay out of the body; the server fills them itself.
               login: {
                 kind,
-                clientId: clientId.trim(),
-                ...(needsClientSecret(kind) ? { clientSecret } : {}),
-                ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
-                ...(kind === 'microsoft' ? { tenant: tenant.trim() } : {}),
-                ...(kind === 'customOidc' ? { authority: authority.trim() } : {}),
-                ...(kind === 'apple'
-                  ? { teamId: teamId.trim(), keyId: keyId.trim(), privateKey }
+                ...(setByEnvironment('clientId') ? {} : { clientId: clientId.trim() }),
+                ...(needsClientSecret(kind) && !setByEnvironment('clientSecret')
+                  ? { clientSecret }
                   : {}),
-                ...(subjects.length ? { allowedSubjects: subjects } : {})
+                ...(displayName.trim() && !setByEnvironment('displayName')
+                  ? { displayName: displayName.trim() }
+                  : {}),
+                ...(kind === 'microsoft' && !setByEnvironment('tenant')
+                  ? { tenant: tenant.trim() }
+                  : {}),
+                ...(kind === 'customOidc' && !setByEnvironment('authority')
+                  ? { authority: authority.trim() }
+                  : {}),
+                ...(kind === 'apple'
+                  ? {
+                      ...(setByEnvironment('teamId') ? {} : { teamId: teamId.trim() }),
+                      ...(setByEnvironment('keyId') ? {} : { keyId: keyId.trim() }),
+                      ...(setByEnvironment('privateKey') ? {} : { privateKey })
+                    }
+                  : {}),
+                ...(subjects.length && !setByEnvironment('allowedSubjects')
+                  ? { allowedSubjects: subjects }
+                  : {})
               }
             }
           : {})
       });
+      if (editedSince()) {
+        await refreshAuth();
+        setError(t('accessSetup.changedWhileSaving'));
+        return;
+      }
       setPassword('');
       setClientSecret('');
       setPrivateKey('');
@@ -344,24 +431,38 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
     label: string,
     value: string,
     onChange: (next: string) => void,
-    extra: { hint?: string; placeholder?: string; type?: string } = {}
-  ) => (
-    <FormField label={label} required hint={extra.hint}>
-      {(field) => (
-        <input
-          {...field}
-          {...noAutofill}
-          type={extra.type ?? 'text'}
-          value={value}
-          required
-          disabled={busy}
-          placeholder={extra.placeholder}
-          className={inputClassName}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      )}
-    </FormField>
-  );
+    extra: {
+      hint?: string;
+      placeholder?: string;
+      type?: string;
+      environmentField?: EnvironmentField;
+    } = {}
+  ) => {
+    // The server fills an environment-set field itself, so it is shown read-only and empty.
+    const fromEnvironment =
+      extra.environmentField !== undefined && setByEnvironment(extra.environmentField);
+    return (
+      <FormField
+        label={label}
+        required={!fromEnvironment}
+        hint={fromEnvironment ? t('accessSetup.environment.setByEnvironment') : extra.hint}
+      >
+        {(field) => (
+          <input
+            {...field}
+            {...noAutofill}
+            type={extra.type ?? 'text'}
+            value={fromEnvironment ? '' : value}
+            required={!fromEnvironment}
+            disabled={fromEnvironment}
+            placeholder={fromEnvironment ? undefined : extra.placeholder}
+            className={inputClassName}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        )}
+      </FormField>
+    );
+  };
 
   // A short-label button that opens a region of secondary guidance below itself.
   const renderDisclosure = (
@@ -395,7 +496,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
       label={t('modals.auth.labels.apiKey')}
       value={apiKey}
       onChange={(event) => setApiKey(event.target.value)}
-      disabled={busy}
       inputClassName={inputClassName}
       autoComplete="off"
       name="installation-key"
@@ -514,6 +614,15 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                 <p className="text-themed-secondary">{t('accessSetup.upgrade')}</p>
               </div>
             )}
+            {signInModeFromEnvironment && (
+              <p className="text-sm text-themed-secondary">
+                {t(
+                  modeBlocked
+                    ? 'accessSetup.environment.modeBlocked'
+                    : 'accessSetup.environment.modeSetByEnvironment'
+                )}
+              </p>
+            )}
             <fieldset className="space-y-5 access-setup-choices">
               <legend className="sr-only">{t('accessSetup.headings.choose')}</legend>
               {MODE_GROUPS.map((group) => (
@@ -537,9 +646,16 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         name="account-mode"
                         value={choice}
                         checked={mode === choice}
-                        disabled={busy || (usesOidc(choice) && !https)}
+                        disabled={
+                          (usesOidc(choice) && !https) ||
+                          (signInModeFromEnvironment && choice !== accountMode)
+                        }
                         disabledReason={
-                          usesOidc(choice) && !https ? t('accessSetup.ssoRequiresHttps') : undefined
+                          signInModeFromEnvironment && choice !== accountMode
+                            ? t('accessSetup.environment.modeSetByEnvironment')
+                            : usesOidc(choice) && !https
+                              ? t('accessSetup.ssoRequiresHttps')
+                              : undefined
                         }
                         onChange={() => {
                           setMode(choice);
@@ -610,7 +726,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                       username={username}
                       password={password}
                       accountMode="password"
-                      disabled={busy}
                       apiKeyPlaceholder=""
                       onChange={(field, value) =>
                         field === 'username' ? setUsername(value) : setPassword(value)
@@ -632,7 +747,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                               name="owner-service"
                               value={id}
                               checked={ownerService === id}
-                              disabled={busy}
                               onChange={() => setOwnerService(id)}
                               icon={service && <LoginServiceMark kind={service.kind} />}
                               title={service?.displayName ?? id}
@@ -675,7 +789,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         {...field}
                         value={localUsername}
                         required
-                        disabled={busy}
                         autoComplete="username"
                         name="username"
                         className={inputClassName}
@@ -697,7 +810,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         setLocalErrors((previous) => ({ ...previous, password: null }));
                       }}
                       error={localErrors.password && t(localErrors.password)}
-                      disabled={busy}
                       autoComplete="new-password"
                       name="password"
                       inputClassName={inputClassName}
@@ -720,7 +832,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         setLocalErrors((previous) => ({ ...previous, confirmPassword: null }));
                       }}
                       error={localErrors.confirmPassword && t(localErrors.confirmPassword)}
-                      disabled={busy}
                       autoComplete="new-password"
                       name="confirm-password"
                       inputClassName={inputClassName}
@@ -746,7 +857,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         name="login-kind"
                         value={candidate}
                         checked={kind === candidate}
-                        disabled={busy}
                         onChange={() => {
                           setKind(candidate);
                           setReconfigure(false);
@@ -775,7 +885,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                 {!credentialsNeeded && (
                   <section className={panelClassName} aria-labelledby="access-connected-title">
                     <h4 id="access-connected-title" className="font-semibold text-themed-primary">
-                      {t('accessSetup.connectedHeading', { name: serviceLabel(kind) })}
+                      {t('accessSetup.connectedHeading', { name: sentenceStartLabel(kind) })}
                     </h4>
                     <p className="text-sm text-themed-secondary">
                       {t('accessSetup.connectedDescription', { name: serviceLabel(kind) })}
@@ -823,18 +933,22 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                       aria-labelledby="access-oidc-title"
                     >
                       <h4 id="access-oidc-title" className="font-semibold text-themed-primary">
-                        {t('accessSetup.credentialsHeading', { name: serviceLabel(kind) })}
+                        {t('accessSetup.credentialsHeading', { name: sentenceStartLabel(kind) })}
                       </h4>
                       <p className="text-sm text-themed-secondary">
                         {t(`accessSetup.services.${kind}.credentials`)}
                       </p>
+                      {selectedConnected === undefined && incompleteService !== undefined && (
+                        <Alert color="warning">{t('accessSetup.environment.incomplete')}</Alert>
+                      )}
                       <div className="grid gap-4 sm:grid-cols-2">
                         {kind === 'customOidc' && (
                           <div className="sm:col-span-2">
                             {renderTextField(t('accessSetup.issuer'), authority, setAuthority, {
                               hint: t('accessSetup.issuerHint'),
                               placeholder: 'https://auth.example.com',
-                              type: 'url'
+                              type: 'url',
+                              environmentField: 'authority'
                             })}
                           </div>
                         )}
@@ -842,7 +956,8 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                           <div className="sm:col-span-2">
                             {renderTextField(t('accessSetup.tenant'), tenant, setTenant, {
                               hint: t('accessSetup.tenantHint'),
-                              placeholder: '00000000-0000-0000-0000-000000000000'
+                              placeholder: '00000000-0000-0000-0000-000000000000',
+                              environmentField: 'tenant'
                             })}
                           </div>
                         )}
@@ -850,16 +965,23 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                           {renderTextField(
                             t(kind === 'apple' ? 'accessSetup.servicesId' : 'accessSetup.clientId'),
                             clientId,
-                            setClientId
+                            setClientId,
+                            { environmentField: 'clientId' }
                           )}
                         </div>
-                        {needsClientSecret(kind) ? (
+                        {needsClientSecret(kind) && setByEnvironment('clientSecret') ? (
+                          <div>
+                            {renderTextField(t('accessSetup.clientSecret'), '', setClientSecret, {
+                              type: 'password',
+                              environmentField: 'clientSecret'
+                            })}
+                          </div>
+                        ) : needsClientSecret(kind) ? (
                           <div>
                             <PasswordField
                               label={t('accessSetup.clientSecret')}
                               value={clientSecret}
                               onChange={(event) => setClientSecret(event.target.value)}
-                              disabled={busy}
                               autoComplete="off"
                               name="oauth-client-secret"
                               inputClassName={inputClassName}
@@ -869,23 +991,35 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                           </div>
                         ) : (
                           <>
-                            <div>{renderTextField(t('accessSetup.teamId'), teamId, setTeamId)}</div>
-                            <div>{renderTextField(t('accessSetup.keyId'), keyId, setKeyId)}</div>
+                            <div>
+                              {renderTextField(t('accessSetup.teamId'), teamId, setTeamId, {
+                                environmentField: 'teamId'
+                              })}
+                            </div>
+                            <div>
+                              {renderTextField(t('accessSetup.keyId'), keyId, setKeyId, {
+                                environmentField: 'keyId'
+                              })}
+                            </div>
                             <div className="sm:col-span-2">
                               <FormField
                                 label={t('accessSetup.privateKey')}
-                                required
-                                hint={t('accessSetup.privateKeyHint')}
+                                required={!setByEnvironment('privateKey')}
+                                hint={t(
+                                  setByEnvironment('privateKey')
+                                    ? 'accessSetup.environment.setByEnvironment'
+                                    : 'accessSetup.privateKeyHint'
+                                )}
                               >
                                 {(field) => (
                                   <textarea
                                     {...field}
                                     {...noAutofill}
                                     name="oauth-private-key"
-                                    value={privateKey}
+                                    value={setByEnvironment('privateKey') ? '' : privateKey}
                                     rows={4}
-                                    required
-                                    disabled={busy}
+                                    required={!setByEnvironment('privateKey')}
+                                    disabled={setByEnvironment('privateKey')}
                                     spellCheck={false}
                                     className={inputClassName}
                                     onChange={(event) => setPrivateKey(event.target.value)}
@@ -905,14 +1039,21 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                             {t('accessSetup.advancedHint')}
                           </p>
                           <div>
-                            <FormField label={t('accessSetup.displayName')}>
+                            <FormField
+                              label={t('accessSetup.displayName')}
+                              hint={
+                                setByEnvironment('displayName')
+                                  ? t('accessSetup.environment.setByEnvironment')
+                                  : undefined
+                              }
+                            >
                               {(field) => (
                                 <input
                                   {...field}
                                   {...noAutofill}
                                   name="connection-name"
-                                  value={displayName}
-                                  disabled={busy}
+                                  value={setByEnvironment('displayName') ? '' : displayName}
+                                  disabled={setByEnvironment('displayName')}
                                   maxLength={80}
                                   className={inputClassName}
                                   onChange={(event) => setDisplayName(event.target.value)}
@@ -923,16 +1064,20 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                           <div>
                             <FormField
                               label={t('accessSetup.allowedSubjects')}
-                              hint={t(`accessSetup.services.${kind}.subjects`)}
+                              hint={t(
+                                setByEnvironment('allowedSubjects')
+                                  ? 'accessSetup.environment.setByEnvironment'
+                                  : `accessSetup.services.${kind}.subjects`
+                              )}
                             >
                               {(field) => (
                                 <textarea
                                   {...field}
                                   {...noAutofill}
                                   name="allowed-subjects"
-                                  value={allowedSubjects}
+                                  value={setByEnvironment('allowedSubjects') ? '' : allowedSubjects}
                                   rows={3}
-                                  disabled={busy}
+                                  disabled={setByEnvironment('allowedSubjects')}
                                   className={inputClassName}
                                   onChange={(event) => setAllowedSubjects(event.target.value)}
                                 />
@@ -970,7 +1115,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                 <Checkbox
                   checked={acknowledged}
                   onChange={(event) => setAcknowledged(event.target.checked)}
-                  disabled={busy}
                   className="flex-shrink-0"
                   label={t('accessSetup.acknowledge')}
                 />

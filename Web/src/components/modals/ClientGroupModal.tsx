@@ -268,6 +268,12 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     return [...offered, ...unlisted];
   }, [knownIps, knownIpSet, chosen.selected]);
 
+  // Read when a save answers: the form stays editable while it runs, and an edit made meanwhile
+  // keeps the dialog open instead of closing over it as saved.
+  const edits = { nickname, description, separateMemberRows, removedIps, chosen: chosen.selected };
+  const editsRef = useRef(edits);
+  editsRef.current = edits;
+
   /** The membership Save would write: current members minus the marked ones, plus the chosen. */
   const pendingMemberIps = useMemo(
     () => [...currentMemberIps.filter((ip) => !removedSet.has(ip)), ...chosenList],
@@ -741,6 +747,16 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
       }
 
       setSaving(true);
+      const editedMeanwhile = (): boolean => {
+        const latest = editsRef.current;
+        return (
+          latest.nickname !== nickname ||
+          latest.description !== description ||
+          latest.separateMemberRows !== separateMemberRows ||
+          latest.removedIps !== removedIps ||
+          latest.chosen !== chosen.selected
+        );
+      };
       try {
         if (savedGroupId !== null) {
           // The fields are written first and writing them moves the stamp, so this is the one
@@ -794,6 +810,27 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
               ipsAdded
             })
           );
+          if (editedMeanwhile()) {
+            // The members now reload as the server stores them, so the marks are rebuilt against
+            // that list: each address the newer edit still wants changed shows once.
+            const latest = editsRef.current;
+            const latestRemoved = new Set(latest.removedIps);
+            const desired = [
+              ...currentMemberIps.filter((ip) => !latestRemoved.has(ip)),
+              ...latest.chosen
+            ];
+            const stored =
+              removedIps.length > 0 || chosenList.length > 0 ? pendingMemberIps : currentMemberIps;
+            const desiredSet = new Set(desired);
+            const storedSet = new Set(stored);
+            setRemovedIps(stored.filter((ip) => !desiredSet.has(ip)));
+            clearChosen();
+            setChosenMany(
+              desired.filter((ip) => !storedSet.has(ip)),
+              true
+            );
+            return;
+          }
         } else {
           const created = await createClientGroup({
             nickname: trimmedNickname,
@@ -822,6 +859,12 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             return;
           }
           onSuccess(t('modals.clientGroup.messages.addedNickname', { nickname: trimmedNickname }));
+          if (editedMeanwhile()) {
+            // The next Save edits the nickname that now exists and writes the chosen list whole.
+            setCreatedGroupId(created.id);
+            expectedUpdatedAtRef.current = created.updatedAtUtc ?? null;
+            return;
+          }
         }
         onClose();
       } catch (err) {
@@ -839,6 +882,9 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
       pendingMemberIps,
       removedIps,
       chosenList,
+      chosen.selected,
+      currentMemberIps,
+      clearChosen,
       savedGroupId,
       createClientGroup,
       updateClientGroup,
@@ -1175,7 +1221,6 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                     removeLabel={
                       marked ? t('modals.clientGroup.actions.undoRemove') : t('common.remove')
                     }
-                    disabled={saving}
                   />
                 );
               })}
@@ -1188,7 +1233,6 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                   hostname={lookupNames[ip] ?? getHostnameForIp(ip)}
                   state="added"
                   onRemove={() => toggleChosen(ip)}
-                  disabled={saving}
                   // An address nothing has downloaded from shows no stats once it is saved, so it
                   // says why here rather than looking like a nickname that quietly does nothing.
                   note={
@@ -1210,7 +1254,6 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
               <Checkbox
                 checked={allMatchingChosen}
                 onChange={handleSelectAllToggle}
-                disabled={saving}
                 label={t('modals.clientGroup.actions.addAllMatching', {
                   count: selectableAddresses.length
                 })}
@@ -1235,11 +1278,8 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
               value={searchInput}
               onChange={handleSearchChange}
               onKeyDown={handleSearchKeyDown}
-              // A save disables the box and freezes the rows under it, so the clear control goes
-              // with them rather than staying live beside a control that takes no input.
-              onClear={saving ? undefined : handleClearSearch}
+              onClear={handleClearSearch}
               ref={searchRef}
-              disabled={saving}
               placeholder={t('modals.clientGroup.placeholders.searchAddresses')}
               aria-label={t('modals.clientGroup.placeholders.searchAddresses')}
             />

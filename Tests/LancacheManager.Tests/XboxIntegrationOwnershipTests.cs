@@ -119,6 +119,34 @@ public partial class XboxScheduledRefreshProgressTests
         }
 
         [Fact]
+        public async Task ACancelDuringTheBannerPassAfterTheSaveEndsTheCardCompletedWithABannerWarning()
+        {
+            using var catalog = new HeldSecondCatalogHandler();
+            using var auth = new StubDeviceCodeHandler
+            {
+                TokenBody = """{"access_token":"access","refresh_token":"replacement"}""",
+                CompleteHarvest = true
+            };
+            using var harness = new Harness(catalog, auth);
+            var owner = new IntegrationCaller(Guid.NewGuid(), Guid.NewGuid(), true);
+            var start = await StartSignInHeldInBannerPassAsync(harness, catalog, owner);
+
+            var reporter = typeof(XboxCatalogMappingService)
+                .GetField("_loginReporter", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(harness.Service)!;
+            reporter.GetType().GetMethod("RequestCancellation")!.Invoke(reporter, null);
+            catalog.Release();
+            await harness.Notifications.TerminalRecorded.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
+
+            // The account was saved before the cancel, so the sign-in succeeded; only the banners are left undone.
+            var terminal = Assert.Single(harness.Notifications.XboxLifecycleEvents(), e => e.IsTerminal);
+            Assert.Equal(OperationStatus.Completed, terminal.Status);
+            var warning = Assert.Single(harness.Tracker.GetOperation(terminal.OperationId)!.Warnings);
+            Assert.Equal("common.notifications.warnings.xboxBannersNotRefreshed", warning.StageKey);
+            Assert.Equal(OperationStatus.Completed, harness.Service.GetAuthStatus(owner, start.AttemptId).LoginEnding!.Status);
+        }
+
+        [Fact]
         public async Task AStatusReadDuringTheBannerPassFindsTheSavedSignInCompleted()
         {
             using var catalog = new HeldSecondCatalogHandler();

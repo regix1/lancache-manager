@@ -30,13 +30,13 @@ public class StatsController : ControllerBase
     private readonly ISignalRNotificationService _notifications;
     private readonly CacheReconciliationService _reconciliationService;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly IOperationConflictChecker _conflictChecker;
     private readonly IOperationQueue _operationQueue;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IClientHostnameService _clientHostnameService;
     private readonly IEventsService _eventsService;
     private readonly Func<DownloadSpeedSnapshot> _readActivity;
     private readonly OperationStateService _operationStateService;
+    private readonly PrefillSessionService _prefillSessions;
 
     public StatsController(
         AppDbContext context,
@@ -46,13 +46,13 @@ public class StatsController : ControllerBase
         ISignalRNotificationService notifications,
         CacheReconciliationService reconciliationService,
         IUnifiedOperationTracker operationTracker,
-        IOperationConflictChecker conflictChecker,
         IOperationQueue operationQueue,
         DatasourceCapabilityService capabilityService,
         IClientHostnameService clientHostnameService,
         IEventsService eventsService,
         RustSpeedTrackerService speedTracker,
-        OperationStateService operationStateService)
+        OperationStateService operationStateService,
+        PrefillSessionService prefillSessions)
     {
         _clientHostnameService = clientHostnameService;
         _capabilityService = capabilityService;
@@ -63,11 +63,11 @@ public class StatsController : ControllerBase
         _notifications = notifications;
         _reconciliationService = reconciliationService;
         _operationTracker = operationTracker;
-        _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
         _eventsService = eventsService;
         _readActivity = speedTracker.GetCurrentSnapshot;
         _operationStateService = operationStateService;
+        _prefillSessions = prefillSessions;
     }
 
     /// <summary>
@@ -145,29 +145,46 @@ public class StatsController : ControllerBase
 
         foreach (var rule in rules)
         {
-            var trimmed = rule?.Ip?.Trim();
-            if (string.IsNullOrWhiteSpace(trimmed))
-            {
-                continue;
-            }
-
-            if (!ClientIpList.TryNormalize(trimmed, out var normalizedIp))
+            var trimmed = rule?.Ip?.Trim() ?? string.Empty;
+            // An unknown traffic value is reported through the same invalid list as a bad
+            // address, so the request gets the one rejection the endpoint has.
+            if (rule?.Traffic is not (ClientExclusionTraffic.All or ClientExclusionTraffic.Prefill))
             {
                 invalidIps.Add(trimmed);
                 continue;
             }
 
-            if (normalized.Any(r => r.Ip == normalizedIp))
+            // An empty address means "every address", which only a prefill rule may say.
+            var normalizedIp = string.Empty;
+            if (trimmed.Length > 0 && !ClientIpList.TryNormalize(trimmed, out normalizedIp))
             {
+                invalidIps.Add(trimmed);
+                continue;
+            }
+            if (normalizedIp.Length == 0 && rule.Traffic == ClientExclusionTraffic.All)
+            {
+                invalidIps.Add(trimmed);
                 continue;
             }
 
             // Anything other than an explicit "exclude" collapses to "hide" (matches StateService).
-            var mode = string.Equals(rule?.Mode, ClientExclusionModes.Exclude, StringComparison.OrdinalIgnoreCase)
+            var mode = string.Equals(rule.Mode, ClientExclusionModes.Exclude, StringComparison.OrdinalIgnoreCase)
                 ? ClientExclusionModes.Exclude
                 : ClientExclusionModes.Hide;
 
-            normalized.Add(new ClientExclusionRule { Ip = normalizedIp, Mode = mode });
+            var candidate = new ClientExclusionRule
+            {
+                Ip = normalizedIp,
+                Mode = mode,
+                Traffic = rule.Traffic,
+                Services = (rule.Services ?? []).ToList()
+            };
+            if (normalized.Any(r => r.RuleKey == candidate.RuleKey))
+            {
+                continue;
+            }
+
+            normalized.Add(candidate);
         }
 
         return normalized;
@@ -224,7 +241,9 @@ public class StatsController : ControllerBase
         var hiddenClientIps = includeExcluded ? new List<string>() : _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = includeExcluded ? new List<string>() : _stateRepository.GetStatsExcludedOnlyClientIps();
         query = query.ApplyHiddenClientFilter(hiddenClientIps);
-        query = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+        // Management's pickers (includeExcluded) list every client, the prefill machine included.
+        query = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps)
+            .ApplyPrefillFilter(includeExcluded ? [] : _stateRepository.GetPrefillRules());
 
         var evictedMode = _stateRepository.GetEvictedDataMode();
         query = query.ApplyEvictedFilter(evictedMode);
@@ -295,7 +314,12 @@ public class StatsController : ControllerBase
                 });
             }
 
-            _stateRepository.SetExcludedClientRules(normalizedRules);
+            // The window check and the save run as one step beside the marking pass, so two saves
+            // never both start a window and a pass never marks across the clear.
+            await _prefillSessions.SaveRulesAsync(
+                () => _stateRepository.GetPrefillMarkingSinceUtc() is null
+                    && normalizedRules.Any(rule => rule.Traffic == ClientExclusionTraffic.Prefill),
+                () => _stateRepository.SetExcludedClientRules(normalizedRules));
         }
         else
         {
@@ -319,6 +343,9 @@ public class StatsController : ControllerBase
         {
             reason = "exclusions-updated"
         });
+        // Prefill rules change the totals in every time range, so this broadcast expires the whole
+        // dashboard batch, not just its live window.
+        await _notifications.NotifyAllAsync(SignalREvents.PrefillTrafficSettingChanged);
         return Ok(new StatsExclusionsResponse
         {
             Ips = _stateRepository.GetStatsExcludedOnlyClientIps(),
@@ -433,31 +460,21 @@ public class StatsController : ControllerBase
 
         if (request.EvictedDataMode == EvictedDataMode.Remove.ToWireString())
         {
-            // Wait-queue model: a conflicting bulk eviction removal is parked, never 409'd.
+            // Wait-queue model: a conflicting bulk eviction removal is parked, never 409'd. The
+            // queue checks and starts under one lock, so two saves at once start one removal.
             // CancellationToken.None in the closure: at promotion the HTTP request is gone.
             async Task<Guid?> StartBulkRemovalAsync() =>
                 await _reconciliationService.StartBulkEvictionRemovalAsync(CancellationToken.None);
 
-            var conflict = await _conflictChecker.CheckAsync(
-                OperationType.EvictionRemoval,
-                ConflictScope.Bulk(),
-                HttpContext.RequestAborted);
-            if (conflict != null)
+            var outcome = await _operationQueue.EnqueueAsync(
+                OperationType.EvictionRemoval, ConflictScope.Bulk(), "Evicted Data Removal (all)",
+                StartBulkRemovalAsync, HttpContext.RequestAborted);
+            return Accepted(new
             {
-                var queuedOutcome = await _operationQueue.EnqueueAsync(
-                    OperationType.EvictionRemoval, ConflictScope.Bulk(), "Evicted Data Removal (all)",
-                    StartBulkRemovalAsync, HttpContext.RequestAborted);
-                return Accepted(new
-                {
-                    evictedDataMode = _stateRepository.GetEvictedDataMode(),
-                    operationId = (Guid?)queuedOutcome.OperationId,
-                    queued = queuedOutcome.Queued
-                });
-            }
-
-            var operationId = await _reconciliationService.StartBulkEvictionRemovalAsync(HttpContext.RequestAborted);
-
-            return Accepted(new { evictedDataMode = _stateRepository.GetEvictedDataMode(), operationId });
+                evictedDataMode = _stateRepository.GetEvictedDataMode(),
+                operationId = (Guid?)outcome.OperationId,
+                queued = outcome.Queued
+            });
         }
 
         return Ok(new EvictionSettingsResponse
@@ -634,7 +651,9 @@ public class StatsController : ControllerBase
         // No filter = all data (consistent with dashboard)
 
         // Aggregate by service from Downloads table (exclude stats-excluded IPs from calculations)
-        var serviceStatsQuery = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+        var serviceStatsQuery = query
+            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps)
+            .ApplyPrefillFilter(_stateRepository.GetPrefillRules());
         var serviceStats = await DashboardBatchService
             .ServiceStatsQuery(serviceStatsQuery)
             .ToListAsync();
@@ -672,6 +691,7 @@ public class StatsController : ControllerBase
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
+        var prefillRules = _stateRepository.GetPrefillRules();
 
         // Use Unix timestamps if provided, otherwise return ALL data (no time filter)
         // This ensures consistency: frontend always provides timestamps for time-filtered queries
@@ -704,29 +724,44 @@ public class StatsController : ControllerBase
         // Calculate ALL-TIME totals from Downloads table directly (no cache)
         // Note: All-time totals should NOT be filtered by event - they represent overall system stats
         // Filter out hidden IPs, but exclude stats-excluded IPs from calculations
+        // Served, saved, hit ratio and counts leave out the prefill rows a prefill rule covers; Added
+        // to cache reads the rows without that filter, since a prefill still fills the cache. With
+        // no prefill rule the two read the same rows and the first sum is reused.
         var allTimeQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode);
-        var totalHitBytes = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
+        var allTimeServedQuery = allTimeQuery.ApplyPrefillFilter(prefillRules);
+        var totalHitBytes = await AggregateExcludingAsync(allTimeServedQuery, statsExcludedOnlyIps,
             q => q.SumAsync(d => d.CacheHitBytes));
-        var totalMissBytes = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
+        var totalMissBytes = await AggregateExcludingAsync(allTimeServedQuery, statsExcludedOnlyIps,
             q => q.SumAsync(d => d.CacheMissBytes));
+        var totalAddedToCache = prefillRules.Count > 0
+            ? await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
+                q => q.SumAsync(d => d.CacheMissBytes))
+            : totalMissBytes;
 
         // Calculate PERIOD-specific metrics (exclude stats-excluded IPs from calculations)
-        var periodHitBytes = await AggregateExcludingAsync(downloadsQuery, statsExcludedOnlyIps,
+        var periodServedQuery = downloadsQuery.ApplyPrefillFilter(prefillRules);
+        var periodHitBytes = await AggregateExcludingAsync(periodServedQuery, statsExcludedOnlyIps,
             q => q.SumAsync(d => d.CacheHitBytes));
-        var periodMissBytes = await AggregateExcludingAsync(downloadsQuery, statsExcludedOnlyIps,
+        var periodMissBytes = await AggregateExcludingAsync(periodServedQuery, statsExcludedOnlyIps,
             q => q.SumAsync(d => d.CacheMissBytes));
-        var periodDownloadCount = await AggregateExcludingAsync(downloadsQuery, statsExcludedOnlyIps,
+        var periodDownloadCount = await AggregateExcludingAsync(periodServedQuery, statsExcludedOnlyIps,
             q => q.CountAsync());
+        var periodAddedToCache = prefillRules.Count > 0
+            ? await AggregateExcludingAsync(downloadsQuery, statsExcludedOnlyIps,
+                q => q.SumAsync(d => d.CacheMissBytes))
+            : periodMissBytes;
         var periodTotal = periodHitBytes + periodMissBytes;
 
         // Same xbox-folded per-service breakdown DashboardBatchService uses, so both endpoints
         // report the same top service for identical data instead of each keeping its own group-by.
-        // Three things change against the group-by this replaced: xbox and xboxlive now fold into
-        // one service, the top service is scoped to the requested period and event filter instead
-        // of all time, and each stats-excluded client's bytes are no longer subtracted per service.
-        // Reading it off the breakdown in this same response is what keeps the two agreeing.
+        // Two things change against the group-by this replaced: xbox and xboxlive now fold into
+        // one service, and the top service is scoped to the requested period and event filter
+        // instead of all time. Reading it off the breakdown in this same response is what keeps
+        // the two agreeing. It reads the same rows as periodTotal, stats-excluded clients left out,
+        // so the shares add up to 100%.
+        var filteredQuery = periodServedQuery.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
         var serviceBreakdown = await ServiceBreakdownMerger.QueryMergedAsync(
-            downloadsQuery, periodTotal, HttpContext.RequestAborted);
+            filteredQuery, periodTotal, HttpContext.RequestAborted);
         var topServiceName = serviceBreakdown.FirstOrDefault()?.Service ?? "N/A";
 
         // Unique clients: count distinct IPs, excluding stats-excluded IPs
@@ -734,7 +769,7 @@ public class StatsController : ControllerBase
         if (cutoffTime.HasValue || endDateTime.HasValue)
         {
             // For period queries, count distinct IPs excluding stats-excluded
-            var allIps = await downloadsQuery.Select(d => d.ClientIp).Distinct().ToListAsync();
+            var allIps = await periodServedQuery.Select(d => d.ClientIp).Distinct().ToListAsync();
             var excludedCount = statsExcludedOnlyIps.Count > 0 
                 ? allIps.Count(ip => statsExcludedOnlyIps.Contains(ip))
                 : 0;
@@ -743,7 +778,7 @@ public class StatsController : ControllerBase
         else
         {
             // For all-time, count distinct IPs excluding stats-excluded
-            var allIps = await BaseDownloadsQuery(hiddenClientIps, evictedMode)
+            var allIps = await allTimeServedQuery
                 .Select(d => d.ClientIp)
                 .Distinct()
                 .ToListAsync();
@@ -755,8 +790,7 @@ public class StatsController : ControllerBase
 
         // All-time metrics (from Downloads table directly)
         var totalBandwidthSaved = totalHitBytes;
-        var totalAddedToCache = totalMissBytes;
-        var totalServed = totalBandwidthSaved + totalAddedToCache;
+        var totalServed = totalBandwidthSaved + totalMissBytes;
         var cacheHitRatio = totalServed > 0
             ? (double)totalBandwidthSaved / totalServed
             : 0;
@@ -784,6 +818,7 @@ public class StatsController : ControllerBase
             ActivityRevision = current.Revision,
             UniqueClients = uniqueClientsCount,
             TopService = topServiceName,
+            PrefillSeparated = prefillRules.Count > 0,
 
             // Period-specific metrics
             Period = new DashboardPeriodStats
@@ -791,7 +826,7 @@ public class StatsController : ControllerBase
                 Duration = periodLabel,
                 Since = cutoffTime,
                 BandwidthSaved = periodHitBytes,
-                AddedToCache = periodMissBytes,
+                AddedToCache = periodAddedToCache,
                 TotalServed = periodTotal,
                 HitRatio = periodHitRatio,
                 Downloads = periodDownloadCount

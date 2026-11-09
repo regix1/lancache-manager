@@ -328,8 +328,9 @@ test('Run All tells the person how many services were already running', async ()
       ['busy', true],
       ['refresh'],
       ['flash'],
-      ['busy', false],
-      ['confirm', false]
+      // The dialog closes on success only, so a failure can show its reason inside it.
+      ['confirm', false],
+      ['busy', false]
     ]);
     assert.equal(notifications.length, alreadyRunningCount ? 1 : 0);
     if (notifications.length)
@@ -1139,7 +1140,7 @@ test('saving the scheduled picker bypasses discard while pending and failed save
   pending.draw();
   const saving = pending.button('prefill.gameSelection.saveSelection').props.onClick();
   pending.draw();
-  assert.equal(pending.button('common.cancel').props.disabled, true);
+  assert.notEqual(pending.button('common.cancel').props.disabled, true);
   pending.modal().props.onClose();
   pending.draw();
   assert.deepEqual(pending.closed, []);
@@ -1526,15 +1527,14 @@ test('focused composition contains only record controls and disables leaves for 
   const tree = panel({
     serviceKey: 'steam',
     config: record(undefined, { enabled: false }),
-    disabled: false,
     gameSelectionLoading: false,
     gameSelectionBlocked: null,
     onChange: (value) => changes.push(value),
     onSelectGames: () => undefined,
     onClearGames: () => undefined
   });
-  assert.equal(walk(tree, 'TextInput')[0].props.disabled, false);
-  assert.equal(walk(tree, 'ToggleSwitch')[0].props.disabled, false);
+  assert.equal(walk(tree, 'TextInput')[0].props.disabled, undefined);
+  assert.equal(walk(tree, 'ToggleSwitch')[0].props.disabled, undefined);
   for (const tag of ['GameFields', 'DownloadFields', 'NotificationFields', 'ScheduleFields'])
     assert.equal(walk(tree, tag)[0].props.disabled, true);
   assert.equal(walk(tree, 'ActionMenu').length, 0);
@@ -3050,7 +3050,6 @@ test('stable Select Games wrapper restores focus across picker and confirmation 
   const sectionTree = section({
     serviceKey: 'steam',
     config: record(),
-    disabled: false,
     gameSelectionLoading: false,
     gameSelectionBlocked: null,
     onChange: () => undefined,

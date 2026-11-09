@@ -132,6 +132,162 @@ public class ScheduledPrefillServiceTests
         Assert.Equal(0d, ScheduledPrefillRunGates.ComputeServiceFraction(appsCompleted: 2, totalApps: 0));
     }
 
+    [Fact]
+    public async Task ARetryTickReportingMoreBytesThanItsTotal_DoesNotJumpTheCardTo99Async()
+    {
+        // Two of three games done; the third retries after 10 of 59.80 GB. The retry pass reports the
+        // game's cumulative 59.8 GB against the 2 GB retry set, which used to read as a finished game.
+        await using var relay = await RelayHarness.CreateAsync();
+        await relay.SendAsync(10_000_000_000L, 59_800_000_000L);
+        await relay.SendAsync(59_800_000_000L, 2_000_000_000L);
+
+        Assert.Equal(10_000_000_000L, relay.State.Snapshot.BytesDownloaded);
+        Assert.Equal(59_800_000_000L, relay.State.Snapshot.TotalBytes);
+
+        await relay.SendAsync(18_480_000_000L, 59_800_000_000L);
+
+        Assert.Equal(76.97d, relay.State.PercentComplete!.Value, 0.01d);
+    }
+
+    [Fact]
+    public async Task ARetryTickWithASmallerTotal_KeepsTheGamesFirstTotalAsTheDenominatorAsync()
+    {
+        await using var relay = await RelayHarness.CreateAsync();
+        await relay.SendAsync(0L, 59_800_000_000L);
+        await relay.SendAsync(20_000_000_000L, 39_800_000_000L);
+
+        Assert.Equal(77.81d, relay.State.PercentComplete!.Value, 0.01d);
+        Assert.Equal(20_000_000_000L, relay.State.Snapshot.BytesDownloaded);
+        Assert.Equal(59_800_000_000L, relay.State.Snapshot.TotalBytes);
+    }
+
+    [Fact]
+    public async Task AStopOnARunAResetRemovedWhileItsFinishPublishes_EndsWithTheRunsOutcomeAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(persistent: true);
+        var daemonRun = await fixture.StartAsync("10");
+        using var services = new ServiceCollection().BuildServiceProvider();
+        using var scheduler = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
+            services.GetRequiredService<IServiceScopeFactory>(), CreateNullStateService());
+        using var stop = new CancellationTokenSource();
+        await stop.CancelAsync();
+        var serviceRun = NewServiceRun(daemonRun, stop.Token);
+        // The run's terminal row is saved and its finish is publishing when a Prefill Sessions reset removes it.
+        daemonRun.TerminalCompletedFlag = 1;
+        await fixture.Daemon.ForgetFinishedRunsAsync([daemonRun.PrefillRunId]);
+
+        var watch = (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
+            .GetMethod("WatchRunAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(scheduler, [fixture.Daemon, fixture.Session, daemonRun, serviceRun,
+                DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                ScheduledPrefillConfigFactory.CreateDefault()])!;
+        daemonRun.Snapshot = daemonRun.Snapshot with { State = "completed", CompletedApps = 1 };
+        daemonRun.TerminalCompletedFlag = 2;
+        daemonRun.Completion.TrySetResult(DaemonSessionDto.FromRun(daemonRun));
+
+        Assert.Equal(ScheduledPrefillServiceRunResult.Ran, await watch.WaitAsync(TimeSpan.FromSeconds(10)));
+    }
+
+    private static ScheduledPrefillServiceRun NewServiceRun(DaemonRun daemonRun, CancellationToken token)
+    {
+        var scheduleId = Guid.NewGuid();
+        var config = new ScheduledPrefillServiceConfigDto
+        {
+            ServiceId = PrefillPlatform.Steam,
+            ScheduleId = scheduleId,
+            ScheduleName = "Nightly",
+            Enabled = true,
+            NotificationMode = NotificationMode.All,
+            IntervalHours = 24,
+            Preset = ScheduledPrefillPreset.All,
+            TopCount = null,
+            SelectedAppIds = ["10", "20", "30"],
+            OperatingSystems = [],
+            Force = false,
+            MaxConcurrency = new ScheduledPrefillMaxConcurrencyDto { Mode = ScheduledPrefillMaxConcurrencyMode.Auto }
+        };
+        return new ScheduledPrefillServiceRun(config, daemonRun.PrefillRunId, daemonRun.PrefillRunId.ToString(),
+            daemonRun.PrefillRunId.ToString(),
+            new ScheduledPrefillServiceRunState(PrefillPlatform.Steam, scheduleId, "Nightly",
+                new RunNotice(NotificationMode.All, RunTrigger.Manual)),
+            token);
+    }
+
+    /// <summary>
+    /// Drives the scheduled run's progress relay with downloading ticks for the third of three games.
+    /// Each tick carries a new display name so the relay's one-second emit throttle never holds it
+    /// back; the game is identified by its app id.
+    /// </summary>
+    private sealed class RelayHarness : IAsyncDisposable
+    {
+        private readonly RunFixture _fixture;
+        private readonly ServiceProvider _services;
+        private readonly ScheduledPrefillService _scheduler;
+        private readonly DaemonRun _daemonRun;
+        private readonly object _relay;
+        private readonly MethodInfo _send;
+        private long _sequence;
+
+        private RelayHarness(RunFixture fixture, ServiceProvider services, ScheduledPrefillService scheduler,
+            DaemonRun daemonRun, ScheduledPrefillServiceRun run, object relay, MethodInfo send)
+        {
+            _fixture = fixture;
+            _services = services;
+            _scheduler = scheduler;
+            _daemonRun = daemonRun;
+            State = run.State;
+            _relay = relay;
+            _send = send;
+        }
+
+        public ScheduledPrefillServiceRunState State { get; }
+
+        public static async Task<RelayHarness> CreateAsync()
+        {
+            var fixture = await RunFixture.CreateAsync(persistent: true);
+            var response = await fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["10", "20", "30"]);
+            await fixture.RefreshAsync();
+            var daemonRun = fixture.Daemon.GetRun(fixture.Session.Id, response.RunId!.Value)!;
+            var services = new ServiceCollection().BuildServiceProvider();
+            var scheduler = new ScheduledPrefillService(NullLogger<ScheduledPrefillService>.Instance,
+                services.GetRequiredService<IServiceScopeFactory>(), CreateNullStateService());
+            var run = NewServiceRun(daemonRun, CancellationToken.None);
+            var relayType = typeof(ScheduledPrefillService).GetNestedType("ScheduledPrefillProgressRelay", BindingFlags.NonPublic)!;
+            var relay = Activator.CreateInstance(relayType, BindingFlags.Instance | BindingFlags.NonPublic, null,
+                [scheduler, DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(), fixture.Session, run,
+                    fixture.Session.Id], null)!;
+            relayType.GetMethod("Arm", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(relay, null);
+            var send = relayType.GetMethod("OnProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            return new RelayHarness(fixture, services, scheduler, daemonRun, run, relay, send);
+        }
+
+        public Task SendAsync(long bytesDownloaded, long totalBytes)
+        {
+            _sequence++;
+            var progress = new PrefillProgress
+            {
+                OperationId = _daemonRun.PrefillRunId.ToString(),
+                DaemonInstanceId = _daemonRun.DaemonInstanceId,
+                State = "downloading",
+                TotalApps = 3,
+                UpdatedApps = 2,
+                CurrentAppId = "30",
+                CurrentAppName = $"Game 30 pass {_sequence}",
+                BytesDownloaded = bytesDownloaded,
+                TotalBytes = totalBytes,
+                Sequence = _sequence
+            };
+            return (Task)_send.Invoke(_relay, [_fixture.Session, progress, _sequence])!;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            _scheduler.Dispose();
+            await _services.DisposeAsync();
+            await _fixture.DisposeAsync();
+        }
+    }
+
     // ---- Saving a config anchors first-run so the next poll is NOT instant ----
     // The reported bug end-to-end: SetScheduledPrefillConfig persisted the DTO but never wrote a
     // per-service last-run, so the next 1-minute poll saw null and ran the service immediately. This

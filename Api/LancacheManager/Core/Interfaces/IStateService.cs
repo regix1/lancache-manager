@@ -85,7 +85,7 @@ public interface IStateService
 
     // Epic Mapping Last-Collection Methods
     DateTime? GetEpicMappingCollectedAt();
-    void SetEpicMappingLastCollection(DateTime collectionTime);
+    void SetEpicMappingLastCollection(DateTime? collectionTime);
 
     // Service Interval Methods
     double? GetServiceInterval(string serviceKey);
@@ -213,6 +213,10 @@ public interface IStateService
     bool GetClientHostnameLookup();
     void SetClientHostnameLookup(bool enabled);
 
+    // Cache slice size in bytes; null means Auto
+    long? GetCacheSliceSizeBytes();
+    void SetCacheSliceSizeBytes(long? bytes);
+
     /// <summary>The DNS server an admin named for client hostname lookups, or null to discover one.</summary>
     string? GetClientHostnameResolver();
     void SetClientHostnameResolver(string? resolverIp);
@@ -235,6 +239,10 @@ public interface IStateService
     void SetExcludedClientRules(List<ClientExclusionRule> rules);
     List<string> GetHiddenClientIps();
     List<string> GetStatsExcludedOnlyClientIps();
+    List<ClientExclusionRule> GetHiddenPrefillRules();
+    List<ClientExclusionRule> GetPrefillRules();
+    /// <summary>Start of the current prefill marking window; null while no prefill rule exists.</summary>
+    DateTime? GetPrefillMarkingSinceUtc();
 
     // Guest Prefill Permission Methods
     bool GetGuestPrefillEnabledByDefault();

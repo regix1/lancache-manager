@@ -166,6 +166,22 @@ public sealed class EpicCatalogRefreshWarningTests
         }
     }
 
+    [Fact]
+    public async Task AnEpicRefreshWhoseFreeGamesReadFailedEndsAmberAsync()
+    {
+        var run = await RunScheduledRefreshAsync(new FreeGamesUnavailableHandler());
+
+        Assert.Equal("completed", run.Status);
+        var warning = Assert.Single(run.Warnings);
+        Assert.Equal("common.notifications.warnings.epicStepsFailed", warning.StageKey);
+        Assert.Equal(1, warning.Context["count"]);
+    }
+
+    private const string FreeGamesUrlPart = "freeGamesPromotions";
+
+    // A promotions answer with no games in it, which the free-games step reads as nothing to add.
+    private const string NoFreeGames = """{"data":{"Catalog":{"searchStore":{"elements":[]}}}}""";
+
     /// <summary>
     /// Answers the owned-assets request with no assets, then fails the next request the way a dropped
     /// connection does, which is the CDN step's own assets request.
@@ -179,6 +195,26 @@ public sealed class EpicCatalogRefreshWarningTests
             if (Interlocked.Increment(ref _calls) == 2)
             {
                 throw new HttpRequestException("connection dropped");
+            }
+
+            var body = request.RequestUri!.ToString().Contains(FreeGamesUrlPart, StringComparison.Ordinal) ? NoFreeGames : "[]";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            });
+        }
+    }
+
+    /// <summary>
+    /// Answers every request with no assets except the free-games read, which Epic answers as unavailable.
+    /// </summary>
+    private sealed class FreeGamesUnavailableHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.ToString().Contains(FreeGamesUrlPart, StringComparison.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
             }
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
@@ -213,9 +249,10 @@ public sealed class EpicCatalogRefreshWarningTests
                     new TimeoutException());
             }
 
+            var body = request.RequestUri!.ToString().Contains(FreeGamesUrlPart, StringComparison.Ordinal) ? NoFreeGames : "[]";
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent("[]", Encoding.UTF8, "application/json"),
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
             });
         }
     }

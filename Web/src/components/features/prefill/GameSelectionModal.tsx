@@ -836,7 +836,7 @@ export function GameSelectionModal({
               {t('prefill.gameSelection.saving')}
             </span>
           )}
-          <Button variant="default" onClick={handleDismiss} disabled={confirmDiscard && isSaving}>
+          <Button variant="default" onClick={handleDismiss}>
             {t('common.cancel')}
           </Button>
           <Button variant="filled" color="primary" onClick={handleSave} disabled={isSaving}>

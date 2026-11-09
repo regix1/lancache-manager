@@ -37,8 +37,8 @@ public class SpeedsController : ControllerBase
     /// <remarks>
     /// Hidden-client and evicted-data filtering happen inside the tracker's shared client-visible
     /// snapshot builder, which the SignalR broadcast also uses, so both transports always expose
-    /// identical visibility semantics. Prefill traffic is not filtered and appears like any other
-    /// client.
+    /// identical visibility semantics. With prefill separation on, a live prefill container's
+    /// traffic is left out; with it off it appears like any other client.
     /// </remarks>
     [HttpGet("current")]
     [ProducesResponseType(typeof(DownloadSpeedSnapshot), StatusCodes.Status200OK)]
@@ -89,7 +89,8 @@ public class SpeedsController : ControllerBase
             .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp));
 
         // Apply eviction filter (hide/remove modes exclude evicted downloads)
-        query = query.ApplyEvictedFilter(evictedMode);
+        query = query.ApplyEvictedFilter(evictedMode)
+            .ApplyPrefillFilter(_stateRepository.GetHiddenPrefillRules());
 
         // Summed in the database rather than over loaded entities: a busy cache has hundreds of
         // thousands of downloads in a 24 hour window, and the response only needs these two numbers.

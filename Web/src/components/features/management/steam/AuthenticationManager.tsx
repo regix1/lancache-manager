@@ -152,11 +152,17 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     setPassword('');
   };
 
+  const authenticateInProgressRef = useRef(false);
+
   const handleAuthenticate = async () => {
+    if (authenticateInProgressRef.current) {
+      return;
+    }
     if (requiresApiKey(accountMode) && !apiKey.trim()) {
       setAuthError(t('auth.errors.missingKey'));
       return;
     }
+    authenticateInProgressRef.current = true;
 
     setAuthLoading(true);
     setAuthError('');
@@ -185,6 +191,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
       setAuthError(getErrorMessage(error));
     } finally {
       setAuthLoading(false);
+      authenticateInProgressRef.current = false;
     }
   };
 
@@ -196,6 +203,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   // none and keeps the compatibility button below.
   const services = signInServices(loginServices, accountMode);
   const startService = async (service: LoginService) => {
+    if (startingService !== null) return;
     if (requiresApiKey(accountMode) && !apiKey.trim()) {
       setAuthError(t('auth.errors.missingKey'));
       return;
@@ -473,7 +481,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
             password={password}
             onChange={handleCredentialChange}
             onSubmit={handleAuthenticate}
-            disabled={authLoading}
             apiKeyPlaceholder={t('auth.form.placeholder')}
           />
 
@@ -532,7 +539,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
               <LoginServiceButtons
                 services={services}
                 starting={startingService}
-                disabled={startingService !== null || !credentialsFilled}
+                disabled={!credentialsFilled}
                 onStart={(service) => void startService(service)}
               />
             ) : (

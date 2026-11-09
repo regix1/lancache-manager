@@ -185,6 +185,7 @@ public sealed class DatabaseResetRepairAdmissionTests
             // The full wipe clears Downloads and LogEntries, so it takes the log lock from the owner.
             await using var resetServices = new ServiceCollection()
                 .AddSingleton(harness.Owner)
+                .AddSingleton(new PrefillSessionService(database.Factory, NullLogger<PrefillSessionService>.Instance))
                 .BuildServiceProvider();
             var databaseService = new DatabaseService(
                 serviceContext,

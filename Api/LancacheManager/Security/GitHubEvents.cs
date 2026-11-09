@@ -12,21 +12,24 @@ namespace LancacheManager.Security;
 
 public sealed class GitHubEvents : OAuthEvents
 {
-    private const string Issuer = "https://github.com";
+    internal const string Issuer = "https://github.com";
     private readonly AccessService _accessService;
     private readonly ExternalSignInService _signInService;
     private readonly IOptionsMonitorCache<OAuthOptions> _oauthOptions;
+    private readonly TimeProvider _clock;
     private readonly ILogger<GitHubEvents> _logger;
 
     public GitHubEvents(
         AccessService accessService,
         ExternalSignInService signInService,
         IOptionsMonitorCache<OAuthOptions> oauthOptions,
+        TimeProvider clock,
         ILogger<GitHubEvents> logger)
     {
         _accessService = accessService;
         _signInService = signInService;
         _oauthOptions = oauthOptions;
+        _clock = clock;
         _logger = logger;
     }
 
@@ -100,7 +103,7 @@ public sealed class GitHubEvents : OAuthEvents
             || context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier) is not { } subject
             || !_accessService.IdentityAllowed(loginId, revision, setup, ownerOnly, Issuer, subject))
         {
-            RedirectFailure(context, "identity", setup || ownerOnly);
+            OidcEvents.RedirectFailure(context, "identity", setup || ownerOnly);
             return;
         }
 
@@ -110,11 +113,11 @@ public sealed class GitHubEvents : OAuthEvents
         var settings = _accessService.GetLoginSettings(loginId, setup);
         if (settings is null || settings.Revision != revision)
         {
-            RedirectFailure(context, "expired", setup || ownerOnly);
+            OidcEvents.RedirectFailure(context, "expired", setup || ownerOnly);
             return;
         }
 
-        var deferOwner = setup && _accessService.CanDeferOidcAccount(revision);
+        var deferOwner = setup && _accessService.CanDeferOidcAccount(loginId, revision);
         var signIn = deferOwner
             ? null
             : await _signInService.TryCreateSessionAsync(
@@ -126,7 +129,7 @@ public sealed class GitHubEvents : OAuthEvents
 
         if (signIn is null && !deferOwner)
         {
-            RedirectFailure(context, "unavailable", setup || ownerOnly);
+            OidcEvents.RedirectFailure(context, "unavailable", setup || ownerOnly);
             return;
         }
 
@@ -142,12 +145,12 @@ public sealed class GitHubEvents : OAuthEvents
             catch (ServiceUnavailableException ex)
             {
                 _logger.LogWarning(ex, "GitHub settings could not be saved after verification");
-                RedirectFailure(context, "unavailable", returnToSetup: true);
+                OidcEvents.RedirectFailure(context, "unavailable", returnToSetup: true);
                 return;
             }
             if (!promoted)
             {
-                RedirectFailure(context, "expired", returnToSetup: true);
+                OidcEvents.RedirectFailure(context, "expired", returnToSetup: true);
                 return;
             }
             _oauthOptions.TryRemove(AccessService.GitHubScheme);
@@ -172,7 +175,11 @@ public sealed class GitHubEvents : OAuthEvents
         var returnToSetup = context.Properties is { } properties
             && TryReadTransaction(properties, out _, out _, out var setup, out var ownerOnly)
             && (setup || ownerOnly);
-        var code = FailureCode(context.Failure);
+        var code = OidcEvents.FailureCode(
+            context.Failure,
+            context.Properties,
+            context.Options.RemoteAuthenticationTimeout,
+            _clock.GetUtcNow());
         context.Response.Redirect(returnToSetup
             ? $"/?accessSetup=1&oidcError={code}"
             : $"/?oidcError={code}");
@@ -200,36 +207,4 @@ public sealed class GitHubEvents : OAuthEvents
             && long.TryParse(revisionValue, NumberStyles.None, CultureInfo.InvariantCulture, out revision);
     }
 
-    private static void RedirectFailure(TicketReceivedContext context, string code, bool returnToSetup)
-    {
-        context.HandleResponse();
-        context.Response.Redirect(returnToSetup
-            ? $"/?accessSetup=1&oidcError={code}"
-            : $"/?oidcError={code}");
-    }
-
-    private static string FailureCode(Exception? failure)
-    {
-        for (var current = failure; current is not null; current = current.InnerException)
-        {
-            if (current is HttpRequestException or IOException)
-            {
-                return "connection";
-            }
-        }
-
-        var message = failure?.Message ?? string.Empty;
-        if (message.StartsWith("GitHub did not return", StringComparison.Ordinal)
-            || message.StartsWith("GitHub returned", StringComparison.Ordinal))
-        {
-            return "identity";
-        }
-        if (message.Contains("transaction state", StringComparison.Ordinal)
-            || message.Contains("correlation", StringComparison.OrdinalIgnoreCase)
-            || message.Contains("state", StringComparison.OrdinalIgnoreCase))
-        {
-            return "expired";
-        }
-        return "authentication";
-    }
 }

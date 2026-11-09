@@ -104,6 +104,7 @@ public sealed class PrefillSessionServiceTests
     public async Task ReadAfterADroppedSocketSendsTheSessionOutOfRecoveryAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
+        fixture.KeepContainersRunning(fixture.Session);
         await fixture.Daemon.GetSessionStatusAsync(fixture.Session.Id);
         var recorder = Notifications(fixture);
         fixture.Client.Offline = true;
@@ -123,6 +124,7 @@ public sealed class PrefillSessionServiceTests
     public async Task OverlappingSessionUpdatesStillLetTheReadAfterADropEndTheRecoveryAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
+        fixture.KeepContainersRunning(fixture.Session);
         await fixture.Daemon.GetSessionStatusAsync(fixture.Session.Id);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, HeldAdminSendProxy>();
         var held = (HeldAdminSendProxy)(object)notifications;
@@ -262,6 +264,7 @@ public sealed class PrefillSessionServiceTests
     public async Task SessionUpdateBuiltBeforeADropDoesNotReachThePagesAfterTheDropsUpdateAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
+        fixture.KeepContainersRunning(fixture.Session);
         await fixture.Daemon.GetSessionStatusAsync(fixture.Session.Id);
         fixture.Daemon.AddSubscriber(fixture.Session.Id, "page-1");
         var recorder = Notifications(fixture);
@@ -411,6 +414,7 @@ public sealed class PrefillSessionServiceTests
     public async Task RequestWhoseReadGetsNoAnswerStaysForTheNextSweepAsync(bool readThrows)
     {
         await using var fixture = await RunFixture.CreateAsync();
+        fixture.KeepContainersRunning(fixture.Session);
         await fixture.Daemon.GetSessionStatusAsync(fixture.Session.Id);
         Assert.False(fixture.Session.Recovering);
         fixture.Session.RecoveryRequested = true;
@@ -503,6 +507,7 @@ public sealed class PrefillSessionServiceTests
     public async Task UnansweredStatusReadSendsTheRecoveringFlagToThePagesAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
+        fixture.KeepContainersRunning(fixture.Session);
         await fixture.StartAsync("10");
         fixture.Client.Offline = true;
         var recorder = Notifications(fixture);
@@ -522,6 +527,7 @@ public sealed class PrefillSessionServiceTests
     public async Task SkippedReadIsAppliedOrSeenByTheHolderInEveryOrderAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
+        fixture.KeepContainersRunning(fixture.Session);
         var session = fixture.Session;
         // A rerun reads nothing, so only the skipping pass itself can apply the newer read.
         fixture.Client.Offline = true;
@@ -629,6 +635,7 @@ public sealed class PrefillSessionServiceTests
             Client = otherClient
         };
         ((TestableSteamDaemonService)fixture.Daemon).InjectSession(other);
+        fixture.KeepContainersRunning(fixture.Session, other);
         fixture.Client.StatusRead = ReadAsync;
         fixture.Session.Recovering = true;
         other.Recovering = true;

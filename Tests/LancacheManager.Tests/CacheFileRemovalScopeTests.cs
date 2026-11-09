@@ -33,7 +33,8 @@ public sealed partial class CacheFileRemovalScopeTests
         capabilityService: null!,
         cacheScanGate: CacheScanGateHarness.Idle(),
         cacheSizeScan: null!,
-        operationStateService: null!);
+        operationStateService: null!,
+        stateService: null!);
 
     private static GamesController NewGamesController() => new GamesController(
         gameCacheDetectionService: null!,

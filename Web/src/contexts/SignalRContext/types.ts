@@ -106,6 +106,9 @@ export const SIGNALR_EVENTS = [
   // Client Hostnames
   'ClientHostnamesChanged',
 
+  // Prefill traffic separation turned on or off
+  'PrefillTrafficSettingChanged',
+
   // Events
   'EventCreated',
   'EventUpdated',
@@ -133,6 +136,7 @@ export const SIGNALR_EVENTS = [
   'AllowedTimeFormatsChanged',
   'DefaultGuestPreferencesChanged',
   'DefaultGuestThemeChanged',
+  'CacheSliceSizeChanged',
 
   // Auth / Guest Mode
   'GuestModeLockChanged',
@@ -325,6 +329,8 @@ export const SIGNALR_REFRESH_EVENTS = [
   // User action completions
   // The one-time download-history merge deletes rows that every range may list.
   'DownloadHistoryMergeComplete',
+  // The prefill setting changes which rows count in every range and which the lists show.
+  'PrefillTrafficSettingChanged',
   'DepotMappingComplete',
   'LogRemovalComplete',
   'CorruptionRemovalComplete',

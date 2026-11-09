@@ -115,6 +115,23 @@ Command:
 printf %s "$NEW_PASSWORD" | /path/to/data/scripts/reset-main-admin-password.sh --local --url http://127.0.0.1:8080 --username admin --password-stdin
 ```
 
+## Single sign-on owner { #single-sign-on-owner }
+
+Use this when the owner signs in only through single sign-on and has no local password, for example after an environment login fell back to **API key, username and password**. The owner's username is generated from the provider's issuer and account ID. It starts with `oidc-`.
+
+The app does not log this username when it creates the account, and an owner who cannot sign in has no screen that shows it. Read it from the app's PostgreSQL database with any PostgreSQL client:
+
+```sql
+SELECT "Username" FROM "UserAccounts" WHERE "IsMainAdmin";
+```
+
+1. Restart the app.
+2. Within the hour, run the host recovery script. It sends the recovery token and the API key to open the recovery window.
+3. Call `POST /api/account-setup/recover-main-admin` with `username`, a new `password` and `apiKey` in the JSON body.
+4. Sign in with that password.
+
+The new password follows the same rules as the other recovery forms. Steps 3 and 4 give the owner a local password. In `Oidc` and `ApiKeyOidc` modes that password works on `POST /api/auth/login`, as described in [Signing in from a script](api-reference.md#signing-in-from-a-script).
+
 ## Fix a failed reset
 
 ### `401` or `apiKeyRequired`

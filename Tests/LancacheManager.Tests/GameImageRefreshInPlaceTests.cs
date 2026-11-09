@@ -175,19 +175,6 @@ public sealed class GameImageRefreshInPlaceTests
         return (emits, images);
     }
 
-    /// <summary>Hands out one HttpClient per requested name, all backed by the same handler.</summary>
-    private sealed class SingleHandlerHttpClients : IHttpClientFactory
-    {
-        private readonly HttpMessageHandler _handler;
-
-        public SingleHandlerHttpClients(HttpMessageHandler handler)
-        {
-            _handler = handler;
-        }
-
-        public HttpClient CreateClient(string name) => new(_handler, disposeHandler: false);
-    }
-
     /// <summary>Answers every request with the same payload, so a refresh always succeeds.</summary>
     private sealed class FixedBytesHandler : HttpMessageHandler
     {

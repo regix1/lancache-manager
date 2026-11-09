@@ -4,6 +4,7 @@ import test, { mock } from 'node:test';
 import {
   bindLifted,
   bulkRemovalCard,
+  compileTree,
   entityBusyFor,
   liftHookCallback,
   loadNotificationModules,
@@ -37,19 +38,19 @@ const TEMPLATES = {
   'common.notifications.operationWaitingOn': 'Waiting for {{blocker}} to finish...',
   'common.notifications.operationWaitingOnNamed': '{{name}} is waiting for {{blocker}}',
   'common.notifications.blockerDownloads': '下载',
-  'common.notifications.titles.epicGameMapping': 'Epic 游戏映射',
+  'management.schedules.services.epicMapping.displayName': 'Epic 游戏映射',
   'common.notifications.titles.evictionRemoval': '淘汰移除',
-  'common.notifications.titles.evictionScan': '淘汰扫描',
+  'management.schedules.services.cacheReconciliation.displayName': '淘汰扫描',
   'common.notifications.titles.logProcessing': '日志处理',
   'common.notifications.titles.cacheClearing': '缓存清理',
   'common.notifications.titles.corruptionRemoval': '可疑缓存文件移除',
   'common.notifications.titles.corruptionDetection': '损坏扫描',
-  'common.notifications.titles.scheduledPrefill': '计划预填充',
+  'management.schedules.services.scheduledPrefill.displayName': '计划预填充',
   'common.notifications.titles.cacheRepair': '缓存修复',
   'common.notifications.runQualifiers.scanLimits': '阈值 {{threshold}}，回溯 {{days}} 天',
   'common.notifications.titles.statusCheck': '状态检查',
   'common.notifications.titles.cacheFileCount': '缓存文件计数',
-  'common.notifications.titles.gameDetection': '游戏检测',
+  'management.schedules.services.gameDetection.displayName': '游戏检测',
   'common.notifications.titles.gameRemoval': '游戏缓存移除',
   'common.notifications.runQualifiers.all': '全部',
   'common.notifications.runQualifiers.allServices': '所有服务',
@@ -82,9 +83,9 @@ const TEMPLATES = {
 // reader's titles in TEMPLATES differ from these, so a test can tell which one a line used.
 // Setting `globalThis.readerLanguage` to 'en' makes the reader an English one.
 const ENGLISH_TITLES = {
-  'common.notifications.titles.epicGameMapping': 'Epic Game Mapping',
+  'management.schedules.services.epicMapping.displayName': 'Epic Game Mapping',
   'common.notifications.titles.evictionRemoval': 'Eviction Removal',
-  'common.notifications.titles.gameDetection': 'Game Detection',
+  'management.schedules.services.gameDetection.displayName': 'Game Detection',
   'common.notifications.titles.gameRemoval': 'Game Cache Removal',
   'common.notifications.runNameWithTarget': '{{title}} ({{target}})'
 };
@@ -2522,7 +2523,8 @@ const liftFadeLeavingRuns = (browser) => {
   })();
   const unmount = lift('useEffect', 'autoDismissTimersRef.current.clear()', {
     autoDismissTimersRef,
-    snapshotRetryRef: { current: undefined }
+    snapshotRetryRef: { current: undefined },
+    waitersRef: { current: new Set() }
   })();
   return {
     fadeLeavingRuns,
@@ -3327,4 +3329,58 @@ test('a card being cancelled says so instead of its last progress line', () => {
   assert.equal(browser.card('R').message, 'Cancelling...');
   browser.push(row('R', { status: 'cancelling' }));
   assert.equal(browser.card('R').message, 'Cancelling...');
+});
+
+test('a parked scan promoted to a running one says it is cancelling, not its waiting line', () => {
+  const promoted = new Browser();
+  promoted.push(row('W', { status: 'waiting', blockedByName: 'Game Removal' }));
+  promoted.push(row('N', { previousOperationId: 'W' }));
+  promoted.push(row('N', { status: 'cancelling', previousOperationId: 'W' }));
+  assert.deepEqual(promoted.drawn(), ['W:eviction_scan:cancelling']);
+  assert.equal(promoted.card('W').message, 'Cancelling...');
+});
+
+test('a promoted scan cancelled from its card says so before the cancelling row arrives', () => {
+  const clicked = new Browser();
+  clicked.push(row('W', { status: 'waiting', blockedByName: 'Game Removal' }));
+  clicked.push(row('N', { previousOperationId: 'W' }));
+  clicked.state = setRunCancel(clicked.state, 'W', { cancelRequested: true, cancelSent: true });
+  assert.equal(clicked.card('W').message, 'Cancelling...');
+});
+
+test('a card that took over a running scan says it is cancelling, not the scan line', () => {
+  const handedOff = new Browser();
+  handedOff.push(row('R'));
+  handedOff.detail('R', { message: 'Scanning 45%' });
+  handedOff.push(row('S', { status: 'cancelling', previousOperationId: 'R' }));
+  const [handedOffCard] = handedOff.cards();
+  assert.deepEqual(handedOff.drawn(), [`${handedOffCard.id}:eviction_scan:cancelling`]);
+  assert.equal(handedOffCard.message, 'Cancelling...');
+});
+
+test('a promoted scan still says it is cancelling after a reload that holds its parked row', () => {
+  const reloaded = new Browser();
+  reloaded.snapshot([
+    row('W', { status: 'waiting', blockedByName: 'Game Removal' }),
+    row('N', { status: 'cancelling', previousOperationId: 'W' })
+  ]);
+  assert.equal(reloaded.card('W').message, 'Cancelling...');
+});
+
+test('each scheduled operation takes its Schedules page name as its card title', async () => {
+  const { NOTIFICATION_TITLE_KEYS } = await import(
+    await compileTree('../src/contexts/notifications/notificationTitleKeys.ts')
+  );
+  // Battle.net and Riot have no Schedules page entry, so they keep their own titles.
+  const unscheduled = new Set(['battle_net_game_mapping', 'riot_game_mapping']);
+  for (const [type, serviceKey] of Object.entries(
+    modules.SCHEDULED_NOTIFICATION_TYPE_TO_SERVICE_KEY
+  )) {
+    if (unscheduled.has(type)) continue;
+    assert.equal(
+      NOTIFICATION_TITLE_KEYS[type],
+      `management.schedules.services.${serviceKey}.displayName`,
+      type
+    );
+  }
 });

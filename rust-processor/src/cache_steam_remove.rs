@@ -48,6 +48,10 @@ struct Args {
     #[arg(long = "key-scheme", default_value = "monolithic")]
     key_scheme: String,
 
+    /// Cache slice size in bytes, or `auto` to read it from the cache files
+    #[arg(long = "slice-size", default_value = "auto")]
+    slice_size: String,
+
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
@@ -429,6 +433,8 @@ async fn main() -> Result<()> {
 
     let log_dir = PathBuf::from(&args.log_dir);
     let cache_dir = PathBuf::from(&args.cache_dir);
+    let manual_slice_size =
+        cache_utils::parse_slice_size_arg(&args.slice_size).map_err(anyhow::Error::msg)?;
     let game_app_id = args.game_app_id;
     let output_json = PathBuf::from(&args.output_json);
     let progress_path = PathBuf::from(&args.progress_json);
@@ -456,6 +462,8 @@ async fn main() -> Result<()> {
         let msg = format!("Cache directory not found: {}", cache_dir.display());
         anyhow::bail!("{}", msg);
     }
+    // A sample read error stops the removal here, before it touches anything.
+    let slice_sizes = cache_utils::slice_sizes_for_run(&cache_dir, manual_slice_size)?;
 
     let pool = db::create_pool().await?;
 
@@ -535,6 +543,7 @@ async fn main() -> Result<()> {
             &output_json,
             &game_name,
             cache_utils::active_key_scheme(),
+            &slice_sizes,
             removal_core::SliceReach::ForwardWalkIsComplete,
             &collection_progress,
         )?;
@@ -609,6 +618,7 @@ async fn main() -> Result<()> {
             &STEAM_STAGE_KEYS,
             ProgressCadence::OnPercentAdvanceOrEveryEighth,
             cache_utils::active_key_scheme(),
+            &slice_sizes,
             // A Steam depot chunk is one or two slices, so the forward walk cannot miss one,
             // and a game's millions of URLs make a per-file header sweep the wrong trade.
             removal_core::SliceReach::ForwardWalkIsComplete,

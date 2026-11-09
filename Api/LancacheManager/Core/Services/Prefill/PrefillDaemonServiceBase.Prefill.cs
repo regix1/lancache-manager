@@ -16,7 +16,7 @@ public abstract partial class PrefillDaemonServiceBase
         var active = session.Runs.Values.Where(run => run.TerminalCompletedFlag != 2).ToArray();
         if (active.Length > 1) throw new DaemonCommandException("ambiguous-operation");
         if (active.Length == 1)
-            await CancelPrefillRunAsync(sessionId, active[0].PrefillRunId, cancellationToken);
+            await CancelPrefillRunAsync(sessionId, active[0].PrefillRunId, false, cancellationToken);
     }
 
     /// <summary>
@@ -420,8 +420,8 @@ public abstract partial class PrefillDaemonServiceBase
 
     /// <summary>Records a cancel on the run and sends it to the daemon.</summary>
     /// <returns>True when the daemon answered the cancel; false when none was sent or its answer was lost.</returns>
-    public async Task<bool> CancelPrefillRunAsync(string sessionId, Guid runId, CancellationToken cancellationToken = default,
-        string? reason = null)
+    public async Task<bool> CancelPrefillRunAsync(string sessionId, Guid runId, bool waitForReconcile,
+        CancellationToken cancellationToken = default, string? reason = null)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
@@ -437,7 +437,22 @@ public abstract partial class PrefillDaemonServiceBase
         }
         if (!session.Runs.TryGetValue(runId, out var run))
             throw new DaemonCommandException("operation-not-found");
+        lock (session.PrefillLock)
+        {
+            // Start holds the run's work until the daemon answers its admission (up to its 30 s command limit), so a
+            // cancel landing then is sent by Start as soon as admission ends.
+            if (run.AdmissionPending)
+            {
+                if (!run.CancelAfterAdmission)
+                {
+                    run.CancelAfterAdmission = true;
+                    run.CancelReason = reason;
+                }
+                return false;
+            }
+        }
         var sent = false;
+        var threw = false;
         await run.PrefillWork.WaitAsync(cancellationToken);
         try
         {
@@ -448,6 +463,7 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 await _sessionService.SetRunCancellationAsync(runId, cancellationToken, reason);
                 run.CancelReason = reason;
+                run.CancelDeadlineUtc = DateTime.UtcNow + GetRunStallTimeout(run);
             }
             run.CancelRequested = true;
             if (session.Recovering) return false;
@@ -466,9 +482,31 @@ public abstract partial class PrefillDaemonServiceBase
                 _logger.LogWarning(ex, "Cancellation awaits reconnection for prefill {RunId}", runId);
             }
         }
-        finally { run.PrefillWork.Release(); }
+        // A throw skips the reconcile below, so a request a daemon event left is read once the work is free.
+        catch { threw = true; throw; }
+        finally
+        {
+            run.PrefillWork.Release();
+            if (threw) ReconcileIfRequested(session, run);
+        }
         if (!session.Recovering)
-            await ReconcileRunAsync(session, run, cancellationToken);
+        {
+            if (waitForReconcile)
+                await ReconcileRunAsync(session, run, cancellationToken);
+            else
+            {
+                // A browser's Cancel answers once the daemon has the cancel; the reconcile runs on the session's
+                // own token, read here so a teardown stops its daemon reads.
+                CancellationToken sessionToken;
+                try { sessionToken = session.CancellationTokenSource.Token; }
+                catch (ObjectDisposedException)
+                {
+                    // The cancel is stored and sent, and a disposed source means the session's teardown owns the run.
+                    return sent;
+                }
+                FireAndForgetAsync(() => ReconcileRunAsync(session, run, sessionToken), nameof(ReconcileRunAsync));
+            }
+        }
         return sent;
     }
 
@@ -508,6 +546,7 @@ public abstract partial class PrefillDaemonServiceBase
                 AdmissionPending = true,
                 NotificationMode = notificationMode,
                 ParentOperationId = parentOperationId,
+                PrefillAddresses = session.PrefillAddresses,
                 Snapshot = new DaemonRunSnapshot
                 {
                     OperationId = runId.ToString(),
@@ -522,36 +561,61 @@ public abstract partial class PrefillDaemonServiceBase
         }
         await run.PrefillWork.WaitAsync(CancellationToken.None);
         var persisted = false;
+        var refused = false;
         try
         {
             await using var change = session.IsPersistent
                 ? await PersistentChangeGate.EnterChangeAsync(cancellationToken) : null;
+            // The sign-in may have been lost while this Start waited for the gate.
+            if (Platform.RequiresLogin() && session.AuthState != DaemonAuthState.Authenticated)
+                throw new DaemonCommandException("auth-lost", true, SignInLostStageKey);
             if (!IsSessionLive(session) || session.AdmissionClosed || session.Recovering
                 || session.Capabilities?.DaemonInstanceId != run.DaemonInstanceId
                 || session.LoginOperationId.HasValue)
                 throw new DaemonCommandException("instance-changed");
             await _sessionService.CreateRunAsync(run, scheduleId.HasValue ? "schedule" : "manual", cancellationToken);
             persisted = true;
+            bool cancelledDuringAdmission;
+            lock (session.PrefillLock) cancelledDuringAdmission = run.CancelAfterAdmission;
+            // A cancel that arrived while this Start waited for the gate or the save stops it before the daemon is asked.
+            if (cancelledDuringAdmission)
+            {
+                refused = true;
+                await FinishUnsentRunAsync(session, run, "cancelled", run.CancelReason);
+                return new PrefillResult
+                {
+                    Success = true,
+                    RunId = runId,
+                    DaemonInstanceId = run.DaemonInstanceId,
+                    State = "cancelled"
+                };
+            }
             var cachedDepots = await GetCachedDepotsAsync(options.Force, session.CancellationTokenSource.Token);
             var result = await session.Client.PrefillAsync(runId, run.DaemonInstanceId, options,
                 cachedDepots: cachedDepots,
                 cancellationToken: session.CancellationTokenSource.Token);
             if (!result.Success)
             {
+                // The daemon never registered a refused run, so a cancel sent for it would only be refused too.
+                refused = true;
                 var failure = new DaemonCommandException(result.ErrorCode, result.RequiresLogin, SignInLostStageKey);
-                await FinishRunAsync(session, run, run.Snapshot with
-                {
-                    State = "failed",
-                    // A daemon that is not signed in refuses with only the sign-in flag and no code.
-                    Reason = failure.RequiresLogin ? "auth-lost" : failure.ErrorCode,
-                    UpdatedAt = DateTimeOffset.UtcNow,
-                    Sequence = run.Snapshot.Sequence + 1
-                }, [], CancellationToken.None);
+                // A daemon that is not signed in refuses with only the sign-in flag and no code. A daemon that
+                // refuses with only an error text (the Epic Start refusal) stores the typed refusal code, which
+                // the browser shows as "request failed".
+                await FinishUnsentRunAsync(session, run, "failed", failure.RequiresLogin ? "auth-lost"
+                    : string.IsNullOrEmpty(failure.ErrorCode) ? "prefill-failed" : failure.ErrorCode);
                 if (result.ErrorCode == "run-limit")
                     throw new PrefillAlreadyRunningException(failure.Message);
                 throw failure;
             }
             return result;
+        }
+        // The client refuses before sending (a changed daemon instance), so the daemon never had the run.
+        catch (DaemonCommandException ex) when (persisted && !refused && run.TerminalCompletedFlag == 0)
+        {
+            refused = true;
+            await FinishUnsentRunAsync(session, run, "failed", ex.ErrorCode);
+            throw;
         }
         catch (Exception ex) when (persisted && run.TerminalCompletedFlag == 0
             && ex is not PrefillAlreadyRunningException && ex is not DaemonCommandException)
@@ -570,11 +634,101 @@ public abstract partial class PrefillDaemonServiceBase
         }
         finally
         {
-            run.AdmissionPending = false;
+            bool cancelAfterAdmission;
+            DaemonSessionDto? ended = null;
+            // The same send lock NotifyHubAsync takes, held from before the last update of a Start that ends before
+            // saving its run is built until it is sent, so no update built after it is sent before it.
+            if (!persisted) await session.SessionUpdateSend.WaitAsync();
+            lock (session.PrefillLock)
+            {
+                run.AdmissionPending = false;
+                cancelAfterAdmission = run.CancelAfterAdmission;
+                // A cancel during admission answered at once; a Start that ends before saving its run tells the page
+                // the run is gone, or the page keeps showing it as cancelling.
+                if (!persisted && cancelAfterAdmission)
+                {
+                    run.Snapshot = run.Snapshot with
+                    {
+                        State = "cancelled",
+                        Sequence = run.Snapshot.Sequence + 1,
+                        UpdatedAt = DateTimeOffset.UtcNow
+                    };
+                    ended = DaemonSessionDto.FromSession(session);
+                    run.Completion.TrySetResult(DaemonSessionDto.FromRun(run));
+                }
+            }
             if (!persisted) session.Runs.TryRemove(runId, out _);
             run.PrefillWork.Release();
             if (persisted && run.TerminalCompletedFlag == 0)
                 FireAndForgetAsync(() => RefreshRunsAsync(session.Id), nameof(RefreshRunsAsync));
+            if (persisted && !refused && cancelAfterAdmission && run.TerminalCompletedFlag == 0)
+            {
+                FireAndForgetAsync(async () =>
+                {
+                    // A session already torn down ended its runs; there is nothing left to cancel.
+                    if (!_sessions.ContainsKey(session.Id)) return;
+                    try
+                    {
+                        await CancelPrefillRunAsync(session.Id, runId, false, CancellationToken.None, run.CancelReason);
+                    }
+                    catch (Exception ex) when (ex is not DaemonCommandException)
+                    {
+                        // The user's Cancel was answered when it arrived during admission, so a failed record must
+                        // still stop the run: mark it in memory, which the overdue pass and the recovery pass both
+                        // read, and send it.
+                        _logger.LogWarning(ex, "Could not record the cancel of prefill {RunId}; sending it anyway", runId);
+                        await run.PrefillWork.WaitAsync();
+                        try
+                        {
+                            if (run.TerminalCompletedFlag != 0 || run.CancelRequested) return;
+                            run.CancelRequested = true;
+                            run.CancelDeadlineUtc = DateTime.UtcNow + GetRunStallTimeout(run);
+                            if (!session.Recovering)
+                                await session.Client.CancelPrefillAsync(runId, run.DaemonInstanceId, CancellationToken.None);
+                        }
+                        finally
+                        {
+                            run.PrefillWork.Release();
+                            ReconcileIfRequested(session, run);
+                        }
+                    }
+                }, nameof(CancelPrefillRunAsync));
+            }
+            if (ended is not null)
+            {
+                FireAndForgetAsync(async () =>
+                {
+                    // Sent as built: a rebuild would no longer list the removed run.
+                    try
+                    {
+                        await BroadcastToSubscribersAsync(session, EventSessionUpdated, ended);
+                        await _notifications.NotifyAdminAsync(EventSessionUpdated, ended);
+                    }
+                    finally { session.SessionUpdateSend.Release(); }
+                }, nameof(NotifyHubAsync));
+            }
+            else if (!persisted) session.SessionUpdateSend.Release();
+        }
+    }
+
+    /// <summary>
+    /// Ends a run the daemon was never sent. When the save fails, the run keeps that end in memory and the read
+    /// that follows this Start, which finds no such run on the daemon, saves it.
+    /// </summary>
+    private async Task FinishUnsentRunAsync(DaemonSession session, DaemonRun run, string state, string? reason)
+    {
+        var end = run.Snapshot with
+        {
+            State = state,
+            Reason = reason,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            Sequence = run.Snapshot.Sequence + 1
+        };
+        try { await FinishRunAsync(session, run, end, [], CancellationToken.None); }
+        catch (Exception saveError) when (saveError is not OperationCanceledException)
+        {
+            _logger.LogWarning(saveError, "Could not save the refused start of prefill {RunId}", run.PrefillRunId);
+            run.Snapshot = end;
         }
     }
 

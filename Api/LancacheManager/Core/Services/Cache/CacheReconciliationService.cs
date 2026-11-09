@@ -593,7 +593,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     name = ds.Name,
                     cachePath = ds.CachePath,
                     isDefault = ds == _datasourceService.GetDefaultDatasource(),
-                    keyScheme
+                    keyScheme,
+                    sliceSize = _stateService.GetCacheSliceSizeBytes(),
+                    // The scan refuses to guess a slice size in remove mode, because rows it marks are deleted.
+                    removeMode = isRemoveMode
                 };
             }).ToArray();
             var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
@@ -1101,7 +1104,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     isDefault = source == _datasourceService.GetDefaultDatasource(),
                     // A datasource outside the repair may have no key recipe; it is listed, not scanned.
                     keyScheme = DatasourceCapabilityService.GetSchemeWireValue(
-                        _capabilityService.GetCapabilities(source))
+                        _capabilityService.GetCapabilities(source)),
+                    sliceSize = _stateService.GetCacheSliceSizeBytes()
                 })
                 .ToArray();
             var document = new CacheRepairDocument

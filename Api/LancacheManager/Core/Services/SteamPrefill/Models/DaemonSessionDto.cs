@@ -37,6 +37,9 @@ public class DaemonSessionDto
     /// <summary>The session's current sign-in attempt number, so a dialog that starts a new sign-in knows which ending it replaces.</summary>
     public long LoginAttempt { get; set; }
 
+    /// <summary>The i18n key of what a person's Log in waits for before it starts. Null when it waits for nothing.</summary>
+    public string? LoginWaitKey { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime ExpiresAt { get; set; }
 
@@ -123,6 +126,7 @@ public class DaemonSessionDto
             AuthState = session.AuthState.ToString(),
             LoginEnding = session.LastLoginEnding,
             LoginAttempt = session.LoginAttempt,
+            LoginWaitKey = session.LoginWaitKey,
             CreatedAt = session.CreatedAt,
             ExpiresAt = session.ExpiresAt,
             IsTemporary = session.IsTemporary,

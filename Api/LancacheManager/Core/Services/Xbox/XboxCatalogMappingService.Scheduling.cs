@@ -77,13 +77,25 @@ public partial class XboxCatalogMappingService
                 }
 
                 var newPatterns = 0;
+                // A step that fails is counted and the pass goes on: the steps after it read what is already
+                // stored, so one bad source still leaves the rest worth doing. A shutdown cancel still ends the
+                // run; an HttpClient timeout (a cancel whose inner exception is a TimeoutException) is counted.
+                var failedSteps = 0;
                 await reporter.ReportAsync(
                     20,
                     "signalr.xboxMapping.collecting",
                     CreateXboxMappingContext());
                 if (IsAuthenticated)
                 {
-                    newPatterns += await HarvestManagerCatalogAsync(reporter.Token);
+                    try
+                    {
+                        newPatterns += await HarvestManagerCatalogAsync(reporter.Token);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
+                    {
+                        failedSteps++;
+                        _logger.LogWarning(ex, "Xbox manager-side catalog harvest failed during catalog refresh");
+                    }
                 }
 
                 await reporter.ReportAsync(
@@ -92,7 +104,9 @@ public partial class XboxCatalogMappingService
                     CreateXboxMappingContext(newPatterns: newPatterns));
                 if (daemon != null)
                 {
-                    newPatterns += await daemon.RefreshCatalogFromActiveSessionsAsync(reporter.Token);
+                    var sessions = await daemon.RefreshCatalogFromActiveSessionsAsync(reporter.Token);
+                    newPatterns += sessions.Done;
+                    failedSteps += sessions.Failed;
                 }
 
                 await reporter.ReportAsync(
@@ -108,14 +122,13 @@ public partial class XboxCatalogMappingService
                 var bannersStored = 0;
                 try
                 {
-                    bannersStored = await _mappingService.BackfillMissingBannerArtAsync(reporter.Token);
+                    var banners = await _mappingService.BackfillMissingBannerArtAsync(reporter.Token);
+                    bannersStored = banners.Done;
+                    failedSteps += banners.Failed;
                 }
-                catch (OperationCanceledException)
+                catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
                 {
-                    throw;
-                }
-                catch (Exception ex)
-                {
+                    failedSteps++;
                     _logger.LogWarning(ex, "Xbox banner-art backfill failed during catalog refresh");
                 }
 
@@ -123,12 +136,20 @@ public partial class XboxCatalogMappingService
                     "Xbox catalog refresh: {NewPatterns} new CDN pattern(s), {Resolved} download(s) re-tagged, {Banners} banner(s) stored",
                     newPatterns, resolved, bannersStored);
 
-                // Report skipped only when nobody was signed in AND the pass changed nothing, so a
-                // signed-out run that still did work reads as the work it was. Banner backfill counts
-                // here because it writes to the database - it needs no account, so a signed-out pass
+                if (failedSteps > 0)
+                {
+                    reporter.SetWarning(new RunWarning(
+                        "common.notifications.warnings.xboxStepsFailed",
+                        new Dictionary<string, object?> { ["count"] = failedSteps }));
+                }
+
+                // Report skipped only when nobody was signed in AND the pass changed nothing AND nothing
+                // failed, so a signed-out run that still did work reads as the work it was, and one whose
+                // banner save failed reads as unfinished rather than as having nothing to do. Banner backfill
+                // counts here because it writes to the database - it needs no account, so a signed-out pass
                 // can store art, and calling that run "skipped" would claim it did nothing.
                 var changedNothing = !signedIn && newPatterns == 0 && resolved == 0 && bannersStored == 0;
-                if (changedNothing)
+                if (changedNothing && failedSteps == 0)
                 {
                     await reporter.CompleteSkippedAsync(
                         XboxSignInSkipStageKey,

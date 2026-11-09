@@ -65,12 +65,7 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
     try {
       const result = await ApiService.getClientHostnames();
       if (attempt !== attemptRef.current) return;
-      // Fall back to the no-op default if an older server has not started sending the reason yet,
-      // rather than letting `undefined` reach the render or the reason util.
-      setHostnameLookup({
-        ...result,
-        reason: result.reason ?? 'none'
-      });
+      setHostnameLookup(result);
     } catch (err: unknown) {
       if (attempt !== attemptRef.current) return;
       setError(getErrorMessage(err));

@@ -36,16 +36,6 @@ internal sealed partial class StructuralStderrObserver
             && long.TryParse(warningSummary.Groups[1].Value, out var totalWarnings))
         {
             ObserveWarningTotal(totalWarnings);
-            return;
-        }
-
-        var sanitized = SanitizeMilestone(line);
-        if (sanitized != null)
-        {
-            _logger.LogInformation(
-                "[StructuralScan:{Datasource}] {Milestone}",
-                _datasourceName,
-                sanitized);
         }
     }
 
@@ -98,66 +88,6 @@ internal sealed partial class StructuralStderrObserver
             delta,
             total);
     }
-
-    private static string? SanitizeMilestone(string line)
-    {
-        if (line == "[structural] scan starting")
-        {
-            return "scan starting";
-        }
-
-        if (line == "[structural] enumerating cache files (this pass computes the total)...")
-        {
-            return "enumerating cache files";
-        }
-
-        var match = EnumeratedRegex().Match(line);
-        if (match.Success)
-        {
-            return $"enumerated {match.Groups[1].Value} eligible cache files";
-        }
-
-        match = EnumerationCompleteRegex().Match(line);
-        if (match.Success)
-        {
-            return $"enumeration complete: {match.Groups[1].Value} eligible files in {match.Groups[2].Value}s (cancelled={match.Groups[3].Value})";
-        }
-
-        match = InspectingRegex().Match(line);
-        if (match.Success)
-        {
-            return $"inspection starting: total={match.Groups[1].Value}, workers={match.Groups[2].Value}, task_capacity={match.Groups[3].Value}, result_capacity={match.Groups[4].Value}";
-        }
-
-        match = InspectedRegex().Match(line);
-        if (match.Success)
-        {
-            return $"inspection progress: processed={match.Groups[1].Value}/{match.Groups[2].Value}, suspects={match.Groups[3].Value}, files_per_second={match.Groups[4].Value}, eta_seconds={match.Groups[5].Value}";
-        }
-
-        match = FinishedRegex().Match(line);
-        if (match.Success)
-        {
-            return $"scan finished in {match.Groups[1].Value}s: checked={match.Groups[2].Value}, suspects={match.Groups[3].Value}, io_errors={match.Groups[4].Value}, cancelled={match.Groups[5].Value}";
-        }
-
-        return null;
-    }
-
-    [GeneratedRegex(@"^\[structural\] enumeration progress eligible_files=(\d+)$")]
-    private static partial Regex EnumeratedRegex();
-
-    [GeneratedRegex(@"^\[structural\] enumeration complete: (\d+) eligible cache files in ([0-9.]+)s \(cancelled=(true|false)\)$")]
-    private static partial Regex EnumerationCompleteRegex();
-
-    [GeneratedRegex(@"^\[structural\] inspection starting total=(\d+) workers=(\d+) task_capacity=(\d+) result_capacity=(\d+)$")]
-    private static partial Regex InspectingRegex();
-
-    [GeneratedRegex(@"^\[structural\] inspection progress processed=(\d+)/(\d+) suspects=(\d+) files_per_second=([0-9]+(?:\.[0-9]+)?) eta_seconds=(unknown|\d+)$")]
-    private static partial Regex InspectedRegex();
-
-    [GeneratedRegex(@"^\[structural\] scan finished in ([0-9.]+)s: files_seen=\d+ files_checked=(\d+) consistent=\d+ suspects=(\d+) sparse=\d+ io_errors=(\d+) bytes_read=\d+ skipped_by_reason=.* \(cancelled=(true|false)\)$")]
-    private static partial Regex FinishedRegex();
 
     [GeneratedRegex(@"^WARNING: structural inspection I/O error \(sample \d+/5\); path details suppressed$")]
     private static partial Regex InspectionWarningSampleRegex();

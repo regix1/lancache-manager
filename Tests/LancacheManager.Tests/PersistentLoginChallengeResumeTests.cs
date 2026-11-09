@@ -85,7 +85,7 @@ public class PersistentLoginChallengeResumeTests
     }
 
     [Fact]
-    public async Task OnCredentialChallenge_DuringFailedCancel_ResumesFollowOnChallenge()
+    public async Task OnCredentialChallenge_DuringFailedCancel_CachesNoFollowOnChallenge()
     {
         var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge())
         {
@@ -108,10 +108,11 @@ public class PersistentLoginChallengeResumeTests
         client.ReleaseCancelLogin.TrySetResult();
         await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
             async () => await cancel.WaitAsync(TimeSpan.FromSeconds(5)));
+        // The daemon is marked for replacement, so a challenge it still sends is not offered to anyone.
+        Assert.Equal(DaemonSessionStatus.Error, session.Status);
         var followOn = new CredentialChallenge { ChallengeId = "after-failed-cancel", CredentialType = "password" };
         await ((TestableSteamDaemonService)daemon).InvokeOnCredentialChallengeAsync(session, followOn);
-        Assert.Same(followOn, session.PendingLoginChallenge);
-        Assert.Equal(session.LoginAttempt, followOn.LoginAttempt);
+        Assert.Null(session.PendingLoginChallenge);
     }
 
     [Fact]
@@ -252,20 +253,42 @@ public class PersistentLoginChallengeResumeTests
     /// times out or never reaches it (<c>DaemonClientBase.CancelLoginWithOutcomeAsync</c>).
     /// </summary>
     [Fact]
-    public async Task CancelLoginAsync_DaemonDoesNotAcknowledgeCancel_ThrowsTypedConflictAndKeepsChallengeResumable()
+    public async Task CancelLoginAsync_DaemonDoesNotAcknowledgeCancel_ThrowsTypedConflictAndMarksSessionForReplacement()
     {
         var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge()) { CancelAcknowledged = false };
         var (daemon, session) = CreateSessionWithClient(client);
 
         var first = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
-        var authStateBeforeCancel = session.AuthState;
 
         var error = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
             () => daemon.CancelLoginAsync(session.Id, CancellationToken.None, first!.LoginAttempt));
 
-        Assert.Equal("prefill.persistent.loginNotCanceled", error.StageKey);
-        Assert.Equal("chal-1", session.PendingLoginChallenge?.ChallengeId);
-        Assert.Equal(authStateBeforeCancel, session.AuthState);
+        // The daemon may still hold that sign-in, so nothing resumes it: the next start replaces the daemon.
+        Assert.Equal("errors.prefill.loginCancelUnconfirmed", error.StageKey);
+        Assert.Null(session.PendingLoginChallenge);
+        Assert.Equal(DaemonSessionStatus.Error, session.Status);
+        Assert.False(session.LoginCanceling);
+        var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
+            () => daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None));
+        Assert.Equal("prefill.errors.sessionErrored", refusal.StageKey);
+        Assert.Equal(1, client.StartLoginCallCount);
+    }
+
+    // An earlier sign-in whose cleanup cancel went unconfirmed is cancelled again before a Log in; when that
+    // cancel also goes unanswered, the session is marked for replacement instead of refusing every Log in.
+    [Fact]
+    public async Task StartLoginAsync_UnansweredRepeatCancelMarksSessionForReplacement()
+    {
+        var client = new ScriptedLoginDaemonClient(challengeOnLogin: LoginChallenge()) { CancelAcknowledged = false };
+        var (daemon, session) = CreateSessionWithClient(client);
+        session.LoginCancelUnconfirmed = true;
+
+        var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
+            () => daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None));
+
+        Assert.Equal("errors.prefill.loginCancelUnconfirmed", refusal.StageKey);
+        Assert.Equal(DaemonSessionStatus.Error, session.Status);
+        Assert.Equal(0, client.StartLoginCallCount);
     }
 
     /// <summary>
@@ -426,7 +449,8 @@ public class PersistentLoginChallengeResumeTests
         var firstError = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() => first);
         var secondError = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() => second);
         Assert.Same(firstError, secondError);
-        Assert.Equal(1, client.CancelLoginCallCount);
+        // The first cancel and the two tries that settle a person's unanswered cancel; the joiner sends none.
+        Assert.Equal(3, client.CancelLoginCallCount);
     }
 
     [Fact]
@@ -511,11 +535,12 @@ public class PersistentLoginChallengeResumeTests
         var error = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
             () => cancel.WaitAsync(TimeSpan.FromSeconds(5)));
 
-        Assert.Equal("prefill.persistent.loginNotCanceled", error.StageKey);
-        Assert.Equal(first.ChallengeId, session.PendingLoginChallenge?.ChallengeId);
+        Assert.Equal("errors.prefill.loginCancelUnconfirmed", error.StageKey);
+        Assert.Null(session.PendingLoginChallenge);
 
-        var resumed = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
-        Assert.Equal(first.ChallengeId, resumed?.ChallengeId);
+        var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(
+            () => daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None));
+        Assert.Equal("prefill.errors.sessionErrored", refusal.StageKey);
         Assert.Equal(1, client.StartLoginCallCount);
     }
 

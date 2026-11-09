@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using LancacheManager.Core.Services.SteamKit2;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
@@ -164,6 +165,7 @@ public sealed class LivePassBookkeepingTests
             .Options;
         var services = new ServiceCollection();
         services.AddScoped(_ => new AppDbContext(options));
+        services.AddSingleton(new SteamService(new HttpClient(), NullLogger<SteamService>.Instance));
         using var container = services.BuildServiceProvider();
         var processor = UninitializedProcessor(container);
         var images = UninitializedImageService(container);

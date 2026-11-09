@@ -262,6 +262,26 @@ public sealed partial class UnmappedFileRemovalTests
     }
 
     [Fact]
+    public async Task AManualSliceSizeIsPassedOnTheDetectionCommandLineAsync()
+    {
+        await using var run = await Run.CreateAsync();
+        var state = (StateService)typeof(GameCacheDetectionService)
+            .GetField("_stateService", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(run.Detection)!;
+        typeof(StateService)
+            .GetField("_cachedState", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(state, new AppState { CacheSliceSizeBytes = 8 * 1024 * 1024 });
+
+        await run.RemoveAsync();
+
+        Assert.NotEmpty(run.Rust.Launches);
+        foreach (string arguments in run.Rust.Launches)
+        {
+            Assert.Contains(" --slice-size 8388608 ", arguments, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task AStopBetweenDatasourcesAfterTheFirstDeleted_ClearsTheListAsync()
     {
         await using var run = await Run.CreateAsync(datasourceCount: 2);
@@ -1067,7 +1087,8 @@ public sealed partial class UnmappedFileRemovalTests
                 datasources,
                 new DatasourceCapabilityService(datasources),
                 repairs.Tracker,
-                gate);
+                gate,
+                new StateService(NullLogger<StateService>.Instance, Paths, null!, null!));
             Service = CacheFileCountContractTests.NewServiceForCountState(
                 repairs.Tracker,
                 Notifications,
@@ -1118,7 +1139,8 @@ public sealed partial class UnmappedFileRemovalTests
             capabilityService: new DatasourceCapabilityService(Datasources),
             cacheScanGate: CacheScanGateHarness.Idle(),
             cacheSizeScan: null!,
-            operationStateService: null!);
+            operationStateService: null!,
+            stateService: null!);
 
         public SemaphoreSlim CacheLock => (SemaphoreSlim)typeof(CacheManagementService)
             .GetField("_cacheLock", BindingFlags.Instance | BindingFlags.NonPublic)!

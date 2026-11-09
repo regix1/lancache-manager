@@ -102,7 +102,10 @@ const getStatTooltips = (
   // The Cache Files card explains whichever figure it is showing: the count and the size come
   // from one scan but answer different questions, and only the size has a relationship to
   // Games on Disk worth spelling out.
-  cacheFilesValue: CacheFilesValue
+  cacheFilesValue: CacheFilesValue,
+  // Read from the totals themselves, so a refresh that keeps the earlier totals keeps the line
+  // that explains them.
+  prefillSeparated: boolean
 ): Record<string, React.ReactNode> => ({
   totalCache: (
     <HelpSection title={t('dashboard.statCards.totalCache.term')}>
@@ -141,6 +144,7 @@ const getStatTooltips = (
         />
       </HelpSection>
       <HelpNote type="info">{t('dashboard.statCards.addedToCache.note')}</HelpNote>
+      {prefillSeparated && <HelpNote type="info">{t('dashboard.help.prefillSeparated')}</HelpNote>}
     </>
   ),
   totalServed: (
@@ -290,7 +294,11 @@ const Dashboard: React.FC = () => {
   };
 
   // Built after the toggle it reads, since the Cache Files help text changes with it.
-  const statTooltips = useMemo(() => getStatTooltips(t, cacheFilesValue), [t, cacheFilesValue]);
+  const prefillSeparated = dashboardStats?.prefillSeparated === true;
+  const statTooltips = useMemo(
+    () => getStatTooltips(t, cacheFilesValue, prefillSeparated),
+    [t, cacheFilesValue, prefillSeparated]
+  );
 
   const getStatCardsGridClass = useCallback((layout: CardLayout, visibleCount: number) => {
     if (layout === '3-column') {
@@ -567,28 +575,6 @@ const Dashboard: React.FC = () => {
     });
   }, [gameDetectionData, evictedDataMode, evictedGamesCount, detectionFailed]);
 
-  const unmappedCacheBytes = useMemo(() => {
-    if (!cacheInfo?.hasCacheScan) {
-      return null;
-    }
-
-    const cacheScanTotal = cacheInfo.cacheScanTotalBytes;
-    const identifiedTotal = gameDetectionData?.identified_cache_bytes;
-    if (
-      cacheScanTotal === undefined ||
-      identifiedTotal === undefined ||
-      cacheScanTotal <= identifiedTotal
-    ) {
-      return null;
-    }
-
-    return cacheScanTotal - identifiedTotal;
-  }, [
-    cacheInfo?.hasCacheScan,
-    cacheInfo?.cacheScanTotalBytes,
-    gameDetectionData?.identified_cache_bytes
-  ]);
-
   // Every card carries the same accent. `color` drives the icon chip and the sparkline, and a tile's
   // identity is not a status, so varying it by card made bytes read as three different kinds of number.
   // Colour on this page is reserved for something that changed: `tone: 'warning'` and the stale badge.
@@ -799,9 +785,6 @@ const Dashboard: React.FC = () => {
               formattedLastDetectionTime
                 ? t('dashboard.cards.scannedAt', { time: formattedLastDetectionTime })
                 : null,
-              unmappedCacheBytes && unmappedCacheBytes > 0
-                ? t('dashboard.statCards.unmappedCache', { size: formatBytes(unmappedCacheBytes) })
-                : null,
               t('dashboard.cards.onDiskNow')
             ]
               .filter(Boolean)
@@ -872,7 +855,6 @@ const Dashboard: React.FC = () => {
       cacheFilesValue,
       isEditMode,
       staleScanBadge,
-      unmappedCacheBytes,
       failedSections,
       cacheSnapshotFailed,
       detectionFailed,

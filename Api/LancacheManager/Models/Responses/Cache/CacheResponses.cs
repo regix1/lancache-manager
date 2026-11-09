@@ -181,6 +181,17 @@ public class CacheDeleteModeResponse
 }
 
 /// <summary>
+/// Response for the cache slice size setting
+/// </summary>
+public class CacheSliceSizeResponse
+{
+    /// <summary>
+    /// Slice size in bytes; null means Auto.
+    /// </summary>
+    public long? SliceSizeBytes { get; set; }
+}
+
+/// <summary>
 /// Response for active corruption removals
 /// </summary>
 public class CorruptionRemovalInfo
@@ -291,12 +302,6 @@ public class CacheSizeScanStatusResponse
 
     /// <summary>The active scan's operation id. Null when <see cref="IsProcessing"/> is false.</summary>
     public Guid? OperationId { get; set; }
-}
-
-/// <summary>Response for DELETE /api/cache/evicted: the bulk eviction removal that was started.</summary>
-public class EvictionRemovalStartResponse
-{
-    public Guid OperationId { get; set; }
 }
 
 /// <summary>Response for DELETE /api/cache/evicted/{scope}: the scoped eviction removal that was started.</summary>

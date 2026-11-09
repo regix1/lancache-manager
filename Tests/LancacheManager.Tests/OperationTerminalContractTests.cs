@@ -147,6 +147,41 @@ public sealed partial class OperationTerminalContractTests
     }
 
     [Theory]
+    [InlineData(CorruptionDetectionMethod.Structural)]
+    [InlineData(CorruptionDetectionMethod.RepeatedMiss)]
+    public async Task CorruptionDetectionWithAManualSliceSizeRunsThroughTheProcess(CorruptionDetectionMethod method)
+    {
+        await using var run = await TerminalRun.CreateAsync();
+        run.State.SetCacheSliceSizeBytes(8_388_608);
+        var connection = await run.StartDetectionAsync(method);
+        Assert.Equal("8388608", connection.Arguments[Array.IndexOf(connection.Arguments, "--slice-size") + 1]);
+        await run.FinishDetectionAsync(connection, method);
+        Assert.Equal("completed", Assert.Single(run.Messages.Terminals(connection.Id)).GetProperty("status").GetString());
+        run.AssertHealthy();
+    }
+
+    [Fact]
+    public async Task CorruptionProcessRefusesARepeatedSliceSize()
+    {
+        var start = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, "corruption-process",
+            OperatingSystem.IsWindows() ? "CorruptionProcess.exe" : "CorruptionProcess"))
+        {
+            RedirectStandardError = true,
+            ArgumentList =
+            {
+                "structural-summary", "cache", "progress.json", "--scan-started-utc", "2026-07-12T00:00:00Z",
+                "--scan-mode", "full", "--state-scope", "scope", "--key-scheme", "monolithic",
+                "--slice-size", "8388608", "--slice-size", "8388608"
+            }
+        };
+        using var process = Process.Start(start)!;
+        var error = await process.StandardError.ReadToEndAsync().WaitAsync(TimeSpan.FromSeconds(30));
+        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(1, process.ExitCode);
+        Assert.Contains("An unsupported or repeated corruption option was supplied", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task CorruptionExternalTerminalRejectsLateRelayAndSuccessfulFinalizer(bool cancelled)
@@ -279,12 +314,12 @@ public sealed partial class OperationTerminalContractTests
                 Logger<GameCacheDetectionDataService>());
             games = new GameCacheDetectionService(Logger<GameCacheDetectionService>(), paths, OperationState, Contexts,
                 detectionStore, null!, null!, rust,
-                notifications, sources, capability, forwarded, CacheScanGateHarness.Idle());
+                notifications, sources, capability, forwarded, CacheScanGateHarness.Idle(), State);
             Clear = clear = new CacheClearingService(Logger<CacheClearingService>(), notifications, configuration, paths, State,
                 rust, sources, forwarded, capability, OperationState);
             Detection = detection = new CorruptionDetectionService(Logger<CorruptionDetectionService>(), configuration, paths, rust,
                 notifications, sources, Contexts, OperationState, forwarded, capability, CacheScanGateHarness.Idle(),
-                nginxLogRotationService: null!, stateService: null!);
+                nginxLogRotationService: null!, stateService: State);
             reconciliation = new TerminalReconciliation(
                 _services,
                 configuration,

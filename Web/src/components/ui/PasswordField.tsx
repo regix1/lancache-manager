@@ -12,6 +12,8 @@ interface PasswordFieldProps {
   autoComplete?: string;
   name?: string;
   disabled?: boolean;
+  /** Keeps the value fixed while a submit that sent it runs, without disabling the field. */
+  readOnly?: boolean;
   /** Input class string from the caller's family of steps; the reveal gutter is added here. */
   inputClassName: string;
   /** `aria-label` for the reveal button while the password is hidden. */
@@ -34,6 +36,7 @@ export const PasswordField: React.FC<PasswordFieldProps> = ({
   autoComplete,
   name,
   disabled,
+  readOnly,
   inputClassName,
   showPasswordLabel,
   hidePasswordLabel
@@ -55,6 +58,7 @@ export const PasswordField: React.FC<PasswordFieldProps> = ({
             name={name}
             spellCheck={false}
             disabled={disabled}
+            readOnly={readOnly}
             // The reveal button sits over the input's right edge, so the room for it
             // belongs to the component that renders it rather than to every caller.
             className={`${inputClassName} pr-10`}

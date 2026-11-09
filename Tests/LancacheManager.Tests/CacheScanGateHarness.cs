@@ -173,8 +173,19 @@ internal static class CacheScanGateHarness
             nameof(IStateService.GetEvictedDataMode) => "show",
             nameof(IStateService.GetGlobalNotificationDisplayMode) => NotificationDisplayMode.Condensed,
             nameof(IStateService.GetGameDetectionScanMode) => GameDetectionScanMode.Full,
+            nameof(IStateService.GetHiddenPrefillRules) => new List<ClientExclusionRule>(),
+            nameof(IStateService.GetPrefillRules) => new List<ClientExclusionRule>(),
             _ => null
         });
+
+    /// <summary>A prefill rule for one address; an empty address and no services mean every address and every service.</summary>
+    internal static ClientExclusionRule PrefillRule(string ip, string mode, params PrefillPlatform[] services) => new()
+    {
+        Ip = ip,
+        Mode = mode,
+        Traffic = ClientExclusionTraffic.Prefill,
+        Services = [.. services]
+    };
 
     /// <summary>
     /// Replaces the fields of an already-built snapshot, so a gate handed to production code

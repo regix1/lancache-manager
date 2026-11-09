@@ -69,6 +69,11 @@ public sealed class LoginServiceResponse
     public required string Id { get; set; }
     public required LoginKind Kind { get; set; }
     public required string DisplayName { get; set; }
+    /// <summary>
+    /// The settings of this login that environment variables supply; names only, never values.
+    /// Empty for a caller who is neither an account holder nor completing setup.
+    /// </summary>
+    public List<EnvironmentField> EnvironmentFields { get; set; } = [];
 }
 
 public sealed class OidcStartResponse

@@ -54,6 +54,9 @@ struct Args {
     /// Cache-key recipe of the target datasource: "monolithic" (default) | "bare_metal"
     #[arg(long = "key-scheme", default_value = "monolithic", global = true)]
     key_scheme: String,
+    /// Cache slice size in bytes, or `auto` to read it from the cache files
+    #[arg(long = "slice-size", default_value = "auto", global = true)]
+    slice_size: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -321,6 +324,7 @@ fn slice_is_mapped(
 fn expected_paths_for_candidate(
     cache_dir: &Path,
     candidate: &CorruptionCandidate,
+    slice_sizes: &[u64],
 ) -> Result<Vec<cache_corruption_detector::RepeatedMissCachePath>> {
     let CorruptionEvidence::RepeatedMiss {
         raw_url,
@@ -332,18 +336,28 @@ fn expected_paths_for_candidate(
     else {
         bail!("repeated-MISS removal received non-repeated evidence");
     };
+    let key_scheme = cache_utils::active_key_scheme();
+    let slice_size = cache_corruption_detector::url_slice_size(
+        cache_dir,
+        &candidate.service,
+        raw_url,
+        normalized_uri,
+        key_scheme,
+        slice_sizes,
+    )
+    .context("the candidate's cache files could not be checked")?;
     let mapping = cache_utils::physical_slices_for_request(
         cache_dir,
         &candidate.service,
         raw_url,
         &observed_range_header(observed_range),
+        slice_size,
     )
     .context("candidate observed range cannot be mapped to physical cache slices")?;
 
     if mapping.normalized_uri != *normalized_uri {
         bail!("candidate normalized URI does not match its raw URL");
     }
-    let key_scheme = cache_utils::active_key_scheme();
     if !mapping
         .slices
         .iter()
@@ -370,6 +384,7 @@ fn validate_observation(
     cache_dir: &Path,
     candidate: &CorruptionCandidate,
     observation: &cache_corruption_detector::CandidateObservation,
+    slice_sizes: &[u64],
 ) -> Result<ExactLogObservation> {
     let CorruptionEvidence::RepeatedMiss {
         raw_url,
@@ -412,14 +427,24 @@ fn validate_observation(
     };
 
     let raw_range = observation.raw_range.as_deref().unwrap_or("");
+    let key_scheme = cache_utils::active_key_scheme();
+    let slice_size = cache_corruption_detector::url_slice_size(
+        cache_dir,
+        &candidate.service,
+        raw_url,
+        normalized_uri,
+        key_scheme,
+        slice_sizes,
+    )
+    .context("the candidate's cache files could not be checked")?;
     let mapping = cache_utils::physical_slices_for_request(
         cache_dir,
         &candidate.service,
         &observation.raw_url,
         raw_range,
+        slice_size,
     )
     .context("candidate observation contains an unsupported range")?;
-    let key_scheme = cache_utils::active_key_scheme();
     if mapping.normalized_uri != *normalized_uri
         || !mapping
             .slices
@@ -460,6 +485,7 @@ fn load_and_validate_removal_evidence(
     evidence_path: &Path,
     cache_dir: &Path,
     requested_service: &str,
+    slice_sizes: &[u64],
 ) -> Result<ValidatedRemovalEvidence> {
     let file = File::open(evidence_path)
         .with_context(|| format!("failed to open evidence file {}", evidence_path.display()))?;
@@ -544,7 +570,7 @@ fn load_and_validate_removal_evidence(
             bail!("candidate evidence window must be ordered and no longer than 60 seconds");
         }
 
-        let expected_paths = expected_paths_for_candidate(cache_dir, &candidate)?;
+        let expected_paths = expected_paths_for_candidate(cache_dir, &candidate, slice_sizes)?;
         for exact_path in &candidate.exact_paths {
             let exact_path = PathBuf::from(exact_path);
             let Some(expected_path) = expected_paths
@@ -586,7 +612,12 @@ fn load_and_validate_removal_evidence(
 
         let mut candidate_observations = Vec::with_capacity(candidate_observations_wire.len());
         for observation in candidate_observations_wire {
-            candidate_observations.push(validate_observation(cache_dir, &candidate, observation)?);
+            candidate_observations.push(validate_observation(
+                cache_dir,
+                &candidate,
+                observation,
+                slice_sizes,
+            )?);
         }
         if candidate_observations
             .windows(2)
@@ -898,9 +929,17 @@ fn generate_report(
     lookback_days: u32,
     scan_started_utc: DateTime<Utc>,
     progress_path: Option<&Path>,
+    manual_slice_size: Option<u64>,
 ) -> Result<cache_corruption_detector::CorruptionReport> {
-    CorruptionDetector::new(cache_dir, threshold, lookback_days, scan_started_utc)
-        .generate_report(log_dir, timezone, progress_path)
+    let slice_sizes = cache_utils::slice_sizes_for_scan(cache_dir, manual_slice_size);
+    CorruptionDetector::new(
+        cache_dir,
+        threshold,
+        lookback_days,
+        scan_started_utc,
+        slice_sizes,
+    )
+    .generate_report(log_dir, timezone, progress_path)
         .context("failed to generate corruption report")
 }
 
@@ -1170,6 +1209,7 @@ fn run_remove(
     evidence_path: &Path,
     operation_id: Option<&str>,
     reporter: &ProgressReporter,
+    manual_slice_size: Option<u64>,
 ) -> Result<()> {
     write_progress(
         progress_path,
@@ -1182,7 +1222,10 @@ fn run_remove(
         0,
     )?;
 
-    let evidence = load_and_validate_removal_evidence(evidence_path, cache_dir, service)?;
+    // A sample read error stops the removal before it touches anything.
+    let slice_sizes = cache_utils::slice_sizes_for_run(cache_dir, manual_slice_size)?;
+    let evidence =
+        load_and_validate_removal_evidence(evidence_path, cache_dir, service, &slice_sizes)?;
     eprintln!(
         "Validated scan {}: {} candidates for datasource '{}' at threshold {}",
         evidence.scan_id,
@@ -1244,8 +1287,12 @@ async fn run_remove_logs(
     stem_positions: Option<&std::collections::HashMap<String, u64>>,
     resume: Option<&log_resume::ResumeFile>,
     reporter: &ProgressReporter,
+    manual_slice_size: Option<u64>,
 ) -> Result<()> {
-    let evidence = load_and_validate_removal_evidence(evidence_path, cache_dir, service)?;
+    // A sample read error stops the removal before it touches anything.
+    let slice_sizes = cache_utils::slice_sizes_for_run(cache_dir, manual_slice_size)?;
+    let evidence =
+        load_and_validate_removal_evidence(evidence_path, cache_dir, service, &slice_sizes)?;
 
     // Preflight every non-filesystem dependency before the first log rewrite. A later mutation
     // error still retains persisted evidence, but avoid preventable partial work (bad log
@@ -1363,6 +1410,8 @@ async fn main() -> Result<()> {
     cache_utils::set_active_key_scheme(cache_utils::CacheKeyScheme::from_config_str(
         &args.key_scheme,
     ));
+    let manual_slice_size =
+        cache_utils::parse_slice_size_arg(&args.slice_size).map_err(anyhow::Error::msg)?;
 
     match args.command {
         Commands::Detect {
@@ -1398,6 +1447,7 @@ async fn main() -> Result<()> {
                     lookback_days,
                     scan_started_utc,
                     progress_path,
+                    manual_slice_size,
                 )?;
                 write_pretty_json(Path::new(&output_json), &report)?;
                 reporter.emit_complete(
@@ -1448,6 +1498,7 @@ async fn main() -> Result<()> {
                     lookback_days,
                     scan_started_utc,
                     progress_path,
+                    manual_slice_size,
                 )?;
                 reporter.emit_complete(
                     "signalr.corruptionRemove.complete",
@@ -1565,6 +1616,7 @@ async fn main() -> Result<()> {
                 Path::new(&evidence_file),
                 operation_id.as_deref(),
                 &reporter,
+                manual_slice_size,
             );
             progress_events::finish_or_exit(
                 &reporter,
@@ -1598,6 +1650,7 @@ async fn main() -> Result<()> {
                 stem_positions.as_ref(),
                 resume.as_ref(),
                 &reporter,
+                manual_slice_size,
             )
             .await;
             progress_events::finish_or_exit(
@@ -2027,7 +2080,7 @@ mod tests {
         let evidence_path = write_evidence(fixture.path(), "default", 3, vec![candidate]);
 
         let evidence =
-            load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam").unwrap();
+            load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam", &[cache_utils::DEFAULT_SLICE_SIZE]).unwrap();
         assert_eq!(evidence.threshold, 3);
         assert_eq!(
             evidence.exact_paths,
@@ -2041,6 +2094,56 @@ mod tests {
             .observations
             .iter()
             .all(|observation| observation.cache_status == "MISS"));
+    }
+
+    #[test]
+    fn eight_mib_candidate_validates_and_its_slice_file_is_deleted() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache_dir = fixture.path().join("cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let eight_mib = 8 * cache_utils::DEFAULT_SLICE_SIZE;
+        let slice_path =
+            cache_utils::calculate_cache_path(&cache_dir, "steam", "/depot/file.bin", 0, eight_mib - 1);
+        let mut candidate = make_candidate(&cache_dir, "default", 3);
+        candidate.candidate.exact_paths = vec![slice_path.display().to_string()];
+        let CorruptionEvidence::RepeatedMiss { cache_slice, .. } = &mut candidate.candidate.evidence
+        else {
+            panic!("expected repeated-MISS evidence");
+        };
+        *cache_slice = CacheSliceKind::Ranged {
+            start: 0,
+            end: eight_mib - 1,
+        };
+        let slice_path = materialize_candidate_path(&candidate);
+        let evidence_path = write_evidence(fixture.path(), "default", 3, vec![candidate]);
+
+        let evidence = load_and_validate_removal_evidence(
+            &evidence_path,
+            &cache_dir,
+            "steam",
+            &[cache_utils::DEFAULT_SLICE_SIZE],
+        )
+        .unwrap();
+        assert_eq!(
+            evidence.exact_paths,
+            vec![ExactRemovalPath {
+                path: slice_path.clone(),
+                expected_key: None,
+            }]
+        );
+
+        let outcome = delete_exact_paths_with(
+            &cache_dir,
+            &evidence.exact_paths,
+            &fixture.path().join("progress.json"),
+            &ProgressReporter::new(false),
+            cache_utils::CacheKeyScheme::Monolithic,
+            fixture_scan_start(),
+            |path| std::fs::remove_file(path),
+        )
+        .unwrap();
+        assert_eq!(outcome.deleted_files, 1);
+        assert!(!slice_path.exists());
     }
 
     #[test]
@@ -2059,7 +2162,7 @@ mod tests {
             value["mode"] = json!(old_mode);
             std::fs::write(&evidence_path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
 
-            let error = load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam")
+            let error = load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam", &[cache_utils::DEFAULT_SLICE_SIZE])
                 .expect_err("v3 evidence must be rejected");
             assert!(
                 error.to_string().contains("deserialize")
@@ -2093,7 +2196,7 @@ mod tests {
             )
             .unwrap();
             assert!(
-                load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam").is_err()
+                load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam", &[cache_utils::DEFAULT_SLICE_SIZE]).is_err()
             );
             assert!(sentinel.is_file());
         }
@@ -2127,7 +2230,7 @@ mod tests {
             }
             let evidence_path = write_evidence(fixture.path(), "default", 3, vec![candidate]);
             assert!(
-                load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam").is_err()
+                load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam", &[cache_utils::DEFAULT_SLICE_SIZE]).is_err()
             );
         }
     }
@@ -2232,7 +2335,7 @@ mod tests {
         observations[1].raw_url = "//depot//file.bin".to_string();
         let evidence_path = write_evidence(fixture.path(), "default", 3, vec![candidate]);
         let evidence =
-            load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam").unwrap();
+            load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam", &[cache_utils::DEFAULT_SLICE_SIZE]).unwrap();
 
         assert_eq!(evidence.observations[0].raw_url, "/depot/file.bin");
         assert_eq!(evidence.observations[1].raw_url, "//depot//file.bin");
@@ -2253,18 +2356,18 @@ mod tests {
         let candidate = make_candidate(&cache_one, "wrong", 3);
         materialize_candidate_path(&candidate);
         let path = write_evidence(fixture.path(), "default", 3, vec![candidate]);
-        assert!(load_and_validate_removal_evidence(&path, &cache_one, "steam").is_err());
+        assert!(load_and_validate_removal_evidence(&path, &cache_one, "steam", &[cache_utils::DEFAULT_SLICE_SIZE]).is_err());
 
         let candidate = make_candidate(&cache_one, "default", 3);
         materialize_candidate_path(&candidate);
         let path = write_evidence(fixture.path(), "default", 5, vec![candidate]);
-        assert!(load_and_validate_removal_evidence(&path, &cache_one, "steam").is_err());
+        assert!(load_and_validate_removal_evidence(&path, &cache_one, "steam", &[cache_utils::DEFAULT_SLICE_SIZE]).is_err());
 
         let candidate = make_candidate(&cache_one, "default", 3);
         materialize_candidate_path(&candidate);
         let path = write_evidence(fixture.path(), "default", 3, vec![candidate]);
-        assert!(load_and_validate_removal_evidence(&path, &cache_two, "steam").is_err());
-        assert!(load_and_validate_removal_evidence(&path, &cache_one, "epic").is_err());
+        assert!(load_and_validate_removal_evidence(&path, &cache_two, "steam", &[cache_utils::DEFAULT_SLICE_SIZE]).is_err());
+        assert!(load_and_validate_removal_evidence(&path, &cache_one, "epic", &[cache_utils::DEFAULT_SLICE_SIZE]).is_err());
     }
 
     #[test]
@@ -2278,14 +2381,14 @@ mod tests {
         let mut escaped = make_candidate(&cache_dir, "default", 3);
         escaped.candidate.exact_paths = vec![outside.display().to_string()];
         let path = write_evidence(fixture.path(), "default", 3, vec![escaped]);
-        assert!(load_and_validate_removal_evidence(&path, &cache_dir, "steam").is_err());
+        assert!(load_and_validate_removal_evidence(&path, &cache_dir, "steam", &[cache_utils::DEFAULT_SLICE_SIZE]).is_err());
         assert_eq!(std::fs::read(&outside).unwrap(), b"sentinel");
 
         let directory_candidate = make_candidate(&cache_dir, "default", 3);
         let leaf = PathBuf::from(&directory_candidate.candidate.exact_paths[0]);
         std::fs::create_dir_all(&leaf).unwrap();
         let path = write_evidence(fixture.path(), "default", 3, vec![directory_candidate]);
-        assert!(load_and_validate_removal_evidence(&path, &cache_dir, "steam").is_err());
+        assert!(load_and_validate_removal_evidence(&path, &cache_dir, "steam", &[cache_utils::DEFAULT_SLICE_SIZE]).is_err());
         assert!(leaf.is_dir());
     }
 
@@ -2606,7 +2709,7 @@ mod tests {
         value.as_object_mut().unwrap().remove("scan_started_utc");
         std::fs::write(&evidence_path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
 
-        let error = load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam")
+        let error = load_and_validate_removal_evidence(&evidence_path, &cache_dir, "steam", &[cache_utils::DEFAULT_SLICE_SIZE])
             .expect_err("evidence without a scan start must be rejected");
 
         assert!(format!("{error:#}").contains("scan_started_utc"));

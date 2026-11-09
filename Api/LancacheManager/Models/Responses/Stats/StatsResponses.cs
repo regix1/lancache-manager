@@ -19,6 +19,12 @@ public class DashboardStatsResponse
     public int UniqueClients { get; set; }
     public string TopService { get; set; } = string.Empty;
 
+    /// <summary>
+    /// True when these totals were computed with prefill traffic left out of served, saved, hit
+    /// ratio and client numbers. Added to cache always includes it.
+    /// </summary>
+    public bool PrefillSeparated { get; set; }
+
     // Period-specific metrics
     public DashboardPeriodStats Period { get; set; } = new();
 

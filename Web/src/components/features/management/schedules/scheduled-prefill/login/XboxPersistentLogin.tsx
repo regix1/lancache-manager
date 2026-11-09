@@ -13,7 +13,7 @@ export function XboxPersistentLogin({
   onRetry
 }: PersistentLoginHostProps) {
   const { state, actions, startLogin, resumeModal } = usePersistentXboxAuth();
-  const { loginDeadline } = usePersistentLoginStoreState('Xbox');
+  const { loginDeadline, loginWaitKey } = usePersistentLoginStoreState('Xbox');
   const {
     opened: authModalOpened,
     retrying,
@@ -38,7 +38,7 @@ export function XboxPersistentLogin({
       opened={authModalOpened}
       onClose={onDismiss}
       onRetry={retrying ? onRetry : undefined}
-      state={{ ...state, error }}
+      state={{ ...state, error, loginWaitKey }}
       actions={actions}
       dismissBehavior="keep-pending"
       onCancelLogin={onDismiss}

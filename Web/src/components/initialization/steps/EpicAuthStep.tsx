@@ -5,11 +5,13 @@ import { CheckCircle, ExternalLink, KeyRound, Shield } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
+import { ProgressBar } from '@components/ui/ProgressBar';
 import FormField from '@components/ui/FormField';
 import { StepHeader } from '@components/initialization/StepHeader';
 import { SignInReason } from '@components/initialization/SignInReason';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
+import { describeEpicMappingRun } from '@hooks/useEpicMappingRun';
 import { getIntegrationReasonKey } from '../../../types';
 
 interface EpicAuthStepProps {
@@ -25,23 +27,35 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
 }) => {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
-  const [succeeded, setSucceeded] = useState<string | null>(null);
-
-  const handleSuccess = () => {
-    setSucceeded(identity);
-  };
 
   const handleError = (message: string) => {
     setError(message);
   };
 
   const { state, actions, startLogin, authStatus, identity, refreshStatus } = useEpicMappingAuth({
-    onSuccess: handleSuccess,
     onError: handleError
   });
 
-  const succeededForCaller =
-    succeeded === identity || (authStatus?.canManage === true && authStatus.isAuthenticated);
+  // The step is done only when the mapping ended with its own done key. With no mapping operation known (after a
+  // reload or a restart) a saved sign-in counts as done only when a mapping once finished: the server drops a null
+  // collection time from the answer, so it arrives missing and is tested loosely. While the server has not said
+  // whether a mapping runs, or a new sign-in is under way, the saved sign-in decides nothing.
+  const mapping = state.mapping;
+  const savedSignIn = authStatus?.canManage === true && authStatus.isAuthenticated;
+  const mappingKnown =
+    mapping !== undefined && mapping.phase !== 'none' && mapping.phase !== 'unknown';
+  const mappingRunning = mappingKnown ? mapping.phase === 'running' : state.codeAccepted === true;
+  const mappingEnded = mappingKnown && mapping.phase !== 'running';
+  const savedSignInDecides =
+    mapping?.phase === 'none' &&
+    state.codeAccepted !== true &&
+    !state.loading &&
+    !state.needsAuthorizationCode &&
+    savedSignIn;
+  const succeededForCaller = mappingKnown
+    ? mapping.phase === 'done'
+    : savedSignInDecides && authStatus.lastCollectionUtc != null;
+  const mappingFailed = !succeededForCaller && (mappingEnded || savedSignInDecides);
   const reason =
     state.canAuthenticate === false
       ? state.accessUnavailable
@@ -92,6 +106,52 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
   const handleAuthorizationCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     actions.setAuthorizationCode(e.target.value);
   };
+
+  // State 4: the mapping runs after the accepted code
+  if (mappingRunning) {
+    const line = mapping
+      ? describeEpicMappingRun(mapping, t)
+      : t('signalr.epicMapping.codeAccepted');
+    return (
+      <div className="space-y-5">
+        <StepHeader
+          icon={<EpicIcon size={28} className="icon-info" />}
+          iconBackground="bg-themed-info"
+          title={t('initialization.epicAuth.title')}
+          description={line}
+        />
+        <ProgressBar value={mapping ? mapping.percent : 0} height="md" label={line} />
+      </div>
+    );
+  }
+
+  // State 5: the mapping failed or was canceled, or an earlier sign-in was saved without a finished mapping
+  if (mappingFailed) {
+    return (
+      <div className="space-y-5">
+        <StepHeader
+          icon={<EpicIcon size={28} className="icon-info" />}
+          iconBackground="bg-themed-info"
+          title={t('initialization.epicAuth.title')}
+          description={t('initialization.epicAuth.subtitle')}
+        />
+        <Alert color="error">
+          {mapping?.phase === 'cancelled'
+            ? t('signalr.epicMapping.cancelled')
+            : t('signalr.epicMapping.mappingFailed')}
+        </Alert>
+        <Button
+          variant="filled"
+          color="primary"
+          onClick={actions.retryLogin}
+          loading={state.loading}
+          fullWidth
+        >
+          {t('common.retry')}
+        </Button>
+      </div>
+    );
+  }
 
   // State 3: Success
   if (succeededForCaller) {
@@ -155,7 +215,7 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
                 }}
                 placeholder={t('initialization.epicAuth.codePlaceholder')}
                 className="themed-input setup-input"
-                disabled={state.canAuthenticate === false || state.loading}
+                disabled={state.canAuthenticate === false}
               />
             )}
           </FormField>

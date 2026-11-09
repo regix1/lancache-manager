@@ -9,7 +9,6 @@ import type { ScheduledPrefillSchedule, ScheduledPrefillServiceKey } from './typ
 interface ScheduledPrefillPlatformsPanelProps {
   serviceKey: ScheduledPrefillServiceKey;
   config: ScheduledPrefillSchedule;
-  disabled: boolean;
   gameSelectionLoading: boolean;
   gameSelectionBlocked: 'login' | 'container' | null;
   onChange: (schedule: ScheduledPrefillSchedule) => void;
@@ -32,7 +31,6 @@ export function ScheduledPrefillPlatformsPanel(props: ScheduledPrefillPlatformsP
                 className="scheduled-prefill-platforms__record-name"
                 size="md"
                 value={props.config.name}
-                disabled={props.disabled}
                 onChange={(event) => props.onChange({ ...props.config, name: event.target.value })}
               />
             )}
@@ -49,7 +47,6 @@ export function ScheduledPrefillPlatformsPanel(props: ScheduledPrefillPlatformsP
           <ToggleSwitch
             size="md"
             value={props.config.enabled ? 'true' : 'false'}
-            disabled={props.disabled}
             options={[
               {
                 value: 'false',

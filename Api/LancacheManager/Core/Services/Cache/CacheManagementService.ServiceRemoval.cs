@@ -95,7 +95,7 @@ public partial class CacheManagementService
                                 : string.Empty;
                             var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                                 rustBinaryPath,
-                                $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)} --skip-db-delete --datasource \"{datasource.Name}\"{operationArgument}");
+                                $"\"{datasource.LogPath}\" \"{datasource.CachePath}\" \"{serviceName}\" \"{execution.OutputJsonPath}\" \"{execution.ProgressJsonPath}\" --progress --key-scheme {_capabilityService.GetKeySchemeWireValue(datasource)}{RustProcessHelper.SliceSizeFlag(_stateService.GetCacheSliceSizeBytes())} --skip-db-delete --datasource \"{datasource.Name}\"{operationArgument}");
                             _logger.LogInformation("[ServiceRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                                 datasource.Name, rustBinaryPath, startInfo.Arguments);
                             return startInfo;

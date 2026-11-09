@@ -71,6 +71,10 @@ struct Args {
     #[arg(long = "key-scheme", default_value = "monolithic")]
     key_scheme: String,
 
+    /// Cache slice size in bytes, or `auto` to read it from the cache files
+    #[arg(long = "slice-size", default_value = "auto")]
+    slice_size: String,
+
     /// Count or remove the cache files no game or service claims. Runs the full claim, so it
     /// cannot be combined with a partial scan.
     #[arg(
@@ -144,6 +148,10 @@ struct GameCacheInfo {
     service: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     epic_app_id: Option<String>,
+    /// Slice sizes of the game's ranged cache files in bytes, ascending and comma separated
+    /// ("1048576" or "1048576,8388608"); None when none of its files was resolved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slice_sizes: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -192,6 +200,9 @@ struct DetectionReport {
     /// must not replace a non-empty snapshot with this report's (empty) results.
     #[serde(skip_serializing_if = "Option::is_none")]
     indexed_cache_files: Option<usize>,
+    /// Full-scan only: cache folders or files the walk could not read, so games stored there may read as not cached.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unreadable_cache_items: Option<usize>,
     games: Vec<GameCacheInfo>,
     services: Vec<ServiceCacheInfo>,
     /// Full-scan only: the cache files no game and no service claimed, grouped by the
@@ -220,17 +231,23 @@ struct DetectionReport {
 /// index to ~24 bytes per entry instead of ~200. The digest stays the currency for the rest of
 /// the scan: rows are sized straight from this map and Phase 5 rebuilds a path only for the
 /// handful of files it has to read a `KEY:` header from.
-fn scan_cache_directory(cache_dir: &Path) -> HashMap<u128, u64> {
+fn scan_cache_directory(cache_dir: &Path) -> (HashMap<u128, u64>, usize) {
     eprintln!("\n=== Phase 1: Scanning Cache Directory ===");
     eprintln!("Building in-memory index of cache files...");
 
     let counter = AtomicUsize::new(0);
     let non_hash_names = AtomicUsize::new(0);
+    let unreadable = AtomicUsize::new(0);
 
     // The shared cache walk: a 2-hex folder linked to another disk is read through its link, as removals and the eviction index read it.
     let cache_files: HashMap<u128, u64> = cache_utils::cache_root_walk(cache_dir, |_| {})
         .parallelism(jwalk::Parallelism::RayonNewPool(num_cpus::get()))
         .into_iter()
+        .inspect(|item| {
+            if cache_utils::hides_cache_files(cache_dir, item) {
+                unreadable.fetch_add(1, Ordering::Relaxed);
+            }
+        })
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().is_file())
         .par_bridge()
@@ -252,7 +269,10 @@ fn scan_cache_directory(cache_dir: &Path) -> HashMap<u128, u64> {
                 return None;
             };
 
-            let metadata = entry.metadata().ok()?;
+            let Ok(metadata) = entry.metadata() else {
+                unreadable.fetch_add(1, Ordering::Relaxed);
+                return None;
+            };
             Some((digest, metadata.len()))
         })
         .collect();
@@ -272,7 +292,7 @@ fn scan_cache_directory(cache_dir: &Path) -> HashMap<u128, u64> {
         );
     }
 
-    cache_files
+    (cache_files, unreadable.load(Ordering::Relaxed))
 }
 
 /// Identity of the detection row a late-attributed cache file belongs to. Values in
@@ -528,6 +548,7 @@ fn detect_unmapped_services(
                                 sample_urls: Vec::new(),
                                 service: Some(service.to_lowercase()),
                                 epic_app_id: None,
+                                slice_sizes: None,
                             });
                             detected_games.last_mut().unwrap()
                         }
@@ -859,12 +880,16 @@ async fn main() -> Result<()> {
     if !cache_dir.exists() {
         anyhow::bail!("Cache directory not found: {}", cache_dir.display());
     }
+    let manual_slice_size =
+        cache_utils::parse_slice_size_arg(&args.slice_size).map_err(anyhow::Error::msg)?;
+    let slice_sizes = cache_utils::slice_sizes_for_scan(&cache_dir, manual_slice_size);
 
     let pool = db::create_pool().await?;
 
     // Variables that may or may not be used depending on mode
     let cache_files_index: Option<HashMap<u128, u64>>;
     let indexed_cache_files: Option<usize>;
+    let unreadable_cache_items: Option<usize>;
 
     if incremental_mode {
         // INCREMENTAL MODE: Skip expensive cache directory scan
@@ -874,11 +899,12 @@ async fn main() -> Result<()> {
         reporter.emit_progress(20.0, "signalr.gameDetect.scan.skippedIncremental", json!({}));
         cache_files_index = None;
         indexed_cache_files = None;
+        unreadable_cache_items = None;
     } else {
         // FULL SCAN: Build in-memory index of all cache files
         write_progress(progress_path.as_deref(), "scanning", "signalr.gameDetect.scan.inProgress", json!({}), 5.0, 0, 0)?;
         reporter.emit_progress(5.0, "signalr.gameDetect.scan.inProgress", json!({}));
-        let index = scan_cache_directory(&cache_dir);
+        let (index, unreadable) = scan_cache_directory(&cache_dir);
         if index.is_empty() {
             eprintln!(
                 "WARNING: cache directory {} exists but contains no cache files - this scan carries no detection evidence (wrong mount or path?)",
@@ -886,6 +912,7 @@ async fn main() -> Result<()> {
             );
         }
         indexed_cache_files = Some(index.len());
+        unreadable_cache_items = Some(unreadable);
         write_progress(progress_path.as_deref(), "scanning", "signalr.gameDetect.scan.complete", json!({}), 20.0, 0, 0)?;
         reporter.emit_progress(20.0, "signalr.gameDetect.scan.complete", json!({}));
         cache_files_index = Some(index);
@@ -983,12 +1010,12 @@ async fn main() -> Result<()> {
         }
 
         let result = if incremental_mode {
-            detect_steam_game_cache_info_incremental(&records, &cache_dir, &mut claimed)
+            detect_steam_game_cache_info_incremental(&records, &cache_dir, &slice_sizes, &mut claimed)
         } else {
             let cache_index = cache_files_index
                 .as_ref()
                 .context("Cache file index missing during full game scan")?;
-            detect_steam_game_cache_info(&records, cache_index, &mut claimed)
+            detect_steam_game_cache_info(&records, cache_index, &slice_sizes, &mut claimed)
         };
 
         match result {
@@ -1010,9 +1037,7 @@ async fn main() -> Result<()> {
                     eprintln!("no cache files found");
                 }
             }
-            Err(e) => {
-                eprintln!("ERROR: {}", e);
-            }
+            Err(e) => return Err(e),
         }
     }
 
@@ -1086,8 +1111,9 @@ async fn main() -> Result<()> {
                     game_name,
                     service_urls,
                     &cache_dir,
+                    &slice_sizes,
                     &mut claimed,
-                )
+                )?
             } else {
                 let cache_index = cache_files_index
                     .as_ref()
@@ -1097,6 +1123,7 @@ async fn main() -> Result<()> {
                     game_name,
                     service_urls,
                     cache_index,
+                    &slice_sizes,
                     &mut claimed,
                 )
             };
@@ -1194,8 +1221,9 @@ async fn main() -> Result<()> {
                     game_name,
                     service_urls,
                     &cache_dir,
+                    &slice_sizes,
                     &mut claimed,
-                )
+                )?
             } else {
                 register_late_owner(
                     &mut late,
@@ -1213,6 +1241,7 @@ async fn main() -> Result<()> {
                     game_name,
                     service_urls,
                     cache_index,
+                    &slice_sizes,
                     &mut claimed,
                 )
             };
@@ -1258,12 +1287,12 @@ async fn main() -> Result<()> {
     };
     if !evicted_records.is_empty() {
         let unevict_ids = if incremental_mode {
-            unevict_candidates_incremental(&evicted_records, &cache_dir)
+            unevict_candidates_incremental(&evicted_records, &cache_dir, &slice_sizes)?
         } else {
             let cache_index = cache_files_index
                 .as_ref()
                 .context("Cache file index missing during un-evict probe")?;
-            unevict_candidates_with_index(&evicted_records, cache_index)
+            unevict_candidates_with_index(&evicted_records, cache_index, &slice_sizes)
         };
         if unevict_ids.is_empty() {
             eprintln!("No evicted Epic/named downloads have files back on disk");
@@ -1420,9 +1449,10 @@ async fn main() -> Result<()> {
                     &service_name,
                     &service_urls,
                     &cache_dir,
+                    &slice_sizes,
                     &mut claimed,
                     &url_counter,
-                )
+                )?
             } else {
                 register_late_owner(
                     &mut late,
@@ -1439,6 +1469,7 @@ async fn main() -> Result<()> {
                     &service_name,
                     &service_urls,
                     cache_index,
+                    &slice_sizes,
                     &mut claimed,
                     &url_counter,
                 )
@@ -1551,6 +1582,7 @@ async fn main() -> Result<()> {
         total_games_detected: detected_games.len(),
         total_services_detected: detected_services.len(),
         indexed_cache_files,
+        unreadable_cache_items,
         games: detected_games,
         services: detected_services,
         unmapped_services,
@@ -1863,6 +1895,7 @@ mod tests {
             total_games_detected: 0,
             total_services_detected: 0,
             indexed_cache_files: None,
+            unreadable_cache_items: None,
             games: Vec::new(),
             services: Vec::new(),
             unmapped_services: None,
@@ -1887,6 +1920,7 @@ mod tests {
             total_games_detected: 1,
             total_services_detected: 1,
             indexed_cache_files: Some(2),
+            unreadable_cache_items: None,
             games: vec![GameCacheInfo {
                 game_app_id: 440,
                 game_name: "Team Fortress 2".to_string(),
@@ -1896,6 +1930,7 @@ mod tests {
                 sample_urls: vec!["steam/depot/441/chunk/a".to_string()],
                 service: None,
                 epic_app_id: None,
+                slice_sizes: Some("1048576,8388608".to_string()),
             }],
             services: vec![ServiceCacheInfo {
                 service_name: "wsus".to_string(),
@@ -1914,6 +1949,7 @@ mod tests {
         let json = serde_json::to_string(&report).unwrap();
 
         assert!(json.contains("\"game_app_id\":440"), "{json}");
+        assert!(json.contains("\"slice_sizes\":\"1048576,8388608\""), "{json}");
         assert!(json.contains("\"depot_ids\":[441]"), "{json}");
         assert!(json.contains("\"service_name\":\"wsus\""), "{json}");
         assert!(json.contains("\"cache_files_found\":3"), "{json}");
@@ -1935,12 +1971,28 @@ mod tests {
         write_cache_file(&other_disk, digest, "steam/depot/1/chunk/a", "0123456789");
         std::os::unix::fs::symlink(other_disk.join("ab"), root.join("ab")).unwrap();
 
-        let index = scan_cache_directory(&root);
+        let (index, _) = scan_cache_directory(&root);
 
         assert_eq!(
             index.get(&digest),
             Some(&(b"KEY: steam/depot/1/chunk/a\n0123456789".len() as u64))
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_cache_folder_with_no_target_is_counted_as_unreadable() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("cache");
+        fs::create_dir_all(&root).unwrap();
+        write_cache_file(&root, 0xabu128, "steam/depot/1/chunk/a", "0123456789");
+        // A 2-hex folder linked to a disk that is not mounted may hold cache files the walk cannot read.
+        std::os::unix::fs::symlink(temp.path().join("unmounted"), root.join("cd")).unwrap();
+
+        let (index, unreadable) = scan_cache_directory(&root);
+
+        assert_eq!(index.len(), 1);
+        assert_eq!(unreadable, 1);
     }
     fn set_age(path: &Path, modified: SystemTime) {
         fs::File::options()

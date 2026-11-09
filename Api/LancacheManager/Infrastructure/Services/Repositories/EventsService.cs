@@ -11,11 +11,13 @@ public class EventsService : IEventsService
 {
     private readonly AppDbContext _context;
     private readonly ILogger<EventsService> _logger;
+    private readonly IStateService _stateService;
 
-    public EventsService(AppDbContext context, ILogger<EventsService> logger)
+    public EventsService(AppDbContext context, ILogger<EventsService> logger, IStateService stateService)
     {
         _context = context;
         _logger = logger;
+        _stateService = stateService;
     }
 
     public async Task<List<Event>> GetAllAsync(CancellationToken cancellationToken = default)
@@ -117,6 +119,7 @@ public class EventsService : IEventsService
         }
 
         List<Download> downloads;
+        var hiddenPrefillRules = _stateService.GetHiddenPrefillRules();
 
         if (taggedOnly)
         {
@@ -125,6 +128,7 @@ public class EventsService : IEventsService
                 .AsNoTracking()
                 .Where(ed => ed.EventId == eventId)
                 .Select(ed => ed.Download)
+                .ApplyPrefillFilter(hiddenPrefillRules)
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync(cancellationToken);
         }
@@ -135,6 +139,7 @@ public class EventsService : IEventsService
                 .AsNoTracking()
                 .Where(d => d.StartTimeUtc <= evt.EndTimeUtc
                     && (d.EndTimeUtc >= evt.StartTimeUtc || d.StartTimeUtc >= evt.StartTimeUtc))
+                .ApplyPrefillFilter(hiddenPrefillRules)
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync(cancellationToken);
         }

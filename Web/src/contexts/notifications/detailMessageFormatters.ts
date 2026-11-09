@@ -24,7 +24,7 @@ import type {
 } from '../SignalRContext/types';
 import i18n from '@/i18n';
 import { classifyRemovalKind, removalStageKey, withRemovalIdentity } from './removalKind';
-import { formatBytes, formatCount } from '@/utils/formatters';
+import { formatBytes, formatCount, formatPercent } from '@/utils/formatters';
 import { formatCorruptionProgress, structuralStartingKey } from './corruptionProgress';
 import {
   GENERIC_COMPLETION_I18N_KEY,
@@ -650,7 +650,8 @@ export const formatXboxGameMappingsUpdatedMessage = (
  * This is what actually shows the run is alive. The bar tracks the RUN percent, which divides the
  * active game's fraction by the number of games in the batch, so on a multi-game run it can crawl
  * for minutes on a large download and read as frozen. These bytes advance on every pushed tick of
- * a live download.
+ * a live download. The line carries this game's own percent, because the run percent under the bar
+ * would not match these bytes.
  */
 export const formatScheduledPrefillDetailMessage = (
   event: ScheduledPrefillProgressEvent
@@ -673,6 +674,8 @@ export const formatScheduledPrefillDetailMessage = (
 
   return i18n.t('management.schedules.services.scheduledPrefill.events.downloadedOfTotal', {
     downloaded: formatBytes(downloaded),
-    total: formatBytes(total)
+    total: formatBytes(total),
+    // Floored so the line never reads 100% while bytes are still short of the total.
+    percent: formatPercent(Math.floor((100 * downloaded) / total), 0)
   });
 };

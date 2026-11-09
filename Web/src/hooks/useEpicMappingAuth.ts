@@ -9,6 +9,7 @@ import { ApiError } from '@services/apiError';
 import { getIntegrationReasonKey, type EpicMappingAuthStatus } from '../types';
 import { useReconnectRefetch } from './useReconnectRefetch';
 import { useSignInEndingWait } from './useSignInEndingWait';
+import { useEpicMappingRun, type EpicMappingRun } from './useEpicMappingRun';
 
 interface UseEpicMappingAuthOptions {
   onSuccess?: () => void;
@@ -29,6 +30,10 @@ export interface EpicAuthState {
   authorizationCode: string;
   /** Why the last attempt failed, or `null` while nothing has failed. */
   error: string | null;
+  /** True from the moment the server accepted the code: the account is saved and the games are mapped in the background. */
+  codeAccepted?: boolean;
+  /** How the mapping after the accepted code is going, or ended. */
+  mapping?: EpicMappingRun;
 }
 
 export interface EpicAuthActions {
@@ -37,6 +42,8 @@ export interface EpicAuthActions {
   resetAuthForm: () => void;
   cancelPendingRequest: () => void;
   cancelLogin?: () => void;
+  /** Starts a new sign-in after the mapping failed or was canceled. */
+  retryLogin?: () => void;
 }
 
 export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
@@ -95,6 +102,11 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     }
   }, [identity, hasAccess]);
   const [loading, setLoading] = useState(false);
+  const [codeAccepted, setCodeAccepted] = useState(false);
+  // From the moment a code is sent, so the mapping's first event, which arrives before the answer, is not missed.
+  const [mappingArmed, setMappingArmed] = useState(false);
+  const [retryRequested, setRetryRequested] = useState(false);
+  const { run: mapping, clear: clearMapping } = useEpicMappingRun(mappingArmed);
   const [needsAuthorizationCode, setNeedsAuthorizationCode] = useState(false);
   const [authorizationUrl, setAuthorizationUrl] = useState('');
   const [authorizationCode, setAuthorizationCode] = useState('');
@@ -117,7 +129,11 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     setAuthorizationCode('');
     setAbortController(null);
     setEndingWait(null);
-  }, [abortController]);
+    setCodeAccepted(false);
+    setMappingArmed(false);
+    clearMapping();
+    setRetryRequested(false);
+  }, [abortController, clearMapping]);
 
   const cancelPendingRequest = useCallback(() => {
     resetAuthForm();
@@ -245,6 +261,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
         ) {
           attemptRef.current = null;
           setAttemptId(null);
+          setCodeAccepted(true);
           onSuccess?.();
           return true;
         }
@@ -321,11 +338,12 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     // other branch above reaches resetAuthForm through startLogin, which clears it there.
     setError(null);
     setLoading(true);
+    setMappingArmed(true);
     const controller = new AbortController();
     setAbortController(controller);
     try {
       // Send the authorization code directly to the backend
-      // Backend exchanges it for tokens, fetches games, saves credentials
+      // Backend exchanges it for tokens and saves the sign-in; the games are mapped in the background
       await ApiService.completeEpicMappingAuth(
         authorizationCode.trim(),
         controller.signal,
@@ -334,6 +352,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       if (!current()) return false;
       attemptRef.current = null;
       setAttemptId(null);
+      setCodeAccepted(true);
       onSuccess?.();
       return true;
     } catch (error) {
@@ -353,6 +372,8 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       setNeedsAuthorizationCode(false);
       setAuthorizationCode('');
       setAuthorizationUrl('');
+      setMappingArmed(false);
+      clearMapping();
       const message = getErrorMessage(error);
       setError(message);
       onError?.(message);
@@ -376,8 +397,24 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     canAuthenticate,
     readLoginEnding,
     loginDeadline,
-    endingWait
+    endingWait,
+    clearMapping
   ]);
+
+  // A retry waits for the status read that shows the sign-in free again, then starts the new sign-in.
+  const retryLogin = useCallback(() => {
+    resetAuthForm();
+    setRetryRequested(true);
+    void refreshStatus();
+  }, [resetAuthForm, refreshStatus]);
+
+  useEffect(() => {
+    if (!retryRequested) return;
+    if (authStatus?.canSignIn === true || authStatus?.canRecover === true) {
+      setRetryRequested(false);
+      void startLogin();
+    }
+  }, [retryRequested, authStatus, startLogin]);
 
   const state: EpicAuthState = {
     attemptId: formCurrent ? attemptId : null,
@@ -390,7 +427,9 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     needsAuthorizationCode: formCurrent && needsAuthorizationCode,
     authorizationUrl: formCurrent ? authorizationUrl : '',
     authorizationCode: formCurrent ? authorizationCode : '',
-    error: formCurrent ? error : null
+    error: formCurrent ? error : null,
+    codeAccepted: formCurrent && codeAccepted,
+    mapping
   };
 
   const actions: EpicAuthActions = {
@@ -403,7 +442,8 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
       if (identityRef.current === identity && attemptRef.current === attemptId)
         cancelPendingRequest();
     },
-    cancelLogin
+    cancelLogin,
+    retryLogin
   };
 
   return {

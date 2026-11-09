@@ -1331,8 +1331,15 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                     if (serviceRun.Token.IsCancellationRequested || expired)
                     {
                         // A cancel the person sent is theirs even when the limit passed before this pass saw it.
-                        await daemon.CancelPrefillRunAsync(session.Id, run.PrefillRunId, _stopBudget,
-                            expired && !serviceRun.Token.IsCancellationRequested ? "runtime-exceeded" : null);
+                        try
+                        {
+                            await daemon.CancelPrefillRunAsync(session.Id, run.PrefillRunId, true, _stopBudget,
+                                expired && !serviceRun.Token.IsCancellationRequested ? "runtime-exceeded" : null);
+                        }
+                        // A reset removes only finished runs, so a watched run that is gone has ended; its
+                        // completion, set when its finish is published, carries the outcome this watch reports.
+                        catch (DaemonCommandException ex) when (ex.ErrorCode == "operation-not-found"
+                            && !session.Runs.ContainsKey(run.PrefillRunId)) { }
                     }
                     else if (stalled)
                         await daemon.FailStalledSessionAsync(session, run.PrefillRunId, now,
@@ -1491,6 +1498,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         private int _appsCompleted;
         private int _failedApps;
         private int _totalApps;
+        private string? _currentAppId;
+        private long _currentAppTotalBytes;
+        private long? _currentAppBytes;
         private double _highestPercent;
         private string? _lastEmittedMessage;
         private long _lastEmittedBytes = -1L;
@@ -1605,6 +1615,17 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 // Byte fraction of the game downloading RIGHT NOW. Only live "downloading" ticks count:
                 // an app_completed tick's bytes belong to a game already inside _appsCompleted, so
                 // treating them as in-flight would double-count it.
+                //
+                // Three rules keep the fraction honest when a game retries. (a) A tick reporting more
+                // bytes than its total is dropped (fraction 0, so the bar holds at its high-water mark):
+                // a Steam retry pass sends the retry set as the total but the game's cumulative bytes,
+                // and a partial read can overrun the same way. (b) The denominator is the largest total
+                // seen for this game in this run, reset when the game changes, so a retry pass's smaller
+                // total cannot raise the fraction. (c) A dropped tick shows the last good bytes and total
+                // of the same game, so the card's byte line does not go blank during a retry.
+                // Known limit: a tick lost at the try-enter gate above is never seen by (b), so a game's
+                // first-attempt total can be missed until a later tick of that attempt is accepted; one
+                // attempt's ticks all carry the same total, so the next accepted tick corrects it.
                 var currentAppFraction = 0d;
                 string? currentAppName = null;
                 long? currentAppBytes = null;
@@ -1612,10 +1633,23 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 if (PrefillProgressStateExtensions.ParseOrUnknown(progress.State) == PrefillProgressState.Downloading
                     && progress.TotalBytes > 0)
                 {
-                    currentAppFraction = Math.Clamp((double)progress.BytesDownloaded / progress.TotalBytes, 0d, 1d);
+                    if (progress.CurrentAppId != _currentAppId)
+                    {
+                        _currentAppId = progress.CurrentAppId;
+                        _currentAppTotalBytes = 0;
+                        _currentAppBytes = null;
+                    }
+
+                    _currentAppTotalBytes = Math.Max(_currentAppTotalBytes, progress.TotalBytes);
+                    if (progress.BytesDownloaded <= progress.TotalBytes)
+                    {
+                        _currentAppBytes = progress.BytesDownloaded;
+                        currentAppFraction = Math.Clamp((double)progress.BytesDownloaded / _currentAppTotalBytes, 0d, 1d);
+                    }
+
                     currentAppName = progress.CurrentAppName;
-                    currentAppBytes = progress.BytesDownloaded;
-                    currentAppTotalBytes = progress.TotalBytes;
+                    currentAppBytes = _currentAppBytes;
+                    currentAppTotalBytes = _currentAppBytes.HasValue ? _currentAppTotalBytes : null;
                 }
 
                 double? percent = null;

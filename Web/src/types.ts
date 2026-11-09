@@ -2,6 +2,7 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { StructuralScanMode } from './types/corruptionScan';
+import type { PersistentPrefillServiceId } from './components/features/prefill/persistentPrefillTypes';
 
 export interface CacheInfo {
   totalCacheSize: number;
@@ -202,6 +203,8 @@ export interface DashboardStats {
   activeDownloads: number;
   uniqueClients: number;
   topService: string;
+  // True when prefill traffic was left out of served, saved, hit ratio and client counts.
+  prefillSeparated: boolean;
   period: {
     duration: string;
     since?: Date | null;
@@ -284,9 +287,14 @@ export interface CacheSnapshotResponse {
 
 export type ClientExclusionMode = 'hide' | 'exclude';
 
+export type ClientExclusionTraffic = 'all' | 'prefill';
+
 export interface ClientExclusionRule {
   ip: string;
   mode: ClientExclusionMode;
+  traffic: ClientExclusionTraffic;
+  /** Empty means every service; only a prefill rule narrows by service. */
+  services: PersistentPrefillServiceId[];
 }
 
 export interface StatsExclusionsResponse {
@@ -639,6 +647,9 @@ export interface GameCacheInfo {
   image_url?: string; // Game art URL (Steam header or Epic keyImages)
   epic_app_id?: string; // Epic Games catalog item ID for image proxy
   is_evicted?: boolean; // True if all cache files have been evicted (no longer on disk)
+  // Slice sizes of the game's cache files in bytes, ascending and comma separated; absent when
+  // detection resolved none of its files.
+  slice_sizes?: string | null;
   evicted_downloads_count?: number;
   evicted_bytes?: number;
   evicted_sample_urls?: string[];
@@ -1014,7 +1025,7 @@ export interface EpicScheduleStatus {
   lastRefreshTime: string | null;
   nextRefreshIn: number;
   isAuthenticated: boolean;
-  operationId: string | null;
+  operationId?: string;
   status: string;
   progressPercent: number;
 }

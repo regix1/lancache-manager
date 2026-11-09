@@ -55,11 +55,15 @@ public sealed class AccountResetService(
             if (accounts.Count > 0 && (primary.Count != 1 || primary[0].Role != SessionType.Admin || primary[0].Id == Guid.Empty))
                 throw new InvalidOperationException("Account reset requires exactly one valid primary administrator. Repair the primary account identity before restarting.");
 
+            var accessService = services.GetRequiredService<AccessService>();
             reset = new AccountReset
             {
                 Id = 1,
                 PrimaryAccountId = primary.Count == 1 ? primary[0].Id : null,
-                AccountIds = accounts.Where(account => !account.IsMainAdmin).Select(account => account.Id).Order().ToArray(),
+                // An account an environment variable allows is kept with its saved logins.
+                AccountIds = accounts
+                    .Where(account => !account.IsMainAdmin && !accessService.IsAllowedByEnvironment(account.Id))
+                    .Select(account => account.Id).Order().ToArray(),
                 StartedAtUtc = DateTime.UtcNow
             };
             Validate(reset);
@@ -69,25 +73,28 @@ public sealed class AccountResetService(
         }
 
         await ValidateAccountsAsync(reset, cancellationToken);
-        var targets = reset.AccountIds.ToHashSet();
+        // A resumed reset reads a list an earlier run stored, possibly before the environment allowed
+        // one of its accounts, so the list is filtered again here.
+        var access = services.GetRequiredService<AccessService>();
+        var targets = reset.AccountIds.Where(id => !access.IsAllowedByEnvironment(id)).ToHashSet();
         if (targets.Count > 0)
         {
             await services.GetRequiredService<SteamAuthStorageService>().ClearAccountLoginsAsync(targets, cancellationToken);
             await services.GetRequiredService<EpicAuthStorageService>().ClearAccountLoginsAsync(targets, cancellationToken);
             await services.GetRequiredService<XboxAuthStorageService>().ClearAccountLoginsAsync(targets, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
-            services.GetRequiredService<AccessService>().ForgetAccounts(targets);
+            access.ForgetAccounts(targets);
         }
 
         await using var completion = await context.Database.BeginTransactionAsync(cancellationToken);
         await ValidateAccountsAsync(reset, cancellationToken);
         var removed = await context.UserAccounts.AsNoTracking()
-            .Where(account => reset.AccountIds.Contains(account.Id)).Select(account => account.Id)
+            .Where(account => targets.Contains(account.Id)).Select(account => account.Id)
             .ToListAsync(cancellationToken);
         var sessions = await context.UserSessions
-            .Where(session => session.AccountId.HasValue && reset.AccountIds.Contains(session.AccountId.Value))
+            .Where(session => session.AccountId.HasValue && targets.Contains(session.AccountId.Value))
             .ExecuteDeleteAsync(cancellationToken);
-        await context.UserAccounts.Where(account => reset.AccountIds.Contains(account.Id)).ExecuteDeleteAsync(cancellationToken);
+        await context.UserAccounts.Where(account => targets.Contains(account.Id)).ExecuteDeleteAsync(cancellationToken);
         var now = DateTime.UtcNow;
         foreach (var accountId in removed)
             context.IdentityAuditEntries.Add(new IdentityAuditEntry

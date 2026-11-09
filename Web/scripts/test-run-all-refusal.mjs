@@ -29,6 +29,7 @@ const runAll = async ({ response, failure } = {}) => {
   const errors = [];
   const running = [];
   const confirmations = [];
+  const shownErrors = [];
   const handler = bindLifted(runAllSource, {
     ApiService: {
       runAllSchedules: async () => {
@@ -43,11 +44,13 @@ const runAll = async ({ response, failure } = {}) => {
     notifyError: (message, error) => errors.push({ message, error }),
     t: (key) => key,
     setRunningAll: (value) => running.push(value),
-    setRunAllConfirmOpen: (value) => confirmations.push(value)
+    setRunAllConfirmOpen: (value) => confirmations.push(value),
+    setRunAllError: (value) => shownErrors.push(value),
+    getErrorMessage: (error) => error.message
   });
 
   await handler();
-  return { calls, notices, errors, running, confirmations };
+  return { calls, notices, errors, running, confirmations, shownErrors };
 };
 
 test('result fixtures without unqueued active work rely only on per-service acknowledgments', async () => {
@@ -68,7 +71,7 @@ test('result fixtures without unqueued active work rely only on per-service ackn
   }
 });
 
-test('a Run All request failure raises one titled popup with the reason and finally cleanup', async () => {
+test('a Run All request failure keeps the dialog open with the reason inside and ends the spinner', async () => {
   const failure = new Error('Run All transport failed');
   const result = await runAll({ failure });
 
@@ -78,7 +81,8 @@ test('a Run All request failure raises one titled popup with the reason and fina
     { message: 'management.schedules.runAllFailed', error: failure }
   ]);
   assert.deepEqual(result.running, [true, false]);
-  assert.deepEqual(result.confirmations, [false]);
+  assert.deepEqual(result.confirmations, []);
+  assert.deepEqual(result.shownErrors, ['Run All transport failed']);
 });
 
 const fetchSchedulesSource = liftHookCallback(

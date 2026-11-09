@@ -1,13 +1,13 @@
 # LANCache Manager API Reference
 
-Every HTTP endpoint LANCache Manager serves: 283 operations across 6 groups, generated from the OpenAPI document of `LancacheManager | v1` version `1.0.0`.
+Every HTTP endpoint LANCache Manager serves: 337 operations across 6 groups, generated from the OpenAPI document of `LancacheManager | v1` version `1.0.0`.
 
 This is a flattened summary meant to be read by a person or pasted into a chat with an AI assistant. It is not the OpenAPI document itself. A running instance serves the interactive reference at `/scalar` and the full machine-readable document at `/openapi/v1.json`, both of which take an admin session or the API key.
 
 ## Calling the API
 
 - Base URL is wherever the instance is served. The bundled Docker image publishes port 8080, so `http://<host>:8080`. A local development run uses `http://localhost:5000`.
-- Endpoints marked **requires a signed-in session** need the `LancacheManager.Session` cookie. Sign in once at `POST /api/auth/login`, which takes an API key, a username and a password together, and send the cookie it returns on every later call. A call that changes something (POST, PUT, PATCH, DELETE) also needs the value of the `LancacheManager.Antiforgery` cookie sent back as an `X-Antiforgery-Token` header.
+- Endpoints marked **requires a signed-in session** need the `LancacheManager.Session` cookie. Sign in once at `POST /api/auth/login`, which takes a username and a password, plus the API key in the `ApiKeyPassword` and `ApiKeyOidc` modes. In the `Oidc` and `ApiKeyOidc` modes only the primary administrator's local password works. Send the cookie the call returns on every later call. A call that changes something (POST, PUT, PATCH, DELETE) also needs the value of the `LancacheManager.Antiforgery` cookie sent back as an `X-Antiforgery-Token` header.
 - Endpoints marked **public** answer without a session, because they have to work before a caller has one (sign-in, guest configuration, setup, health).
 - The `X-Api-Key` header on its own opens `/scalar` and `/openapi/v1.json` and nothing else. Five setup endpoints read the key themselves: `POST /api/setup/credentials` and `POST /api/setup/external` take it in the header; `POST /api/account-setup/first-admin`, `POST /api/account-setup/open-main-admin-recovery`, and `POST /api/account-setup/recover-main-admin` take it in the request body.
 - Get the key with `docker exec lancache-manager cat /data/security/api_key.txt`, or from Management then Integrations inside the app. Later container logs print only a hint; the full key is written to the logs only when it is first created or rotated.
@@ -15,12 +15,12 @@ This is a flattened summary meant to be read by a person or pasted into a chat w
 
 ## Groups
 
-- **Access** (65 endpoints) - Sign in, sessions, API keys, and per-user settings.
-- **Cache and Games** (58 endpoints) - Cached content, game and depot identification, and game artwork.
-- **Clients** (10 endpoints) - Cache clients, their groups, and their hostname mappings.
-- **Downloads and Reporting** (40 endpoints) - Download history, dashboard figures, statistics, speeds, events, and logs.
-- **Prefill** (62 endpoints) - Platform prefill daemons, their schedules, and their administration.
-- **System** (48 endpoints) - Service health, metrics, database maintenance, migrations, and background operations.
+- **Access** (72 endpoints) - Sign in, sessions, API keys, and per-user settings.
+- **Cache and Games** (69 endpoints) - Cached content, game and depot identification, and game artwork.
+- **Clients** (12 endpoints) - Cache clients, their groups, and their hostname mappings.
+- **Downloads and Reporting** (46 endpoints) - Download history, dashboard figures, statistics, speeds, events, and logs.
+- **Prefill** (89 endpoints) - Platform prefill daemons, their schedules, and their administration.
+- **System** (49 endpoints) - Service health, metrics, database maintenance, migrations, and background operations.
 
 ## Access
 
@@ -30,8 +30,8 @@ Sign in, sessions, API keys, and per-user settings.
 
 Access: requires a signed-in session
 
-Lists the accounts the caller may see: every account for the owner, every account except the
-owner for another administrator, and every account that is not an administrator for a user.
+Lists the accounts the caller may see: every account for the owner, and every account except
+the owner for any other account holder.
 
 Response 200 (inline object): (no fields)
 
@@ -51,7 +51,7 @@ Access: requires a signed-in session
 
 Reports whether the request's API key is a valid admin key.
 
-Response 200 (`ApiKeyStatusResponse`): `hasApiKey?: boolean`, `keyType?: string`, `hasPrimaryKey?: boolean`
+Response 200 (`ApiKeyStatusResponse`): `hasApiKey?: boolean`
 
 ### GET /api/auth/guest/battlenet-prefill/config
 
@@ -91,7 +91,7 @@ Access: requires a signed-in session
 
 Returns the Steam guest-prefill defaults.
 
-Response 200 (`GuestPrefillConfigResponse`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`, `epicEnabledByDefault?: boolean`, `epicDurationHours?: integer`, `epicMaxThreadCount?: integer?`, `battlenetEnabledByDefault?: boolean`, `battlenetDurationHours?: integer`
+Response 200 (`GuestPrefillConfigResponse`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`
 
 ### GET /api/auth/guest/riot-prefill/config
 
@@ -117,13 +117,27 @@ Returns the Xbox guest-prefill defaults.
 
 Response 200 (`EpicGuestPrefillConfigResponse`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
 
+### GET /api/auth/login/challenge
+
+Access: public
+
+Parameters: `token`? (query): string
+Response 200: no body
+
+### GET /api/auth/oidc/challenge
+
+Access: public
+
+Parameters: `token`? (query): string
+Response 200: no body
+
 ### GET /api/auth/status
 
 Access: public
 
 Returns session and setup status for the current request.
 
-Response 200 (`AuthStatusResponse`): `isAuthenticated?: boolean`, `authenticationEnabled?: boolean`, `sessionType?: object`, `sessionId?: string?`, `expiresAt?: string?`, `accountId?: string?`, `isMainAdmin?: boolean`, `hasData?: boolean`, `hasBeenInitialized?: boolean`, `hasDataLoaded?: boolean`, `guestAccessEnabled?: boolean`, `guestDurationHours?: integer`, `prefillEnabled?: boolean`, `steamPrefillEnabled?: boolean`, `steamPrefillExpiresAt?: string?`, `epicPrefillEnabled?: boolean`, `epicPrefillExpiresAt?: string?`, `battlenetPrefillEnabled?: boolean`, `battlenetPrefillExpiresAt?: string?`, `riotPrefillEnabled?: boolean`, `riotPrefillExpiresAt?: string?`, `xboxPrefillEnabled?: boolean`, `xboxPrefillExpiresAt?: string?`
+Response 200 (`AuthStatusResponse`): `isAuthenticated?: boolean`, `authenticationEnabled?: boolean`, `accountMode?: AccountMode`, `authenticationSetupRequired?: boolean`, `signInModeFromEnvironment?: boolean`, `oidcDisplayName?: string?`, `oidcPending?: boolean`, `ownerOidcEnabled?: boolean`, `ownerPasswordEnabled?: boolean`, `loginServices?: LoginServiceResponse[]`, `ownerLoginServices?: string[]`, `loginSetupPending?: boolean`, `pendingLoginKind?: object`, `sessionType?: object`, `sessionId?: string?`, `expiresAt?: string?`, `accountId?: string?`, `isMainAdmin?: boolean`, `hasData?: boolean`, `hasBeenInitialized?: boolean`, `hasDataLoaded?: boolean`, `guestAccessEnabled?: boolean`, `guestDurationHours?: integer`, `prefillEnabled?: boolean`, `steamPrefillEnabled?: boolean`, `steamPrefillExpiresAt?: string?`, `epicPrefillEnabled?: boolean`, `epicPrefillExpiresAt?: string?`, `battlenetPrefillEnabled?: boolean`, `battlenetPrefillExpiresAt?: string?`, `riotPrefillEnabled?: boolean`, `riotPrefillExpiresAt?: string?`, `xboxPrefillEnabled?: boolean`, `xboxPrefillExpiresAt?: string?`
 
 ### GET /api/sessions
 
@@ -133,7 +147,7 @@ Lists sessions the caller may see. The owner's sessions are withheld from every 
 account holder.
 
 Parameters: `page`? (query): integer, `pageSize`? (query): integer
-Response 200 (`SessionListResponse`): `sessions?: SessionDto[]`, `count?: integer`, `adminCount?: integer`, `userCount?: integer`, `guestCount?: integer`, `pagination: SessionListPage`, `historySessions?: SessionDto[]`
+Response 200 (`SessionListResponse`): `sessions?: SessionRecord[]`, `count?: integer`, `adminCount?: integer`, `userCount?: integer`, `guestCount?: integer`, `pagination: SessionListPage`, `historySessions?: SessionRecord[]`
 
 ### GET /api/steam-api-keys/status
 
@@ -142,7 +156,7 @@ Access: requires a signed-in session
 Gets the Steam Web API status.
 
 Parameters: `forceRefresh`? (query): boolean
-Response 200 (`SteamApiStatusResponse`): `version?: string`, `isV2Available?: boolean`, `isV1Available?: boolean`, `hasApiKey?: boolean`, `isFullyOperational?: boolean`, `message?: string?`, `lastChecked?: string`
+Response 200 (`SteamApiStatusResponse`): `canManage?: boolean`, `ownershipReason?: string?`, `version?: string`, `isV2Available?: boolean`, `isV1Available?: boolean`, `hasApiKey?: boolean`, `isFullyOperational?: boolean`, `message?: string?`, `lastChecked?: string`
 
 ### GET /api/steam-auth/status
 
@@ -150,7 +164,8 @@ Access: requires a signed-in session
 
 Gets the Steam authentication status.
 
-Response 200 (`SteamAuthStatusResponse`): `mode?: string`, `username?: string`, `isAuthenticated?: boolean`, `authMode?: string`, `isConnected?: boolean`, `hasStoredCredentials?: boolean`
+Parameters: `attemptId`? (query): string
+Response 200 (`SteamAuthStatusResponse`): `canManage?: boolean`, `canSignIn?: boolean`, `canLogout?: boolean`, `canCancel?: boolean`, `canRecover?: boolean`, `ownershipReason?: string?`, `attemptId?: string?`, `loginExpiresAtUtc?: string?`, `loginEnding?: object`, `pendingPrompt?: string?`, `mode?: string`, `username?: string`, `isAuthenticated?: boolean`, `authMode?: string`, `isConnected?: boolean`
 
 ### GET /api/themes
 
@@ -205,13 +220,22 @@ Creates the account that owns the installation.
 Body (`AccountCredentialsRequest`): `username?: string`, `password?: string`, `apiKey?: string`
 Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
 
+### POST /api/account-setup/main-admin-password
+
+Access: requires a signed-in session
+
+Establishes the first local credential for a main administrator created by external sign-in.
+
+Body (`AccountCredentialsRequest`): `username?: string`, `password?: string`, `apiKey?: string`
+Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+
 ### POST /api/account-setup/open-main-admin-recovery
 
 Access: public
 
 Opens main-administrator password recovery after the host script proves the installation key.
 
-Body (`RecoveryWindowRequest`): `apiKey?: string`
+Body (`RecoveryWindowRequest`): `apiKey?: string`, `recoveryToken?: string`
 Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
 
 ### POST /api/account-setup/recover-main-admin
@@ -229,7 +253,7 @@ Access: requires a signed-in session
 
 Creates an account.
 
-Body (`CreateAccountRequest`): `username?: string`, `password?: string`, `role: SessionType`
+Body (`CreateAccountRequest`): `username?: string`, `password?: string`
 
 ### POST /api/accounts/wipe
 
@@ -340,10 +364,17 @@ Response 200: no body
 
 Access: public
 
-Signs an account in with the installation's API key, a username and a password.
+Signs an account in with a username and password, plus the installation key when selected.
 
 Body (`LoginRequest`): `apiKey?: string`, `username?: string`, `password?: string`
 Response 200 (`LoginResponse`): `success?: boolean`, `sessionType?: SessionType`, `expiresAt?: string`
+
+### POST /api/auth/login/start
+
+Access: public
+
+Body (`LoginStartRequest`): `loginId?: string`, `apiKey?: string`, `setup?: boolean`, `recovery?: boolean`, `owner?: boolean`
+Response 200 (`OidcStartResponse`): `url: string`
 
 ### POST /api/auth/logout
 
@@ -353,6 +384,13 @@ Revokes the caller's session and clears the session cookie.
 
 Response 200 (`LogoutResponse`): `success?: boolean`, `message?: string`
 
+### POST /api/auth/oidc/start
+
+Access: public
+
+Body (`OidcStartRequest`): `apiKey?: string`, `setup?: boolean`, `recovery?: boolean`, `owner?: boolean`
+Response 200 (`OidcStartResponse`): `url: string`
+
 ### POST /api/auth/password
 
 Access: requires a signed-in session
@@ -361,6 +399,13 @@ Changes the password of the account the caller is signed in as.
 
 Body (`ChangePasswordRequest`): `currentPassword?: string`, `newPassword?: string`
 Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+
+### POST /api/auth/setup
+
+Access: public
+
+Body (`AccessSetupRequest`): `mode: AccountMode`, `apiKey?: string`, `recovery?: boolean`, `acknowledgeUnauthenticated?: boolean`, `login?: object`, `oidc?: object`
+Response 200 (`AccessSetupResponse`): `success?: boolean`, `requiresOidcTest?: boolean`, `requiresLoginTest?: boolean`, `pendingLoginId?: string?`, `callbackUrls?: string[]`
 
 ### POST /api/sessions/bulk/reset-to-defaults
 
@@ -413,7 +458,7 @@ Access: requires a signed-in session
 Tests a Steam Web API key without saving it.
 
 Body (`TestApiKeyRequest`): `apiKey?: string`
-Response 200 (`ApiKeyTestResponse`): `valid?: boolean`, `message?: string`
+Response 200 (`ApiKeyTestResponse`): `valid?: boolean`
 
 ### POST /api/steam-auth/login
 
@@ -422,7 +467,16 @@ Access: requires a signed-in session
 Logs in to Steam.
 
 Body (inline object): (no fields)
-Response 200 (`SteamLoginResponse`): `success?: boolean`, `message?: string?`, `authMode?: string?`, `username?: string?`, `status?: string?`, `requiresTwoFactor?: boolean`, `requiresEmailCode?: boolean`, `sessionExpired?: boolean`
+Response 200 (`SteamLoginResponse`): `attemptId?: string?`, `expiresAtUtc?: string?`, `success?: boolean`, `message?: string?`, `authMode?: string?`, `username?: string?`, `status?: string?`, `requiresTwoFactor?: boolean`, `requiresEmailCode?: boolean`, `sessionExpired?: boolean`, `operationId?: string?`
+
+### POST /api/steam-auth/login/cancel
+
+Access: requires a signed-in session
+
+Cancels an in-flight sign-in.
+
+Body (inline object): (no fields)
+Response 200 (`MessageOnlyResponse`): `message?: string`
 
 ### POST /api/themes/cleanup
 
@@ -430,7 +484,7 @@ Access: requires a signed-in session
 
 Deletes every custom theme file.
 
-Response 200 (`ThemeCleanupResponse`): `success?: boolean`, `message?: string`, `deletedThemes?: string[]`, `errors?: string[]`, `remainingThemes?: string[]`
+Response 200 (`ThemeCleanupResponse`): `success?: boolean`, `message?: string`, `errors?: string[]`
 
 ### POST /api/themes/upload
 
@@ -459,16 +513,6 @@ Turns an account off, or back on.
 
 Parameters: `id` (path): string
 Body (`SetAccountDisabledRequest`): `disabled: boolean`
-Response 200 (`AccountResponse`): `id?: string`, `username?: string`, `role?: SessionType`, `isMainAdmin?: boolean`, `isDisabled?: boolean`, `createdAtUtc?: string`, `lastLoginAtUtc?: string?`
-
-### PUT /api/accounts/{id}/role
-
-Access: requires a signed-in session
-
-Moves an account onto a role.
-
-Parameters: `id` (path): string
-Body (`SetAccountRoleRequest`): `role: SessionType`
 Response 200 (`AccountResponse`): `id?: string`, `username?: string`, `role?: SessionType`, `isMainAdmin?: boolean`, `isDisabled?: boolean`, `createdAtUtc?: string`, `lastLoginAtUtc?: string?`
 
 ### PUT /api/steam-auth/mode
@@ -556,11 +600,20 @@ Deletes an account.
 Parameters: `id` (path): string
 Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
 
+### DELETE /api/auth/login-services/{id}
+
+Access: requires a signed-in session
+
+Parameters: `id` (path): string
+Body (`RemoveLoginRequest`): `apiKey?: string`
+Response 200: no body
+
 ### DELETE /api/sessions/{id}
 
 Access: requires a signed-in session
 
-Permanently deletes a session's row and history. A session belonging to the owner answers as one that does not exist.
+Permanently deletes a session's row and history. A session belonging to the owner answers
+as one that does not exist.
 
 Parameters: `id` (path): string
 Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
@@ -644,6 +697,24 @@ Loads validated, read-only evidence for one retained snapshot and service.
 Parameters: `scanId` (path): string, `service` (path): string
 Response 200 (inline object): (no fields)
 
+### GET /api/cache/corruption/remove-all/{operationId}
+
+Access: requires a signed-in session
+
+Whether the all-services removal accepted under operationId is still going.
+
+Parameters: `operationId` (path): string
+Response 200 (`RemoveAllRunResponse`): `running?: boolean`
+
+### GET /api/cache/count/{operationId}/status
+
+Access: requires a signed-in session
+
+Returns the status of one cache-file count, whatever it is counting.
+
+Parameters: `operationId` (path): string
+Response 200 (`CacheFileCountStatusResponse`): `isProcessing?: boolean`, `operationId?: string?`, `percentComplete?: number`, `stageKey?: string?`, `context?: object?`, `cacheFilesFound?: integer?`, `bytesFound?: integer?`, `unmappedServices?: array?`
+
 ### GET /api/cache/operations
 
 Access: requires a signed-in session
@@ -684,7 +755,7 @@ Access: requires a signed-in session
 
 Returns the recovery status for the cache file scan notification card.
 
-Response 200 (`CacheSizeScanStatusResponse`): `isProcessing?: boolean`, `showNotification?: boolean`, `status?: OperationStatus`, `percentComplete?: number`, `message?: string`, `stageKey?: string?`, `context?: object?`, `operationId?: string?`
+Response 200 (`CacheSizeScanStatusResponse`): `isProcessing?: boolean`, `status?: OperationStatus`, `percentComplete?: number`, `message?: string`, `stageKey?: string?`, `context?: object?`, `operationId?: string?`
 
 ### GET /api/depots/rebuild/check-incremental
 
@@ -692,7 +763,7 @@ Access: requires a signed-in session
 
 Checks whether an incremental depot scan is viable.
 
-Response 200 (`IncrementalViabilityCheck`): `isViable?: boolean`, `lastChangeNumber?: integer`, `currentChangeNumber?: integer`, `changeGap?: integer`, `isLargeGap?: boolean`, `willTriggerFullScan?: boolean`, `estimatedAppsToScan?: integer`, `error?: string?`
+Response 200 (`IncrementalViabilityCheck`): `isViable?: boolean`, `lastChangeNumber?: integer`, `currentChangeNumber?: integer`, `changeGap?: integer`, `isLargeGap?: boolean`, `willTriggerFullScan?: boolean`, `estimatedAppsToScan?: integer`, `error?: string?`, `stageKey?: string?`, `context?: object?`
 
 ### GET /api/depots/rebuild/progress
 
@@ -700,7 +771,7 @@ Access: requires a signed-in session
 
 Gets the current depot rebuild progress.
 
-Response 200 (`SteamPicsProgress`): `isProcessing?: boolean`, `status?: DepotScanPhase`, `statusDisplay?: string?`, `totalApps?: integer`, `processedApps?: integer`, `totalBatches?: integer`, `processedBatches?: integer`, `progressPercent?: number`, `depotMappingsFound?: integer`, `depotMappingsFoundInSession?: integer`, `isReady?: boolean`, `lastCrawlTime?: string?`, `nextCrawlIn?: number`, `crawlIntervalHours?: number`, `crawlIncrementalMode?: object`, `lastScanWasForced?: boolean`, `automaticScanSkipped?: boolean`, `isConnected?: boolean`, `isLoggedOn?: boolean`, `errorMessage?: string?`, `isWebApiAvailable?: boolean`, `operationId?: string?`, `showNotification?: boolean`
+Response 200 (`SteamPicsProgress`): `isProcessing?: boolean`, `status?: DepotScanPhase`, `statusDisplay?: string?`, `totalApps?: integer`, `processedApps?: integer`, `totalBatches?: integer`, `processedBatches?: integer`, `progressPercent?: number`, `depotMappingsFound?: integer`, `depotMappingsFoundInSession?: integer`, `isReady?: boolean`, `lastCrawlTime?: string?`, `nextCrawlIn?: number`, `crawlIntervalHours?: number`, `crawlIncrementalMode?: object`, `lastScanWasForced?: boolean`, `automaticScanSkipped?: boolean`, `isConnected?: boolean`, `isLoggedOn?: boolean`, `errorMessage?: string?`, `isWebApiAvailable?: boolean`, `operationId?: string?`
 
 ### GET /api/depots/status
 
@@ -725,7 +796,8 @@ Access: requires a signed-in session
 
 Gets the current mapping auth status (authenticated, displayName, etc.)
 
-Response 200 (`EpicMappingAuthStatus`): `isAuthenticated?: boolean`, `displayName?: string?`, `lastCollectionUtc?: string?`, `gamesDiscovered?: integer`
+Parameters: `attemptId`? (query): string
+Response 200 (`EpicMappingAuthStatus`): `canManage?: boolean`, `canSignIn?: boolean`, `canLogout?: boolean`, `canCancel?: boolean`, `canRecover?: boolean`, `ownershipReason?: string?`, `attemptId?: string?`, `loginExpiresAtUtc?: string?`, `loginEnding?: object`, `isAuthenticated?: boolean`, `displayName?: string?`, `lastCollectionUtc?: string?`, `gamesDiscovered?: integer`
 
 ### GET /api/epic/game-mappings/schedule
 
@@ -733,7 +805,7 @@ Access: requires a signed-in session
 
 Gets the current schedule status (interval, next run, last run, processing state).
 
-Response 200 (`EpicScheduleStatus`): `refreshIntervalHours?: number`, `isProcessing?: boolean`, `lastRefreshTime?: string?`, `nextRefreshIn?: number`, `isAuthenticated?: boolean`, `operationId?: string?`, `status?: EpicMappingStatus`, `progressPercent?: number`, `statusMessage?: string?`, `showNotification?: boolean`
+Response 200 (`EpicScheduleStatus`): `refreshIntervalHours?: number`, `isProcessing?: boolean`, `lastRefreshTime?: string?`, `nextRefreshIn?: number`, `isAuthenticated?: boolean`, `operationId?: string?`, `status?: EpicMappingStatus`, `progressPercent?: number`, `statusMessage?: string?`
 
 ### GET /api/epic/game-mappings/search
 
@@ -761,13 +833,22 @@ Returns the cached Steam game header image.
 Parameters: `appId` (path): integer
 Response 200: no body
 
-### GET /api/game-images/available
+### GET /api/game-images/{appId}/header/{version}
 
 Access: public
 
-Returns the list of app IDs that have cached game images.
+Returns the cached Steam game header image.
 
-Response 200 (inline object): (no fields)
+Parameters: `appId` (path): integer, `version` (path): integer
+Response 200: no body
+
+### GET /api/game-images/available
+
+Access: requires a signed-in session
+
+Returns the app IDs that have cached game images, each with the version its bytes were stored at.
+
+Response 200 (`AvailableGameImagesResponse`): `images?: object`
 
 ### GET /api/game-images/cache-version
 
@@ -786,6 +867,15 @@ Returns the cached Epic game header image.
 Parameters: `epicAppId` (path): string
 Response 200: no body
 
+### GET /api/game-images/epic/{epicAppId}/header/{version}
+
+Access: public
+
+Returns the cached Epic game header image.
+
+Parameters: `epicAppId` (path): string, `version` (path): integer
+Response 200: no body
+
 ### GET /api/game-images/name/{service}/{slug}/header
 
 Access: public
@@ -795,13 +885,22 @@ Returns the cached banner image for a name-keyed service.
 Parameters: `service` (path): string, `slug` (path): string
 Response 200: no body
 
+### GET /api/game-images/name/{service}/{slug}/header/{version}
+
+Access: public
+
+Returns the cached banner image for a name-keyed service.
+
+Parameters: `service` (path): string, `slug` (path): string, `version` (path): integer
+Response 200: no body
+
 ### GET /api/games/detect/active
 
 Access: requires a signed-in session
 
 Gets the currently running detection operation.
 
-Response 200 (`ActiveDetectionResponse`): `isProcessing?: boolean`, `operation?: object`, `showNotification?: boolean`
+Response 200 (`ActiveDetectionResponse`): `isProcessing?: boolean`, `operation?: object`
 
 ### GET /api/games/detect/cached
 
@@ -809,7 +908,7 @@ Access: requires a signed-in session
 
 Gets cached game detection results.
 
-Response 200 (`CachedDetectionResponse`): `hasCachedResults?: boolean`, `games?: object`, `services?: object`, `totalGamesDetected?: integer`, `totalServicesDetected?: integer`, `lastDetectionTime?: string?`, `games_on_disk_bytes?: integer`, `games_on_disk_count?: integer`, `identified_cache_bytes?: integer`, `identified_service_bytes?: integer`, `detection_summary_computed_at?: string?`, `detection_stale?: boolean`
+Response 200 (`CachedDetectionResponse`): `hasCachedResults?: boolean`, `games?: object`, `services?: object`, `totalGamesDetected?: integer`, `totalServicesDetected?: integer`, `lastDetectionTime?: string?`, `games_on_disk_bytes?: integer`, `games_on_disk_count?: integer`, `identified_cache_bytes?: integer`, `identified_service_bytes?: integer`, `detection_summary_computed_at?: string?`, `detection_stale?: boolean`, `unmapped_services?: array?`
 
 ### GET /api/xbox/game-mappings
 
@@ -826,7 +925,8 @@ Access: requires a signed-in session
 
 Gets the current manager-side mapping auth status.
 
-Response 200 (`XboxMappingAuthStatus`): `isAuthenticated?: boolean`, `displayName?: string?`, `lastCollectionUtc?: string?`, `gamesDiscovered?: integer`, `expiresAtUtc?: string?`
+Parameters: `attemptId`? (query): string
+Response 200 (`XboxMappingAuthStatus`): `canManage?: boolean`, `canSignIn?: boolean`, `canLogout?: boolean`, `canCancel?: boolean`, `canRecover?: boolean`, `ownershipReason?: string?`, `attemptId?: string?`, `loginExpiresAtUtc?: string?`, `isAuthenticated?: boolean`, `displayName?: string?`, `lastCollectionUtc?: string?`, `gamesDiscovered?: integer`, `loginInProgress?: boolean`, `loginEnding?: object`, `expiresAtUtc?: string?`
 
 ### GET /api/xbox/game-mappings/search
 
@@ -852,7 +952,51 @@ Access: requires a signed-in session
 Starts a background corruption detection scan.
 
 Parameters: `threshold`? (query): integer, `lookbackDays`? (query): integer, `detectionMethod`? (query): string, `scanMode`? (query): string
-Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+
+### POST /api/cache/count/game/{appId}
+
+Access: requires a signed-in session
+
+Starts a background count of the cache files a removal of this Steam game would delete.
+
+Parameters: `appId` (path): integer
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+
+### POST /api/cache/count/game/epic/{gameName}
+
+Access: requires a signed-in session
+
+Starts a background count of the cache files a removal of this Epic game would delete.
+
+Parameters: `gameName` (path): string
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+
+### POST /api/cache/count/game/named/{service}/{gameName}
+
+Access: requires a signed-in session
+
+Starts a background count of the cache files a removal of this named game would delete.
+
+Parameters: `service` (path): string, `gameName` (path): string
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+
+### POST /api/cache/count/service/{name}
+
+Access: requires a signed-in session
+
+Starts a background count of the cache files a removal of this service would delete.
+
+Parameters: `name` (path): string
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+
+### POST /api/cache/count/unmapped
+
+Access: requires a signed-in session
+
+Starts a background count of the unmapped cache files a removal would delete now.
+
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
 
 ### POST /api/depots/import
 
@@ -870,7 +1014,7 @@ Access: requires a signed-in session
 Starts a depot mapping rebuild, optionally incremental.
 
 Parameters: `incremental`? (query): boolean
-Response 200 (`DepotRebuildViabilityResponse`): `started?: boolean`, `requiresFullScan?: boolean`, `changeGap?: integer?`, `estimatedApps?: integer?`, `message?: string?`, `viabilityError?: string?`
+Response 200 (`DepotRebuildViabilityResponse`): `started?: boolean`, `requiresFullScan?: boolean`, `changeGap?: integer?`, `estimatedApps?: integer?`, `message?: string?`
 
 ### POST /api/epic/game-mappings/auth/complete
 
@@ -878,7 +1022,7 @@ Access: requires a signed-in session
 
 Completes the Epic login flow using an authorization code.
 
-Body (`EpicAuthCompleteRequest`): `authorizationCode?: string`
+Body (`EpicAuthCompleteRequest`): `attemptId?: string?`, `authorizationCode?: string`
 Response 200 (`EpicAuthCompleteResponse`): `message?: string`, `displayName?: string?`, `gamesDiscovered?: integer`
 
 ### POST /api/epic/game-mappings/auth/login
@@ -887,7 +1031,8 @@ Access: requires a signed-in session
 
 Starts the mapping login flow by returning the Epic authorization URL.
 
-Response 200 (`EpicLoginUrlResponse`): `authorizationUrl?: string`
+Body (inline object): (no fields)
+Response 200 (`EpicLoginUrlResponse`): `attemptId?: string`, `expiresAtUtc?: string`, `authorizationUrl?: string`
 
 ### POST /api/games/detect
 
@@ -904,6 +1049,7 @@ Access: requires a signed-in session
 
 Cancels a pending device-code login poll.
 
+Body (inline object): (no fields)
 Response 200 (`MessageOnlyResponse`): `message?: string`
 
 ### POST /api/xbox/game-mappings/auth/login
@@ -912,7 +1058,8 @@ Access: requires a signed-in session
 
 Starts the daemon-free Xbox MSA device-code login.
 
-Response 200 (`XboxDeviceCodeChallenge`): `userCode?: string`, `verificationUri?: string`, `expiresIn?: integer`, `interval?: integer`, `operationId?: string`
+Body (inline object): (no fields)
+Response 200 (`XboxDeviceCodeChallenge`): `attemptId?: string`, `expiresAtUtc?: string`, `userCode?: string`, `verificationUri?: string`, `interval?: integer`
 
 ### PUT /api/depots/rebuild/config/interval
 
@@ -955,7 +1102,7 @@ Access: requires a signed-in session
 
 Clears cache files for every configured datasource.
 
-Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
 
 ### DELETE /api/cache/corruption
 
@@ -981,7 +1128,7 @@ Access: requires a signed-in session
 Clears cache files for one datasource, leaving the others untouched.
 
 Parameters: `name` (path): string
-Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
 
 ### DELETE /api/cache/evicted
 
@@ -989,7 +1136,7 @@ Access: requires a signed-in session
 
 Removes all evicted downloads in a single batched operation.
 
-Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
 
 ### DELETE /api/cache/evicted/{scope}
 
@@ -998,7 +1145,7 @@ Access: requires a signed-in session
 Removes the evicted downloads and log entries for a single entity.
 
 Parameters: `scope` (path): string, `key`? (query): string
-Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
 
 ### DELETE /api/cache/evicted/named/{service}/{gameName}
 
@@ -1007,7 +1154,7 @@ Access: requires a signed-in session
 Removes evicted data for a single named (Blizzard/Riot) game.
 
 Parameters: `service` (path): string, `gameName` (path): string
-Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
 
 ### DELETE /api/cache/services/{name}
 
@@ -1015,8 +1162,8 @@ Access: requires a signed-in session
 
 Removes every cached file for one service across all datasources.
 
-Parameters: `name` (path): string
-Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+Parameters: `name` (path): string, `scope`? (query): string
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
 
 ### DELETE /api/cache/services/{service}/corruption
 
@@ -1025,7 +1172,17 @@ Access: requires a signed-in session
 Removes the corrupted chunks a prior detection scan found for one service.
 
 Parameters: `service` (path): string, `scanId`? (query): string, `candidateIds`? (query): string
-Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+
+### DELETE /api/cache/unmapped
+
+Access: requires a signed-in session
+
+Removes the cache files no game or service claims, within the files and bytes the person
+confirmed from a count.
+
+Parameters: `maxFiles`? (query): integer, `maxBytes`? (query): integer, `scope`? (query): string
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
 
 ### DELETE /api/depots/rebuild
 
@@ -1049,15 +1206,16 @@ Access: requires a signed-in session
 
 Cancels the current Epic catalog refresh if one is running.
 
+Body (inline object): (no fields)
 Response 200 (`EpicRefreshCancelResponse`): `cancelled?: boolean`, `message?: string`
 
 ### DELETE /api/game-images/cache
 
 Access: requires a signed-in session
 
-Clears the game image cache and optionally triggers an Epic image URL refresh.
+Clears the game image cache and starts the re-fetch that refills it.
 
-Response 200 (`ImageCacheClearResponse`): `message?: string`, `epicImageUrlsRefreshed?: integer`, `cacheGeneration?: integer`
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
 
 ### DELETE /api/games/{appId}
 
@@ -1065,7 +1223,7 @@ Access: requires a signed-in session
 
 Removes a game from the cache.
 
-Parameters: `appId` (path): integer
+Parameters: `appId` (path): integer, `scope`? (query): string
 Response 202 (`GameRemovalStartResponse`): `message?: string`, `operationId?: string`, `appId?: string`, `gameName?: string`, `status?: OperationStatus`
 
 ### DELETE /api/games/epic/{gameName}
@@ -1074,7 +1232,7 @@ Access: requires a signed-in session
 
 Removes an Epic game from the cache by name.
 
-Parameters: `gameName` (path): string
+Parameters: `gameName` (path): string, `scope`? (query): string
 Response 202 (`GameRemovalStartResponse`): `message?: string`, `operationId?: string`, `appId?: string`, `gameName?: string`, `status?: OperationStatus`
 
 ### DELETE /api/games/named/{service}/{gameName}
@@ -1083,7 +1241,7 @@ Access: requires a signed-in session
 
 Removes a named game (Blizzard, Riot, Xbox) from the cache.
 
-Parameters: `service` (path): string, `gameName` (path): string
+Parameters: `service` (path): string, `gameName` (path): string, `scope`? (query): string
 Response 202 (`GameRemovalStartResponse`): `message?: string`, `operationId?: string`, `appId?: string`, `gameName?: string`, `status?: OperationStatus`
 
 ### DELETE /api/xbox/game-mappings/auth
@@ -1127,7 +1285,7 @@ Access: requires a signed-in session
 
 Returns reverse-DNS names for the client addresses currently visible in the tables.
 
-Response 200 (`ClientHostnamesResponse`): `enabled?: boolean`, `hostnames?: object`, `reason?: ClientHostnamesReason`
+Response 200 (`ClientHostnamesResponse`): `enabled?: boolean`, `hostnames?: object`, `reason?: ClientHostnamesReason`, `settings?: ClientHostnameSettings`
 
 ### POST /api/client-groups
 
@@ -1154,6 +1312,15 @@ Returns the addresses the network publishes for one hostname.
 
 Body (`ResolveClientAddressRequest`): `hostname?: string`
 Response 200 (`ResolveClientAddressResponse`): `hostname?: string`, `addresses?: string[]`, `reason?: ClientAddressLookupReason`
+
+### POST /api/clients/hostnames/settings
+
+Access: requires a signed-in session
+
+Names the DNS server that hostname lookups ask first, or clears it.
+
+Body (`ClientHostnameSettings`): `resolver?: string?`, `guestAccess?: boolean`, `routerLookup?: boolean`, `dockerLookup?: boolean`
+Response 200 (`ClientHostnameSettings`): `resolver?: string?`, `guestAccess?: boolean`, `routerLookup?: boolean`, `dockerLookup?: boolean`
 
 ### PUT /api/client-groups/{id}
 
@@ -1193,8 +1360,18 @@ Access: requires a signed-in session
 
 Returns all dashboard data sets in a single response.
 
-Parameters: `startTime`? (query): integer, `endTime`? (query): integer, `eventId`? (query): integer
-Response 200 (`DashboardBatchResponse`): `cache?: object`, `clients?: object`, `services?: object`, `dashboard?: object`, `downloads?: object`, `detection?: object`, `sparklines?: object`, `hourlyActivity?: object`, `cacheSnapshot?: object`
+Parameters: `startTime`? (query): integer, `endTime`? (query): integer, `eventId`? (query): integer, `timeZoneId`? (query): string, `service`? (query): string, `client`? (query): string
+Response 200 (`DashboardBatchResponse`): `cache?: object`, `clients?: object`, `services?: object`, `dashboard?: object`, `downloadTotals?: object`, `filteredDownloadTotals?: object`, `serviceOptions?: object`, `clientOptions?: object`, `recentDownloads?: object`, `detection?: object`, `sparklines?: object`, `hourlyActivity?: object`, `cacheSnapshot?: object`
+
+### GET /api/dashboard/event-compare
+
+Access: requires a signed-in session
+
+Overlays selected events on a shared elapsed-time axis so two LAN parties can be compared
+hour-for-hour even when they ran in different years.
+
+Parameters: `eventIds`? (query): integer[]
+Response 200 (`EventCompareResponse`): `bucketMinutes?: integer`, `elapsedMinutes?: integer[]`, `series?: EventCompareSeries[]`
 
 ### GET /api/downloads/{id}
 
@@ -1205,14 +1382,23 @@ Get a download by ID with its tags and events
 Parameters: `id` (path): integer
 Response 200 (`DownloadWithEventsResponse`): `download?: Download`, `events?: DownloadEventAssociation[]`
 
+### GET /api/downloads/all
+
+Access: requires a signed-in session
+
+One page of the downloads the current range and event selection contain, newest first.
+
+Parameters: `startTime`? (query): integer, `endTime`? (query): integer, `eventId`? (query): integer, `afterId`? (query): integer
+Response 200 (inline object): (no fields)
+
 ### GET /api/downloads/retro
 
 Access: requires a signed-in session
 
 Gets paginated, grouped download data for the Retro view.
 
-Parameters: `Page`? (query): integer, `PageSize`? (query): integer, `Sort`? (query): string, `Service`? (query): string, `Client`? (query): string, `Search`? (query): string, `HideLocalhost`? (query): boolean, `ShowZeroBytes`? (query): boolean, `HideUnknown`? (query): boolean, `GroupByGame`? (query): boolean, `GroupByService`? (query): boolean, `StartTime`? (query): integer, `EndTime`? (query): integer, `EventId`? (query): integer, `HitMiss`? (query): string
-Response 200 (`RetroDownloadResponse`): `items?: RetroDownloadDto[]`, `totalItems?: integer`, `totalPages?: integer`, `currentPage?: integer`, `pageSize?: integer`
+Parameters: `Page`? (query): integer, `PageSize`? (query): integer, `Sort`? (query): string, `Service`? (query): string, `Client`? (query): string, `Search`? (query): string, `HideLocalhost`? (query): boolean, `ShowZeroBytes`? (query): boolean, `HideSmallFiles`? (query): boolean, `HideEvicted`? (query): boolean, `HideUnknown`? (query): boolean, `IncludeActive`? (query): boolean, `GroupByGame`? (query): boolean, `GroupByService`? (query): boolean, `MergeAcrossServices`? (query): boolean, `GroupUnknownGames`? (query): boolean, `GroupByFrequency`? (query): boolean, `StartTime`? (query): integer, `EndTime`? (query): integer, `EventId`? (query): integer, `HitMiss`? (query): string
+Response 200 (`RetroDownloadResponse`): `items?: RetroDownloadDto[]`, `totalItems?: integer`, `totalDownloads?: integer`, `totalPages?: integer`, `currentPage?: integer`, `pageSize?: integer`
 
 ### GET /api/downloads/with-associations
 
@@ -1238,7 +1424,7 @@ Access: requires a signed-in session
 Get a single event by ID
 
 Parameters: `id` (path): integer
-Response 200 (`Event`): `id?: integer`, `name?: string`, `description?: string?`, `startTimeUtc?: string`, `endTimeUtc?: string`, `startTimeLocal?: string`, `endTimeLocal?: string`, `colorIndex?: integer`, `createdAtUtc?: string`, `updatedAtUtc?: string?`, `eventDownloads?: EventDownload[]`
+Response 200 (`Event`): `id?: integer`, `name?: string`, `description?: string?`, `startTimeUtc?: string`, `endTimeUtc?: string`, `colorIndex?: integer`, `createdAtUtc?: string`, `updatedAtUtc?: string?`, `eventDownloads?: EventDownload[]`
 
 ### GET /api/events/{id}/downloads
 
@@ -1288,7 +1474,7 @@ Access: requires a signed-in session
 
 Gets the log processing status.
 
-Response 200 (`LogProcessingStatusResponse`): `isProcessing?: boolean`, `silentMode?: boolean`, `status?: string`, `operationId?: string?`, `percentComplete?: number?`, `mbProcessed?: number?`, `mbTotal?: number?`, `entriesProcessed?: integer?`, `totalLines?: integer?`, `stageKey?: string?`
+Response 200 (`LogProcessingStatusResponse`): `isProcessing?: boolean`, `status?: string`, `datasourceName?: string?`, `operationId?: string?`, `percentComplete?: number?`, `mbProcessed?: number?`, `mbTotal?: number?`, `entriesProcessed?: integer?`, `totalLines?: integer?`, `stageKey?: string?`
 
 ### GET /api/logs/remove/status
 
@@ -1297,6 +1483,14 @@ Access: requires a signed-in session
 Gets the status of a log removal operation.
 
 Response 200 (`LogRemovalStatusResponse`): `isProcessing?: boolean`, `service?: string?`, `datasource?: string?`, `operationId?: string?`, `filesProcessed?: integer`, `linesProcessed?: integer`, `linesRemoved?: integer`, `percentComplete?: number?`, `status?: object`, `stageKey?: string?`, `context?: object`
+
+### GET /api/logs/reset-running
+
+Access: requires a signed-in session
+
+Whether a log position reset is in flight on the server, including while it waits for a log step.
+
+Response 200 (`LogResetRunningResponse`): `running?: boolean`
 
 ### GET /api/logs/service-counts
 
@@ -1320,7 +1514,7 @@ Access: requires a signed-in session
 
 Gets current download speeds for all active games and clients.
 
-Response 200 (`DownloadSpeedSnapshot`): `timestampUtc?: string`, `totalBytesPerSecond?: number`, `gameSpeeds?: GameSpeedInfo[]`, `clientSpeeds?: ClientSpeedInfo[]`, `windowSeconds?: integer`, `entriesInWindow?: integer`, `hasActiveDownloads?: boolean`
+Response 200 (`DownloadSpeedSnapshot`): `version?: integer`, `streamId?: string`, `revision?: integer`, `timestampUtc?: string`, `isAvailable?: boolean`, `totalBytesPerSecond?: number`, `gameSpeeds?: GameSpeedInfo[]`, `clientSpeeds?: ClientSpeedInfo[]`, `windowSeconds?: integer`, `entriesInWindow?: integer`, `hasActiveDownloads?: boolean`
 
 ### GET /api/Speeds/history
 
@@ -1331,14 +1525,13 @@ Get historical download speeds for a time period
 Parameters: `minutes`? (query): integer
 Response 200 (`SpeedHistorySnapshot`): `periodStartUtc?: string`, `periodEndUtc?: string`, `periodMinutes?: integer`, `totalBytes?: integer`, `averageBytesPerSecond?: number`, `totalSessions?: integer`
 
-### GET /api/stats/cache-snapshot
+### GET /api/Speeds/scan-blocked
 
 Access: requires a signed-in session
 
-Gets the historical cache size snapshot for a time range.
+Says whether a cache scan would be refused right now, and why.
 
-Parameters: `startTime`? (query): integer, `endTime`? (query): integer
-Response 200 (`CacheSnapshotResponse`): `hasData?: boolean`, `startUsedSize?: integer`, `endUsedSize?: integer`, `averageUsedSize?: integer`, `totalCacheSize?: integer`, `snapshotCount?: integer`, `isEstimate?: boolean`
+Response 200 (`CacheScanBlockedResponse`): `blocked?: boolean`, `reason?: string?`
 
 ### GET /api/stats/clients
 
@@ -1356,7 +1549,7 @@ Access: requires a signed-in session
 Gets the dashboard summary.
 
 Parameters: `startTime`? (query): integer, `endTime`? (query): integer, `eventId`? (query): integer
-Response 200 (`DashboardStatsResponse`): `totalBandwidthSaved?: integer`, `totalAddedToCache?: integer`, `totalServed?: integer`, `cacheHitRatio?: number`, `activeDownloads?: integer`, `uniqueClients?: integer`, `topService?: string`, `period?: DashboardPeriodStats`, `serviceBreakdown?: ServiceBreakdownItem[]`, `lastUpdated?: string`
+Response 200 (`DashboardStatsResponse`): `totalBandwidthSaved?: integer`, `totalAddedToCache?: integer`, `totalServed?: integer`, `cacheHitRatio?: number`, `activeDownloads?: integer`, `activeClients?: integer`, `activityStreamId?: string`, `activityRevision?: integer`, `uniqueClients?: integer`, `topService?: string`, `prefillSeparated?: boolean`, `period?: DashboardPeriodStats`, `serviceBreakdown?: ServiceBreakdownItem[]`, `lastUpdated?: string`
 
 ### GET /api/stats/eviction
 
@@ -1364,7 +1557,15 @@ Access: requires a signed-in session
 
 Gets the current eviction settings.
 
-Response 200 (`EvictionSettingsResponse`): `evictedDataMode?: string`, `evictionScanNotifications?: boolean`, `pruneOrphanedDownloads?: boolean`
+Response 200 (`EvictionSettingsResponse`): `evictedDataMode?: string`
+
+### GET /api/stats/eviction/orphans
+
+Access: requires a signed-in session
+
+Lists download records that no log entry backs any more, grouped by game or service.
+
+Response 200 (`OrphanedDownloadsResponse`): `groups?: OrphanedDownloadGroup[]`
 
 ### GET /api/stats/eviction/scan/status
 
@@ -1372,7 +1573,7 @@ Access: requires a signed-in session
 
 Gets the running eviction scan's progress.
 
-Response 200 (`EvictionScanStatusResponse`): `isProcessing?: boolean`, `silentMode?: boolean`, `showNotification?: boolean`, `status?: OperationStatus`, `percentComplete?: number`, `message?: string`, `stageKey?: string?`, `context?: object`, `operationId?: string?`
+Response 200 (`EvictionScanStatusResponse`): `isProcessing?: boolean`, `status?: OperationStatus`, `percentComplete?: number`, `message?: string`, `stageKey?: string?`, `context?: object`, `operationId?: string?`
 
 ### GET /api/stats/exclusions
 
@@ -1400,13 +1601,24 @@ Get events for multiple download IDs in a single batch request
 Body (`BatchDownloadEventsRequest`): `downloadIds?: integer[]`
 Response 200 (inline object): (no fields)
 
+### POST /api/downloads/by-ids
+
+Access: requires a signed-in session
+
+The download rows behind a set of ids, newest first. Serves an expanded group's member
+list, which is why it takes ids rather than a filter: the caller already holds them on the
+grouped row, and only the one group a user opened is ever fetched.
+
+Body (`BatchDownloadEventsRequest`): `downloadIds?: integer[]`
+Response 200 (inline object): (no fields)
+
 ### POST /api/events
 
 Access: requires a signed-in session
 
 Create a new event
 
-Body (`CreateEventRequest`): `name?: string`, `description?: string?`, `startTime?: integer`, `endTime?: integer`, `startTimeLocal?: string?`, `endTimeLocal?: string?`, `colorIndex?: integer?`
+Body (`CreateEventRequest`): `name?: string`, `description?: string?`, `startTime?: integer`, `endTime?: integer`, `colorIndex?: integer?`
 
 ### POST /api/events/{eventId}/downloads/{downloadId}
 
@@ -1434,6 +1646,16 @@ Starts processing logs for a specific datasource.
 Parameters: `datasourceName` (path): string
 Response 202 (`OperationResponse`): `message?: string`, `operationId?: string`, `status?: OperationStatus`
 
+### POST /api/stats/eviction/orphans/remove
+
+Access: requires a signed-in session
+
+Removes the chosen download records. Only rows that still have no log entries are deleted;
+nothing on disk or in the logs is touched.
+
+Body (`RemoveOrphanedDownloadsRequest`): `downloadIds?: integer[]`
+Response 200 (`OrphanedDownloadsRemovedResponse`): `removed?: integer`
+
 ### POST /api/stats/eviction/reconcile
 
 Access: requires a signed-in session
@@ -1457,8 +1679,8 @@ Access: requires a signed-in session
 Update an existing event
 
 Parameters: `id` (path): integer
-Body (`UpdateEventRequest`): `name?: string`, `description?: string?`, `startTime?: integer`, `endTime?: integer`, `startTimeLocal?: string?`, `endTimeLocal?: string?`, `colorIndex?: integer?`
-Response 200 (`Event`): `id?: integer`, `name?: string`, `description?: string?`, `startTimeUtc?: string`, `endTimeUtc?: string`, `startTimeLocal?: string`, `endTimeLocal?: string`, `colorIndex?: integer`, `createdAtUtc?: string`, `updatedAtUtc?: string?`, `eventDownloads?: EventDownload[]`
+Body (`UpdateEventRequest`): `name?: string`, `description?: string?`, `startTime?: integer`, `endTime?: integer`, `colorIndex?: integer?`
+Response 200 (`Event`): `id?: integer`, `name?: string`, `description?: string?`, `startTimeUtc?: string`, `endTimeUtc?: string`, `colorIndex?: integer`, `createdAtUtc?: string`, `updatedAtUtc?: string?`, `eventDownloads?: EventDownload[]`
 
 ### PUT /api/stats/eviction
 
@@ -1466,8 +1688,8 @@ Access: requires a signed-in session
 
 Updates the eviction settings.
 
-Body (`UpdateEvictionSettingsRequest`): `evictedDataMode?: string`, `evictionScanNotifications?: boolean?`, `pruneOrphanedDownloads?: boolean?`
-Response 200 (`EvictionSettingsResponse`): `evictedDataMode?: string`, `evictionScanNotifications?: boolean`, `pruneOrphanedDownloads?: boolean`
+Body (`UpdateEvictionSettingsRequest`): `evictedDataMode?: string`
+Response 200 (`EvictionSettingsResponse`): `evictedDataMode?: string`
 
 ### PUT /api/stats/exclusions
 
@@ -1517,10 +1739,10 @@ Parameters: `id` (path): integer
 
 Access: requires a signed-in session
 
-Deletes the entire access.log file for a datasource.
+Deletes a datasource's current log files.
 
 Parameters: `datasourceName` (path): string
-Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
+Response 200 (`LogFileDeleteResponse`): `reopenError?: string?`, `success?: boolean`, `message?: string`
 
 ### DELETE /api/logs/datasources/{datasourceName}/services/{service}
 
@@ -1544,6 +1766,13 @@ Lists the games owned by the logged-in session, for the prefill picker.
 Parameters: `sessionId` (path): string
 Response 200 (inline object): (no fields)
 
+### GET /api/battlenet-daemon/sessions/{sessionId}/runs
+
+Access: requires a signed-in session
+
+Parameters: `sessionId` (path): string
+Response 200 (inline object): (no fields)
+
 ### GET /api/battlenet-daemon/status
 
 Access: requires a signed-in session
@@ -1561,11 +1790,19 @@ Lists the games owned by the logged-in session, for the prefill picker.
 Parameters: `sessionId` (path): string
 Response 200 (inline object): (no fields)
 
+### GET /api/epic-daemon/sessions/{sessionId}/runs
+
+Access: requires a signed-in session
+
+Parameters: `sessionId` (path): string
+Response 200 (inline object): (no fields)
+
 ### GET /api/prefill-admin/bans
 
 Access: requires a signed-in session
 
-Gets all active bans.
+Gets all active bans, less the acting session id on any ban an account the caller may not see
+placed.
 
 Parameters: `includeLifted`? (query): boolean
 Response 200 (inline object): (no fields)
@@ -1576,13 +1813,14 @@ Access: requires a signed-in session
 
 Gets all cached apps with their cache timestamps.
 
+Parameters: `service`? (query): PrefillPlatform
 Response 200 (inline object): (no fields)
 
 ### GET /api/prefill-admin/sessions
 
 Access: requires a signed-in session
 
-Gets all prefill sessions (paginated).
+Gets all prefill sessions (paginated), less the ones an account the caller may not see started.
 
 Parameters: `page`? (query): integer, `pageSize`? (query): integer, `status`? (query): string, `platform`? (query): string
 Response 200 (`PrefillSessionsResponse`): `sessions?: PrefillSessionDto[]`, `totalCount?: integer`, `page?: integer`, `pageSize?: integer`, `lastPrefillCacheIp?: string?`, `lastPrefillCacheIpSource?: string?`
@@ -1591,7 +1829,8 @@ Response 200 (`PrefillSessionsResponse`): `sessions?: PrefillSessionDto[]`, `tot
 
 Access: requires a signed-in session
 
-Gets prefill history for a specific session.
+Gets prefill history for a specific session. A session an account the caller may not see started
+answers as one that does not exist.
 
 Parameters: `sessionId` (path): string
 Response 200 (inline object): (no fields)
@@ -1600,7 +1839,8 @@ Response 200 (inline object): (no fields)
 
 Access: requires a signed-in session
 
-Gets all currently active (in-memory) sessions.
+Gets all currently active (in-memory) sessions, less the ones an account the caller may not see
+started.
 
 Response 200 (inline object): (no fields)
 
@@ -1609,6 +1849,13 @@ Response 200 (inline object): (no fields)
 Access: requires a signed-in session
 
 Lists the games owned by the logged-in session, for the prefill picker.
+
+Parameters: `sessionId` (path): string
+Response 200 (inline object): (no fields)
+
+### GET /api/riot-daemon/sessions/{sessionId}/runs
+
+Access: requires a signed-in session
 
 Parameters: `sessionId` (path): string
 Response 200 (inline object): (no fields)
@@ -1630,14 +1877,21 @@ Lists the games owned by the logged-in session, for the prefill picker.
 Parameters: `sessionId` (path): string
 Response 200 (inline object): (no fields)
 
+### GET /api/steam-daemon/sessions/{sessionId}/runs
+
+Access: requires a signed-in session
+
+Parameters: `sessionId` (path): string
+Response 200 (inline object): (no fields)
+
 ### GET /api/system/prefill/persistent/challenge
 
 Access: requires a signed-in session
 
-Polls for the next credential challenge or login state.
+Reads the current credential challenge or login state, without waiting.
 
-Parameters: `service`? (query): PrefillPlatform, `sessionId`? (query): string, `timeoutSeconds`? (query): integer
-Response 200 (`CredentialChallenge`): `type?: string`, `challengeId?: string`, `credentialType?: string`, `serverPublicKey?: string`, `email?: string?`, `authUrl?: string?`, `userCode?: string?`, `verificationUri?: string?`, `createdAt?: string`, `expiresAt?: string`, `sessionId?: string?`
+Parameters: `service`? (query): PrefillPlatform, `sessionId`? (query): string, `loginAttempt`? (query): integer
+Response 200 (`CredentialChallenge`): `type?: string`, `challengeId?: string`, `credentialType?: string`, `serverPublicKey?: string`, `email?: string?`, `authUrl?: string?`, `userCode?: string?`, `verificationUri?: string?`, `createdAt?: string`, `expiresAt?: string`, `sessionId?: string?`, `operationId?: string?`, `loginAttempt?: integer?`
 
 ### GET /api/system/prefill/persistent/games
 
@@ -1645,8 +1899,15 @@ Access: requires a signed-in session
 
 Lists the owned games for the running persistent session of a platform.
 
+Parameters: `service`? (query): PrefillPlatform, `expectedSessionId`? (query): string, `operatingSystems`? (query): string[]
+Response 200 (`PersistentPrefillGamesDto`): `games: OwnedGame[]`, `apps?: AppCacheStatus[]`, `cachedAppIds: string[]`, `outdatedAppIds?: string[]`, `unknownAppIds?: string[]`, `message?: string?`
+
+### GET /api/system/prefill/persistent/integration-login
+
+Access: requires a signed-in session
+
 Parameters: `service`? (query): PrefillPlatform
-Response 200 (`PersistentPrefillGamesDto`): `games: OwnedGame[]`, `cachedAppIds: string[]`
+Response 200 (`IntegrationLoginAvailability`): `available: boolean`, `account: string?`, `reason: string?`
 
 ### GET /api/system/prefill/persistent/list
 
@@ -1654,6 +1915,20 @@ Access: requires a signed-in session
 
 Lists every persistent session across all daemons.
 
+Response 200 (inline object): (no fields)
+
+### GET /api/system/prefill/persistent/runs
+
+Access: requires a signed-in session
+
+Parameters: `service`? (query): PrefillPlatform, `sessionId`? (query): string
+Response 200 (inline object): (no fields)
+
+### GET /api/system/prefill/persistent/runs/{runId}/failed-games
+
+Access: requires a signed-in session
+
+Parameters: `runId` (path): string, `service`? (query): PrefillPlatform
 Response 200 (inline object): (no fields)
 
 ### GET /api/system/prefill/persistent/validity
@@ -1679,7 +1954,7 @@ Access: requires a signed-in session
 Returns a single service schedule by its key.
 
 Parameters: `serviceKey` (path): string
-Response 200 (`ServiceScheduleInfo`): `key?: string`, `intervalHours?: number`, `runOnStartup?: boolean`, `isRunning?: boolean`, `lastRunUtc?: string?`, `nextRunUtc?: string?`, `notificationMode?: NotificationMode`, `supportsNotifications?: boolean`, `notificationDisplayMode?: NotificationDisplayMode`, `customSchedule?: object`, `pendingFullScan?: object`
+Response 200 (`ServiceScheduleInfo`): `key?: string`, `intervalHours?: number`, `runOnStartup?: boolean`, `isRunning?: boolean`, `lastRunUtc?: string?`, `nextRunUtc?: string?`, `notificationMode?: NotificationMode`, `supportsNotifications?: boolean`, `notificationDisplayMode?: NotificationDisplayMode`, `notificationDisplayModeOverridden?: boolean`, `customSchedule?: object`, `pendingFullScan?: object`, `scanMode?: object`, `runNowScanType?: object`, `awaitingSignIn?: boolean?`, `platformNotificationDisplayModes?: object?`
 
 ### GET /api/system/schedules/{serviceKey}/run-status
 
@@ -1688,7 +1963,24 @@ Access: requires a signed-in session
 Returns the live run status for a service.
 
 Parameters: `serviceKey` (path): string
-Response 200 (`ScheduleRunStatus`): `isRunning?: boolean`, `operationId?: string?`, `percentComplete?: number`, `stageKey?: string?`, `context?: object?`, `showNotification?: boolean`
+Response 200 (`ScheduleRunStatus`): `status?: string?`, `isRunning?: boolean`, `operationId?: string?`, `percentComplete?: number`, `stageKey?: string?`, `context?: object?`
+
+### GET /api/system/schedules/history
+
+Access: requires a signed-in session
+
+Returns one page of completed schedule runs, newest first.
+
+Parameters: `page`? (query): integer, `pageSize`? (query): integer, `serviceKey`? (query): string, `status`? (query): OperationStatus, `search`? (query): string
+Response 200 (`ScheduleExecutionResponse`): `items?: ScheduleExecution[]`, `page?: integer`, `pageSize?: integer`, `totalCount?: integer`, `totalPages?: integer`
+
+### GET /api/system/schedules/notification-display-mode
+
+Access: requires a signed-in session
+
+Returns how every notification without a style of its own renders.
+
+Response 200 (`GlobalNotificationDisplayMode`): `mode: NotificationDisplayMode`
 
 ### GET /api/system/schedules/scheduledPrefill/config
 
@@ -1704,7 +1996,7 @@ Access: requires a signed-in session
 
 Reports whether a scheduled prefill run is executing right now.
 
-Response 200 (`ScheduledPrefillRunStatusDto`): `isRunning: boolean`, `operationId?: string?`, `showNotification: boolean`
+Response 200 (`ScheduledPrefillRunStatusDto`): `isRunning: boolean`, `operationId?: string?`, `services: ScheduledPrefillRunServiceStatus[]`
 
 ### GET /api/system/schedules/scheduledPrefill/schedule
 
@@ -1723,6 +2015,13 @@ Lists the games owned by the logged-in session, for the prefill picker.
 Parameters: `sessionId` (path): string
 Response 200 (inline object): (no fields)
 
+### GET /api/xbox-daemon/sessions/{sessionId}/runs
+
+Access: requires a signed-in session
+
+Parameters: `sessionId` (path): string
+Response 200 (inline object): (no fields)
+
 ### POST /api/battlenet-daemon/sessions/{sessionId}/cache-status
 
 Access: requires a signed-in session
@@ -1730,8 +2029,8 @@ Access: requires a signed-in session
 Splits the requested apps into up-to-date and stale groups.
 
 Parameters: `sessionId` (path): string
-Body (`PrefillCacheStatusRequest`): `appIds?: array?`
-Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `message?: string?`
+Body (`PrefillCacheStatusRequest`): `appIds?: array?`, `operatingSystems?: array?`
+Response 200 (`PrefillCacheStatusResponse`): `apps?: AppCacheStatus[]`, `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `unknownAppIds?: string[]`, `message?: string?`
 
 ### POST /api/battlenet-daemon/sessions/{sessionId}/prefill
 
@@ -1741,7 +2040,14 @@ Starts a prefill for the session's current selection and returns when the daemon
 
 Parameters: `sessionId` (path): string
 Body (inline object): (no fields)
-Response 200 (`PrefillResult`): `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+Response 200 (`PrefillResult`): `daemonInstanceId?: string?`, `state?: string?`, `errorCode?: string?`, `stageKey?: string?`, `requiresLogin?: boolean`, `runId?: string?`, `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+
+### POST /api/battlenet-daemon/sessions/{sessionId}/runs/{runId}/cancel
+
+Access: requires a signed-in session
+
+Parameters: `sessionId` (path): string, `runId` (path): string
+Response 200: no body
 
 ### POST /api/battlenet-daemon/sessions/{sessionId}/selected-apps
 
@@ -1760,8 +2066,8 @@ Access: requires a signed-in session
 Splits the requested apps into up-to-date and stale groups.
 
 Parameters: `sessionId` (path): string
-Body (`PrefillCacheStatusRequest`): `appIds?: array?`
-Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `message?: string?`
+Body (`PrefillCacheStatusRequest`): `appIds?: array?`, `operatingSystems?: array?`
+Response 200 (`PrefillCacheStatusResponse`): `apps?: AppCacheStatus[]`, `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `unknownAppIds?: string[]`, `message?: string?`
 
 ### POST /api/epic-daemon/sessions/{sessionId}/prefill
 
@@ -1771,7 +2077,14 @@ Starts a prefill for the session's current selection and returns when the daemon
 
 Parameters: `sessionId` (path): string
 Body (inline object): (no fields)
-Response 200 (`PrefillResult`): `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+Response 200 (`PrefillResult`): `daemonInstanceId?: string?`, `state?: string?`, `errorCode?: string?`, `stageKey?: string?`, `requiresLogin?: boolean`, `runId?: string?`, `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+
+### POST /api/epic-daemon/sessions/{sessionId}/runs/{runId}/cancel
+
+Access: requires a signed-in session
+
+Parameters: `sessionId` (path): string, `runId` (path): string
+Response 200: no body
 
 ### POST /api/epic-daemon/sessions/{sessionId}/selected-apps
 
@@ -1790,7 +2103,7 @@ Access: requires a signed-in session
 Bans a prefill user by username.
 
 Body (`BanByUsernameRequest`): `username?: string`, `reason?: string?`, `sessionId?: string?`, `expiresAt?: string?`
-Response 200 (`BannedPrefillUserDto`): `id?: integer`, `username?: string?`, `bannedUserId?: string?`, `banReason?: string?`, `bannedBySessionId?: string?`, `bannedAtUtc?: string`, `bannedBy?: string?`, `expiresAtUtc?: string?`, `isLifted?: boolean`, `liftedAtUtc?: string?`, `liftedBy?: string?`, `isActive?: boolean`
+Response 200 (`BannedPrefillUserDto`): `id?: integer`, `username?: string?`, `banReason?: string?`, `bannedBySessionId?: string?`, `bannedAtUtc?: string`, `bannedBy?: string?`, `expiresAtUtc?: string?`, `isLifted?: boolean`, `liftedAtUtc?: string?`, `liftedBy?: string?`, `isActive?: boolean`
 
 ### POST /api/prefill-admin/bans/{banId}/lift
 
@@ -1809,7 +2122,7 @@ Bans a prefill user by session ID.
 
 Parameters: `sessionId` (path): string
 Body (`BanRequest`): `reason?: string?`, `expiresAt?: string?`
-Response 200 (`BannedPrefillUserDto`): `id?: integer`, `username?: string?`, `bannedUserId?: string?`, `banReason?: string?`, `bannedBySessionId?: string?`, `bannedAtUtc?: string`, `bannedBy?: string?`, `expiresAtUtc?: string?`, `isLifted?: boolean`, `liftedAtUtc?: string?`, `liftedBy?: string?`, `isActive?: boolean`
+Response 200 (`BannedPrefillUserDto`): `id?: integer`, `username?: string?`, `banReason?: string?`, `bannedBySessionId?: string?`, `bannedAtUtc?: string`, `bannedBy?: string?`, `expiresAtUtc?: string?`, `isLifted?: boolean`, `liftedAtUtc?: string?`, `liftedBy?: string?`, `isActive?: boolean`
 
 ### POST /api/prefill-admin/sessions/{sessionId}/terminate
 
@@ -1825,10 +2138,10 @@ Response 200 (`MessageOnlyResponse`): `message?: string`
 
 Access: requires a signed-in session
 
-Terminates all active sessions.
+Terminates all active sessions, less the ones an account the caller may not see started.
 
 Body (inline object): (no fields)
-Response 200 (`MessageOnlyResponse`): `message?: string`
+Response 200 (`TerminatedSessionsResponse`): `count?: integer`
 
 ### POST /api/riot-daemon/sessions/{sessionId}/cache-status
 
@@ -1837,8 +2150,8 @@ Access: requires a signed-in session
 Splits the requested apps into up-to-date and stale groups.
 
 Parameters: `sessionId` (path): string
-Body (`PrefillCacheStatusRequest`): `appIds?: array?`
-Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `message?: string?`
+Body (`PrefillCacheStatusRequest`): `appIds?: array?`, `operatingSystems?: array?`
+Response 200 (`PrefillCacheStatusResponse`): `apps?: AppCacheStatus[]`, `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `unknownAppIds?: string[]`, `message?: string?`
 
 ### POST /api/riot-daemon/sessions/{sessionId}/prefill
 
@@ -1848,7 +2161,14 @@ Starts a prefill for the session's current selection and returns when the daemon
 
 Parameters: `sessionId` (path): string
 Body (inline object): (no fields)
-Response 200 (`PrefillResult`): `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+Response 200 (`PrefillResult`): `daemonInstanceId?: string?`, `state?: string?`, `errorCode?: string?`, `stageKey?: string?`, `requiresLogin?: boolean`, `runId?: string?`, `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+
+### POST /api/riot-daemon/sessions/{sessionId}/runs/{runId}/cancel
+
+Access: requires a signed-in session
+
+Parameters: `sessionId` (path): string, `runId` (path): string
+Response 200: no body
 
 ### POST /api/riot-daemon/sessions/{sessionId}/selected-apps
 
@@ -1867,8 +2187,8 @@ Access: requires a signed-in session
 Splits the requested apps into up-to-date and stale groups.
 
 Parameters: `sessionId` (path): string
-Body (`PrefillCacheStatusRequest`): `appIds?: array?`
-Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `message?: string?`
+Body (`PrefillCacheStatusRequest`): `appIds?: array?`, `operatingSystems?: array?`
+Response 200 (`PrefillCacheStatusResponse`): `apps?: AppCacheStatus[]`, `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `unknownAppIds?: string[]`, `message?: string?`
 
 ### POST /api/steam-daemon/sessions/{sessionId}/prefill
 
@@ -1878,7 +2198,14 @@ Starts a prefill for the session's current selection and returns when the daemon
 
 Parameters: `sessionId` (path): string
 Body (inline object): (no fields)
-Response 200 (`PrefillResult`): `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+Response 200 (`PrefillResult`): `daemonInstanceId?: string?`, `state?: string?`, `errorCode?: string?`, `stageKey?: string?`, `requiresLogin?: boolean`, `runId?: string?`, `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+
+### POST /api/steam-daemon/sessions/{sessionId}/runs/{runId}/cancel
+
+Access: requires a signed-in session
+
+Parameters: `sessionId` (path): string, `runId` (path): string
+Response 200: no body
 
 ### POST /api/steam-daemon/sessions/{sessionId}/selected-apps
 
@@ -1896,7 +2223,7 @@ Access: requires a signed-in session
 
 Cancels a pending interactive login and resets auth state.
 
-Body (`PersistentCancelLoginRequest`): `service: PrefillPlatform`, `sessionId?: string?`
+Body (`PersistentCancelLoginRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `loginAttempt?: integer?`, `loginId?: string?`, `stopReason?: string?`
 Response 200 (`MessageOnlyResponse`): `message?: string`
 
 ### POST /api/system/prefill/persistent/cancel-prefill
@@ -1905,7 +2232,7 @@ Access: requires a signed-in session
 
 Cancels an in-flight prefill on the RUNNING persistent session.
 
-Body (`PersistentServiceRequest`): `service: PrefillPlatform`, `sessionId?: string?`
+Body (`PersistentServiceRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `runId?: string?`
 Response 200: no body
 
 ### POST /api/system/prefill/persistent/clear-logins
@@ -1932,7 +2259,7 @@ Access: requires a signed-in session
 Starts or resumes the interactive login flow for the running persistent session.
 
 Body (`PersistentLoginRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `reuseIntegration?: boolean`, `loginId?: string?`
-Response 200 (`CredentialChallenge`): `type?: string`, `challengeId?: string`, `credentialType?: string`, `serverPublicKey?: string`, `email?: string?`, `authUrl?: string?`, `userCode?: string?`, `verificationUri?: string?`, `createdAt?: string`, `expiresAt?: string`, `sessionId?: string?`
+Response 200 (`CredentialChallenge`): `type?: string`, `challengeId?: string`, `credentialType?: string`, `serverPublicKey?: string`, `email?: string?`, `authUrl?: string?`, `userCode?: string?`, `verificationUri?: string?`, `createdAt?: string`, `expiresAt?: string`, `sessionId?: string?`, `operationId?: string?`, `loginAttempt?: integer?`
 
 ### POST /api/system/prefill/persistent/logout
 
@@ -1941,7 +2268,7 @@ Access: requires a signed-in session
 Logs the running persistent session out in place.
 
 Body (`PersistentLoginRequest`): `service: PrefillPlatform`, `sessionId?: string?`, `reuseIntegration?: boolean`, `loginId?: string?`
-Response 200 (`PersistentLogoutResponseDto`): `forgotten: boolean`, `fallback?: string?`
+Response 200 (`PersistentLogoutResponseDto`): `forgotten: boolean`
 
 ### POST /api/system/prefill/persistent/selected-apps
 
@@ -1959,7 +2286,7 @@ Access: requires a signed-in session
 Starts a persistent admin-owned session for the given platform.
 
 Body (`StartPersistentSessionRequest`): `service: PrefillPlatform`
-Response 200 (`DaemonSessionDto`): `id?: string`, `userId?: string`, `containerName?: string`, `status?: string`, `errorMessage?: string?`, `authState?: string`, `createdAt?: string`, `expiresAt?: string`, `timeRemainingSeconds?: integer`, `isTemporary?: boolean`, `isPersistent?: boolean`, `needsRelogin?: boolean`, `ipAddress?: string?`, `operatingSystem?: string?`, `browser?: string?`, `lastSeenAt?: string`, `accountUsername?: string?`, `platform?: string`, `username?: string?`, `networkDiagnostics?: object`
+Response 200 (`DaemonSessionDto`): `runs?: DaemonRunStatus[]`, `daemonInstanceId?: string?`, `features?: string[]`, `maxConcurrentRuns?: integer?`, `activeRunCount?: integer`, `recovering?: boolean`, `id?: string`, `userId?: string`, `containerName?: string`, `status?: string`, `errorMessage?: string?`, `authState?: string`, `loginEnding?: object`, `loginAttempt?: integer`, `createdAt?: string`, `expiresAt?: string`, `isTemporary?: boolean`, `isPersistent?: boolean`, `needsRelogin?: boolean`, `ipAddress?: string?`, `operatingSystem?: string?`, `browser?: string?`, `lastSeenAt?: string`, `accountUsername?: string?`, `platform?: string`, `username?: string?`, `networkDiagnostics?: object`
 
 ### POST /api/system/prefill/persistent/stop
 
@@ -1977,7 +2304,7 @@ Access: requires a signed-in session
 Triggers an immediate run of the service, bypassing the scheduled interval.
 
 Parameters: `serviceKey` (path): string
-Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
 
 ### POST /api/system/schedules/reset
 
@@ -1993,7 +2320,24 @@ Access: requires a signed-in session
 
 Triggers an immediate run of every registered service.
 
-Response 202 (`TriggerAllResponse`): `triggeredCount?: integer`, `alreadyRunningCount?: integer`
+Response 202 (`TriggerAllResponse`): `triggeredCount?: integer`, `alreadyRunningCount?: integer`, `skippedCount?: integer`, `skippedReason?: string?`
+
+### POST /api/system/schedules/scheduledPrefill/services/{platform}/schedules
+
+Access: requires a signed-in session
+
+Parameters: `platform` (path): PrefillPlatform
+Body (`ScheduledPrefillSchedule`): `id?: string`, `name?: string`, `enabled?: boolean`, `intervalHours?: number`, `customSchedule?: object`, `preset?: ScheduledPrefillPreset`, `topCount?: integer?`, `selectedAppIds?: string[]`, `operatingSystems?: ScheduledPrefillOperatingSystem[]`, `force?: boolean`, `maxConcurrency?: ScheduledPrefillMaxConcurrencyDto`, `notificationMode?: NotificationMode`, `notificationDisplayMode?: NotificationDisplayMode`
+Response 200 (`ScheduledPrefillConfigDto`): `version: integer`, `maxServiceRuntime: string`, `stallTimeout: string`, `steam: ScheduledPrefillServiceConfigDto`, `epic: ScheduledPrefillServiceConfigDto`, `xbox: ScheduledPrefillServiceConfigDto`, `battleNet: ScheduledPrefillServiceConfigDto`, `riot: ScheduledPrefillServiceConfigDto`, `persistenceMode?: object`
+
+### POST /api/system/schedules/scheduledPrefill/services/{platform}/schedules/{scheduleId}/run
+
+Access: requires a signed-in session
+
+Runs one named platform's scheduled prefill immediately, leaving every other platform alone.
+
+Parameters: `platform` (path): PrefillPlatform, `scheduleId` (path): string
+Response 202: no body
 
 ### POST /api/xbox-daemon/sessions/{sessionId}/cache-status
 
@@ -2002,8 +2346,8 @@ Access: requires a signed-in session
 Splits the requested apps into up-to-date and stale groups.
 
 Parameters: `sessionId` (path): string
-Body (`PrefillCacheStatusRequest`): `appIds?: array?`
-Response 200 (`PrefillCacheStatusResponse`): `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `message?: string?`
+Body (`PrefillCacheStatusRequest`): `appIds?: array?`, `operatingSystems?: array?`
+Response 200 (`PrefillCacheStatusResponse`): `apps?: AppCacheStatus[]`, `upToDateAppIds?: string[]`, `outdatedAppIds?: string[]`, `unknownAppIds?: string[]`, `message?: string?`
 
 ### POST /api/xbox-daemon/sessions/{sessionId}/prefill
 
@@ -2013,7 +2357,14 @@ Starts a prefill for the session's current selection and returns when the daemon
 
 Parameters: `sessionId` (path): string
 Body (inline object): (no fields)
-Response 200 (`PrefillResult`): `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+Response 200 (`PrefillResult`): `daemonInstanceId?: string?`, `state?: string?`, `errorCode?: string?`, `stageKey?: string?`, `requiresLogin?: boolean`, `runId?: string?`, `success?: boolean`, `errorMessage?: string?`, `totalTime?: string`, `totalSeconds?: number`
+
+### POST /api/xbox-daemon/sessions/{sessionId}/runs/{runId}/cancel
+
+Access: requires a signed-in session
+
+Parameters: `sessionId` (path): string, `runId` (path): string
+Response 200: no body
 
 ### POST /api/xbox-daemon/sessions/{sessionId}/selected-apps
 
@@ -2084,6 +2435,25 @@ Parameters: `serviceKey` (path): string
 Body (`UpdateScheduleRunOnStartupRequest`): `runOnStartup?: boolean`
 Response 200: no body
 
+### PUT /api/system/schedules/{serviceKey}/scanMode
+
+Access: requires a signed-in session
+
+Updates the scan the schedule runs on each automatic tick and on Run Now.
+
+Parameters: `serviceKey` (path): string
+Body (`GameDetectionScanMode`): (no fields)
+Response 200: no body
+
+### PUT /api/system/schedules/notification-display-mode
+
+Access: requires a signed-in session
+
+Updates how every notification without a style of its own renders.
+
+Body (`NotificationDisplayMode`): (no fields)
+Response 200: no body
+
 ### PUT /api/system/schedules/scheduledPrefill/config
 
 Access: requires a signed-in session
@@ -2093,13 +2463,77 @@ Saves the scheduled prefill configuration.
 Body (`ScheduledPrefillConfigDto`): `version: integer`, `maxServiceRuntime: string`, `stallTimeout: string`, `steam: ScheduledPrefillServiceConfigDto`, `epic: ScheduledPrefillServiceConfigDto`, `xbox: ScheduledPrefillServiceConfigDto`, `battleNet: ScheduledPrefillServiceConfigDto`, `riot: ScheduledPrefillServiceConfigDto`, `persistenceMode?: object`
 Response 200: no body
 
+### PUT /api/system/schedules/scheduledPrefill/schedules/enabled
+
+Access: requires a signed-in session
+
+Body (`ScheduledPrefillEnabledRequest`): `enabled: boolean`
+Response 200 (`ScheduledPrefillConfigDto`): `version: integer`, `maxServiceRuntime: string`, `stallTimeout: string`, `steam: ScheduledPrefillServiceConfigDto`, `epic: ScheduledPrefillServiceConfigDto`, `xbox: ScheduledPrefillServiceConfigDto`, `battleNet: ScheduledPrefillServiceConfigDto`, `riot: ScheduledPrefillServiceConfigDto`, `persistenceMode?: object`
+
+### PUT /api/system/schedules/scheduledPrefill/services/{platform}/schedules/{scheduleId}
+
+Access: requires a signed-in session
+
+Parameters: `platform` (path): PrefillPlatform, `scheduleId` (path): string
+Body (`ScheduledPrefillSchedule`): `id?: string`, `name?: string`, `enabled?: boolean`, `intervalHours?: number`, `customSchedule?: object`, `preset?: ScheduledPrefillPreset`, `topCount?: integer?`, `selectedAppIds?: string[]`, `operatingSystems?: ScheduledPrefillOperatingSystem[]`, `force?: boolean`, `maxConcurrency?: ScheduledPrefillMaxConcurrencyDto`, `notificationMode?: NotificationMode`, `notificationDisplayMode?: NotificationDisplayMode`
+Response 200 (`ScheduledPrefillConfigDto`): `version: integer`, `maxServiceRuntime: string`, `stallTimeout: string`, `steam: ScheduledPrefillServiceConfigDto`, `epic: ScheduledPrefillServiceConfigDto`, `xbox: ScheduledPrefillServiceConfigDto`, `battleNet: ScheduledPrefillServiceConfigDto`, `riot: ScheduledPrefillServiceConfigDto`, `persistenceMode?: object`
+
+### PUT /api/system/schedules/scheduledPrefill/services/{platform}/schedules/{scheduleId}/enabled
+
+Access: requires a signed-in session
+
+Parameters: `platform` (path): PrefillPlatform, `scheduleId` (path): string
+Body (`ScheduledPrefillEnabledRequest`): `enabled: boolean`
+Response 200 (`ScheduledPrefillConfigDto`): `version: integer`, `maxServiceRuntime: string`, `stallTimeout: string`, `steam: ScheduledPrefillServiceConfigDto`, `epic: ScheduledPrefillServiceConfigDto`, `xbox: ScheduledPrefillServiceConfigDto`, `battleNet: ScheduledPrefillServiceConfigDto`, `riot: ScheduledPrefillServiceConfigDto`, `persistenceMode?: object`
+
+### PUT /api/system/schedules/scheduledPrefill/services/{platform}/schedules/{scheduleId}/timing
+
+Access: requires a signed-in session
+
+Parameters: `platform` (path): PrefillPlatform, `scheduleId` (path): string
+Body (`ScheduledPrefillTimingRequest`): `intervalHours: number`, `customSchedule: object`
+Response 200 (`ScheduledPrefillConfigDto`): `version: integer`, `maxServiceRuntime: string`, `stallTimeout: string`, `steam: ScheduledPrefillServiceConfigDto`, `epic: ScheduledPrefillServiceConfigDto`, `xbox: ScheduledPrefillServiceConfigDto`, `battleNet: ScheduledPrefillServiceConfigDto`, `riot: ScheduledPrefillServiceConfigDto`, `persistenceMode?: object`
+
+### PUT /api/system/schedules/scheduledPrefill/settings
+
+Access: requires a signed-in session
+
+Body (`ScheduledPrefillPersistenceRequest`): `mode: PersistenceMode`
+Response 200 (`ScheduledPrefillConfigDto`): `version: integer`, `maxServiceRuntime: string`, `stallTimeout: string`, `steam: ScheduledPrefillServiceConfigDto`, `epic: ScheduledPrefillServiceConfigDto`, `xbox: ScheduledPrefillServiceConfigDto`, `battleNet: ScheduledPrefillServiceConfigDto`, `riot: ScheduledPrefillServiceConfigDto`, `persistenceMode?: object`
+
 ### DELETE /api/prefill-admin/cache
 
 Access: requires a signed-in session
 
 Clears the entire prefill cache.
 
+Parameters: `service`? (query): PrefillPlatform
 Response 200 (`MessageOnlyResponse`): `message?: string`
+
+### DELETE /api/prefill-admin/cache/{appId}
+
+Access: requires a signed-in session
+
+Clears the prefill cache for a single app so its next prefill downloads it again.
+
+Parameters: `appId` (path): string, `service`? (query): PrefillPlatform
+Response 200 (`PrefillCacheRemovalResponse`): `message?: string`, `removedDepots?: integer`, `removedApps?: integer`
+
+### DELETE /api/system/schedules/{serviceKey}/notificationDisplayMode
+
+Access: requires a signed-in session
+
+Removes the service's own display style, so its notifications follow the global default.
+
+Parameters: `serviceKey` (path): string
+Response 200: no body
+
+### DELETE /api/system/schedules/scheduledPrefill/services/{platform}/schedules/{scheduleId}
+
+Access: requires a signed-in session
+
+Parameters: `platform` (path): PrefillPlatform, `scheduleId` (path): string
+Response 200 (`ScheduledPrefillConfigDto`): `version: integer`, `maxServiceRuntime: string`, `stallTimeout: string`, `steam: ScheduledPrefillServiceConfigDto`, `epic: ScheduledPrefillServiceConfigDto`, `xbox: ScheduledPrefillServiceConfigDto`, `battleNet: ScheduledPrefillServiceConfigDto`, `riot: ScheduledPrefillServiceConfigDto`, `persistenceMode?: object`
 
 ## System
 
@@ -2121,14 +2555,6 @@ Reports whether a database reset is currently running.
 
 Response 200 (`DatabaseResetStatusResponse`): `isProcessing?: boolean`, `status?: object`, `message?: string?`, `percentComplete?: number?`, `operationId?: string?`, `stageKey?: string?`, `context?: object`, `tablesCleared?: integer?`, `totalTables?: integer?`, `filesDeleted?: integer?`
 
-### GET /api/gc/settings
-
-Access: requires a signed-in session
-
-Gets the current garbage collection settings.
-
-Response 200 (`GcSettingsResponse`): `enabled?: boolean`, `memoryThresholdMB?: integer`, `message?: string?`
-
 ### GET /api/memory
 
 Access: requires a signed-in session
@@ -2136,7 +2562,7 @@ Access: requires a signed-in session
 Gets current memory usage for debugging memory leaks.
 
 Parameters: `forceGC`? (query): boolean
-Response 200 (`MemoryStatsResponse`): `timestamp?: string`, `totalSystemMemoryMB?: number`, `totalSystemMemoryGB?: number`, `workingSetMB?: number`, `workingSetGB?: number`, `managedMB?: number`, `managedGB?: number`, `unmanagedMB?: number`, `unmanagedGB?: number`, `totalAllocatedMB?: number`, `totalAllocatedGB?: number`, `heapSizeMB?: number`, `heapSizeGB?: number`, `fragmentedMB?: number`, `fragmentedGB?: number`, `gen0Collections?: integer`, `gen1Collections?: integer`, `gen2Collections?: integer`, `threadCount?: integer`, `handleCount?: integer`
+Response 200 (`MemoryStatsResponse`): `timestamp?: string`, `totalSystemMemoryMB?: number`, `totalSystemMemoryGB?: number`, `workingSetMB?: number`, `workingSetGB?: number`, `managedMB?: number`, `managedGB?: number`, `unmanagedMB?: number`, `unmanagedGB?: number`, `totalAllocatedMB?: number`, `totalAllocatedGB?: number`, `heapSizeMB?: number`, `heapSizeGB?: number`, `committedMB?: number`, `committedGB?: number`, `fragmentedMB?: number`, `fragmentedGB?: number`, `gen0Collections?: integer`, `gen1Collections?: integer`, `gen2Collections?: integer`, `threadCount?: integer`, `handleCount?: integer`
 
 ### GET /api/metrics/game-limit
 
@@ -2177,7 +2603,7 @@ Access: requires a signed-in session
 Validates a connection string against a source LANCache Manager database.
 
 Parameters: `connectionString`? (query): string
-Response 200 (`ConnectionValidationResponse`): `valid?: boolean`, `message?: string`, `recordCount?: integer?`
+Response 200 (`ConnectionValidationResponse`): `valid?: boolean`, `message?: string`, `stageKey?: string?`, `recordCount?: integer?`
 
 ### GET /api/operations/{id}
 
@@ -2186,7 +2612,15 @@ Access: requires a signed-in session
 Gets the status of a single tracked operation.
 
 Parameters: `id` (path): string
-Response 200 (`OperationStatusResponse`): `id?: string`, `active?: boolean`, `percentComplete?: number`, `message?: string?`
+Response 200 (`OperationStatusResponse`): `id?: string`, `active?: boolean`, `percentComplete?: number`, `message?: string?`, `status?: object`, `startedAt?: string?`, `parentOperationId?: string?`, `nextOperationId?: string?`, `nextStatus?: object`, `error?: string?`, `failedDatasource?: string?`, `databaseError?: string?`
+
+### GET /api/operations/runs
+
+Access: requires a signed-in session
+
+Lists every tracked run the notification bar draws.
+
+Response 200 (`OperationRunsSnapshot`): `runs: OperationRun[]`, `revision: integer`
 
 ### GET /api/operations/waiting
 
@@ -2212,6 +2646,14 @@ Gets the cache-domains list backing the test-a-domain dropdown.
 
 Response 200 (`GetDomainsResponse`): `services?: CacheDomainService[]`
 
+### GET /api/system/cache-slice-size
+
+Access: requires a signed-in session
+
+Gets the cache slice size. A null size means Auto.
+
+Response 200 (`CacheSliceSizeResponse`): `sliceSizeBytes?: integer?`
+
 ### GET /api/system/config
 
 Access: public
@@ -2236,14 +2678,6 @@ Gets the default refresh rate for guest users.
 
 Response 200 (`DefaultGuestRefreshRateResponse`): `refreshRate?: string`, `locked?: boolean`
 
-### GET /api/system/gc-management/status
-
-Access: requires a signed-in session
-
-Gets whether GC management (the memory-threshold-triggered collection pass) is enabled.
-
-Response 200 (`GcStatusResponse`): `enabled?: boolean`
-
 ### GET /api/system/permissions
 
 Access: requires a signed-in session
@@ -2258,7 +2692,7 @@ Access: requires a signed-in session
 
 Gets the default prefill panel settings.
 
-Response 200 (`PrefillDefaultsResponse`): `operatingSystems?: string[]`, `maxConcurrency?: string`, `serverThreadCount?: integer`, `maxThreadLimit?: integer?`, `epicDefaultPrefillMaxConcurrency?: string`
+Response 200 (`PrefillDefaultsResponse`): `operatingSystems?: string[]`, `maxConcurrency?: string`, `maxThreadLimit?: integer?`
 
 ### GET /api/system/refresh-rate
 
@@ -2282,7 +2716,7 @@ Access: public
 
 Gets the setup status.
 
-Response 200 (`SetupStatusResponse`): `isCompleted?: boolean`, `hasProcessedLogs?: boolean`, `setupCompleted?: boolean`, `needsPostgresCredentials?: boolean`, `accountExists?: boolean?`, `currentSetupStep?: string?`, `dataSourceChoice?: string?`, `completedPlatforms?: string?`, `mode?: string`, `postgresHost?: string?`, `postgresPort?: integer?`, `postgresDatabase?: string?`, `postgresUser?: string?`
+Response 200 (`SetupStatusResponse`): `isCompleted?: boolean`, `hasProcessedLogs?: boolean`, `setupCompleted?: boolean`, `needsPostgresCredentials?: boolean`, `accountExists?: boolean?`, `mainAdminRecoveryAvailable?: boolean`, `currentSetupStep?: string?`, `dataSourceChoice?: string?`, `completedPlatforms?: string?`, `mode?: string`, `postgresHost?: string?`, `postgresPort?: integer?`, `postgresDatabase?: string?`, `postgresUser?: string?`
 
 ### GET /api/version
 
@@ -2295,14 +2729,6 @@ Response 200: no body
 Access: public
 
 Response 200: no body
-
-### POST /api/gc/trigger
-
-Access: requires a signed-in session
-
-Manually triggers an immediate garbage collection.
-
-Response 200 (`GcTriggerResponse`): `skipped?: boolean`, `reason?: string?`, `remainingSeconds?: number?`, `beforeMB?: number?`, `afterMB?: number?`, `freedMB?: number?`, `message?: string`
 
 ### POST /api/metrics/game-limit
 
@@ -2338,7 +2764,7 @@ Access: requires a signed-in session
 Imports historical download rows from another LANCache Manager database.
 
 Body (`DataMigrationImportRequest`): `connectionString?: string`, `batchSize?: integer?`, `overwriteExisting?: boolean`
-Response 200 (`MigrationImportResponse`): `message?: string`, `totalRecords?: integer`, `imported?: integer`, `skipped?: integer`, `errors?: integer`
+Response 200 (`MigrationImportResponse`): `message?: string`, `stageKey?: string?`, `totalRecords?: integer`, `imported?: integer`, `skipped?: integer`, `errors?: integer`
 
 ### POST /api/operations/{id}/cancel
 
@@ -2349,6 +2775,14 @@ Cancels a running operation.
 Parameters: `id` (path): string
 Response 200 (`OperationCancelResponse`): `message?: string`, `operationId?: string`, `status?: OperationStatus`, `alreadyFinished?: boolean`
 
+### POST /api/operations/{id}/close
+
+Access: requires a signed-in session
+
+Closes a card that stays until someone closes it.
+
+Parameters: `id` (path): string
+
 ### POST /api/operations/{id}/force-kill
 
 Access: requires a signed-in session
@@ -2357,6 +2791,14 @@ Force-kills a running operation when cancel alone does not unblock the UI.
 
 Parameters: `id` (path): string
 Response 200 (`OperationForceKillResponse`): `message?: string`, `operationId?: string`
+
+### POST /api/operations/{id}/retry-repair
+
+Access: requires a signed-in session
+
+Runs a repair again after it failed three times.
+
+Parameters: `id` (path): string
 
 ### POST /api/status-check/refresh-domains
 
@@ -2392,15 +2834,6 @@ Runs an ad hoc resolution and heartbeat test against a single hostname.
 Body (`TestDomainRequest`): `domain?: string`
 Response 200 (`TestDomainResponse`): `result?: DomainCheckResult`, `heartbeat?: object`
 
-### PUT /api/gc/settings
-
-Access: requires a signed-in session
-
-Updates the garbage collection settings.
-
-Body (`UpdateGcSettingsRequest`): `enabled?: boolean?`, `aggressiveness?: string?`, `memoryThresholdMB?: integer`
-Response 200 (`GcSettingsResponse`): `enabled?: boolean`, `memoryThresholdMB?: integer`, `message?: string?`
-
 ### PUT /api/system/datasources/{datasourceName}/cache-size
 
 Access: requires a signed-in session
@@ -2419,6 +2852,14 @@ Sets the cache clearing delete mode.
 
 Body (`SetCacheDeleteModeRequest`): `deleteMode?: CacheDeleteMode`
 Response 200 (`CacheDeleteModeResponse`): `message?: string`, `deleteMode?: CacheDeleteMode`
+
+### PATCH /api/system/cache-slice-size
+
+Access: requires a signed-in session
+
+Sets the cache slice size.
+
+Body (`CacheSliceSizeRequest`): `sliceSizeBytes?: integer?`
 
 ### PATCH /api/system/default-guest-preferences/{key}
 
@@ -2474,7 +2915,7 @@ Access: requires a signed-in session
 Updates the default prefill panel settings.
 
 Body (`SetPrefillDefaultsRequest`): `operatingSystems?: array?`, `maxConcurrency?: string?`, `epicDefaultPrefillMaxConcurrency?: string?`
-Response 200 (`PrefillDefaultsResponse`): `operatingSystems?: string[]`, `maxConcurrency?: string`, `serverThreadCount?: integer`, `maxThreadLimit?: integer?`, `epicDefaultPrefillMaxConcurrency?: string`
+Response 200 (`PrefillDefaultsResponse`): `operatingSystems?: string[]`, `maxConcurrency?: string`, `maxThreadLimit?: integer?`
 
 ### PATCH /api/system/refresh-rate
 
@@ -2498,9 +2939,10 @@ Response 200 (`SetupUpdateResponse`): `message?: string`, `setupCompleted?: bool
 
 Access: requires a signed-in session
 
-Wipes every table in the database.
+Empties every table the application stores data in, including the sessions table, so this
+call signs the caller out and every other user with it.
 
-Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
 
 ### DELETE /api/database/tables
 
@@ -2509,4 +2951,4 @@ Access: requires a signed-in session
 Wipes only the named tables instead of the whole database.
 
 Body (`ResetTablesRequest`): `tables?: string[]`
-Response 202 (`QueuedOperationResponse`): `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`
+Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Cloud, Database, CheckCircle } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
@@ -7,6 +7,7 @@ import { ProgressBar } from '@components/ui/ProgressBar';
 import { StepHeader } from '@components/initialization/StepHeader';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import type {
   DepotMappingStartedEvent,
   DepotMappingProgressEvent,
@@ -63,6 +64,9 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   };
 
   const selectedMethodRef = useRef<'cloud' | 'generate' | 'continue' | null>(null);
+  // True while this tab's GitHub import request is open. That request answers with the import's
+  // own outcome, so a reconnect check meanwhile must not report one from the stored mappings.
+  const importRequestRef = useRef(false);
   const completeTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const delayTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -76,6 +80,46 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       if (delayTimeoutRef.current) clearTimeout(delayTimeoutRef.current);
     };
   }, []);
+
+  const finishImport = useCallback(() => {
+    setDownloadStatus(t('initialization.depotInit.mappingsImportedSuccess'));
+    setProgress(100);
+    setInitializing(false);
+    // A reconnect re-check can land inside the delay after a success event; one timer keeps
+    // onComplete to a single call.
+    if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
+    completeTimeoutRef.current = setTimeout(() => {
+      setSelectedMethod(null);
+      setDownloadStatus(null);
+      onComplete();
+    }, 1500);
+  }, [onComplete, t]);
+
+  const checkActiveOperation = useCallback(async () => {
+    try {
+      const status: PicsStatus = await ApiService.getPicsStatus();
+      if (status.steamKit2?.isRebuildRunning) {
+        setInitializing(true);
+        setDownloadStatus(t('initialization.depotInit.operationInProgress'));
+      } else if (selectedMethodRef.current === 'cloud' && !importRequestRef.current) {
+        // The cloud import ended while the socket was down, so its completion event was lost.
+        if ((status.database?.totalMappings ?? 0) > 0) {
+          finishImport();
+        } else {
+          setError(t('initialization.depotInit.failedToDownload'));
+          setInitializing(false);
+          setSelectedMethod(null);
+          setDownloadStatus(null);
+        }
+      }
+    } catch (error) {
+      // Background check only - if it fails the "operation in progress" banner just
+      // doesn't show; SignalR events still drive the real state. Explicit silent background.
+      console.error('[DepotInit] Failed to check status:', getErrorMessage(error));
+    }
+  }, [finishImport, t]);
+
+  useReconnectRefetch(signalR.isConnected, checkActiveOperation);
 
   useEffect(() => {
     const handleDepotMappingStarted = (event: DepotMappingStartedEvent) => {
@@ -97,14 +141,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     const handleDepotMappingComplete = (event: DepotMappingCompleteEvent) => {
       if (event.scanMode === 'github') {
         if (event.success) {
-          setDownloadStatus(t('initialization.depotInit.mappingsImportedSuccess'));
-          setProgress(100);
-          setInitializing(false);
-          completeTimeoutRef.current = setTimeout(() => {
-            setSelectedMethod(null);
-            setDownloadStatus(null);
-            onComplete();
-          }, 1500);
+          finishImport();
         } else {
           setError(event.error || event.message || t('initialization.depotInit.failedToDownload'));
           setInitializing(false);
@@ -122,19 +159,6 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     signalR.on('DepotMappingProgress', handleDepotMappingProgress);
     signalR.on('DepotMappingComplete', handleDepotMappingComplete);
 
-    const checkActiveOperation = async () => {
-      try {
-        const status = await ApiService.getPicsStatus();
-        if (status.steamKit2?.isRebuildRunning) {
-          setInitializing(true);
-          setDownloadStatus(t('initialization.depotInit.operationInProgress'));
-        }
-      } catch (error) {
-        // Background mount check only - if it fails the "operation in progress" banner just
-        // doesn't show; SignalR events still drive the real state. Explicit silent background.
-        console.error('[DepotInit] Failed to check status:', getErrorMessage(error));
-      }
-    };
     checkActiveOperation();
 
     return () => {
@@ -142,7 +166,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
       signalR.off('DepotMappingComplete', handleDepotMappingComplete);
     };
-  }, [signalR, onComplete, t]);
+  }, [signalR, finishImport, checkActiveOperation, t]);
 
   useEffect(() => {
     if (hideOptions && !initializing && !selectedMethod && !error) {
@@ -162,8 +186,12 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     setError(null);
     setDownloadStatus(t('initialization.depotInit.startingDownload'));
 
+    importRequestRef.current = true;
     try {
       await ApiService.downloadPrecreatedDepotData();
+      // The request returns once the import has stored its mappings, so a completion event lost
+      // while the socket was down still ends the step.
+      finishImport();
     } catch (err: unknown) {
       // Don't show error for user-initiated cancellation
       if (!isAbortError(err)) {
@@ -172,6 +200,8 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);
+    } finally {
+      importRequestRef.current = false;
     }
   };
 

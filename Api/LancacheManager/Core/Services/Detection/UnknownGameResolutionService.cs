@@ -341,6 +341,7 @@ public sealed class UnknownGameResolutionService
     {
         target.CacheFilesFound += source.CacheFilesFound;
         target.TotalSizeBytes += source.TotalSizeBytes;
+        target.SliceSizes = GameCacheInfoMergeHelper.UnionSliceSizes(target.SliceSizes, source.SliceSizes);
         target.LastDetectedUtc = target.LastDetectedUtc > source.LastDetectedUtc
             ? target.LastDetectedUtc
             : source.LastDetectedUtc;

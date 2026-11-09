@@ -112,8 +112,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const [runs, setRuns] = useState<PrefillRun[]>([]);
   const [runErrors, setRunErrors] = useState<Record<string, string>>({});
   const runsRef = useRef<PrefillRun[]>([]);
-  const runsRequestRef = useRef<Promise<void> | null>(null);
-  const runsAgainRef = useRef(false);
+  // Keyed by session id, so a read for the next session never joins or clears the last session's read.
+  const runsRequestRef = useRef<Map<string, Promise<void>>>(new Map());
+  const runsAgainRef = useRef(new Set<string>());
   const cancelRunsRef = useRef(new Set<string>());
   const pendingProgressRef = useRef(new Map<string, PrefillProgress>());
   const updateRuns = useCallback((incoming: PrefillRun[]) => {
@@ -167,14 +168,15 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const rehydratePrefillProgress = useCallback(
     async (connection: HubConnection, sessionId: string): Promise<void> => {
       if (supportsConcurrentPrefill(sessionRef.current) || runsRef.current.length > 0) {
-        if (runsRequestRef.current) {
-          runsAgainRef.current = true;
-          return runsRequestRef.current;
+        const inFlight = runsRequestRef.current.get(sessionId);
+        if (inFlight) {
+          runsAgainRef.current.add(sessionId);
+          return inFlight;
         }
         const request = (async () => {
           try {
             do {
-              runsAgainRef.current = false;
+              runsAgainRef.current.delete(sessionId);
               const currentRuns = await connection.invoke<PrefillRun[]>(
                 'GetPrefillRuns',
                 sessionId
@@ -182,7 +184,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
               if (sessionRef.current?.id !== sessionId) return;
               runsRef.current = dropUnlistedFinishedRuns(runsRef.current, currentRuns);
               updateRuns(currentRuns);
-            } while (runsAgainRef.current);
+            } while (runsAgainRef.current.has(sessionId));
           } catch (error: unknown) {
             if (sessionRef.current?.id !== sessionId) return;
             updateRuns(
@@ -192,10 +194,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             );
             console.warn('Prefill run refresh:', getErrorMessage(error));
           } finally {
-            runsRequestRef.current = null;
+            runsRequestRef.current.delete(sessionId);
           }
         })();
-        runsRequestRef.current = request;
+        runsRequestRef.current.set(sessionId, request);
         return request;
       }
     },

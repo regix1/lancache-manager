@@ -70,6 +70,7 @@ public sealed record ClientHostnameLookupOutcome(
 public class ClientHostnamesResponse
 {
     public bool Enabled { get; set; }
+
     public Dictionary<string, string> Hostnames { get; set; } = new();
     public ClientHostnamesReason Reason { get; set; }
 

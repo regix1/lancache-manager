@@ -20,7 +20,8 @@ interface AccessSetupRequest {
    */
   login?: {
     kind: LoginKind;
-    clientId: string;
+    /** Absent when an environment variable sets it. */
+    clientId?: string;
     clientSecret?: string;
     displayName?: string;
     tenant?: string;
@@ -63,6 +64,8 @@ interface AuthStatusResponse {
   authenticationEnabled: boolean;
   accountMode: AccountMode;
   authenticationSetupRequired: boolean;
+  /** Sent true only to an account holder, or while setup is required. */
+  signInModeFromEnvironment: boolean;
   oidcDisplayName: string;
   oidcPending: boolean;
   ownerOidcEnabled: boolean;
@@ -70,6 +73,8 @@ interface AuthStatusResponse {
   ownerPasswordEnabled: boolean;
   /** Every tested connection, dormant ones included. Filter with signInServices() before showing. */
   loginServices: LoginService[];
+  /** Services environment variables set but left incomplete; sent like `environmentFields`. */
+  incompleteLoginServices: LoginService[];
   /** Ids from loginServices the stored owner may reauthenticate through. */
   ownerLoginServices: string[];
   loginSetupPending: boolean;
@@ -214,11 +219,13 @@ class AuthService {
         authenticationEnabled: true,
         accountMode: 'apiKeyPassword',
         authenticationSetupRequired: false,
+        signInModeFromEnvironment: false,
         oidcDisplayName: '',
         oidcPending: false,
         ownerOidcEnabled: false,
         ownerPasswordEnabled: false,
         loginServices: [],
+        incompleteLoginServices: [],
         ownerLoginServices: [],
         loginSetupPending: false,
         pendingLoginKind: null,

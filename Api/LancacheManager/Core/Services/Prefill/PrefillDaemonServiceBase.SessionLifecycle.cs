@@ -604,6 +604,14 @@ public abstract partial class PrefillDaemonServiceBase
         if (reuseExistingSession)
         {
             var existingSession = _sessions.Values.FirstOrDefault(s => s.UserId == userId && s.Status == DaemonSessionStatus.Active);
+            // A temporary session whose container stopped can never answer again, so it is ended and a new one made.
+            if (existingSession is { IsPersistent: false, Recovering: true }
+                && !await IsContainerRunningAsync(existingSession, cancellationToken))
+            {
+                await TerminateSessionAsync(existingSession.Id, "Daemon connection lost", force: true, terminatedBy: "system",
+                    reasonKey: "signalr.prefillSession.daemonDisconnected");
+                existingSession = null;
+            }
             if (existingSession != null)
             {
                 _logger.LogInformation("Returning existing active session {SessionId} for user {UserId}", existingSession.Id, userId);
@@ -1090,9 +1098,11 @@ public abstract partial class PrefillDaemonServiceBase
 
             // Verify container is actually running (it may have crashed immediately)
             await Task.Delay(1000, cancellationToken); // Give it a moment to crash if it's going to
+            IReadOnlyList<string> prefillAddresses;
             try
             {
                 var inspect = await _containerGateway.InspectContainerAsync(containerId, cancellationToken);
+                prefillAddresses = await ReadPrefillAddressesAsync(inspect, cancellationToken);
                 if (!inspect.State.Running)
                 {
                     var exitCode = inspect.State.ExitCode;
@@ -1199,6 +1209,7 @@ public abstract partial class PrefillDaemonServiceBase
                 ipAddress,
                 userAgent,
                 networkDiagnostics,
+                prefillAddresses,
                 isReconnect: false,
                 startupReadopt: false,
                 involuntaryRecreate: involuntaryRecreate || involuntaryReplacement,
@@ -1300,6 +1311,7 @@ public abstract partial class PrefillDaemonServiceBase
         string? ipAddress,
         string? userAgent,
         NetworkDiagnostics? networkDiagnostics,
+        IReadOnlyList<string> prefillAddresses,
         bool isReconnect,
         bool startupReadopt,
         bool involuntaryRecreate,
@@ -1331,6 +1343,9 @@ public abstract partial class PrefillDaemonServiceBase
             IsPersistent = isPersistent,
             Platform = ServiceName,
             IpAddress = ipAddress,
+            // Set here, before the session is registered, because a run can start from it as soon
+            // as it is reachable.
+            PrefillAddresses = prefillAddresses,
             UserAgent = userAgent,
             OperatingSystem = os,
             Browser = browser,
@@ -1674,6 +1689,7 @@ public abstract partial class PrefillDaemonServiceBase
         }
         if (volumeLoginPreserved && !signInAgainRunning)
         {
+            var startupSignIn = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             LastHeadlessSelfAuthAttempt = InvokeSafeAsync(async () =>
             {
                 // A container recreated while Steam is unreachable (after a reboot, an error or an image
@@ -1694,17 +1710,23 @@ public abstract partial class PrefillDaemonServiceBase
                         stop = installed;
                     }
                     takeOver = stop.Token;
+                    session.StartupSignIn = startupSignIn.Task;
                 }
                 try
                 {
+                    // A person's sign-in that took over leaves no retry behind it.
                     if (await AttemptHeadlessPersistentSelfAuthAsync(session, takeOver) == LoginAttemptOutcome.NoResponse
-                        && Platform == PrefillPlatform.Steam)
+                        && Platform == PrefillPlatform.Steam
+                        && !takeOver.IsCancellationRequested)
                     {
                         StartSignInAgain(session);
                     }
                 }
                 finally
                 {
+                    // Ended before the token is cleared, so a sign-in that reads this try as running also
+                    // reads its token.
+                    startupSignIn.TrySetResult();
                     if (installed is not null)
                     {
                         lock (session.PrefillLock)

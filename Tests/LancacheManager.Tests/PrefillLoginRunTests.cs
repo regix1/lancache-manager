@@ -157,16 +157,16 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
-    /// The daemon reports a refused sign-in as "awaiting-login" with a "Login failed:" message through its
+    /// The daemon reports a refused sign-in as "awaiting-login" with the "login-failed" error code through its
     /// status push, which can arrive while the login call still waits (a saved login) or after it returned
     /// a prompt. That sign-in ends as a failure that stays until closed; any other sign-out ends it as a
     /// cancel that leaves on its own.
     /// </summary>
     [Theory]
-    [InlineData("Login failed: Credentials rejected.", DaemonAuthState.LoggingIn, OperationStatus.Failed)]
-    [InlineData("Login failed: Credentials rejected.", DaemonAuthState.PasswordRequired, OperationStatus.Failed)]
-    [InlineData("Login cancelled", DaemonAuthState.PasswordRequired, OperationStatus.Cancelled)]
-    public async Task APushedSignInFailureEndsItAsAFailure(string message, DaemonAuthState stateAtPush, OperationStatus expected)
+    [InlineData("Login failed: Credentials rejected.", "login-failed", DaemonAuthState.LoggingIn, OperationStatus.Failed)]
+    [InlineData("Login failed: Credentials rejected.", "login-failed", DaemonAuthState.PasswordRequired, OperationStatus.Failed)]
+    [InlineData("Login cancelled", null, DaemonAuthState.PasswordRequired, OperationStatus.Cancelled)]
+    public async Task APushedSignInFailureEndsItAsAFailure(string message, string? errorCode, DaemonAuthState stateAtPush, OperationStatus expected)
     {
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: false);
@@ -175,7 +175,7 @@ public class PrefillLoginRunTests
         session.AuthState = stateAtPush;
 
         await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = message }, null);
+            new DaemonStatus { Status = "awaiting-login", Message = message, ErrorCode = errorCode }, null);
 
         Assert.Equal(expected, tracker.GetOperation(operationId)!.Status);
         Assert.Equal(expected == OperationStatus.Failed,
@@ -201,7 +201,7 @@ public class PrefillLoginRunTests
         session.AuthState = DaemonAuthState.PasswordRequired;
 
         await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." }, null);
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected.", ErrorCode = "login-failed" }, null);
 
         var snapshot = DaemonSessionDto.FromSession(session);
         Assert.NotNull(snapshot.LoginEnding);
@@ -228,7 +228,7 @@ public class PrefillLoginRunTests
             CancellationToken.None);
         session.AuthState = DaemonAuthState.PasswordRequired;
         await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." }, null);
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected.", ErrorCode = "login-failed" }, null);
 
         var ended = await controller.GetChallengeAsync(
             PrefillPlatform.Steam, sessionId: session.Id, loginAttempt: session.LoginAttempt);
@@ -246,7 +246,8 @@ public class PrefillLoginRunTests
     /// <summary>
     /// A daemon without concurrent prefill and with no run that drops its connection while a sign-in waits
     /// at a prompt leaves nothing to answer that prompt, and the expiry sweeps skip the Error session it
-    /// becomes. The sign-in must end as a failure that stays until closed, not run forever.
+    /// becomes. The sign-in must end as a failure that stays until closed, not run forever, and the temporary
+    /// session itself is ended.
     /// </summary>
     [Theory]
     [InlineData(false)]
@@ -264,14 +265,51 @@ public class PrefillLoginRunTests
 
         await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnDisconnectedAsync", session, session.Client);
         await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(40));
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (session.Status != DaemonSessionStatus.Terminated && DateTime.UtcNow < deadline)
+            await Task.Delay(20);
 
-        Assert.Equal(DaemonSessionStatus.Error, session.Status);
+        Assert.Equal(DaemonSessionStatus.Terminated, session.Status);
         Assert.Equal(OperationStatus.Failed, tracker.GetOperation(operationId)!.Status);
         Assert.Contains(tracker.GetRuns().Runs, row => row.OperationId == operationId && row.Retained);
         Assert.Equal("errors.prefill.requestFailed", Assert.IsType<PrefillLoginEnding>(session.LastLoginEnding).StageKey);
         Assert.Equal("errors.prefill.requestFailed", session.LastLoginFailureKey);
         Assert.Null(session.LoginOperationId);
         Assert.False(session.Recovering);
+    }
+
+    /// <summary>
+    /// A socket drop during a person's Cancel errors a persistent session whose daemon has no concurrent prefill. The
+    /// cancel the daemon acknowledges afterwards must not set that session back to Active, or the next Log in would
+    /// pass the errored-session refusal and the next Start would keep the dropped daemon instead of replacing it.
+    /// </summary>
+    [Fact]
+    public async Task ADropDuringAPersonsCancelLeavesThePersistentSessionErrored()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: true);
+        var client = (ScriptedLoginDaemonClient)session.Client;
+        await daemon.StartLoginAsync(session.Id);
+        client.CancelAcknowledged = false;
+        client.HoldCancelLogin = true;
+        // The read after the unanswered cancel finds the daemon signed out, and the next cancel is acknowledged.
+        client.StatusHandler = _ =>
+        {
+            client.CancelAcknowledged = true;
+            return Task.FromResult<DaemonStatus?>(new DaemonStatus { Type = "status", Status = "not-logged-in", Timestamp = DateTime.UtcNow });
+        };
+
+        var cancel = daemon.CancelLoginAsync(session.Id);
+        await client.CancelLoginEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "OnDisconnectedAsync", session, session.Client);
+        client.ReleaseCancelLogin.SetResult();
+        await Record.ExceptionAsync(() => cancel.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.Equal(DaemonSessionStatus.Error, session.Status);
+        // The check the next Start runs before it creates anything (SessionLifecycle.cs:663).
+        Assert.True(PersistentSingletonGates.ShouldReplaceErroredSession(session));
+        var refusal = await Assert.ThrowsAsync<ConflictException>(() => daemon.StartLoginAsync(session.Id));
+        Assert.Equal("prefill.errors.sessionErrored", refusal.StageKey);
     }
 
     /// <summary>
@@ -347,11 +385,12 @@ public class PrefillLoginRunTests
     }
 
     /// <summary>
-    /// The expired reason belongs to the cancel that ends the sign-in. When the app's cancel fails and the
-    /// sign-in stays open, a later cancel by the person ends it gray with no warning.
+    /// The expired reason belongs to the cancel that ends the sign-in. When the daemon leaves the app's cancel
+    /// unanswered while the sign-in still runs, the sign-in ends failed with that reason and the session is
+    /// marked for replacement, so no later sweep tries it again.
     /// </summary>
     [Fact]
-    public async Task ASignInWhoseExpiryCancelFailedEndsGrayWhenThePersonCancelsItAsync()
+    public async Task ASignInWhoseExpiryCancelGoesUnansweredEndsFailedAndIsReplacedAsync()
     {
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
         var (daemon, session) = CreateSessionWithClient(tracker, Guid.NewGuid(), isPersistent: true);
@@ -364,13 +403,13 @@ public class PrefillLoginRunTests
         var result = await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
 
         Assert.Equal(0, result.AbandonedLoginsCancelled);
-        Assert.Equal(OperationStatus.Running, tracker.GetOperation(operationId)!.Status);
-        client.CancelAcknowledged = true;
-        await daemon.CancelLoginAsync(session.Id);
-
         var operation = tracker.GetOperation(operationId)!;
-        Assert.Equal(OperationStatus.Cancelled, operation.Status);
-        Assert.Empty(operation.Warnings);
+        Assert.Equal(OperationStatus.Failed, operation.Status);
+        Assert.Contains(operation.Warnings, warning => warning.StageKey == "common.notifications.warnings.signInExpired");
+        Assert.Equal(DaemonSessionStatus.Error, session.Status);
+
+        await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
+        Assert.Equal(1, client.CancelLoginCallCount);
     }
 
     /// <summary>
@@ -659,7 +698,7 @@ public class PrefillLoginRunTests
         Assert.NotNull(session.PendingLoginChallenge);
 
         await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." }, null);
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected.", ErrorCode = "login-failed" }, null);
         Assert.Null(session.PendingLoginChallenge);
 
         var second = await daemon.StartLoginAsync(session.Id);
@@ -700,7 +739,7 @@ public class PrefillLoginRunTests
             await start.WaitAsync(TimeSpan.FromSeconds(10));
         }
         await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." }, null);
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected.", ErrorCode = "login-failed" }, null);
         if (cancelEntered)
         {
             client.ReleaseCancelLogin.TrySetResult();
@@ -767,7 +806,7 @@ public class PrefillLoginRunTests
         proxy.ClearSends();
         session.AuthState = DaemonAuthState.PasswordRequired;
         await DaemonTestMethods.InvokePrivateHandlerAsync(daemon, "ApplyStatusAsync", session,
-            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected." }, null);
+            new DaemonStatus { Status = "awaiting-login", Message = "Login failed: Credentials rejected.", ErrorCode = "login-failed" }, null);
         Assert.DoesNotContain(proxy.Sends(), send => send.ConnectionId == "conn-1");
 
         daemon.AddSubscriber(session.Id, "conn-1");
@@ -814,6 +853,14 @@ public class PrefillLoginRunTests
         session.AuthState = DaemonAuthState.LoggingIn;
         proxy.ClearSends();
 
+        if (!acknowledged)
+        {
+            // The earlier sign-in still holds the daemon, so this start sends no login and the session is ended.
+            var refusal = await Assert.ThrowsAsync<ConflictException>(() => daemon.StartLoginAsync(session.Id));
+            Assert.Equal("errors.prefill.loginCancelUnconfirmed", refusal.StageKey);
+            Assert.Equal(1, client.StartLoginCallCount);
+            return;
+        }
         var second = await daemon.StartLoginAsync(session.Id);
 
         var endings = proxy.Sends().Where(send =>

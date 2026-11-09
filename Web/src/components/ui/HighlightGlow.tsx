@@ -26,6 +26,9 @@ const resolveTarget = (host: HTMLElement): HTMLElement | null => {
 // never reports a change (e.g. threshold never quite crossed).
 const SCROLL_SETTLE_TIMEOUT_MS = 800;
 
+// Input that means the user has taken over the scroll. pointerdown also covers touch.
+const USER_SCROLL_EVENTS = ['wheel', 'pointerdown', 'keydown'] as const;
+
 // Wrapper form of flashHighlight for children that don't accept a className. The
 // glow lands directly on the target element, so the shadow follows its own
 // border-radius (works whether the target is a card, a button, or an accordion).
@@ -48,6 +51,27 @@ const HighlightGlow: React.FC<HighlightGlowProps> = ({
     }
 
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    // Cards above the target can still be loading when the scroll starts, and their growth
+    // pushes the target off center. Re-center on every page size change until the user scrolls,
+    // clicks or presses a key, or the page stays the same size for SCROLL_SETTLE_TIMEOUT_MS.
+    // Near the page end the browser stops at the bottom, so a target less than half a viewport
+    // from the end rests below center by that shortfall, at most half the viewport minus half the target.
+    const stopSettling = (): void => {
+      resizeObserver.disconnect();
+      window.clearTimeout(settleTimer);
+      for (const type of USER_SCROLL_EVENTS) window.removeEventListener(type, stopSettling);
+    };
+    let settleTimer = window.setTimeout(stopSettling, SCROLL_SETTLE_TIMEOUT_MS);
+    const resizeObserver = new ResizeObserver(() => {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(stopSettling, SCROLL_SETTLE_TIMEOUT_MS);
+    });
+    resizeObserver.observe(document.documentElement);
+    for (const type of USER_SCROLL_EVENTS) {
+      window.addEventListener(type, stopSettling, { passive: true });
+    }
 
     let started = false;
     const start = (): void => {
@@ -76,6 +100,7 @@ const HighlightGlow: React.FC<HighlightGlowProps> = ({
     return () => {
       observer.disconnect();
       window.clearTimeout(fallback);
+      stopSettling();
     };
   }, [enabled, variant, scrollIntoView]);
 

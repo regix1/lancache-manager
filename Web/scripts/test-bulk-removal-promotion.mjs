@@ -561,13 +561,29 @@ const modules = await loadNotificationModules();
 
 /**
  * One item's wait on a run this browser then misses while disconnected. The waiter, the snapshot
- * apply and the follow-up question are the shipped provider code; the server's answer to that
- * question is the stub, with no null keys as the REST answers omit them.
+ * apply and the follow-up question are the shipped provider code; the server's answers to that
+ * question are the stub, one per question in order, with no null keys as the REST answers omit
+ * them. An answer that is an Error fails that question (a network error). No push comes for a run
+ * that already ended, so the waiter has to ask again by itself; timers are held here so the test
+ * fires the retry instead of sleeping.
  */
-const createReconnectHarness = (trackedAnswer) => {
+const createReconnectHarness = (answers) => {
   class ApiError extends Error {}
   const storeRef = { current: modules.createRunStoreState() };
   const waitersRef = { current: new Set() };
+  const timers = new Map();
+  const cleared = [];
+  let nextTimer = 0;
+  const setTimeout = (callback, delay) => {
+    nextTimer += 1;
+    timers.set(nextTimer, { callback, delay });
+    return nextTimer;
+  };
+  const clearTimeout = (timer) => {
+    if (timer === undefined) return;
+    cleared.push(timer);
+    timers.delete(timer);
+  };
   const asked = [];
   const followWaiter = bindLifted(liftHookCallback(CONTEXT_PATH, 'useMemo', 'probeRun'), {
     storeRef,
@@ -575,12 +591,19 @@ const createReconnectHarness = (trackedAnswer) => {
     ApiService: {
       getTrackedOperation: async (operationId) => {
         asked.push(operationId);
-        return trackedAnswer;
+        const answer = answers.shift();
+        if (answer instanceof Error) throw answer;
+        return answer;
       }
     },
     ApiError,
     isTerminalNotificationStatus: modules.isTerminalNotificationStatus,
-    endStatus: modules.endStatus
+    endStatus: modules.endStatus,
+    setTimeout,
+    clearTimeout,
+    isAdminRef: { current: true },
+    isConnectedRef: { current: true },
+    RUN_LIST_RETRY_DELAY_MS: 5000
   })();
   const commitApply = bindLifted(liftHookCallback(CONTEXT_PATH, 'useCallback', 'result.ended'), {
     storeRef,
@@ -592,27 +615,52 @@ const createReconnectHarness = (trackedAnswer) => {
   });
   const waitForRunEnd = bindLifted(liftHookCallback(CONTEXT_PATH, 'useCallback', 'RunWaiter'), {
     waitersRef,
-    followWaiter
+    followWaiter,
+    clearTimeout
   });
+  const unmount = bindLifted(
+    liftHookCallback(CONTEXT_PATH, 'useEffect', 'autoDismissTimersRef.current.clear()'),
+    {
+      autoDismissTimersRef: { current: new Map() },
+      snapshotRetryRef: { current: undefined },
+      waitersRef,
+      clearTimeout
+    }
+  );
   return {
     asked,
+    timers,
+    cleared,
+    unmount,
     /** The item starts waiting on a live run, then a reconnect snapshot no longer lists it. */
-    async waitThenMissIt() {
+    async waitThenMissIt(signal) {
       storeRef.current = pushRun(modules, storeRef.current, operationRunRow('run-x'));
-      const waiting = waitForRunEnd('run-x');
-      const snapshot = { runs: [], revision: nextRunRevision() };
+      const waiting = waitForRunEnd('run-x', signal);
       commitApply(
-        modules.applySnapshot(storeRef.current, snapshot, {
-          keepSuccessVisible: false,
-          localCards: [],
-          requestSeq: 1,
-          issuedSeq: 1,
-          sessionId: null
-        }),
+        modules.applySnapshot(
+          storeRef.current,
+          { runs: [], revision: nextRunRevision() },
+          {
+            keepSuccessVisible: false,
+            localCards: [],
+            requestSeq: 1,
+            issuedSeq: 1,
+            sessionId: null
+          }
+        ),
         true
       );
       await flush();
       return waiting;
+    },
+    /** Fires the one pending retry. */
+    async fireRetry() {
+      assert.equal(timers.size, 1, 'one retry is pending');
+      const [[timer, { callback, delay }]] = [...timers];
+      assert.equal(delay, 5000);
+      timers.delete(timer);
+      callback();
+      await flush();
     }
   };
 };
@@ -635,7 +683,7 @@ const settleItem = (end) => {
 };
 
 test('a run a reconnect snapshot drops is asked about once and its kept ending cancels the batch', async () => {
-  const harness = createReconnectHarness({ status: 'cancelled' });
+  const harness = createReconnectHarness([{ status: 'cancelled' }]);
   const end = await harness.waitThenMissIt();
   assert.deepEqual(harness.asked, ['run-x']);
   assert.equal(end.status, 'cancelled');
@@ -643,8 +691,50 @@ test('a run a reconnect snapshot drops is asked about once and its kept ending c
 });
 
 test('a run a reconnect snapshot drops that the server no longer keeps counts as done', async () => {
-  const harness = createReconnectHarness({});
+  const harness = createReconnectHarness([{}]);
   const end = await harness.waitThenMissIt();
   assert.equal(end.status, 'gone');
   assert.equal(settleItem(end), 0);
+});
+
+test('a failed question about a missed run is asked again, and its ending lets the batch go on', async () => {
+  const harness = createReconnectHarness([
+    new TypeError('Failed to fetch'),
+    { status: 'completed' }
+  ]);
+  let end = null;
+  const waiting = harness.waitThenMissIt().then((value) => {
+    end = value;
+  });
+  await flush();
+  assert.deepEqual(harness.asked, ['run-x']);
+  assert.equal(end, null, 'a failed question settles nothing');
+
+  await harness.fireRetry();
+  await waiting;
+  assert.deepEqual(harness.asked, ['run-x', 'run-x']);
+  assert.equal(end.status, 'completed');
+  assert.equal(settleItem(end), 0);
+});
+
+test('a waiter that ends while its retry waits, or a provider that unmounts, leaves no retry behind', async () => {
+  const aborted = createReconnectHarness([new TypeError('Failed to fetch')]);
+  const controller = new AbortController();
+  const waiting = aborted.waitThenMissIt(controller.signal);
+  await flush();
+  const [pending] = [...aborted.timers.keys()];
+  assert.ok(pending, 'the failed question scheduled a retry');
+  controller.abort();
+  assert.equal((await waiting).status, 'gone');
+  assert.ok(aborted.cleared.includes(pending), 'settling the waiter clears its retry');
+  assert.equal(aborted.timers.size, 0);
+
+  const unmounted = createReconnectHarness([new TypeError('Failed to fetch')]);
+  void unmounted.waitThenMissIt();
+  await flush();
+  const [held] = [...unmounted.timers.keys()];
+  assert.ok(held, 'the failed question scheduled a retry');
+  unmounted.unmount()();
+  assert.ok(unmounted.cleared.includes(held), 'unmounting clears every waiter retry');
+  assert.equal(unmounted.timers.size, 0);
 });

@@ -377,9 +377,15 @@ public class AccountsController : ControllerBase
             return SelfRefused();
         }
 
-        _accessService?.ForgetAccounts([account.Id]);
+        if (_accessService?.IsAllowedByEnvironment(account.Id) == true)
+        {
+            return EnvironmentRefused();
+        }
+
         context.UserAccounts.Remove(account);
         await context.SaveChangesAsync();
+        // After the delete is saved, so a failed save leaves the account its sign-in links.
+        _accessService?.ForgetAccounts([account.Id]);
 
         await _sessionService.RevokeAccountSessionsAsync(account.Id);
 
@@ -427,12 +433,18 @@ public class AccountsController : ControllerBase
         }
 
         var accounts = await context.UserAccounts.ToListAsync();
-        _accessService?.ForgetAccounts(accounts.Select(account => account.Id));
+        if (accounts.Any(account => _accessService?.IsAllowedByEnvironment(account.Id) == true))
+        {
+            return EnvironmentRefused();
+        }
+
         context.UserAccounts.RemoveRange(accounts);
         await context.SaveChangesAsync();
-        // The table is already empty. Open the hour before audit or session-clear can throw, or
-        // first-admin stays refused until a restart.
+        // The table is already empty. Open the hour before audit, session-clear or the sign-in link
+        // removal can throw, or first-admin stays refused until a restart.
         _claimWindow.Reopen();
+        // After the delete is saved, so a failed save leaves every account its sign-in links.
+        _accessService?.ForgetAccounts(accounts.Select(account => account.Id));
 
         foreach (var removed in accounts)
         {
@@ -501,6 +513,21 @@ public class AccountsController : ControllerBase
             {
                 StageKey = AccountRefusalResponse.MainAdminProtected,
                 Error = "The account that owns this installation cannot be changed here"
+            });
+    }
+
+    /// <summary>
+    /// Refuses deleting an account an environment variable allows. It is removed from the variable
+    /// first; otherwise its next sign-in would create it again.
+    /// </summary>
+    private ObjectResult EnvironmentRefused()
+    {
+        return StatusCode(
+            StatusCodes.Status409Conflict,
+            new AccountRefusalResponse
+            {
+                StageKey = AccountRefusalResponse.EnvironmentManaged,
+                Error = "This account is allowed by an environment variable. Remove it from the variable before deleting it"
             });
     }
 

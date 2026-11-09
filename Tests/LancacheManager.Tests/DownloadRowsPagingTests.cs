@@ -148,6 +148,8 @@ public class DownloadRowsPagingTests
             {
                 nameof(IStateService.GetHiddenClientIps) => new List<string>(),
                 nameof(IStateService.GetEvictedDataMode) => "show",
+                nameof(IStateService.GetHiddenPrefillRules) => new List<ClientExclusionRule>(),
+                nameof(IStateService.GetPrefillRules) => new List<ClientExclusionRule>(),
                 _ => null
             };
     }

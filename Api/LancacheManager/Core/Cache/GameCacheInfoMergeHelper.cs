@@ -1,3 +1,4 @@
+using System.Globalization;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core;
@@ -25,11 +26,36 @@ internal static class GameCacheInfoMergeHelper
             }
         }
 
+        existing.SliceSizes = UnionSliceSizes(existing.SliceSizes, incoming.SliceSizes);
+
         AddDatasource(existing.Datasources, datasourceName);
         foreach (var ds in incoming.Datasources)
         {
             AddDatasource(existing.Datasources, ds);
         }
+    }
+
+    /// <summary>
+    /// Joins two comma-separated slice-size lists (bytes, as the detection report writes them)
+    /// into one ascending list without repeats; null when both are empty.
+    /// </summary>
+    internal static string? UnionSliceSizes(string? first, string? second)
+    {
+        var sizes = new SortedSet<ulong>();
+        foreach (var list in new[] { first, second })
+        {
+            if (string.IsNullOrEmpty(list))
+            {
+                continue;
+            }
+
+            foreach (var size in list.Split(','))
+            {
+                sizes.Add(ulong.Parse(size, CultureInfo.InvariantCulture));
+            }
+        }
+
+        return sizes.Count == 0 ? null : string.Join(',', sizes);
     }
 
     public static void MergeService(ServiceCacheInfo existing, ServiceCacheInfo incoming, string? datasourceName = null)

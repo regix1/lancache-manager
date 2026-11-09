@@ -659,7 +659,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       GameRemovalComplete: () => handleForcedRefreshEvent('GameRemovalComplete'),
       UnmappedFileRemovalComplete: () => handleForcedRefreshEvent('UnmappedFileRemovalComplete'),
       // The one-time merge deletes rows that every range may list.
-      DownloadHistoryMergeComplete: () => handleForcedRefreshEvent('DownloadHistoryMergeComplete')
+      DownloadHistoryMergeComplete: () => handleForcedRefreshEvent('DownloadHistoryMergeComplete'),
+      // A prefill rule change changes the totals, clients and sparklines in every time range.
+      PrefillTrafficSettingChanged: () => handleForcedRefreshEvent('PrefillTrafficSettingChanged')
     };
     const throttledEvents = SIGNALR_REFRESH_EVENTS.filter((event) => !(event in dedicatedHandlers));
     const eventHandlers: Record<string, () => void> = {};

@@ -64,6 +64,8 @@ interface RunWaiter {
   target: string;
   /** A status request for `target` is on the wire. */
   probing: boolean;
+  /** The next status request after a failed one. */
+  retry?: ReturnType<typeof setTimeout>;
   settle: (terminal: NotificationTerminal) => void;
 }
 
@@ -218,6 +220,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     }
     async function probeRun(waiter: RunWaiter): Promise<void> {
       const target = waiter.target;
+      clearTimeout(waiter.retry);
       waiter.probing = true;
       try {
         const answer = await ApiService.getTrackedOperation(target);
@@ -240,8 +243,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         // A live answer keeps the waiter until the next snapshot that does not hold the run.
       } catch (error: unknown) {
         waiter.probing = false;
-        if (error instanceof ApiError && error.status === 404)
+        if (error instanceof ApiError && error.status === 404) {
           waiter.settle({ operationId: target, status: 'gone' });
+          return;
+        }
+        // No push comes for a run that already ended, so a failed question is asked again on the
+        // run list's schedule. While disconnected or signed out, the reconnect or the new session's
+        // snapshot asks instead.
+        waiter.retry = setTimeout(() => {
+          if (isAdminRef.current && isConnectedRef.current) follow(waiter, true);
+        }, RUN_LIST_RETRY_DELAY_MS);
       }
     }
     return follow;
@@ -526,6 +537,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           probing: false,
           settle: (terminal) => {
             if (!waitersRef.current.delete(waiter)) return;
+            clearTimeout(waiter.retry);
             signal?.removeEventListener('abort', abort);
             resolve(terminal);
           }
@@ -600,6 +612,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       for (const timerId of autoDismissTimersRef.current.values()) clearTimeout(timerId);
       autoDismissTimersRef.current.clear();
       clearTimeout(snapshotRetryRef.current);
+      for (const waiter of waitersRef.current) clearTimeout(waiter.retry);
     },
     []
   );
@@ -660,11 +673,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     [version]
   );
 
-  // True while any removal runs (they share a backend lock). Do not use it to disable buttons whose actions
-  // queue behind a running removal. It is used by the delete-mode switch, the clear tooltip on the cache
-  // page, the corruption scan, load and refresh, the scan history delete, and the log file delete.
+  // True while any removal runs or cancels (they share a backend lock, held until the cancel ends). Do not
+  // use it to disable buttons whose actions queue behind a running removal. It is used by the delete-mode
+  // switch, the clear tooltip on the cache page, the corruption scan, load and refresh, the scan history
+  // delete, and the log file delete.
   const isAnyRemovalRunning = useMemo(
-    () => runs.some((n) => REMOVAL_TYPES.includes(n.type) && n.status === 'running'),
+    () =>
+      runs.some(
+        (n) =>
+          REMOVAL_TYPES.includes(n.type) && (n.status === 'running' || n.status === 'cancelling')
+      ),
     [runs]
   );
 

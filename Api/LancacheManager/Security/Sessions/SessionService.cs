@@ -169,6 +169,13 @@ public class SessionService
     /// </summary>
     public bool IsAuthenticationEnabled()
     {
+        // The same rule as AccessService.GetMode: an environment mode wins, and an external
+        // sign-in mode that falls back still requires sign-in.
+        if (SignInEnvironment.ReadMode(_configuration) is { } environmentMode)
+        {
+            return environmentMode != AccountMode.Unauthenticated;
+        }
+
         var access = _stateService?.GetState().Access;
         if (access?.SetupVersion >= AccessSettings.RequiredSetupVersion && access.Mode.HasValue)
         {

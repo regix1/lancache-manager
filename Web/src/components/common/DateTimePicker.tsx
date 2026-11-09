@@ -11,14 +11,16 @@ import { formatTimestamp } from '@utils/dateTimeFormat';
 import CalendarNavigation from './CalendarNavigation';
 
 interface DateTimePickerProps {
+  opened: boolean;
   value: Date | null;
   onChange: (date: Date) => void;
   onClose: () => void;
-  title?: string;
+  title: string;
   minDate?: Date; // Minimum selectable date/time
 }
 
 const DateTimePicker: React.FC<DateTimePickerProps> = ({
+  opened,
   value,
   onChange,
   onClose,
@@ -27,7 +29,6 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
 }) => {
   const { t } = useTranslation();
   const { use24HourFormat } = useTimezone();
-  const resolvedTitle = title || t('common.dateTimePicker.title');
 
   const [currentMonth, setCurrentMonth] = useState(() => {
     return value ? new Date(value.getFullYear(), value.getMonth(), 1) : new Date();
@@ -211,12 +212,12 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
 
   return (
     <Modal
-      opened={true}
+      opened={opened}
       onClose={onClose}
       title={
         <div className="flex items-center gap-2">
           <Calendar className="w-5 h-5 text-[var(--theme-primary)]" />
-          <span>{resolvedTitle}</span>
+          <span>{title}</span>
         </div>
       }
       size="md"

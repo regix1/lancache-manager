@@ -97,6 +97,8 @@ export interface RunEntry {
   lastEventSeq: number;
   /** The message a predecessor showed, kept until this run's own detail arrives. */
   carriedMessage?: string;
+  /** The waiting sentence of a run that was parked when its cancel landed. */
+  parkedMessage?: string;
   cancel: Pick<
     NonNullable<UnifiedNotification['details']>,
     (typeof LIVE_ONLY_CANCEL_DETAIL_KEYS)[number]
@@ -678,7 +680,7 @@ export function applyRun(
     hiddenHere: row.repairing === true && hiddenRepairingRuns().includes(id) ? true : undefined,
     // A parked run being cancelled has no worker to describe it, so it keeps its waiting sentence.
     ...(base.run.status === 'waiting' && row.status === 'cancelling'
-      ? { carriedMessage: runWaitingMessage(base.run) }
+      ? { parkedMessage: runWaitingMessage(base.run) }
       : {})
   };
   const buffered = next.buffer.get(id);
@@ -1263,9 +1265,9 @@ function drawRun(entry: RunEntry): UnifiedNotification {
               : failedSignIn
                 ? i18n.t('common.errors.signInFailed', { platform })
                 : status === 'cancelling'
-                  ? // The last progress line no longer describes a run being stopped; a parked run
-                    // keeps the waiting sentence it carried in.
-                    (entry.carriedMessage ?? i18n.t('common.notifications.cancelling'))
+                  ? // The last progress line no longer describes a run being stopped, nor does the
+                    // line of the work this card took over; a parked run keeps its waiting sentence.
+                    (entry.parkedMessage ?? i18n.t('common.notifications.cancelling'))
                   : (detail.message ??
                     (run.status === 'skipped'
                       ? // A skip's row message is the reason the server kept, which the live card prints as is.

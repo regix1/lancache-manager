@@ -38,6 +38,23 @@ public static class DownloadQueryExtensions
     }
 
     /// <summary>
+    /// Drops rows marked as prefill traffic that a prefill rule covers (its address, or any address
+    /// when empty; its services, or every service when empty). This stays a separate step from the
+    /// client filters because added to cache figures read the same rows without it: a prefill
+    /// still fills the cache.
+    /// </summary>
+    public static IQueryable<Download> ApplyPrefillFilter(this IQueryable<Download> query, List<ClientExclusionRule> prefillRules)
+    {
+        foreach (var rule in prefillRules)
+        {
+            var ip = rule.Ip;
+            var services = rule.Services.SelectMany(platform => platform.ToRawServices()).ToList();
+            query = query.Where(d => !(d.IsPrefill && (ip == "" || d.ClientIp == ip) && (services.Count == 0 || services.Contains(d.Service))));
+        }
+        return query;
+    }
+
+    /// <summary>
     /// Bounds a query to an optional unix-seconds window. A download is in the window when it was
     /// active in it; the start-time arm keeps rows whose end was never set. This matches the
     /// sparkline, hourly, and event-compare queries. Either bound may be absent.

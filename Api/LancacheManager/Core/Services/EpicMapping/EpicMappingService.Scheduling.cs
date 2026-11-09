@@ -30,6 +30,23 @@ public partial class EpicMappingService
         }
 
         await WaitForAutoReconnectAsync(stoppingToken);
+        // A saved login that failed to renew at startup or after a network drop gets one more try before the run
+        // settles for the signed-out path.
+        if ((!_isAuthenticated || _currentTokens is null) && _processingLogin is null)
+        {
+            try
+            {
+                // A cancel of this run, as well as a shutdown, stops the renew.
+                using var renew = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token, stoppingToken);
+                await TryAutoReconnectAsync(renew.Token);
+            }
+            // A token request that hits the client timeout surfaces as a canceled task that is not a shutdown; the run
+            // still ends with the signed-out result instead of failing.
+            catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
+            {
+                _logger.LogWarning(ex, "Epic saved login could not be renewed before the scheduled run");
+            }
+        }
         if (!_isAuthenticated || _currentTokens is null)
         {
             await RunWithoutSignInAsync(stoppingToken, CurrentRunNotice);
@@ -211,6 +228,23 @@ public partial class EpicMappingService
             ["errorDetail"] = errorDetail,
         };
 
+    // Reports at most 20 times per loop, spread from fromPercent to toPercent, and always on the last asset.
+    private Func<int, int, Task> ProgressReport(MappingOperationReporter reporter, string stageKey, double fromPercent, double toPercent)
+    {
+        var lastReportedBucket = -1;
+        return async (done, total) =>
+        {
+            var bucket = done * 20 / total;
+            if (bucket <= lastReportedBucket && done != total) return;
+
+            lastReportedBucket = bucket;
+            var context = CreateEpicContext();
+            context["done"] = done;
+            context["total"] = total;
+            await reporter.ReportAsync(fromPercent + (toPercent - fromPercent) * done / total, stageKey, context);
+        };
+    }
+
     private async Task WaitForAutoReconnectAsync(CancellationToken stoppingToken)
     {
         if (!_startupAutoReconnectCompleted.Task.IsCompleted)
@@ -222,6 +256,23 @@ public partial class EpicMappingService
 
     public Task<bool> CancelRefreshAsync(IntegrationCaller? caller = null, Guid? attemptId = null)
     {
+        // The save clears the pending login, so the storage call below refuses a cancel after it with attempt-expired;
+        // a cancel naming the attempt whose mapping is running stops that mapping instead.
+        if (caller is not null && attemptId is { } id && _processingLogin is { } processing &&
+            processing.AttemptId == id && !_authStorage.IsIntegrationLoginCurrent(processing))
+        {
+            IntegrationLease.ValidateCaller(processing, caller);
+            _currentMappingReporter?.RequestCancellation();
+            try
+            {
+                _currentRefreshCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // A sign-in that ended between the read and the cancel has nothing left to stop.
+            }
+            return Task.FromResult(true);
+        }
         if (caller is not null && (_loginAttempt is not null || attemptId is not null))
         {
             _authStorage.CancelIntegrationLogin(caller, attemptId, () =>
@@ -273,11 +324,22 @@ public partial class EpicMappingService
     {
         var snapshot = _authStorage.GetIntegrationSnapshot();
         var version = snapshot.Version;
+        var releaseVersion = _authStorage.IntegrationReleaseVersion;
         var activeTokens = _currentTokens;
         void EnsureCurrent()
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!_authStorage.IsIntegrationCurrent(version)) throw new OperationCanceledException();
+            if (_authStorage.IsIntegrationCurrent(version)) return;
+            // Every saved-login write moves the version, so a token rotation of this same login keeps the run going;
+            // a logout, a pending sign-in or a different account still stops it.
+            var current = _authStorage.GetIntegrationSnapshot();
+            if (_authStorage.IntegrationReleaseVersion != releaseVersion
+                || current.Auth.AccountId != snapshot.Auth.AccountId
+                || !_authStorage.IsIntegrationCurrent(current.Version))
+            {
+                throw new OperationCanceledException();
+            }
+            version = current.Version;
         }
         EnsureCurrent();
         _lastNewGames = 0;
@@ -337,6 +399,7 @@ public partial class EpicMappingService
             CreateEpicContext());
         var games = await _epicApiClient.GetOwnedGamesAsync(
             activeTokens.AccessToken,
+            ProgressReport(reporter, "signalr.epicMapping.readingLibrary", 15, 40),
             cancellationToken);
         EnsureCurrent();
         if (games.Count > 0)
@@ -348,11 +411,26 @@ public partial class EpicMappingService
                 "scheduled-refresh",
                 cancellationToken);
             EnsureCurrent();
-            _gamesDiscovered = result.TotalGames;
-            _lastCollectionUtc = DateTime.UtcNow;
-            _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
-            _lastNewGames += result.NewGames;
-            _lastUpdatedGames += result.UpdatedGames;
+            // The release check refuses the write once a logout began, so a cleared record is never re-created and the
+            // in-memory values a logout reset are never set again. saveSavedLogin: false moves no version, so the later
+            // EnsureCurrent calls and a prefill's lease-checked token write still pass; the per-account saved copy keeps
+            // its older count until the next credential save, and a restart reads the main record.
+            try
+            {
+                _authStorage.UpdateAuthData(auth =>
+                {
+                    auth.GamesDiscovered = result.TotalGames;
+                    _gamesDiscovered = result.TotalGames;
+                    _lastCollectionUtc = DateTime.UtcNow;
+                    _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
+                    _lastNewGames += result.NewGames;
+                    _lastUpdatedGames += result.UpdatedGames;
+                }, saveSavedLogin: false, expectedReleaseVersion: releaseVersion);
+            }
+            catch (ConflictException)
+            {
+                throw new OperationCanceledException();
+            }
         }
 
         var failedSteps = 0;
@@ -366,6 +444,8 @@ public partial class EpicMappingService
         {
             var cdnInfos = await _epicApiClient.GetCdnInfoAsync(
                 activeTokens.AccessToken,
+                new HashSet<string>(),
+                ProgressReport(reporter, "signalr.epicMapping.resolvingPaths", 40, 60),
                 cancellationToken);
             EnsureCurrent();
             if (cdnInfos.Count > 0)
@@ -404,7 +484,7 @@ public partial class EpicMappingService
         catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
         {
             failedSteps++;
-            _logger.LogDebug(ex, "Epic free-game discovery skipped");
+            _logger.LogWarning(ex, "Epic free-game discovery skipped");
         }
 
         _currentProgressPercent = 85;
@@ -430,8 +510,21 @@ public partial class EpicMappingService
         }
 
         EnsureCurrent();
-        if (_authStorage.TryUpdateAuth(version, auth => auth.LastAuthenticated = DateTime.UtcNow,
-            () => _lastRefreshTime = DateTime.UtcNow) is null) throw new OperationCanceledException();
+        // Release-checked like the count write: a prefill holding its lease must not end this run as canceled, and a
+        // logout must not get a login or a refresh time back.
+        try
+        {
+            _authStorage.UpdateAuthData(auth =>
+            {
+                var now = DateTime.UtcNow;
+                auth.LastAuthenticated = now;
+                _lastRefreshTime = now;
+            }, saveSavedLogin: false, expectedReleaseVersion: releaseVersion);
+        }
+        catch (ConflictException)
+        {
+            throw new OperationCanceledException();
+        }
         _currentProgressPercent = 99;
         await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
         {

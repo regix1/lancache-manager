@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using LancacheManager.Core.Services;
 
 namespace LancacheManager.Models;
 
@@ -23,6 +24,10 @@ public static class PrefillPlatformExtensions
         PrefillPlatform.Xbox => "xbox",
         _ => throw new ArgumentOutOfRangeException(nameof(platform))
     };
+
+    /// <summary>The raw service names a platform's downloads are stored under; Xbox spreads over several.</summary>
+    public static IReadOnlyList<string> ToRawServices(this PrefillPlatform platform)
+        => platform == PrefillPlatform.Xbox ? ServiceBreakdownMerger.XboxRawServiceNames : [platform.ToService()];
 
     public static PrefillPlatform? ToPrefillPlatform(this string service) => service.ToLowerInvariant() switch
     {

@@ -67,10 +67,12 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
     // Listen for data refresh events to update history
     signalR.on('DownloadsRefresh', handleHistoryEvent);
     signalR.on('LogProcessingComplete', handleHistoryEvent);
+    signalR.on('PrefillTrafficSettingChanged', handleHistoryEvent);
 
     return () => {
       signalR.off('DownloadsRefresh', handleHistoryEvent);
       signalR.off('LogProcessingComplete', handleHistoryEvent);
+      signalR.off('PrefillTrafficSettingChanged', handleHistoryEvent);
     };
   }, [signalR, fetchHistory, handleHistoryEvent]);
 

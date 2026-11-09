@@ -59,6 +59,7 @@ public class DownloadRowsController : ControllerBase
         var query = _context.Downloads
             .AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyPrefillFilter(_stateRepository.GetHiddenPrefillRules())
             .ApplyEmptySessionFilter()
             .ApplyTimeRange(startTime, endTime);
 

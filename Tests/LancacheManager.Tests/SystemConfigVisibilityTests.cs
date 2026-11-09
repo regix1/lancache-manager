@@ -163,6 +163,16 @@ public sealed class SystemConfigVisibilityTests : IDisposable
         _controller.HttpContext.User = new ClaimsPrincipal(
             new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin")], "Session"));
         Assert.True(_controller.HttpContext.User.Identity?.IsAuthenticated);
+        // The session middleware stores the caller's session here; the paths follow its type.
+        _controller.HttpContext.Items["Session"] = new UserSession
+        {
+            Id = Guid.NewGuid(),
+            SessionTokenHash = Guid.NewGuid().ToString("N"),
+            SessionType = SessionType.Admin,
+            CreatedAtUtc = DateTime.UtcNow,
+            ExpiresAtUtc = DateTime.UtcNow.AddDays(1),
+            LastSeenAtUtc = DateTime.UtcNow
+        };
 
         var body = await ReadConfigAsync();
 

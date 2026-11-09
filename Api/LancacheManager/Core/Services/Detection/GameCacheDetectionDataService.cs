@@ -1233,6 +1233,7 @@ public sealed partial class GameCacheDetectionDataService
                 DatasourcesJson = JsonSerializer.Serialize(game.Datasources),
                 Service = game.Service,
                 EpicAppId = game.EpicAppId,
+                SliceSizes = game.SliceSizes,
                 LastDetectedUtc = now,
                 CreatedAtUtc = now
             };
@@ -1262,6 +1263,7 @@ public sealed partial class GameCacheDetectionDataService
                 existing.DatasourcesJson = cachedGame.DatasourcesJson;
                 existing.Service = cachedGame.Service;
                 existing.EpicAppId = cachedGame.EpicAppId;
+                existing.SliceSizes = cachedGame.SliceSizes;
                 existing.LastDetectedUtc = now;
 
                 if (cachedGame.CacheFilesFound > 0 && existing.IsEvicted)
@@ -1280,17 +1282,36 @@ public sealed partial class GameCacheDetectionDataService
             }
         }
 
-        try
+        while (true)
         {
-            await dbContext.SaveChangesAsync(cancellationToken);
-            dbContext.ChangeTracker.Clear();
-        }
-        catch (DbUpdateException ex)
-            when (ex.InnerException is NpgsqlException pgEx && pgEx.SqlState == "23505")
-        {
-            _logger.LogWarning(
-                ex,
-                "[GameDetection] UNIQUE constraint error when saving games - some records may already exist. Continuing...");
+            try
+            {
+                await dbContext.SaveChangesAsync(cancellationToken);
+                dbContext.ChangeTracker.Clear();
+                return;
+            }
+            catch (DbUpdateConcurrencyException ex)
+            {
+                // A row loaded above was deleted before this save (the scheduled cleanup drops
+                // nameless rows without waiting for detection). That row stays deleted and the rest
+                // of the scan is saved again; every retry has at least one fewer tracked row.
+                foreach (var entry in ex.Entries)
+                {
+                    entry.State = EntityState.Detached;
+                }
+
+                _logger.LogWarning(
+                    "[GameDetection] {Count} detected game row(s) were deleted before the save; saving the rest",
+                    ex.Entries.Count);
+            }
+            catch (DbUpdateException ex)
+                when (ex.InnerException is NpgsqlException pgEx && pgEx.SqlState == "23505")
+            {
+                _logger.LogWarning(
+                    ex,
+                    "[GameDetection] UNIQUE constraint error when saving games - some records may already exist. Continuing...");
+                return;
+            }
         }
     }
 
@@ -1682,7 +1703,8 @@ public sealed partial class GameCacheDetectionDataService
             Datasources = DeserializeStringList(datasourcesJson, _logger),
             Service = cached.Service,
             EpicAppId = cached.EpicAppId,
-            IsEvicted = cached.IsEvicted
+            IsEvicted = cached.IsEvicted,
+            SliceSizes = cached.SliceSizes
         };
     }
 

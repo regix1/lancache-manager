@@ -92,7 +92,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
               }}
               placeholder={t('initialization.steamWebApiKey.placeholder')}
               className="themed-input setup-input"
-              disabled={!canManage || testing || saving}
+              disabled={!canManage}
             />
           )}
         </FormField>

@@ -110,7 +110,7 @@ public class EpicGameMappingController : ControllerBase
     /// Completes the Epic login flow using an authorization code.
     /// </summary>
     /// <remarks>
-    /// Exchanges the authorization code for tokens, fetches games, and saves credentials.
+    /// Exchanges the authorization code for tokens and saves credentials; the game collection then runs in the background.
     /// </remarks>
     [HttpPost("auth/complete")]
     [ProducesResponseType(typeof(EpicAuthCompleteResponse), StatusCodes.Status200OK)]
@@ -127,9 +127,9 @@ public class EpicGameMappingController : ControllerBase
         var status = _epicMappingService.GetAuthStatus();
         return Ok(new EpicAuthCompleteResponse
         {
-            Message = "Game collection complete",
+            Message = "Sign-in saved; game collection running",
             DisplayName = status.DisplayName,
-            GamesDiscovered = status.GamesDiscovered
+            GamesDiscovered = 0
         });
     }
 

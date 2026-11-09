@@ -67,6 +67,19 @@ public partial class RustProcessHelper
     }
 
     /// <summary>
+    /// The Rust binaries' <c>--slice-size</c> flag, with its leading space, for a stored manual
+    /// slice size. Null is Auto, which the binaries read from the flag's absence.
+    /// </summary>
+    public static string SliceSizeFlag(long? sliceSizeBytes) =>
+        sliceSizeBytes is long bytes ? $" --slice-size {bytes.ToString(CultureInfo.InvariantCulture)}" : string.Empty;
+
+    /// <summary>
+    /// <see cref="SliceSizeFlag"/> as argument-list entries: none for Auto.
+    /// </summary>
+    public static IReadOnlyList<string> SliceSizeArguments(long? sliceSizeBytes) =>
+        sliceSizeBytes is long bytes ? ["--slice-size", bytes.ToString(CultureInfo.InvariantCulture)] : [];
+
+    /// <summary>
     /// Creates a standard ProcessStartInfo for Rust executables
     /// </summary>
     public ProcessStartInfo CreateProcessStartInfo(string executablePath, string arguments, string? workingDirectory = null)
@@ -219,6 +232,10 @@ public partial class RustProcessHelper
             try
             {
                 File.WriteAllText($"/proc/{process.Id}/oom_score_adj", "1000");
+            }
+            catch (Exception ex) when (ex is DirectoryNotFoundException or FileNotFoundException)
+            {
+                _logger.LogDebug("Process {ProcessId} exited before its out-of-memory score was set", process.Id);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
             {
@@ -1275,7 +1292,8 @@ public partial class RustProcessHelper
         CancellationToken cancellationToken = default,
         Guid? operationId = null,
         Func<RustProgressEvent, Task>? onProgressEvent = null,
-        Action<ProcessStartInfo>? configureProcess = null) =>
+        Action<ProcessStartInfo>? configureProcess = null,
+        long? sliceSizeBytes = null) =>
         RunCorruptionManagerCommandAsync(
             command,
             logsPath,
@@ -1289,7 +1307,8 @@ public partial class RustProcessHelper
             cancellationToken,
             operationId,
             onProgressEvent,
-            configureProcess);
+            configureProcess,
+            sliceSizeBytes);
 
     private async Task<RustExecutionResult> RunCorruptionManagerCommandAsync(
         string command,
@@ -1304,7 +1323,8 @@ public partial class RustProcessHelper
         CancellationToken cancellationToken,
         Guid? operationId,
         Func<RustProgressEvent, Task>? onProgressEvent,
-        Action<ProcessStartInfo>? configureProcess)
+        Action<ProcessStartInfo>? configureProcess,
+        long? sliceSizeBytes)
     {
         // The Rust `remove` command's only data sink is its progress_json file, which the
         // CALLER monitors on a 500ms poll loop (CacheController). Previously that same caller path was
@@ -1339,7 +1359,8 @@ public partial class RustProcessHelper
                 keyScheme,
                 stemPositionsFile,
                 operationId,
-                resumeFile);
+                resumeFile,
+                sliceSizeBytes);
 
             _logger.LogInformation("[corruption_manager] Executing: {Binary} {Args}", rustBinaryPath, arguments);
 
@@ -1434,7 +1455,8 @@ public partial class RustProcessHelper
         string keyScheme,
         string? stemPositionsFile = null,
         Guid? operationId = null,
-        string? resumeFile = null) => command switch
+        string? resumeFile = null,
+        long? sliceSizeBytes = null) => command switch
         {
             "remove" when !string.IsNullOrEmpty(service)
                 && !string.IsNullOrEmpty(cachePath)
@@ -1442,13 +1464,13 @@ public partial class RustProcessHelper
                 && !string.IsNullOrEmpty(progressFile)
                 && !string.IsNullOrEmpty(keyScheme)
                 && operationId.HasValue =>
-                $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme} --operation-id \"{operationId.Value}\"",
+                $"remove \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme}{SliceSizeFlag(sliceSizeBytes)} --operation-id \"{operationId.Value}\"",
             "remove-logs" when !string.IsNullOrEmpty(service)
                 && !string.IsNullOrEmpty(cachePath)
                 && !string.IsNullOrEmpty(evidenceFile)
                 && !string.IsNullOrEmpty(progressFile)
                 && !string.IsNullOrEmpty(keyScheme) =>
-                $"remove-logs \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme}"
+                $"remove-logs \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme}{SliceSizeFlag(sliceSizeBytes)}"
                     + (string.IsNullOrEmpty(stemPositionsFile) ? "" : $" --stem-positions \"{stemPositionsFile}\"")
                     + (string.IsNullOrEmpty(resumeFile) ? "" : $" --resume \"{resumeFile}\""),
             "remove-structural" when !string.IsNullOrEmpty(cachePath)
@@ -1456,7 +1478,7 @@ public partial class RustProcessHelper
                 && !string.IsNullOrEmpty(progressFile)
                 && !string.IsNullOrEmpty(keyScheme)
                 && operationId.HasValue =>
-                $"remove-structural \"{cachePath}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme} --operation-id \"{operationId.Value}\"",
+                $"remove-structural \"{cachePath}\" \"{progressFile}\" --evidence-file \"{evidenceFile}\" --progress --key-scheme {keyScheme}{SliceSizeFlag(sliceSizeBytes)} --operation-id \"{operationId.Value}\"",
             _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
         };
 

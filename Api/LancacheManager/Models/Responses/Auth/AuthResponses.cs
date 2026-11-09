@@ -7,11 +7,21 @@ public class AuthStatusResponse
     public bool AuthenticationEnabled { get; set; }
     public AccountMode AccountMode { get; set; }
     public bool AuthenticationSetupRequired { get; set; }
+    /// <summary>
+    /// True when the <c>Security__SignInMode</c> environment variable decides the mode, so the
+    /// browser shows it read-only. Sent only to an account holder or while setup is required.
+    /// </summary>
+    public bool SignInModeFromEnvironment { get; set; }
     public string? OidcDisplayName { get; set; }
     public bool OidcPending { get; set; }
     public bool OwnerOidcEnabled { get; set; }
     public bool OwnerPasswordEnabled { get; set; }
     public List<LoginServiceResponse> LoginServices { get; set; } = [];
+    /// <summary>
+    /// Logins environment variables set that are not complete enough to use, with the field names
+    /// the environment supplies. Sent only to an account holder or while setup is required.
+    /// </summary>
+    public List<LoginServiceResponse> IncompleteLoginServices { get; set; } = [];
     public List<string> OwnerLoginServices { get; set; } = [];
     public bool LoginSetupPending { get; set; }
     public LoginKind? PendingLoginKind { get; set; }

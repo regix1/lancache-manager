@@ -178,6 +178,7 @@ pub fn collect_cache_paths(
     cache_dir: &Path,
     url_data: &HashMap<String, (String, i64)>,
     scheme: cache_utils::CacheKeyScheme,
+    slice_sizes: &[u64],
     reach: SliceReach,
     progress: Option<&CollectionProgress<'_>>,
     on_sweep_folder: &(dyn Fn(&str, usize) + Sync),
@@ -196,9 +197,13 @@ pub fn collect_cache_paths(
 
     let walked: Vec<(PathBuf, Option<String>)> = url_data
         .par_iter()
-        .flat_map(|(url, (service, _total_bytes))| {
+        .map(|(url, (service, _total_bytes))| {
             let paths = cache_utils::existing_keyed_paths_for_url_with_scheme(
-                scheme, cache_dir, service, url,
+                scheme,
+                cache_dir,
+                service,
+                url,
+                slice_sizes,
             );
 
             if let Some(progress) = progress {
@@ -221,7 +226,17 @@ pub fn collect_cache_paths(
 
             paths
         })
-        .collect::<Vec<_>>();
+        .collect::<std::io::Result<Vec<_>>>()
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "a cache file under {} could not be checked, so this removal cannot tell which slices exist: {}",
+                cache_dir.display(),
+                error
+            )
+        })?
+        .into_iter()
+        .flatten()
+        .collect();
 
     let SliceReach::SweepKeyHeaders { stage_key } = reach else {
         return Ok(walked);
@@ -242,6 +257,7 @@ pub fn collect_cache_paths(
         cache_dir,
         url_data.iter().map(|(url, (service, _))| (service, url)),
         &claimed,
+        slice_sizes,
     ) {
         return Ok(walked);
     }
@@ -275,12 +291,14 @@ pub fn object_key_bases<'a>(
 
 /// Whether the forward walk already claimed every slice of every object, so no slice can sit behind an
 /// eviction hole and the KEY-header sweep has nothing to find. An object counts when the walk claimed its
-/// slice 0 and every slice up to the size slice 0's own `Content-Range` header names. A missing slice 0, an
-/// unreadable header or a header with no size means the sweep runs.
+/// slice 0 at one of `slice_sizes` and every slice at that size up to the size slice 0's own
+/// `Content-Range` header names. A missing slice 0, an unreadable header or a header with no size means
+/// the sweep runs.
 pub fn every_slice_claimed<'a>(
     cache_dir: &Path,
     mut objects: impl Iterator<Item = (&'a String, &'a String)>,
     claimed: &HashSet<u128>,
+    slice_sizes: &[u64],
 ) -> bool {
     use std::io::Read;
 
@@ -288,17 +306,20 @@ pub fn every_slice_claimed<'a>(
         let Some(base) = cache_utils::object_key_base(service, url) else {
             return false;
         };
-        let slice = |index: u64| {
-            let start = index * cache_utils::DEFAULT_SLICE_SIZE;
+        let slice = |index: u64, slice_size: u64| {
+            let start = index * slice_size;
             cache_utils::calculate_md5_digest(&format!(
                 "{base}bytes={start}-{}",
-                start + cache_utils::DEFAULT_SLICE_SIZE - 1
+                start + slice_size - 1
             ))
         };
-        let first = slice(0);
-        if !claimed.contains(&first) {
+        let Some((slice_size, first)) = slice_sizes
+            .iter()
+            .map(|&slice_size| (slice_size, slice(0, slice_size)))
+            .find(|(_, first)| claimed.contains(first))
+        else {
             return false;
-        }
+        };
         // The cached response's headers follow the KEY line inside the same first 8 KiB the KEY read covers.
         let mut head = Vec::new();
         let Ok(file) = fs::File::open(cache_utils::cache_path_for_digest(cache_dir, first)) else {
@@ -319,8 +340,7 @@ pub fn every_slice_claimed<'a>(
         let Some(size) = size else {
             return false;
         };
-        (1..size.div_ceil(cache_utils::DEFAULT_SLICE_SIZE))
-            .all(|index| claimed.contains(&slice(index)))
+        (1..size.div_ceil(slice_size)).all(|index| claimed.contains(&slice(index, slice_size)))
     })
 }
 
@@ -422,6 +442,7 @@ pub fn count_cache_files(
     output_json: &Path,
     entity: &str,
     scheme: cache_utils::CacheKeyScheme,
+    slice_sizes: &[u64],
     reach: SliceReach,
     progress: &CollectionProgress<'_>,
 ) -> Result<usize> {
@@ -429,6 +450,7 @@ pub fn count_cache_files(
         cache_dir,
         url_data,
         scheme,
+        slice_sizes,
         reach,
         Some(progress),
         &|stage_key, folders| report_sweep_progress(progress, stage_key, folders),
@@ -465,6 +487,7 @@ pub fn remove_cache_files(
     keys: &RemovalStageKeys,
     cadence: ProgressCadence,
     scheme: cache_utils::CacheKeyScheme,
+    slice_sizes: &[u64],
     reach: SliceReach,
 ) -> Result<CacheRemovalOutcome> {
     use rayon::prelude::*;
@@ -486,6 +509,7 @@ pub fn remove_cache_files(
         cache_dir,
         url_data,
         scheme,
+        slice_sizes,
         reach,
         None,
         &|stage_key, folders| {
@@ -845,6 +869,7 @@ pub fn run_url_removal_steps(
     per_file_keys: &RemovalStageKeys,
     lifecycle: &RemovalLifecycleKeys,
     cadence: ProgressCadence,
+    slice_sizes: &[u64],
     reach: SliceReach,
     write_failure_report: &dyn Fn(&RemovalTail) -> Result<()>,
 ) -> Result<Option<RemovalTail>> {
@@ -869,6 +894,7 @@ pub fn run_url_removal_steps(
         per_file_keys,
         cadence,
         cache_utils::active_key_scheme(),
+        slice_sizes,
         reach,
     )?;
 
@@ -973,6 +999,7 @@ mod tests {
             &TEST_STAGE_KEYS,
             ProgressCadence::OnPercentAdvance,
             scheme,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
             SliceReach::SweepKeyHeaders {
                 stage_key: "test.cache.sweeping",
             },
@@ -1001,6 +1028,7 @@ mod tests {
             &output_json,
             "Some Game",
             cache_utils::CacheKeyScheme::Monolithic,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
             SliceReach::SweepKeyHeaders {
                 stage_key: "test.cache.sweeping",
             },
@@ -1033,6 +1061,68 @@ mod tests {
     }
 
     #[test]
+    fn games_cached_at_eight_mib_and_one_mib_are_both_counted_and_removed() {
+        let temp = tempfile::tempdir().unwrap();
+        let service = "steam";
+        let eight_mib = 8 * cache_utils::DEFAULT_SLICE_SIZE;
+        let mut slice_paths = Vec::new();
+        for (url, slice_size, count) in [
+            ("/depot/1/chunk/eight", eight_mib, 3u64),
+            ("/depot/2/chunk/one", cache_utils::DEFAULT_SLICE_SIZE, 2),
+        ] {
+            for chunk in 0..count {
+                let start = chunk * slice_size;
+                let end = start + slice_size - 1;
+                let path = cache_utils::calculate_cache_path(temp.path(), service, url, start, end);
+                write_cache_file(&path, Some(&format!("{service}{url}bytes={start}-{end}")));
+                slice_paths.push(path);
+            }
+        }
+        let urls = HashMap::from([
+            ("/depot/1/chunk/eight".to_string(), (service.to_string(), 0_i64)),
+            ("/depot/2/chunk/one".to_string(), (service.to_string(), 0_i64)),
+        ]);
+        let progress_path = temp.path().join("progress.json");
+        let reporter = ProgressReporter::new(false);
+
+        let counted = count_cache_files(
+            temp.path(),
+            &urls,
+            &temp.path().join("count.json"),
+            "Two Games",
+            cache_utils::CacheKeyScheme::Monolithic,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
+            SliceReach::SweepKeyHeaders {
+                stage_key: "test.cache.sweeping",
+            },
+            &CollectionProgress {
+                progress_path: &progress_path,
+                reporter: &reporter,
+                stage_key: "test.cache.counting",
+            },
+        )
+        .unwrap();
+        assert_eq!(counted, 5);
+
+        let eight = remove_one(
+            temp.path(),
+            service,
+            "/depot/1/chunk/eight",
+            cache_utils::CacheKeyScheme::Monolithic,
+            &progress_path,
+        );
+        let one = remove_one(
+            temp.path(),
+            service,
+            "/depot/2/chunk/one",
+            cache_utils::CacheKeyScheme::Monolithic,
+            &progress_path,
+        );
+        assert_eq!((eight.deleted_files, one.deleted_files), (3, 2));
+        assert!(slice_paths.iter().all(|path| !path.exists()));
+    }
+
+    #[test]
     fn count_report_includes_bytes_found() {
         let temp = tempfile::tempdir().unwrap();
         let service = "steam";
@@ -1053,6 +1143,7 @@ mod tests {
             &output_json,
             "Some Game",
             cache_utils::CacheKeyScheme::Monolithic,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
             SliceReach::SweepKeyHeaders {
                 stage_key: "test.cache.sweeping",
             },
@@ -1081,6 +1172,7 @@ mod tests {
             &temp.path().join("count.json"),
             "Some Game",
             cache_utils::CacheKeyScheme::Monolithic,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
             SliceReach::SweepKeyHeaders {
                 stage_key: "test.cache.sweeping",
             },
@@ -1145,6 +1237,7 @@ mod tests {
                 db_deleting: "test.db.deleting",
             },
             ProgressCadence::OnPercentAdvance,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
             SliceReach::ForwardWalkIsComplete,
             &|_| panic!("a clean removal writes no failure report"),
         )
@@ -1175,6 +1268,7 @@ mod tests {
                 db_deleting: "test.db.deleting",
             },
             ProgressCadence::OnPercentAdvance,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
             SliceReach::ForwardWalkIsComplete,
             &|tail| {
                 assert_eq!(tail.bytes_freed, 0);
@@ -1252,6 +1346,7 @@ mod tests {
                 db_deleting: "test.db.deleting",
             },
             ProgressCadence::OnPercentAdvance,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
             SliceReach::ForwardWalkIsComplete,
             &|_| panic!("a removal through a linked cache folder writes no failure report"),
         )
@@ -1281,12 +1376,31 @@ mod tests {
         fs::create_dir_all(&other_disk).unwrap();
         std::os::unix::fs::symlink(&other_disk, &hex_folder).unwrap();
         write_cache_file(&cache_path, None);
-        // The disk behind the link is no longer mounted: the file may still be on it.
+        // The disk behind the link is no longer mounted: the file may still be on it, so the slice
+        // walk stops the removal before anything is deleted and there is nothing to report.
         fs::remove_dir_all(&other_disk).unwrap();
+        let urls = HashMap::from([(url.to_string(), ("epicgames".to_string(), 0_i64))]);
 
-        let error = remove_and_expect_the_tail_stopped(&cache_dir, url, "epicgames");
+        let error = run_url_removal_steps(
+            &cache_dir,
+            &urls,
+            &cache_dir.join("progress.json"),
+            &ProgressReporter::new(false),
+            &TEST_STAGE_KEYS,
+            &RemovalLifecycleKeys {
+                cache_removing: "test.cache.removing",
+                dirs_cleaning: "test.dirs.cleaning",
+                db_deleting: "test.db.deleting",
+            },
+            ProgressCadence::OnPercentAdvance,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
+            SliceReach::ForwardWalkIsComplete,
+            &|_| panic!("a removal that deleted nothing writes no failure report"),
+        )
+        .err()
+        .expect("a cache file that cannot be checked stops the removal");
 
-        assert!(error.contains("1 cache file(s) could not be deleted"));
+        assert!(error.to_string().contains("could not be checked"), "{error}");
     }
 
     #[test]
@@ -1413,6 +1527,7 @@ mod tests {
             &scratch.join("count.json"),
             "Some Game",
             cache_utils::CacheKeyScheme::Monolithic,
+            &[cache_utils::DEFAULT_SLICE_SIZE],
             SliceReach::SweepKeyHeaders {
                 stage_key: "test.cache.sweeping",
             },

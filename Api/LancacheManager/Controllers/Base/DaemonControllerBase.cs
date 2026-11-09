@@ -251,7 +251,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
         if (ownershipResult is not null) return ownershipResult;
-        await _daemonService.CancelPrefillRunAsync(sessionId, runId, cancellationToken);
+        await _daemonService.CancelPrefillRunAsync(sessionId, runId, false, cancellationToken);
         return Ok();
     }
 

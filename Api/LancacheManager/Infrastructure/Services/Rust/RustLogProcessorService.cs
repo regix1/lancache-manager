@@ -572,6 +572,9 @@ public class RustLogProcessorService
         }
         // Also reset legacy position for backward compatibility
         _stateService.SetLogPosition(0);
+        // Reprocessed logs can bring back rows of runs that ended long ago, so the next marking
+        // pass reads the whole window.
+        _serviceProvider.GetRequiredService<PrefillSessionService>().ResetMarkingPass();
         _logger.LogInformation("Log position reset to 0 for all datasources");
     }
 
@@ -588,6 +591,9 @@ public class RustLogProcessorService
             PositionsAfterReset(_stateService.GetLogSourcePositions(datasourceName), datasource.LogSourceStems));
         _stateService.SetLogPosition(datasourceName, 0);
         _stateService.SetLogTotalLines(datasourceName, 0);
+        // Reprocessed logs can bring back rows of runs that ended long ago, so the next marking
+        // pass reads the whole window.
+        _serviceProvider.GetRequiredService<PrefillSessionService>().ResetMarkingPass();
         _logger.LogInformation("Log position reset to 0 for datasource '{DatasourceName}'", datasourceName);
     }
 
@@ -1177,6 +1183,10 @@ public class RustLogProcessorService
         LogProcessingBatchState? batch = null,
         Action<LogProcessingProgress?>? onFinished = null)
     {
+        // Taken before the child starts reading. Once the pass reads to the end of its logs, every
+        // line it missed was written after this time, so the next marking pass of this datasource
+        // reads runs that ended since.
+        var ingestStartedUtc = DateTime.UtcNow;
         await _startLock.WaitAsync();
         try
         {
@@ -1659,6 +1669,29 @@ public class RustLogProcessorService
             // partial or cancelled run whose earlier batches committed still exposes that
             // data here without ever being reported as a completed operation.
             var refreshSatisfied = SatisfiesDownloadsRefresh(finalProgress);
+            // Prefill rows are marked before the refresh below, so the dashboard's next read
+            // already leaves them out. Its own catch: a failed marking must never cost the
+            // refresh, the checkpoint save or the cancel cleanup that follow. This runs before
+            // the interactive and live branches split, so it covers both. A canceled, stalled,
+            // partial or failed pass still marks, but records no start time: lines it did not
+            // reach may belong to runs that ended before it began. riotSuccess above is that test for
+            // every pass, Riot run or not: exit 0 with a completed terminal checkpoint.
+            try
+            {
+                if (_stateService.GetPrefillMarkingSinceUtc() is { } since
+                    && _stateService.GetPrefillRules().Count > 0)
+                {
+                    await _serviceProvider.GetRequiredService<PrefillSessionService>()
+                        .MarkPrefillRowsAsync(since, datasourceName, riotSuccess ? ingestStartedUtc : null, CancellationToken.None);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Prefill row marking failed after an accepted log-processing checkpoint for datasource {DatasourceName}",
+                    datasourceName);
+            }
             try
             {
                 await NotifyCommittedDownloadsAsync(finalProgress);
@@ -2417,47 +2450,55 @@ public class RustLogProcessorService
                 return 0;
             }
 
-            // Find downloads that have GameAppId but missing game name - image bytes are now
+            var steamService = scope.ServiceProvider.GetRequiredService<SteamService>();
+            var recentlyFailed = steamService.GetRecentlyFailedAppIds();
+
+            // Find app ids that have downloads without a game name - image bytes are now
             // fetched exclusively by GameImageFetchService (3-tier pipeline). We only update
             // GameName here, since GameImageFetchService does not enrich Download.GameName.
-            var downloadsNeedingName = await context.Downloads
-                .Where(d => d.GameAppId.HasValue && string.IsNullOrEmpty(d.GameName))
+            // Apps whose store lookup failed within the hour are left out so the batch moves on.
+            var appIds = await context.Downloads
+                .Where(d => d.GameAppId.HasValue && string.IsNullOrEmpty(d.GameName) && !recentlyFailed.Contains(d.GameAppId!.Value))
+                .Select(d => d.GameAppId!.Value)
+                .Distinct()
                 .Take(50)
                 .ToListAsync();
 
-            if (downloadsNeedingName.Count == 0)
+            if (appIds.Count == 0)
             {
                 _steamNamesDrainedAtMaxId = maxDownloadId;
                 return 0;
             }
 
-            // Steam returns a name for every app, including a fallback when its lookup fails, so
-            // successful rows are never asked twice. A continuation can add an app id to an old row;
-            // the next inserted download advances this key and makes that row eligible again.
-            var steamService = scope.ServiceProvider.GetRequiredService<SteamService>();
-            _logger.LogInformation("Fetching game names for {Count} downloads", downloadsNeedingName.Count);
+            // A failed store lookup stores no name, so its rows stay empty and are asked again. An
+            // app the query left out does not block the drain marker: it is asked again on the first
+            // pass after its failure is an hour old and a new download has cleared the marker. A
+            // continuation can add an app id to an old row the same way.
+            _logger.LogInformation("Fetching game names for {Count} apps", appIds.Count);
 
             int updated = 0;
-            foreach (var download in downloadsNeedingName)
+            int named = 0;
+            foreach (var appId in appIds)
             {
                 try
                 {
-                    var gameInfo = await steamService.GetGameInfoAsync(download.GameAppId!.Value);
-                    if (gameInfo != null && !string.IsNullOrEmpty(gameInfo.Name))
+                    var game = await steamService.GetGameInfoAsync(appId);
+                    if (game != null)
                     {
-                        download.GameName = gameInfo.Name;
-                        updated++;
+                        updated += await context.Downloads
+                            .Where(d => d.GameAppId == appId && string.IsNullOrEmpty(d.GameName))
+                            .ExecuteUpdateAsync(s => s.SetProperty(d => d.GameName, game.Name));
+                        named++;
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to fetch game info for app {AppId}", download.GameAppId);
+                    _logger.LogWarning(ex, "Failed to fetch game info for app {AppId}", appId);
                 }
             }
 
             if (updated > 0)
             {
-                await context.SaveChangesAsync();
                 _logger.LogInformation("Updated {Count} downloads with game names", updated);
 
                 // NOTE: We do not trigger GameImageFetchService here - it runs on its own schedule
@@ -2466,10 +2507,7 @@ public class RustLogProcessorService
                 // already sends DownloadsRefresh (live ingest) or LogProcessingComplete (interactive).
             }
 
-            _steamNamesDrainedAtMaxId = downloadsNeedingName.Count < 50
-                && updated == downloadsNeedingName.Count
-                ? maxDownloadId
-                : null;
+            _steamNamesDrainedAtMaxId = appIds.Count < 50 && named == appIds.Count ? maxDownloadId : null;
             return updated;
         }
         catch (Exception ex)

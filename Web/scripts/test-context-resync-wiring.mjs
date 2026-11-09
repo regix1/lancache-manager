@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
-import { transpile } from './transpile-module.mjs';
+import { bindLifted, liftHookCallback, transpile } from './transpile-module.mjs';
 
 /**
  * Five contexts that carry labels and settings rather than gates: an event list, download tags,
@@ -114,6 +114,44 @@ test('hostnames reload for a signed-in viewer only', () => {
   assert.equal(run('authenticated'), 1);
   assert.equal(run('guest'), 1, 'an admin flipping the setting changes every viewer of the labels');
   assert.equal(run('none'), 0);
+});
+
+test('a hostnames change reloads hostnames, and a prefill traffic change does not', () => {
+  const subscribed = [];
+  const unsubscribed = [];
+  const reloads = [];
+  const cleanup = bindLifted(
+    liftHookCallback(
+      'src/contexts/ClientHostnameContext.tsx',
+      'useEffect',
+      'ClientHostnamesChanged'
+    ),
+    {
+      authModeRef: { current: 'authenticated' },
+      refreshHostnames: () => reloads.push(true),
+      on: (name, handler) => subscribed.push({ name, handler }),
+      off: (name, handler) => unsubscribed.push({ name, handler })
+    }
+  )();
+
+  assert.deepEqual(
+    subscribed.map((entry) => entry.name),
+    ['ClientHostnamesChanged'],
+    'the hostnames reply no longer carries a prefill setting, so that event has nothing to reload'
+  );
+  subscribed[0].handler();
+  assert.equal(reloads.length, 1, 'a change saved in another tab reaches the labels here');
+
+  cleanup();
+  assert.deepEqual(
+    unsubscribed.map((entry) => entry.name),
+    ['ClientHostnamesChanged']
+  );
+  assert.equal(
+    unsubscribed[0].handler,
+    subscribed[0].handler,
+    'off needs the handler on was given'
+  );
 });
 
 test('the config is asked for again, through the path that keeps the cached one on failure', () => {

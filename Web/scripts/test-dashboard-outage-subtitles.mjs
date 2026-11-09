@@ -48,7 +48,6 @@ const statCards = (overrides) =>
       handleCacheFilesValueChange: () => undefined,
       formattedCacheScanTime: null,
       formattedLastDetectionTime: null,
-      unmappedCacheBytes: null,
       cardVisibility: {},
       statTooltips: {},
       periodBadge: undefined,

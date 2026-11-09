@@ -15,6 +15,8 @@ interface PostgresConnectionFieldsProps {
   /** Full input class string, copied verbatim from the caller's family of forms. */
   inputClassName: string;
   disabled?: boolean;
+  /** Keeps the values fixed while a submit that sent them runs, without disabling the fields. */
+  readOnly?: boolean;
   /** Renders the password field as a `PasswordField` with a reveal toggle when set. Only
    *  `ExternalDatabaseSetupStep` offers a reveal today; `DatabaseImportForm` does not. */
   passwordReveal?: { showLabel: string; hideLabel: string };
@@ -35,6 +37,7 @@ export const PostgresConnectionFields: React.FC<PostgresConnectionFieldsProps> =
   onFieldChange,
   inputClassName,
   disabled,
+  readOnly,
   passwordReveal,
   errors
 }) => {
@@ -56,6 +59,7 @@ export const PostgresConnectionFields: React.FC<PostgresConnectionFieldsProps> =
                 value={values.host}
                 onChange={handleChange('host')}
                 disabled={disabled}
+                readOnly={readOnly}
                 className={inputClassName}
               />
             )}
@@ -72,6 +76,7 @@ export const PostgresConnectionFields: React.FC<PostgresConnectionFieldsProps> =
                 value={values.port}
                 onChange={handleChange('port')}
                 disabled={disabled}
+                readOnly={readOnly}
                 className={inputClassName}
               />
             )}
@@ -88,6 +93,7 @@ export const PostgresConnectionFields: React.FC<PostgresConnectionFieldsProps> =
             value={values.database}
             onChange={handleChange('database')}
             disabled={disabled}
+            readOnly={readOnly}
             className={inputClassName}
           />
         )}
@@ -101,6 +107,7 @@ export const PostgresConnectionFields: React.FC<PostgresConnectionFieldsProps> =
             value={values.username}
             onChange={handleChange('username')}
             disabled={disabled}
+            readOnly={readOnly}
             className={inputClassName}
           />
         )}
@@ -113,6 +120,7 @@ export const PostgresConnectionFields: React.FC<PostgresConnectionFieldsProps> =
           onChange={handleChange('password')}
           error={errors?.password}
           disabled={disabled}
+          readOnly={readOnly}
           inputClassName={inputClassName}
           showPasswordLabel={passwordReveal.showLabel}
           hidePasswordLabel={passwordReveal.hideLabel}
@@ -129,6 +137,7 @@ export const PostgresConnectionFields: React.FC<PostgresConnectionFieldsProps> =
               value={values.password}
               onChange={handleChange('password')}
               disabled={disabled}
+              readOnly={readOnly}
               className={inputClassName}
             />
           )}

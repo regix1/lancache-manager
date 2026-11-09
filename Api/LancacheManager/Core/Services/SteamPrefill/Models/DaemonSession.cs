@@ -50,6 +50,12 @@ public class DaemonSession
     /// sign-in; the next interactive login cancels it first.
     /// </summary>
     public bool LoginCancelUnconfirmed { get; set; }
+
+    /// <summary>
+    /// The connection dropped during a sign-in, so the daemon may still be in it. No cancel was sent, because an Xbox
+    /// cancel-login erases the saved login; the next interactive login cancels it first.
+    /// </summary>
+    public bool LoginLeftRunning { get; set; }
     public bool LoginSettled { get; set; } = true;
     public bool PreserveLoginExpiry { get; set; }
     public SemaphoreSlim RecoveryWork { get; } = new(1, 1);
@@ -77,7 +83,7 @@ public class DaemonSession
     public DaemonAuthState AuthState { get; set; } = DaemonAuthState.NotAuthenticated;
 
     /// <summary>
-    /// The daemon's real "Login failed: &lt;reason&gt;" text from the most recent
+    /// The daemon's own failure text, from a push carrying the <c>login-failed</c> error code, from the most recent
     /// <see cref="PrefillDaemonServiceBase.StartLoginAsync(string, TimeSpan?, CancellationToken)"/> attempt,
     /// captured via the fail-fast <c>OnStatusUpdate</c> race. Null when the last attempt had no observed
     /// failure (success, still pending, or never attempted). Reset to null at the start of every attempt
@@ -173,6 +179,13 @@ public class DaemonSession
     internal CancellationTokenSource? SignInAgainCancel { get; set; }
 
     /// <summary>
+    /// The automatic sign-in a container start sends with the saved login, running or finished. Set under
+    /// <see cref="PrefillLock"/> together with the <see cref="SignInAgainCancel"/> it runs under, so a person's
+    /// sign-in that reads one also reads the other and can stop it.
+    /// </summary>
+    internal Task? StartupSignIn { get; set; }
+
+    /// <summary>
     /// A person canceled a running sign-in, or a Log in of theirs that the server recorded and had not refused or
     /// ended, so the <c>auth-lost</c> code the daemon writes for that cancel starts no automatic sign-in. Set and read
     /// under <see cref="PrefillLock"/>; only the next applied sign-in or the person's next accepted Log in clears it.
@@ -210,6 +223,18 @@ public class DaemonSession
     /// A person's "Use my saved login" also suppresses challenges but is still theirs to cancel.
     /// </summary>
     internal bool SigningInAutomatically { get; set; }
+
+    /// <summary>
+    /// The i18n key of what a person's Log in waits for before it can start, under <see cref="PrefillLock"/>; null when
+    /// it waits for nothing. Set only while an Xbox Log in waits for the saved-login sign-in to end.
+    /// </summary>
+    internal string? LoginWaitKey { get; set; }
+
+    /// <summary>
+    /// Log in requests still waiting on a saved sign-in, under <see cref="PrefillLock"/>; the wait line clears when the
+    /// last one's sign-in ends.
+    /// </summary>
+    internal int LoginWaitCount { get; set; }
 
     /// <summary>
     /// How many times this session changed into signed in, under <see cref="PrefillLock"/>. A retry
@@ -309,6 +334,12 @@ public class DaemonSession
     /// Client connection info for admin visibility
     /// </summary>
     public string? IpAddress { get; init; }
+
+    /// <summary>
+    /// The addresses the cache logs for this session's container (each attached network's
+    /// own address; empty on host networking). Assigned whole, never changed in place.
+    /// </summary>
+    public IReadOnlyList<string> PrefillAddresses { get; init; } = [];
     public string? UserAgent { get; init; }
     public string? OperatingSystem { get; init; }
     public string? Browser { get; init; }

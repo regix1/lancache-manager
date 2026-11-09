@@ -702,7 +702,7 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
 
         return await (Task<object>)method.Invoke(
             service,
-            [startTime, null, new List<long>(), null, new List<string>(), evictedMode, null, null, CancellationToken.None])!;
+            [startTime, null, new List<long>(), null, new List<string>(), evictedMode, new List<ClientExclusionRule>(), null, null, CancellationToken.None])!;
     }
 
     private static List<DashboardBatchService.DashboardGameGroup> GroupsOf(object section) =>

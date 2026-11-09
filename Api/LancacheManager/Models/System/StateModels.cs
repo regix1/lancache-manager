@@ -146,6 +146,21 @@ public class AppState
     // Off by default: a network without reverse DNS entries can be slow to answer.
     public bool ClientHostnameLookup { get; set; } = false;
 
+    // Whether traffic from prefill runs is left out of served, saved, hit ratio and client
+    // numbers. Older installs wrote it; it is read once to migrate into a prefill rule.
+    public bool SeparatePrefillTraffic { get; set; } = false;
+
+    // When the prefill separation was last turned on. Older installs wrote it; the migration
+    // keeps it as the marking start.
+    public DateTime? SeparatePrefillTrafficSinceUtc { get; set; }
+
+    // When the current prefill marking window started. Only runs started after this are marked;
+    // null while no prefill rule exists.
+    public DateTime? PrefillMarkingSinceUtc { get; set; }
+
+    // The cache slice size in bytes. Null means Auto (taken from the detected slices).
+    public long? CacheSliceSizeBytes { get; set; }
+
     // The DNS server an admin named for those lookups, asked ahead of any that were discovered.
     // Null means work one out from the host's network configuration and Docker.
     public string? ClientHostnameResolver { get; set; }

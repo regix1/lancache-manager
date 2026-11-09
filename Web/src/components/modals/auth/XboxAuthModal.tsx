@@ -24,6 +24,8 @@ interface XboxAuthModalState {
   deviceUserCode: string;
   deviceVerificationUri: string;
   error: string | null;
+  /** Persistent-container flow only: the i18n key of what the Log in waits for before it starts. */
+  loginWaitKey?: string | null;
 }
 
 interface XboxAuthModalActions {
@@ -75,7 +77,8 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const isKeepPending = dismissBehavior === 'keep-pending';
-  const { loading, needsDeviceCode, deviceUserCode, deviceVerificationUri, error } = state;
+  const { loading, needsDeviceCode, deviceUserCode, deviceVerificationUri, error, loginWaitKey } =
+    state;
 
   const { handleAuthenticate, cancelPendingRequest } = actions;
 
@@ -195,13 +198,15 @@ export const XboxAuthModal: React.FC<XboxAuthModalProps> = ({
               screen at all. */}
             <LoginAttemptStatus
               label={
-                isConnecting
-                  ? t('modals.xboxAuth.connectingSubtitle')
-                  : needsDeviceCode
-                    ? t('modals.xboxAuth.waitingMessage')
-                    : onRetry
-                      ? t('common.pressRetry')
-                      : ''
+                isConnecting && loginWaitKey
+                  ? t(loginWaitKey)
+                  : isConnecting
+                    ? t('modals.xboxAuth.connectingSubtitle')
+                    : needsDeviceCode
+                      ? t('modals.xboxAuth.waitingMessage')
+                      : onRetry
+                        ? t('common.pressRetry')
+                        : ''
               }
               busy={isConnecting || needsDeviceCode}
               deadline={loginDeadline}

@@ -483,9 +483,11 @@ public class XboxMappingService
     /// it stops retrying; a title DisplayCatalog genuinely has no art for is retried each refresh, which
     /// is acceptable at the bounded refresh cadence.
     /// </summary>
-    /// <returns>How many mappings had art stored. A caller that reports what its run did needs this: the
-    /// backfill writes to the database, so a pass that stored art did not do nothing.</returns>
-    public async Task<int> BackfillMissingBannerArtAsync(CancellationToken ct = default)
+    /// <returns>How many mappings had art stored (<see cref="WorkCount.Done"/>) and how many lookups threw
+    /// (<see cref="WorkCount.Failed"/>). A caller that reports what its run did needs both: the backfill writes
+    /// to the database, so a pass that stored art did not do nothing, and a pass with failures did not
+    /// finish.</returns>
+    public async Task<WorkCount> BackfillMissingBannerArtAsync(CancellationToken ct = default)
     {
         await using var db = await _dbContextFactory.CreateDbContextAsync(ct);
 
@@ -493,7 +495,7 @@ public class XboxMappingService
             .Where(m => m.ImageUrl == null || m.ImageUrl == "")
             .ToListAsync(ct);
 
-        if (mappings.Count == 0) return 0;
+        if (mappings.Count == 0) return new WorkCount(0, 0);
 
         _logger.LogInformation("Backfilling Xbox banner art for {Count} mapping(s) missing art", mappings.Count);
         return await FetchAndStoreBannerArtAsync(db, mappings, ct);
@@ -502,15 +504,18 @@ public class XboxMappingService
     /// <summary>
     /// Shared per-mapping banner fetch/store loop used by both <see cref="EnsureBannerArtAsync"/> (the
     /// newly-resolved set) and <see cref="BackfillMissingBannerArtAsync"/> (every art-less mapping).
-    /// Each mapping is fetched best-effort: an empty/failed lookup is skipped and logged, never thrown,
-    /// so one bad product cannot abort the batch. Persists once, only if at least one banner was stored.
+    /// Each mapping is fetched best-effort: an empty lookup is skipped, and a lookup that throws is logged
+    /// and counted, so one bad product cannot abort the batch. A cancel of <paramref name="ct"/> still ends
+    /// the batch. Persists once, only if at least one banner was stored; a failed save throws.
     /// </summary>
-    /// <returns>How many mappings had art stored, so a caller can tell whether the pass changed anything.</returns>
-    private async Task<int> FetchAndStoreBannerArtAsync(AppDbContext db, List<XboxGameMapping> mappings, CancellationToken ct)
+    /// <returns>How many mappings had art stored and how many lookups threw, so a caller can tell whether the
+    /// pass changed anything and whether it finished.</returns>
+    private async Task<WorkCount> FetchAndStoreBannerArtAsync(AppDbContext db, List<XboxGameMapping> mappings, CancellationToken ct)
     {
-        if (mappings.Count == 0) return 0;
+        if (mappings.Count == 0) return new WorkCount(0, 0);
 
         var stored = 0;
+        var failed = 0;
         foreach (var mapping in mappings)
         {
             try
@@ -523,8 +528,9 @@ public class XboxMappingService
                     stored++;
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (!ct.IsCancellationRequested)
             {
+                failed++;
                 _logger.LogWarning(ex, "Failed to fetch Xbox banner art for ProductId {ProductId}", mapping.ProductId);
             }
         }
@@ -534,7 +540,7 @@ public class XboxMappingService
             await db.SaveChangesAsync(ct);
         }
 
-        return stored;
+        return new WorkCount(stored, failed);
     }
 
     /// <summary>

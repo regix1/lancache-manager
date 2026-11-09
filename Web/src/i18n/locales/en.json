@@ -49,6 +49,7 @@
     "ownerDescription": "Enter the installation key to authorize this change. This one-time setup check is separate from the credentials required at sign-in.",
     "keyLocation": "Find the key on the server at",
     "keyRequired": "Enter the installation API key to continue.",
+    "changedWhileSaving": "The settings from when you clicked Save were saved. You changed a field while it was saving, so check it and save again.",
     "ownerSignIn": "Sign in as the existing primary administrator to change this installation's access.",
     "ownerSignInButton": "Sign in as primary administrator",
     "ownerSignInFailed": "The primary administrator could not be verified.",
@@ -174,6 +175,7 @@
       "customOidc": {
         "title": "Other (OpenID Connect)",
         "name": "your identity service",
+        "nameAtStart": "Your identity service",
         "note": "Any OpenID Connect service, such as Keycloak, Authentik, Authelia, or Okta.",
         "register": "Create an OpenID Connect web client using authorization code flow. Add both URLs below as allowed redirect URIs.",
         "addresses": "This app requires HTTPS for SSO over your LAN. Your identity service may have stricter rules.",
@@ -188,6 +190,12 @@
       "apiKeyOidc": "Enter the installation API key, then sign in with a connected service.",
       "oidc": "Sign in with a connected service.",
       "unauthenticated": "This installation does not require sign-in."
+    },
+    "environment": {
+      "setByEnvironment": "Set by environment variable",
+      "modeSetByEnvironment": "The sign-in mode is set by an environment variable and cannot be changed here.",
+      "modeBlocked": "The sign-in mode is set by an environment variable and cannot be changed here. To continue, open this app over HTTPS, or change Security__SignInMode and restart the app.",
+      "incomplete": "Environment variables set part of this service, but the server cannot use it yet. Enter the missing settings below. If saving still fails, the startup log names the environment variable to fix."
     }
   },
   "app": {
@@ -211,8 +219,7 @@
         "passwordLabel": "New password",
         "passwordPlaceholder": "At least 12 characters, with 3 of: lower, upper, digit, other",
         "submit": "Save password",
-        "saved": "Password saved. Restart the container to apply it everywhere.",
-        "failed": "Could not save the password. Check your API key and try again."
+        "saved": "Password saved. Restart the container to apply it everywhere."
       }
     },
     "prefill": {
@@ -350,30 +357,16 @@
         "corruptionRemoval": "Corruption Cleanup",
         "corruptionDetection": "Corruption Scan",
         "databaseReset": "Database Reset",
-        "depotMapping": "Depot Mapping",
-        "gameDetection": "Game Detection",
         "dataImport": "Data Import",
-        "epicGameMapping": "Epic Game Mapping",
-        "epicCatalogUpdate": "Epic Catalog Update",
-        "xboxGameMapping": "Xbox Game Mapping",
-        "xboxCatalogUpdate": "Xbox Catalog Update",
         "battleNetGameMapping": "Battle.net Game Mapping",
         "riotGameMapping": "Riot Game Mapping",
-        "evictionScan": "Eviction Scan",
         "evictionRemoval": "Eviction Removal",
-        "cacheSizeScan": "Cache File Scan",
-        "scheduledPrefill": "Scheduled Prefill",
-        "logRotation": "Log Rotation",
-        "gameImageFetch": "Game Image Fetch",
-        "cacheSnapshot": "Cache Snapshot",
-        "operationHistoryCleanup": "Operation History Cleanup",
-        "dashboardCacheWarmer": "Dashboard Cache Warmer",
         "bulkRemoval": "Bulk Removal",
         "prefillLogin": "Prefill Sign-In",
         "statusCheck": "Status Check",
         "cacheFileCount": "Cache File Count",
         "downloadHistoryUpgrade": "Download History Upgrade",
-        "unmappedFileRemoval": "Remove unmapped files"
+        "unmappedFileRemoval": "Unmapped File Removal"
       },
       "cacheFilesDeleted": "{{formattedCount}} cache file deleted",
       "cacheFilesDeleted_other": "{{formattedCount}} cache files deleted",
@@ -441,6 +434,10 @@
         "prefillSignInsNotReset": "These prefill sign-ins could not be reset: {{platforms}}.",
         "depotBatchesFailed": "{{failed}} of {{total}} Steam app info batches failed, so their depots were not mapped this run.",
         "epicStepsFailed": "The Epic catalog was refreshed, but follow-up steps failed: {{count}}. The server log names them.",
+        "xboxStepsFailed": "The Xbox catalog was refreshed, but follow-up steps failed: {{count}}. The server log names them.",
+        "xboxBannersNotRefreshed": "Some Xbox game banners were not refreshed. They are retried on the next refresh.",
+        "orphanDepotsNotResolved": "Steam data was updated, but lookups for unmatched depots failed: {{count}}. They are retried on the next update.",
+        "cacheItemsUnreadable": "The cache scan finished, but {{count}} cache items could not be read. Games stored there may show as not cached.",
         "epicImageLinksNotRefreshed": "Epic image links could not be refreshed, so Epic art was fetched from the links already stored.",
         "historyRowsNotMerged": "Download rows that were not merged: {{rowCount}}.",
         "signInExpired": "The sign-in was not finished in time, so the app ended it.",
@@ -829,17 +826,16 @@
       },
       "cacheSize": {
         "term": "Cache Size",
-        "description": "What those files take up on disk, each counted once. Games on Disk, Services on Disk and the unmapped figure beside them always add up to exactly this. Anything downloaded since the last detection run counts as unmapped until detection runs again and attributes it."
+        "description": "What those files take up on disk, each counted once. Games on Disk and Services on Disk count only the part matched to a game or service, so together they can be less than this. Anything downloaded since the last detection run is matched when detection runs again."
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
-        "description": "Cache matched to a known game, with shared files counted once. Service traffic and unidentified files are counted separately. Unmapped is cache data that no detected game or service claims; the next full detection scan and cache scan update it."
+        "description": "Cache matched to a known game, with shared files counted once. Service traffic and unidentified files are counted separately."
       },
       "servicesOnDisk": {
         "term": "Services on Disk",
         "description": "Cache matched to a service rather than a game, typically Windows Update, Xbox, Blizzard and Epic."
-      },
-      "unmappedCache": "{{size}} unmapped cache"
+      }
     },
     "downloadsPanel": {
       "title": "Downloads",
@@ -996,6 +992,9 @@
       "balanced": "Balanced",
       "fourColumn": "4 Column",
       "threeColumn": "3 Column"
+    },
+    "help": {
+      "prefillSeparated": "Prefill traffic is separated, so Total served no longer equals Saved plus Added to cache."
     }
   },
   "widgets": {
@@ -1954,6 +1953,14 @@
     "actions": {
       "menuLabel": "Actions"
     },
+    "cacheSliceSize": {
+      "cardTitle": "Cache Settings",
+      "label": "Cache slice size",
+      "description": "The slice size LANCache uses (CACHE_SLICE_SIZE). Auto reads it from the cache files. Sizes found on disk are always checked, so old files stay visible.",
+      "auto": "Auto",
+      "manual": "Manual size",
+      "loadFailed": "The cache slice size could not be loaded"
+    },
     "nginxReopen": {
       "alertTitle": "Cannot reopen nginx logs after changes",
       "windowsDockerUnsupported": "This manager cannot safely change logs held by a Docker writer while running natively on Windows. Run the manager in a Linux environment with the same log mounts, or use a static log source.",
@@ -2712,6 +2719,14 @@
           "aboutTitle": "About",
           "exclusionsTitle": "About"
         },
+        "trafficLabel": "Traffic",
+        "trafficAll": "All traffic",
+        "trafficPrefill": "Prefill traffic",
+        "servicesLabel": "Services",
+        "allServices": "All services",
+        "anyAddress": "Any address",
+        "addPrefillRule": "Add prefill rule",
+        "prefillNatLimit": "Prefill traffic that reaches the cache through a Docker gateway (NAT) shows the gateway's address and is not marked as prefill, so these rules cannot hide it.",
         "title": "Client Nicknames",
         "subtitle": "Assign friendly names to client IPs for easier identification",
         "addNickname": "Add Nickname",
@@ -3116,6 +3131,8 @@
       }
     },
     "gameDetection": {
+      "sliceSize": "{{size}} slices",
+      "sliceMixed": "Mixed slices",
       "title": "Game Cache Detection and Removal",
       "titleShort": "Game Cache",
       "subtitle": "Scan cache to find games and service-level files that were not matched to a game",
@@ -3191,7 +3208,7 @@
       "unmappedLabel": "unmapped services",
       "unmappedFileCount_one": "{{formattedCount}} file",
       "unmappedFileCount_other": "{{formattedCount}} files",
-      "unmappedFromScan": "Unmapped files are cache files that no detected game or service claims, for example files of a game whose download history was removed, or downloads made since the last full scan. Run a full detection scan to update this list. The dashboard works out its unmapped figure from a separate cache scan, so the two can differ.",
+      "unmappedFromScan": "Unmapped files are cache files that no detected game or service claims, for example files of a game whose download history was removed, or downloads made since the last full scan. Run a full detection scan to update this list.",
       "removeUnmapped": "Remove unmapped files",
       "errors": {
         "startFailed": "Failed to start game detection",
@@ -4432,7 +4449,7 @@
             "needsLogin": "{{service}} needs login before scheduled prefill can continue",
             "needsLoginWithReason": "{{service}} needs login: {{reason}}",
             "serviceProgress": "{{service}}: {{message}}",
-            "downloadedOfTotal": "{{downloaded}} of {{total}}"
+            "downloadedOfTotal": "{{downloaded}} of {{total}} ({{percent}})"
           },
           "runService": "Run",
           "runServiceTooltip": "Run this service now",
@@ -4942,13 +4959,14 @@
       "name": "Run {{id}}",
       "cancel": "Cancel {{name}}",
       "gameProgress": "Current game progress for {{name}}",
+      "overallProgress": "Overall progress for {{name}}",
+      "progressLine": "{{done}} of {{total}} · {{speed}} · {{percent}}",
       "completed": "Completed",
       "failed": "Failed",
       "cancelled": "Cancelled",
       "items": "{{count}} of {{total}} items processed",
       "processedLabel": "Processed",
       "skipped": "Skipped",
-      "transferred": "{{size}} transferred",
       "transferredLabel": "Transferred",
       "outcomes": "{{completed}} successful, {{failed}} failed, {{skipped}} skipped, {{cancelled}} cancelled",
       "resultsLabel": "Results",
@@ -4990,6 +5008,7 @@
       "logOut": "Log out",
       "loginToSelectGames": "Log in to select games",
       "authenticating": "Authenticating...",
+      "finishingSavedSignIn": "Finishing the saved sign-in first. This can take a few minutes.",
       "sessionReplaced": "This login session was replaced by a newer one. Please try logging in again.",
       "credentialRejected": "The daemon rejected this credential. Please try logging in again.",
       "loginTimedOut": "Login timed out. Please try again.",
@@ -5675,7 +5694,8 @@
         "authenticating": "Authenticating...",
         "submitCode": "Submit code",
         "connecting": "Connecting...",
-        "continue": "Continue"
+        "continue": "Continue",
+        "continueInBackground": "Continue in background"
       },
       "steps": {
         "link": "Get sign-in link",
@@ -7040,7 +7060,7 @@
     "dbInfo": {
       "externalTitle": "External PostgreSQL Connected",
       "embeddedTitle": "Embedded PostgreSQL Ready",
-      "externalBody": "This container is configured to use an external PostgreSQL server. The connection details below come from your environment variables (or a saved credentials file).",
+      "externalBody": "This container is configured to use an external PostgreSQL server. The connection details come from your environment variables (or a saved credentials file).",
       "embeddedBody": "This container uses the bundled PostgreSQL database over a local Unix socket. Credentials are already configured via environment variables or the setup wizard.",
       "target": "Connection target",
       "host": "Host",
@@ -7048,8 +7068,7 @@
       "port": "Port",
       "database": "Database",
       "user": "User",
-      "continue": "Continue",
-      "unknown": "(unknown)"
+      "continue": "Continue"
     },
     "permissionsCheck": {
       "title": "Permissions Check",
@@ -7438,7 +7457,7 @@
   "notifications": {
     "noPreviousResults": "No previous detection results found",
     "epicGameMappingsUpdated": {
-      "title": "Epic Games Updated",
+      "title": "Epic Game Mapping finished",
       "newGames_one": "{{count}} new game discovered",
       "newGames_other": "{{count}} new games discovered",
       "updatedGames_one": "{{count}} game updated",
@@ -7447,7 +7466,7 @@
       "totalWithDetail": "{{detail}}, {{count}} total"
     },
     "xboxGameMappingsUpdated": {
-      "title": "Xbox Games Updated",
+      "title": "Xbox Game Mapping finished",
       "newGames_one": "{{count}} new game discovered",
       "newGames_other": "{{count}} new games discovered",
       "newPatterns_one": "{{count}} new CDN pattern",
@@ -7667,6 +7686,7 @@
       "github": {
         "downloading": "Downloading depot mappings from GitHub...",
         "complete": "GitHub depot data imported",
+        "prefillNamesNotRestored": "Depot mappings were imported, but names for games known only from prefill could not be restored. Run the import again.",
         "failed": "[GitHub Mode] {{errorDetail}}"
       },
       "cancelled": "Depot mapping scan cancelled",
@@ -7689,11 +7709,16 @@
       "refreshingCdn": "Refreshing Epic CDN patterns...",
       "checkingFreeGames": "Checking for free game promotions...",
       "applyingMappings": "Resolving Epic downloads to game names...",
+      "readingLibrary": "Reading your Epic library {{done}} / {{total}} (step 1 of 2)",
+      "resolvingPaths": "Resolving download paths {{done}} / {{total}} (step 2 of 2)",
+      "codeAccepted": "Code accepted",
+      "mappingDone": "Done. Games mapped: {{count}}",
       "completed": "Epic catalog refresh completed",
       "resolvedWithoutSignIn": "Epic downloads named from the stored catalog - not signed in to Epic",
       "skippedNotSignedIn": "Epic catalog refresh skipped - not signed in to Epic",
       "cancelled": "Epic catalog refresh cancelled",
-      "failed": "Epic catalog refresh failed: {{errorDetail}}"
+      "failed": "Epic catalog refresh failed: {{errorDetail}}",
+      "mappingFailed": "Epic game mapping failed"
     },
     "steamWebApi": {
       "validating": "Validating Steam Web API key...",
@@ -8103,7 +8128,9 @@
       "stoppedByAdmin": "Stopped by an administrator",
       "endedByUser": "Ended by the person who started it",
       "accessEnded": "Access ended",
-      "imageUpdated": "Container image updated"
+      "imageUpdated": "Container image updated",
+      "loginCancelUnconfirmed": "Ended because the sign-in could not be canceled",
+      "daemonDisconnected": "Ended because the connection to its container was lost"
     },
     "statusCheck": {
       "dnsTimeout": "DNS query timed out",
@@ -8147,18 +8174,34 @@
       "accountExists": "An account already exists on this installation.",
       "mainAdminNotFound": "No main administrator account is registered under that name."
     },
+    "antiforgery": {
+      "tokenMismatch": "This page's security token is missing or does not match your session. Refresh the page and try again."
+    },
+    "setup": {
+      "tooManyInvalidKeys": "Too many invalid API keys were tried. Wait a moment and try again.",
+      "externalMode": "POSTGRES_MODE=external is set. Use the external database setup to configure the connection instead.",
+      "notExternalMode": "POSTGRES_MODE is not set to external. Set POSTGRES_MODE=external in your environment first.",
+      "connectionWindowClosed": "The window for changing the database connection has closed. Restart the application to reopen it.",
+      "passwordDisallowedCharacters": "The password cannot contain a backslash, a line break or a null character.",
+      "usernameInvalid": "Username may only contain letters, numbers, and underscores.",
+      "setPasswordFailed": "Could not set the PostgreSQL password. The server log has the details.",
+      "roleCannotCreate": "The role '{{role}}' cannot create objects in '{{database}}'. The schema installs the citext extension, which needs a role holding CREATE on the database. Grant it with GRANT CREATE ON DATABASE, or ask a database administrator to run CREATE EXTENSION citext in that database first.",
+      "connectFailed": "Could not connect to {{host}}:{{port}}/{{database}}. Check the host, port, database name and credentials. The server log has the details."
+    },
     "accounts": {
       "notFound": "No such account.",
       "mainAdminProtected": "The account that owns this installation cannot be changed here.",
       "wipeRequiresMainAdmin": "Only the account that owns this installation can delete every account.",
       "selfProtected": "You cannot delete or disable the account you are signed in as.",
       "usernameTaken": "That username is already taken.",
-      "credentialsRejected": "The username or password does not meet the requirements."
+      "credentialsRejected": "The username or password does not meet the requirements.",
+      "environmentManaged": "An environment variable allows this account. Remove it from that variable and restart the app before deleting the account."
     },
     "cache": {
       "readOnly": "Cannot clear cache: cache directory is read-only. This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. The LANCache container is configured to run as UID/GID {{uidGid}} (configured via PUID/PGID environment variables).",
       "countFailed": "The count stopped with an error, so there is no number to confirm against. Try again; the server log has the details.",
-      "countStopped": "The count was stopped before it finished, so there is no number to confirm against. Try again to count."
+      "countStopped": "The count was stopped before it finished, so there is no number to confirm against. Try again to count.",
+      "sliceSizeInvalid": "The slice size must be a positive whole number of megabytes."
     },
     "clientGroups": {
       "nicknameTaken": "A client group with this nickname already exists",
@@ -8277,7 +8320,7 @@
         "Riot": "Riot"
       },
       "prefillRunning": "A prefill is running on this container. Wait for it to finish, then log in.",
-      "loginInProgress": "A login attempt is already in progress for session {{sessionId}}.",
+      "loginInProgress": "A login attempt is already in progress for this session.",
       "dockerUnavailable": "Docker is not running or not reachable. Start Docker, or mount /var/run/docker.sock into the LANCache Manager container, then try again.",
       "accessEnded": "Session access is no longer valid.",
       "sessionStopped": "This prefill session was stopped.",
@@ -8285,6 +8328,7 @@
       "daemonShuttingDown": "$t(errors.prefill.serviceNames.{{service}}) daemon is shutting down; the persistent session {{sessionId}} cannot be stopped right now. Its login is preserved for re-adoption on the next start; stop it again after the manager restarts.",
       "noRunningSession": "No running persistent $t(errors.prefill.serviceNames.{{service}}) session",
       "sessionReplaced": "This persistent session was replaced by a newer one. Please start it again.",
+      "loginCancelUnconfirmed": "The sign-in could not be canceled. Start the session again.",
       "logoutBeforeSavedLogin": "Log out the current account before using your saved login.",
       "heldAccountNotLoggedOut": "The account from the canceled sign-in could not be logged out of the container. Try again.",
       "requestFailed": "The prefill daemon could not complete the request. Try again.",

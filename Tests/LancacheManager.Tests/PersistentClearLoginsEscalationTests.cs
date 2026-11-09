@@ -92,6 +92,21 @@ public class PersistentClearLoginsEscalationTests
     }
 
     [Fact]
+    public async Task ForgetRunningPersistentLoginAsync_StatusReadGetsNoAnswer_EscalatesRatherThanReportFalseSuccess()
+    {
+        // The logout reports success but the status read gets no answer, which the client reports as no status.
+        // That verifies nothing, so the stored login is hard-removed.
+        var client = new ClearLoginsScenarioClient(logoutSucceeds: true, liveStatus: "awaiting-login") { StatusReadReturnsNull = true };
+        var (daemon, session) = CreateDaemonWithSession(client, PersistentVolumeClearResult.Removed);
+
+        var outcome = await daemon.ForgetRunningPersistentLoginAsync(session.Id, CancellationToken.None);
+
+        Assert.Equal(PersistentRunningLoginClearOutcome.HardRemoved, outcome);
+        Assert.Null(daemon.GetSession(session.Id));
+        Assert.Equal(1, daemon.VolumeClearCallCount);
+    }
+
+    [Fact]
     public async Task ForgetRunningPersistentLoginAsync_SoftLogoutVerifiedClean_DoesNotTerminate_ReportsLoggedOut()
     {
         // Happy path (updated image): the daemon acknowledges the logout AND its live status confirms it
@@ -351,6 +366,8 @@ public class PersistentClearLoginsEscalationTests
 
         public int LogoutCallCount { get; private set; }
         public int StatusCallCount { get; private set; }
+        /// <summary>The status read gets no answer, which the daemon client reports as a null status.</summary>
+        public bool StatusReadReturnsNull { get; init; }
 
         public override Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
         {
@@ -361,6 +378,10 @@ public class PersistentClearLoginsEscalationTests
         public override Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
         {
             StatusCallCount++;
+            if (StatusReadReturnsNull)
+            {
+                return Task.FromResult<DaemonStatus?>(null);
+            }
             if (_liveStatus is null)
             {
                 throw new InvalidOperationException("Simulated live-status socket failure.");

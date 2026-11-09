@@ -96,9 +96,14 @@ async function persistent(storage, service = 'Steam', rearm = false) {
   let poll = async () => reply;
   let start = async () => reply;
   let provide = async () => undefined;
+  let sessions = async () => [];
   globalThis.loginTest = {
     translate: (key) => key,
     api: {
+      getActivePrefillSessions: async (...args) => {
+        calls.push(['sessions', ...args]);
+        return sessions();
+      },
       startPersistentLogin: async (...args) => {
         calls.push(['start', ...args]);
         return start();
@@ -292,6 +297,9 @@ async function persistent(storage, service = 'Steam', rearm = false) {
     set poll(value) {
       poll = value;
     },
+    set sessions(value) {
+      sessions = value;
+    },
     set provide(value) {
       provide = value;
     },
@@ -402,6 +410,7 @@ function guest(useHook = useGuest, serviceId = 'steam', sessionLoginAttempt = 6)
   let cancel = async () => undefined;
   let provide = async () => undefined;
   let waits = [];
+  let refusal = null;
   const makeSocket = () => {
     const handlers = new Map();
     return {
@@ -414,7 +423,8 @@ function guest(useHook = useGuest, serviceId = 'steam', sessionLoginAttempt = 6)
       },
       async invoke(name, ...args) {
         calls.push([name, ...args]);
-        if (name === 'StartLoginAsync') return reply;
+        if (name === 'BeginLoginAsync')
+          return refusal ?? { challenge: await reply, stageKey: null, context: null };
         if (name === 'CancelLoginAsync' || name === 'CancelLoginAttemptAsync') return cancel();
         if (name === 'ProvideCredentialAsync') return provide(...args);
         if (name === 'WaitForChallengeAsync') return waits.shift() ?? null;
@@ -443,6 +453,9 @@ function guest(useHook = useGuest, serviceId = 'steam', sessionLoginAttempt = 6)
     },
     set reply(value) {
       reply = value;
+    },
+    set refusal(value) {
+      refusal = value;
     },
     set cancel(value) {
       cancel = value;
@@ -698,6 +711,28 @@ test('a failed sign-in shows its reason in the open dialog and raises no popup b
     flow.unmount();
   }
 });
+
+for (const service of ['steam', 'xbox', 'epic']) {
+  test(`a guest ${service} Log in the server refuses shows the refusal key in the open dialog`, async () => {
+    const flow = guest(useGuest, service);
+    globalThis.loginTest.notified = [];
+    try {
+      flow.refusal = {
+        challenge: null,
+        stageKey: 'errors.prefill.loginInProgress',
+        context: { sessionId: 'session' }
+      };
+      const auth = await flow.start();
+
+      assert.equal(auth.state.error, 'errors.prefill.loginInProgress');
+      assert.deepEqual(flow.outcomes.errors, ['errors.prefill.loginInProgress']);
+      assert.equal(auth.state.loading, false);
+      assert.deepEqual(globalThis.loginTest.notified, []);
+    } finally {
+      flow.unmount();
+    }
+  });
+}
 
 test('guest stage changes release one accepted step and authenticated terminal settles once', async () => {
   for (const [currentType, nextType, field, nextFlag] of [
@@ -1392,6 +1427,144 @@ test('a pushed ending of another attempt leaves the persistent sign-in as it is'
     assert.equal(state.error, null);
   } finally {
     flow?.close();
+    time.restore();
+  }
+});
+
+test('an Xbox Log in waiting behind the saved sign-in shows what it waits for until the server clears it', async () => {
+  const time = clock();
+  let login;
+  try {
+    login = await waitingXboxLogin('prefill.persistent.finishingSavedSignIn');
+    const { flow } = login;
+    assert.equal(
+      flow.store.getPersistentLoginState('Xbox').loginWaitKey,
+      'prefill.persistent.finishingSavedSignIn'
+    );
+    flow.handlers.get('session:Xbox')({ id: 'other', loginWaitKey: null });
+    assert.equal(
+      flow.store.getPersistentLoginState('Xbox').loginWaitKey,
+      'prefill.persistent.finishingSavedSignIn'
+    );
+    flow.handlers.get('session:Xbox')({ id: 'session', loginWaitKey: null });
+    assert.equal(flow.store.getPersistentLoginState('Xbox').loginWaitKey, null);
+    await login.finish();
+  } finally {
+    login?.flow.close();
+    time.restore();
+  }
+});
+
+// Starts an Xbox Log in that the server holds open, as it does while the saved sign-in finishes.
+async function waitingXboxLogin(waitKey) {
+  const flow = await persistent(new MemoryStorage(), 'Xbox');
+  const answer = deferred();
+  flow.startReply = () => answer.promise;
+  flow.reply = { ...challenge('first', 'device-code'), sessionId: 'session' };
+  const started = flow.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  flow.handlers.get('session:Xbox')({ id: 'session', loginWaitKey: waitKey });
+  return {
+    flow,
+    async finish() {
+      answer.resolve(flow.reply);
+      await started;
+    }
+  };
+}
+
+test('an Xbox Log in waiting behind the saved sign-in rereads what it waits for when the socket comes back', async () => {
+  const time = clock();
+  let login;
+  try {
+    login = await waitingXboxLogin('prefill.persistent.finishingSavedSignIn');
+    const { flow } = login;
+    // REST leaves a null key out of the answer.
+    flow.sessions = async () => [{ id: 'session' }];
+    flow.reconnect();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(flow.store.getPersistentLoginState('Xbox').loginWaitKey, null);
+    assert.deepEqual(
+      flow.calls.filter(([name]) => name === 'sessions'),
+      [['sessions']]
+    );
+
+    flow.sessions = async () => [
+      { id: 'other', loginWaitKey: null },
+      { id: 'session', loginWaitKey: 'prefill.persistent.finishingSavedSignIn' }
+    ];
+    flow.reconnect();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(
+      flow.store.getPersistentLoginState('Xbox').loginWaitKey,
+      'prefill.persistent.finishingSavedSignIn'
+    );
+    await login.finish();
+  } finally {
+    login?.flow.close();
+    time.restore();
+  }
+});
+
+test('a reconnect read that does not list the session keeps what the Log in waits for', async () => {
+  const time = clock();
+  let login;
+  try {
+    login = await waitingXboxLogin('prefill.persistent.finishingSavedSignIn');
+    const { flow } = login;
+    flow.sessions = async () => [];
+    flow.reconnect();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(flow.calls.filter(([name]) => name === 'sessions').length, 1);
+    assert.equal(
+      flow.store.getPersistentLoginState('Xbox').loginWaitKey,
+      'prefill.persistent.finishingSavedSignIn'
+    );
+    await login.finish();
+  } finally {
+    login?.flow.close();
+    time.restore();
+  }
+});
+
+test('a reconnect read older than the next session push is dropped', async () => {
+  const time = clock();
+  let login;
+  try {
+    login = await waitingXboxLogin('prefill.persistent.finishingSavedSignIn');
+    const { flow } = login;
+    const read = deferred();
+    flow.sessions = () => read.promise;
+    flow.reconnect();
+    await new Promise((resolve) => setImmediate(resolve));
+    flow.handlers.get('session:Xbox')({ id: 'session', loginWaitKey: null });
+    read.resolve([{ id: 'session', loginWaitKey: 'prefill.persistent.finishingSavedSignIn' }]);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(flow.store.getPersistentLoginState('Xbox').loginWaitKey, null);
+    await login.finish();
+  } finally {
+    login?.flow.close();
+    time.restore();
+  }
+});
+
+test('a reconnect read that answers after the sign-in was reset writes nothing back', async () => {
+  const time = clock();
+  let login;
+  try {
+    login = await waitingXboxLogin(null);
+    const { flow } = login;
+    const read = deferred();
+    flow.sessions = () => read.promise;
+    flow.reconnect();
+    await new Promise((resolve) => setImmediate(resolve));
+    flow.store.resetPersistentLoginState('Xbox');
+    read.resolve([{ id: 'session', loginWaitKey: 'prefill.persistent.finishingSavedSignIn' }]);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(flow.store.getPersistentLoginState('Xbox').loginWaitKey, null);
+    await login.finish();
+  } finally {
+    login?.flow.close();
     time.restore();
   }
 });
@@ -2205,6 +2378,35 @@ test('a failed server cancel after the prompt closes leaves the not-canceled err
     time.restore();
   }
 });
+
+for (const [refusal, shown] of [
+  [
+    new ApiError(409, {
+      error: 'The sign-in could not be canceled.',
+      stageKey: 'errors.prefill.loginCancelUnconfirmed'
+    }),
+    'The sign-in could not be canceled.'
+  ],
+  [new ApiError(502, {}), 'prefill.persistent.loginNotCanceled']
+]) {
+  test(`a cancel refused with status ${refusal.status} shows ${shown}`, async () => {
+    const time = clock();
+    let flow;
+    try {
+      flow = await persistent(new MemoryStorage());
+      await flow.start();
+      flow.cancel = async () => {
+        throw refusal;
+      };
+      await flow.render().actions.cancel();
+      assert.equal(flow.store.getPersistentLoginState('Steam').error, shown);
+      assert.equal(flow.store.getPersistentLoginState('Steam').endReason, 'cancelFailed');
+    } finally {
+      flow?.close();
+      time.restore();
+    }
+  });
+}
 
 test('a cancel names the login attempt of the challenge it ends', async () => {
   const time = clock();

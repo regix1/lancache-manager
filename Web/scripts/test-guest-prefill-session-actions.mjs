@@ -144,15 +144,21 @@ const loadSessionsWith = ({
   history,
   popups,
   sessionErrors,
+  activeRequest = async () => [],
   world = historyWorld(history, popups)
 }) => {
   const state = {
     sessions: [],
+    active: [],
     loading: [],
     get history() {
       return world.history;
     }
   };
+  const setActiveSessions = (update) => {
+    state.active = typeof update === 'function' ? update(state.active) : update;
+  };
+  const sessionPushesRef = { current: new Map() };
   const load = bindLifted(liftHookCallback(path, 'useCallback', 'Promise.allSettled'), {
     mockMode: false,
     page: 1,
@@ -160,22 +166,33 @@ const loadSessionsWith = ({
     statusFilter: '',
     platformFilter: 'all',
     sessionsRequestRef: { current: 0 },
+    sessionPushesRef,
     ...world.bindings,
     ApiService: {
       getPrefillSessions: sessionsRequest,
-      getActivePrefillSessions: async () => [],
+      getActivePrefillSessions: activeRequest,
       getPrefillSessionHistory: historyRequest
     },
     setLoadingSessions: (value) => state.loading.push(value),
     setSessionsError: (value) => sessionErrors.push(value),
     setSessions: (value) => state.sessions.push(value),
     setTotalCount: () => undefined,
-    setActiveSessions: () => undefined,
+    setActiveSessions,
     setCacheRoute: () => undefined,
     setHasLoadedSessions: () => undefined,
     getErrorMessage: (error) => `reason: ${error.message}`
   });
-  return { load, state };
+  // Delivers a live session event through the component's own handler.
+  const push = (handlerName, session) => {
+    const [declaration] = collectNodes(
+      source,
+      (node) => ts.isVariableDeclaration(node) && node.name.getText(source) === handlerName
+    );
+    bindLifted(declaration.initializer.getText(source), { sessionPushesRef, setActiveSessions })(
+      session
+    );
+  };
+  return { load, state, push };
 };
 
 test('a failed background history read keeps the last confirmed history', async () => {
@@ -278,6 +295,40 @@ test('an older session list read that lands last never replaces the newer page',
     [],
     'the stale failure never reaches the section'
   );
+});
+
+test('live session events during a list read survive its answer', async () => {
+  const active = heldReads();
+  const { load, state, push } = loadSessionsWith({
+    sessionsRequest: async () => ({ sessions: [], totalCount: 0 }),
+    activeRequest: active.request,
+    historyRequest: async () => [],
+    history: {},
+    popups: [],
+    sessionErrors: []
+  });
+  state.active = [
+    { id: 'changed', prefillRuns: 1 },
+    { id: 'ended', prefillRuns: 0 }
+  ];
+
+  // The read starts, then a session is created and another one's run ends before the answer.
+  const read = load();
+  push('handleSessionCreated', { id: 'created', prefillRuns: 0 });
+  push('handleSessionUpdated', { id: 'changed', prefillRuns: 0 });
+  active.reads[0].resolve([
+    { id: 'changed', prefillRuns: 1 },
+    { id: 'listed', prefillRuns: 0 }
+  ]);
+  await read;
+
+  // The answer's stale row and its missing new session yield to the pushes; a row nothing pushed
+  // and the answer left out has ended, so it goes.
+  assert.deepEqual(state.active, [
+    { id: 'changed', prefillRuns: 0 },
+    { id: 'listed', prefillRuns: 0 },
+    { id: 'created', prefillRuns: 0 }
+  ]);
 });
 
 test('an older load whose history prefetch lands last never replaces the newer history', async () => {

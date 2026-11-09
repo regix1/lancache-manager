@@ -1,3 +1,4 @@
+using System.Data.Common;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
@@ -7,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
 using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 
@@ -60,6 +62,13 @@ public sealed class PrefillRunHistoryTests
             foreach (var command in sql.Generate(migration.DownOperations))
                 await context.Database.ExecuteSqlRawAsync(command.CommandText);
             foreach (var command in sql.Generate(migration.UpOperations))
+                await context.Database.ExecuteSqlRawAsync(command.CommandText);
+            // A later migration adds a PrefillRuns column; the recreated table needs it before a run is saved.
+            var laterColumns = new AddPrefillTrafficAndSliceSizes().UpOperations
+                .OfType<AddColumnOperation>()
+                .Where(operation => operation.Table == "PrefillRuns")
+                .ToList();
+            foreach (var command in sql.Generate(laterColumns))
                 await context.Database.ExecuteSqlRawAsync(command.CommandText);
             var legacy = await context.PrefillHistoryEntries.SingleAsync();
             Assert.Null(legacy.RunId);
@@ -200,8 +209,10 @@ public sealed class PrefillRunHistoryTests
         Assert.Equal(terminal ? PrefillHistoryEntryStatus.Completed : PrefillHistoryEntryStatus.InProgress, entry.Status);
 
         var duplicate = await history.SaveRunAsync(run, snapshot, [item], terminal, CancellationToken.None);
-        Assert.Equal(!terminal, duplicate.Applied);
-        Assert.Empty(duplicate.Items);
+        // A terminal save that finds its own committed row answers the call's items, the case of a retry whose
+        // first commit landed but whose answer was lost.
+        Assert.True(duplicate.Applied);
+        Assert.Equal(terminal ? 1 : 0, duplicate.Items.Count);
         if (terminal)
         {
             var late = await history.SaveRunAsync(run, snapshot with
@@ -211,6 +222,36 @@ public sealed class PrefillRunHistoryTests
             Assert.Equal(revision + 1, row.Revision);
             Assert.Equal("completed", row.State);
         }
+    }
+
+    [Fact]
+    public async Task LostTerminalCommitAnswerAsync()
+    {
+        await using var fixture = await RunFixture.CreateAsync(relational: true);
+        var run = await fixture.StartAsync("10");
+        var commits = new LostCommitAnswer();
+        await using var verification = new AppDbContext(fixture.Options);
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(verification.Database.GetConnectionString(), connection =>
+                connection.EnableRetryOnFailure(3, TimeSpan.Zero, null))
+            .AddInterceptors(commits).Options;
+        PrefillRunTests.SetField(fixture.Daemon, "_sessionService",
+            new PrefillSessionService(new TestDbContextFactory(options), NullLogger<PrefillSessionService>.Instance));
+        fixture.Client.Set(run, "completed", 100, "success");
+        var page = fixture.Client.Pages[run.PrefillRunId];
+        fixture.Client.Pages[run.PrefillRunId] = page with
+        {
+            Items = [page.Items[0] with
+            {
+                Depots = [new DepotManifestProgressInfo { DepotId = 11, ManifestId = 12, TotalBytes = 100 }]
+            }]
+        };
+
+        await fixture.RefreshAsync();
+
+        Assert.True(commits.Lost);
+        Assert.Equal("completed", (await run.Completion.Task.WaitAsync(TimeSpan.FromSeconds(10))).Snapshot.State);
+        Assert.Equal("10", (await verification.PrefillCachedApps.SingleAsync()).AppId);
     }
 
     [Fact]
@@ -473,6 +514,20 @@ public sealed class PrefillRunHistoryTests
         session.IsPersistent = true;
         session.Platform = PrefillPlatform.Steam;
         await context.SaveChangesAsync();
+    }
+
+    /// <summary>Lets the first commit land, then reports a transient failure as if its answer was lost.</summary>
+    private sealed class LostCommitAnswer : DbTransactionInterceptor
+    {
+        public bool Lost { get; private set; }
+
+        public override Task TransactionCommittedAsync(
+            DbTransaction transaction, TransactionEndEventData commitEvent, CancellationToken cancellationToken = default)
+        {
+            if (Lost) return Task.CompletedTask;
+            Lost = true;
+            throw new PostgresException("Connection lost", "ERROR", "ERROR", PostgresErrorCodes.SerializationFailure);
+        }
     }
 
     private sealed class RunSave(bool retry) : SaveChangesInterceptor

@@ -1,6 +1,10 @@
+using System.Reflection;
+using LancacheManager.Controllers;
+using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
@@ -116,6 +120,92 @@ public sealed class PrefillCachedBadgeRemovalTests
         Assert.True(source.Contains("PrefillCachedApps", StringComparison.Ordinal)
             || source.Contains("MatchingCachedApps", StringComparison.Ordinal));
         Assert.Contains("SignalREvents.PrefillCacheChanged", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A cache whose delete failed still holds the game's files, so the badge rows stay with the
+    /// detection row; only a removal that cleared every cache takes them.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AGameRemovalThatFailedOnOneDatasourceKeepsThePrefillCachedRowsAsync(bool betaSucceeds)
+    {
+        const long gameAppId = 570;
+        var root = Path.Combine(Path.GetTempPath(), "lm-prefill-badge-removal-" + Guid.NewGuid().ToString("N"));
+        await using var harness = await RemovalRepairHarness.CreateProducerAsync(root, OperationType.GameRemoval);
+        var rust = harness.Rust;
+        rust.BetaSucceeds = betaSucceeds;
+        harness.ReleaseRust();
+        await using (var seed = rust.Contexts.CreateDbContext())
+        {
+            var now = DateTime.UtcNow;
+            foreach (var datasource in new[] { "alpha", "beta" })
+            {
+                var download = new Download
+                {
+                    Service = "steam",
+                    ClientIp = "10.0.0.5",
+                    Datasource = datasource,
+                    GameAppId = gameAppId,
+                    DepotId = 2,
+                    StartTimeUtc = now.AddMinutes(-1),
+                    EndTimeUtc = now
+                };
+                seed.LogEntries.Add(new LogEntryRecord
+                {
+                    Download = download,
+                    Service = "steam",
+                    Datasource = datasource,
+                    ClientIp = "10.0.0.5",
+                    Url = "/depot/2/" + datasource,
+                    Timestamp = now,
+                    CreatedAt = now
+                });
+            }
+            seed.PrefillCachedDepots.Add(NewCachedDepot(gameAppId, depotId: 2));
+            seed.PrefillCachedApps.Add(new PrefillCachedApp
+            {
+                Platform = PrefillPlatform.Steam,
+                AppId = "570",
+                CachedAtUtc = now
+            });
+            await seed.SaveChangesAsync();
+        }
+        var controller = new GamesController(
+            gameCacheDetectionService: null!,
+            gameDetectionService: null!,
+            cacheManagementService: harness.Manager,
+            notifications: harness.NotificationService,
+            logger: NullLogger<GamesController>.Instance,
+            pathResolver: null!,
+            operationTracker: harness.Tracker,
+            conflictChecker: null!,
+            operationQueue: null!,
+            capabilityService: null!,
+            cacheScanGate: CacheScanGateHarness.Idle());
+        Func<Guid, CancellationToken, Func<double, string, Dictionary<string, object?>?, int, long, Task>,
+            Task<CacheManagementService.GameCacheRemovalReport>> removeFunc =
+            (operationId, cancellationToken, onProgress) => harness.Manager.RemoveGameFromCacheAsync(
+                gameAppId,
+                cancellationToken,
+                onProgress,
+                operationId);
+        Func<long, Task> onSuccess = appId => Task.CompletedTask;
+
+        var operationId = await (Task<Guid>)typeof(GamesController)
+            .GetMethod("StartRemovalAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(
+                controller,
+                [gameAppId.ToString(), "Dota 2", "Game Removal: Dota 2", gameAppId, "steam", null, null, removeFunc, onSuccess])!;
+        var terminal = await harness.WaitForTerminalAsync(operationId);
+
+        Assert.Equal(OperationStatus.Completed, terminal.Status);
+        await using var assertContext = rust.Contexts.CreateDbContext();
+        var expectedRows = betaSucceeds ? 0 : 1;
+        Assert.Equal(expectedRows, await assertContext.PrefillCachedDepots.CountAsync(depot => depot.AppId == gameAppId));
+        Assert.Equal(expectedRows, await assertContext.PrefillCachedApps
+            .CountAsync(app => app.Platform == PrefillPlatform.Steam && app.AppId == "570"));
     }
 
     private static Download NewDownload(long gameAppId, bool isEvicted) => new()

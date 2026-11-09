@@ -76,7 +76,8 @@ public sealed class CacheSizeQueueTests
             capabilityService: null!,
             cacheScanGate: CacheScanGateHarness.Idle(),
             cacheSizeScan: cacheSizeScan,
-            operationStateService: null!);
+            operationStateService: null!,
+            stateService: null!);
     }
 
     private sealed class RecordingOperationQueue(QueuedOperationResponse response) : IOperationQueue

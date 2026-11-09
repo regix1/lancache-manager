@@ -62,7 +62,8 @@ test('the chart names both the events that redefine a comparison and the ones th
     'EventDeleted',
     'EventUpdated',
     'EventsCleared',
-    'LogProcessingComplete'
+    'LogProcessingComplete',
+    'PrefillTrafficSettingChanged'
   ]);
 });
 
@@ -78,13 +79,13 @@ test('the event list is checked against the event union, which on and off do not
 test('every named event schedules the reload instead of fetching straight away', () => {
   const { subscribed, scheduled, reloads } = runSubscription();
 
-  assert.equal(subscribed.length, 6, 'one subscription per name');
+  assert.equal(subscribed.length, 7, 'one subscription per name');
   for (const { handler } of subscribed) {
     handler();
   }
 
-  assert.equal(reloads.length, 0, 'a burst has to collapse into one fetch, not six');
-  assert.equal(scheduled.length, 6, 'each arrival goes through the shared debounce');
+  assert.equal(reloads.length, 0, 'a burst has to collapse into one fetch, not seven');
+  assert.equal(scheduled.length, 7, 'each arrival goes through the shared debounce');
 
   scheduled.at(-1)();
   assert.equal(reloads.length, 1);

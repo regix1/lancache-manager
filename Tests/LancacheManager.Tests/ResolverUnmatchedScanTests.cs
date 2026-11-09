@@ -567,7 +567,7 @@ public sealed class ResolverUnmatchedScanTests
             .AddInterceptors(recorder)
             .Options;
 
-    private static XboxMappingService NewXboxService(DbContextOptions<AppDbContext> options)
+    internal static XboxMappingService NewXboxService(DbContextOptions<AppDbContext> options)
     {
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         return new XboxMappingService(

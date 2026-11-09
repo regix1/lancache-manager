@@ -12,6 +12,7 @@ public partial class SteamKit2Service
     private int _emitTotalMappings;
     private int _emitDownloadsUpdated;
     private int _failedPicsBatches;
+    private int _failedOrphanBatches;
 
     public bool TryStartRebuild(
         CancellationToken cancellationToken = default,
@@ -509,6 +510,7 @@ public partial class SteamKit2Service
         _totalBatches = allBatches.Count;
         _processedBatches = 0;
         _failedPicsBatches = 0;
+        _failedOrphanBatches = 0;
         _currentStatus = DepotScanPhase.Processing;
 
         // Reset session start count to track new mappings found
@@ -690,6 +692,7 @@ public partial class SteamKit2Service
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Orphan depot resolution failed (non-fatal)");
+            _failedOrphanBatches++;
         }
         if (orphanDepotIds.Count > 0) await SaveAllMappingsToJsonAsync(incrementalOnly);
 
@@ -753,6 +756,12 @@ public partial class SteamKit2Service
             reporter.SetWarning(new RunWarning(
                 "common.notifications.warnings.depotBatchesFailed",
                 new Dictionary<string, object?> { ["failed"] = _failedPicsBatches, ["total"] = _totalBatches }));
+        }
+        if (_failedOrphanBatches > 0)
+        {
+            reporter.SetWarning(new RunWarning(
+                "common.notifications.warnings.orphanDepotsNotResolved",
+                new Dictionary<string, object?> { ["count"] = _failedOrphanBatches }));
         }
         await reporter.CompleteAsync(
             success: true,

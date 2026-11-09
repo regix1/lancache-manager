@@ -1396,7 +1396,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       { stageKey: 'signalr.depotMapping.failed', context: {} },
       { stageKey: 'signalr.depotMapping.github.downloading', context: {} },
       { stageKey: 'signalr.depotMapping.github.complete', context: {} },
-      { stageKey: 'signalr.depotMapping.github.failed', context: {} }
+      { stageKey: 'signalr.depotMapping.github.failed', context: {} },
+      { stageKey: 'signalr.depotMapping.github.prefillNamesNotRestored', context: {} }
     ]
   }),
   buildMappingOperationEntry<
@@ -1412,10 +1413,14 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     defaultMessage: 'Starting Epic game mapping...',
     recoveryCases: [
       { stageKey: 'signalr.epicMapping.starting', context: {} },
+      { stageKey: 'signalr.epicMapping.codeAccepted', context: {} },
       { stageKey: 'signalr.epicMapping.fetchingGames', context: {} },
+      { stageKey: 'signalr.epicMapping.readingLibrary', context: { done: 1, total: 2 } },
       { stageKey: 'signalr.epicMapping.refreshingCdn', context: {} },
+      { stageKey: 'signalr.epicMapping.resolvingPaths', context: { done: 1, total: 2 } },
       { stageKey: 'signalr.epicMapping.checkingFreeGames', context: {} },
       { stageKey: 'signalr.epicMapping.applyingMappings', context: {} },
+      { stageKey: 'signalr.epicMapping.mappingDone', context: { count: 1 } },
       { stageKey: 'signalr.epicMapping.completed', context: {} },
       { stageKey: 'signalr.epicMapping.skippedNotSignedIn', context: {} },
       { stageKey: 'signalr.epicMapping.cancelled', context: {} },

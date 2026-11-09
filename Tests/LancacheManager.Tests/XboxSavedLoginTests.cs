@@ -6,13 +6,13 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
+using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using static LancacheManager.Tests.DaemonTestMethods;
 
 namespace LancacheManager.Tests;
 
@@ -87,6 +87,8 @@ public sealed class XboxSavedLoginTests
         var login = harness.StartAsync();
         await harness.Client.DispatchEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
+        // The daemon reads back after the drop with no sign-in running.
+        harness.Client.LiveStatus = new DaemonStatus { Status = "awaiting-login", IsLoggingIn = false };
         await harness.Client.EmitDisconnectedAsync();
         await login.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -98,29 +100,113 @@ public sealed class XboxSavedLoginTests
     {
         using var harness = await Harness.CreateAsync("SavedPlayer");
         harness.Client.CompleteImmediately = false;
-        // The saved login's own cancel before it starts is acknowledged; its cleanup cancel is not.
+        // The saved login's own cancel before it starts is acknowledged. The drop sends no cleanup cancel, so the
+        // next Log in ends that sign-in first.
         harness.Client.CancelAnswers.Enqueue(true);
-        harness.Client.CancelAnswers.Enqueue(false);
         var login = harness.StartAsync();
         await harness.Client.DispatchEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        harness.Client.LiveStatus = new DaemonStatus { Status = "awaiting-login", IsLoggingIn = false };
         await harness.Client.EmitDisconnectedAsync();
         await login.WaitAsync(TimeSpan.FromSeconds(5));
         harness.Client.Calls.Clear();
 
         harness.Client.CancelAnswers.Enqueue(false);
+        harness.Client.CancelAnswers.Enqueue(false);
+        var first = await Assert.ThrowsAsync<ConflictException>(
+            () => harness.Daemon.StartLoginAsync(harness.Session.Id).WaitAsync(TimeSpan.FromSeconds(10)));
         var refused = await Assert.ThrowsAsync<ConflictException>(
             () => harness.Daemon.StartLoginAsync(harness.Session.Id).WaitAsync(TimeSpan.FromSeconds(10)));
 
-        Assert.Equal("errors.prefill.loginInProgress", refused.StageKey);
-        Assert.Equal([nameof(IDaemonClient.CancelLoginWithOutcomeAsync)], harness.Client.Calls);
+        // That earlier login still holds the daemon after a second unanswered cancel, so the session is marked for
+        // replacement, and neither Log in sends a login.
+        Assert.Equal("errors.prefill.loginInProgress", first.StageKey);
+        Assert.Equal("errors.prefill.loginCancelUnconfirmed", refused.StageKey);
+        Assert.Equal(
+            [nameof(IDaemonClient.CancelLoginWithOutcomeAsync), nameof(IDaemonClient.CancelLoginWithOutcomeAsync)],
+            harness.Client.Calls);
+        Assert.Equal(DaemonSessionStatus.Error, harness.Session.Status);
+    }
 
+    // A daemon that leaves two saved-login cancels in a row unanswered still holds an earlier sign-in, so the
+    // second try marks the session for replacement and its run ends as a failed sign-in.
+    [Fact]
+    public async Task TwoUnansweredCancelsBeforeASavedLoginMarkTheSessionForReplacement()
+    {
+        using var harness = await Harness.CreateAsync("SavedPlayer");
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance);
+        typeof(PrefillDaemonServiceBase)
+            .GetField("_operationTracker", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(harness.Daemon, tracker);
+        Guid? run = null;
+        harness.Client.CancelEntered = () => run = harness.Session.LoginOperationId;
+
+        harness.Client.CancelAnswers.Enqueue(false);
+        var first = await Assert.ThrowsAsync<ConflictException>(() => harness.StartAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal("errors.prefill.loginInProgress", first.StageKey);
+        Assert.True(harness.Session.LoginCancelUnconfirmed);
+        Assert.Equal(DaemonSessionStatus.Active, harness.Session.Status);
+
+        harness.Client.CancelAnswers.Enqueue(false);
+        var second = await Assert.ThrowsAsync<ConflictException>(() => harness.StartAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.Equal("errors.prefill.loginCancelUnconfirmed", second.StageKey);
+        Assert.Equal(DaemonSessionStatus.Error, harness.Session.Status);
+        Assert.NotNull(run);
+        Assert.Equal(OperationStatus.Failed, tracker.GetOperation(run!.Value)?.Status ?? tracker.GetReapedStatus(run.Value));
+    }
+
+    [Fact]
+    public async Task ALogInAfterAnUnacknowledgedSavedLoginCancelStartsOnceTheRepeatCancelIsAnswered()
+    {
+        using var harness = await Harness.CreateAsync("SavedPlayer");
+        harness.Client.CompleteImmediately = false;
+        // The saved login's own cancel before it starts is acknowledged. The drop sends no cleanup cancel, so the
+        // next Log in ends that sign-in first.
+        harness.Client.CancelAnswers.Enqueue(true);
+        var login = harness.StartAsync();
+        await harness.Client.DispatchEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        harness.Client.LiveStatus = new DaemonStatus { Status = "awaiting-login", IsLoggingIn = false };
+        await harness.Client.EmitDisconnectedAsync();
+        await login.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(harness.Session.LoginLeftRunning);
         harness.Client.Calls.Clear();
+
         harness.Client.CancelAnswers.Enqueue(true);
         await harness.Daemon.StartLoginAsync(harness.Session.Id).WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Equal(
             [nameof(IDaemonClient.CancelLoginWithOutcomeAsync), nameof(IDaemonClient.StartLoginAsync)],
             harness.Client.Calls);
+        Assert.False(harness.Session.LoginCancelUnconfirmed);
+        Assert.False(harness.Session.LoginLeftRunning);
+        Assert.Equal(DaemonSessionStatus.Active, harness.Session.Status);
+    }
+
+    // A drop sends no cancel, so the first cancel the daemon then leaves unanswered is retried next time, by a saved
+    // login and by a typed Log in alike; only a second one marks the session for replacement.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AFirstUnansweredCancelAfterADropIsRetriedNotEscalated(bool typedLogIn)
+    {
+        using var harness = await Harness.CreateAsync("SavedPlayer");
+        harness.Client.CompleteImmediately = false;
+        harness.Client.CancelAnswers.Enqueue(true);
+        var login = harness.StartAsync();
+        await harness.Client.DispatchEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        harness.Client.LiveStatus = new DaemonStatus { Status = "awaiting-login", IsLoggingIn = false };
+        await harness.Client.EmitDisconnectedAsync();
+        await login.WaitAsync(TimeSpan.FromSeconds(5));
+
+        harness.Client.CancelAnswers.Enqueue(false);
+        var refused = await Assert.ThrowsAsync<ConflictException>(() => (typedLogIn
+            ? harness.Daemon.StartLoginAsync(harness.Session.Id)
+            : harness.StartAsync()).WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.Equal("errors.prefill.loginInProgress", refused.StageKey);
+        Assert.True(harness.Session.LoginCancelUnconfirmed);
+        Assert.Equal(DaemonSessionStatus.Active, harness.Session.Status);
     }
 
     [Fact]
@@ -356,6 +442,8 @@ public sealed class XboxSavedLoginTests
         /// <summary>Answers for the next cancel-login commands in order; an empty queue acknowledges.</summary>
         public Queue<bool> CancelAnswers { get; } = new();
         public List<string> Calls { get; } = [];
+        /// <summary>Runs as each cancel-login command arrives, before it is answered.</summary>
+        public Action? CancelEntered { get; set; }
 
         public async Task EmitStatusAsync(DaemonStatus status)
         {
@@ -388,6 +476,7 @@ public sealed class XboxSavedLoginTests
                     return Task.FromResult<DaemonStatus?>(LiveStatus);
                 case nameof(IDaemonClient.CancelLoginWithOutcomeAsync):
                     Calls.Add(targetMethod.Name);
+                    CancelEntered?.Invoke();
                     return Task.FromResult(!CancelAnswers.TryDequeue(out var acknowledged) || acknowledged);
                 case nameof(IDaemonClient.ProvideXboxAutoLoginWithDispatchAsync):
                     return ProvideAsync((Action)args![2]!, (CancellationToken)args[3]!);

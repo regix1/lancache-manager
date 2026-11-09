@@ -140,7 +140,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   const isScanningFromNotification = useOperationBusy({
     types: ['corruption_detection'],
-    status: 'running'
+    status: ['running', 'cancelling']
   });
   const isScanWaitingFromNotification = useOperationBusy({
     types: ['corruption_detection'],

@@ -6,24 +6,15 @@ namespace LancacheManager.Tests;
 public class StructuralStderrObserverTests
 {
     [Fact]
-    public void MilestonesAreSanitizedAndUnknownLinesAreNotPromoted()
+    public void UnknownLinesAreNotPromoted()
     {
         var logger = new CapturingLogger();
         var observer = new StructuralStderrObserver(logger, "primary");
 
-        observer.Observe("[structural] scan starting");
-        observer.Observe("[structural] enumeration progress eligible_files=100");
-        observer.Observe("[structural] inspection starting total=100 workers=4 task_capacity=4 result_capacity=4");
-        observer.Observe("[structural] inspection progress processed=12/100 suspects=2 files_per_second=31.5 eta_seconds=3");
         observer.Observe("raw /cache/secret/key URL=https://example.invalid/private");
+        observer.Complete();
 
-        Assert.Equal(4, logger.Entries.Count);
-        Assert.All(logger.Entries, entry => Assert.Equal(LogLevel.Information, entry.Level));
-        var combined = string.Join(" ", logger.Entries.Select(entry => entry.Message));
-        Assert.DoesNotContain("/cache/secret", combined);
-        Assert.DoesNotContain("https://", combined);
-        Assert.Contains("processed=12/100", combined);
-        Assert.Contains("workers=4", combined);
+        Assert.Empty(logger.Entries);
     }
 
     [Fact]

@@ -14,12 +14,11 @@ export const ExternalDbInfoStep: React.FC<ExternalDbInfoStepProps> = ({ onContin
   const { setupStatus } = useSetupStatus();
 
   const isExternal = setupStatus?.mode === 'external';
-  const host =
-    setupStatus?.postgresHost ??
-    (isExternal ? t('initialization.dbInfo.unknown') : '/var/run/postgresql');
+  const host = setupStatus?.postgresHost;
   const port = setupStatus?.postgresPort;
-  const database = setupStatus?.postgresDatabase ?? 'lancache';
-  const user = setupStatus?.postgresUser ?? 'lancache';
+  const database = setupStatus?.postgresDatabase;
+  const user = setupStatus?.postgresUser;
+  const hasTarget = host != null || database != null || user != null;
 
   return (
     <div className="space-y-5">
@@ -38,32 +37,48 @@ export const ExternalDbInfoStep: React.FC<ExternalDbInfoStepProps> = ({ onContin
         }
       />
 
-      <div className="rounded-lg border border-themed-secondary bg-themed-tertiary p-4 space-y-2">
-        <div className="flex items-center gap-2 text-sm font-semibold text-themed-primary">
-          <Database className="w-4 h-4 icon-primary" />
-          {t('initialization.dbInfo.target')}
+      {hasTarget && (
+        <div className="rounded-lg border border-themed-secondary bg-themed-tertiary p-4 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-semibold text-themed-primary">
+            <Database className="w-4 h-4 icon-primary" />
+            {t('initialization.dbInfo.target')}
+          </div>
+          <dl className="text-sm grid grid-cols-3 gap-y-1">
+            {host != null && (
+              <>
+                <dt className="col-span-1 text-themed-secondary">
+                  {isExternal ? t('initialization.dbInfo.host') : t('initialization.dbInfo.socket')}
+                </dt>
+                <dd className="col-span-2 text-themed-primary font-mono break-all">{host}</dd>
+              </>
+            )}
+            {isExternal && port != null && (
+              <>
+                <dt className="col-span-1 text-themed-secondary">
+                  {t('initialization.dbInfo.port')}
+                </dt>
+                <dd className="col-span-2 text-themed-primary font-mono">{port}</dd>
+              </>
+            )}
+            {database != null && (
+              <>
+                <dt className="col-span-1 text-themed-secondary">
+                  {t('initialization.dbInfo.database')}
+                </dt>
+                <dd className="col-span-2 text-themed-primary font-mono">{database}</dd>
+              </>
+            )}
+            {user != null && (
+              <>
+                <dt className="col-span-1 text-themed-secondary">
+                  {t('initialization.dbInfo.user')}
+                </dt>
+                <dd className="col-span-2 text-themed-primary font-mono">{user}</dd>
+              </>
+            )}
+          </dl>
         </div>
-        <dl className="text-sm grid grid-cols-3 gap-y-1">
-          <dt className="col-span-1 text-themed-secondary">
-            {isExternal ? t('initialization.dbInfo.host') : t('initialization.dbInfo.socket')}
-          </dt>
-          <dd className="col-span-2 text-themed-primary font-mono break-all">{host}</dd>
-          {isExternal && port != null && (
-            <>
-              <dt className="col-span-1 text-themed-secondary">
-                {t('initialization.dbInfo.port')}
-              </dt>
-              <dd className="col-span-2 text-themed-primary font-mono">{port}</dd>
-            </>
-          )}
-          <dt className="col-span-1 text-themed-secondary">
-            {t('initialization.dbInfo.database')}
-          </dt>
-          <dd className="col-span-2 text-themed-primary font-mono">{database}</dd>
-          <dt className="col-span-1 text-themed-secondary">{t('initialization.dbInfo.user')}</dt>
-          <dd className="col-span-2 text-themed-primary font-mono">{user}</dd>
-        </dl>
-      </div>
+      )}
 
       <Button variant="default" onClick={onContinue} className="w-full">
         {t('initialization.dbInfo.continue')}

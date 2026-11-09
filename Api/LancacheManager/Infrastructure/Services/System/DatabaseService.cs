@@ -499,6 +499,16 @@ public class DatabaseService
                 using var deleteTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
                 try
                 {
+                    // The PICS import and prefill mapping writes take this key before they write a mapping, so
+                    // the reset's delete waits for them instead of interleaving. Taken first, before the table
+                    // locks, so a crawl that starts during the reset waits on the reset and never the reverse.
+                    if (tablesToClear.Contains("SteamDepotMappings"))
+                    {
+                        await context.Database.ExecuteSqlInterpolatedAsync(
+                            $"SELECT pg_advisory_xact_lock({PrefillCacheService.DepotOwnerLockKey})",
+                            cancellationToken);
+                    }
+
                     if (tablesToClear.Contains("Downloads") || tablesToClear.Contains("LogEntries"))
                     {
                         await context.Database.ExecuteSqlRawAsync(
@@ -1171,6 +1181,9 @@ public class DatabaseService
             if (tablesToClear.Contains("LogEntries"))
             {
                 _stateRepository.ClearLogProcessingPositions();
+                // The import starts again from the first line and brings back rows of runs that
+                // ended long ago, so the next marking pass reads the whole window.
+                scope.ServiceProvider.GetRequiredService<PrefillSessionService>().ResetMarkingPass();
             }
 
             // Live sessions also hold their finished runs in memory. This waits for each session's run

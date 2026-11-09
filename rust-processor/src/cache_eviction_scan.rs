@@ -50,6 +50,15 @@ struct DatasourceConfig {
     /// Cache-key recipe for this datasource: "monolithic" (default) | "bare_metal".
     #[serde(default)]
     key_scheme: String,
+    /// The cache's slice size in bytes; absent means Auto (read from the cache files).
+    #[serde(default)]
+    slice_size: Option<u64>,
+    /// Whether the host deletes the rows this scan marks evicted; absent means report mode.
+    #[serde(default)]
+    remove_mode: bool,
+    /// The slice sizes this run tries for the datasource, built by `run_scan` before any probe.
+    #[serde(skip)]
+    slice_sizes: Vec<u64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -511,6 +520,40 @@ async fn run_scan_and_report(
     }
 }
 
+/// The slice-size list for one datasource: the manual size when set, then an Auto sample of its
+/// cache path, then 1 MiB. A manual size never replaces the sample, because files written before
+/// the setting changed keep their own size and a download whose file is missed is read as gone.
+/// In remove mode a sample that could not be read is an error, and so is a sample that opened
+/// cache files but found no slice range in any of them when no manual size names the size, so no
+/// row is marked evicted on a size guess; report mode logs a Warning and goes on with the manual
+/// and standard sizes.
+///
+/// Limit: a cache holding a second slice size that is not a power of two, and that no sampled
+/// file carries, is still matched only through the manual size.
+///
+/// This reads the sample itself, not `slice_sizes_for_run`, because refusing remove mode needs the
+/// sample's opened-file count.
+fn datasource_slice_sizes(source: &DatasourceConfig, remove_mode: bool) -> Result<Vec<u64>> {
+    let refusal = match lancache_processor::cache_utils::sample_slice_sizes(Path::new(&source.cache_path)) {
+        Ok(sample) if source.slice_size.is_none() && sample.sizes.is_empty() && sample.files_opened > 0 => format!(
+            "no sampled cache file under {} names a slice range, so the slice size is unknown",
+            source.cache_path
+        ),
+        Ok(sample) => {
+            return Ok(lancache_processor::cache_utils::cache_slice_sizes(source.slice_size, &sample.sizes))
+        }
+        Err(error) => error.to_string(),
+    };
+    if remove_mode {
+        anyhow::bail!("datasource '{}': {}", source.name, refusal);
+    }
+    eprintln!(
+        "[EvictionScan] Warning: datasource '{}': {}; trying the manual and standard slice sizes only",
+        source.name, refusal
+    );
+    Ok(lancache_processor::cache_utils::cache_slice_sizes(source.slice_size, &[]))
+}
+
 async fn run_scan(
     datasource_config_path: &str,
     progress_path: Option<&Path>,
@@ -529,8 +572,12 @@ async fn run_scan(
             datasource_config_path
         )
     })?;
-    let datasources: Vec<DatasourceConfig> = serde_json::from_str(&config_content)
+    let mut datasources: Vec<DatasourceConfig> = serde_json::from_str(&config_content)
         .with_context(|| "Failed to parse datasource config JSON")?;
+    let remove_mode = datasources.iter().any(|source| source.remove_mode);
+    for source in &mut datasources {
+        source.slice_sizes = datasource_slice_sizes(source, remove_mode)?;
+    }
 
     if datasources.is_empty() {
         if let Some(operation_id) = operation_id {
@@ -1325,7 +1372,8 @@ fn write_progress_file(
 mod tests {
     use super::{
         cache_eviction_paths, classify_download, classify_unverifiable, classify_verifiable,
-        evict_unchanged_downloads_tx, read_repair, run_scan, update_checkpoint_tx, Args,
+        datasource_slice_sizes, evict_unchanged_downloads_tx, read_repair, run_scan,
+        update_checkpoint_tx, Args,
         DatasourceConfig, DownloadAction, RepairTarget, ScanResult, TargetSelector,
         UnverifiableAction, VerifiableAction,
     };
@@ -1420,6 +1468,9 @@ mod tests {
             cache_path: "cache".to_string(),
             is_default: true,
             key_scheme: key_scheme.to_string(),
+            slice_size: None,
+            remove_mode: false,
+            slice_sizes: Vec::new(),
         }];
         let roots = cache_eviction_paths::DatasourceRoots::from_configs(&datasources);
         cache_eviction_paths::ProbeKey::new(
@@ -1477,6 +1528,9 @@ mod tests {
             cache_path: cache_path.to_string_lossy().into_owned(),
             is_default: true,
             key_scheme: "monolithic".to_string(),
+            slice_size: None,
+            remove_mode: false,
+            slice_sizes: Vec::new(),
         }];
         let repair = cache_eviction_paths::collect_files_for_repair(
             &datasources,
@@ -2452,6 +2506,9 @@ mod tests {
             cache_path: "cache".to_string(),
             is_default: true,
             key_scheme: "monolithic".to_string(),
+            slice_size: None,
+            remove_mode: false,
+            slice_sizes: Vec::new(),
         }];
         let (files, _) = cache_eviction_paths::collect_files_on_disk(&datasources, |_| {});
         let was_cached = cache_eviction_paths::probe_for(&keys, &files).was_cached(0, 500);
@@ -2471,6 +2528,9 @@ mod tests {
             cache_path: "cache".to_string(),
             is_default: true,
             key_scheme: "monolithic".to_string(),
+            slice_size: None,
+            remove_mode: false,
+            slice_sizes: Vec::new(),
         }];
         let (files, _) = cache_eviction_paths::collect_files_on_disk(&datasources, |_| {});
         assert!(cache_eviction_paths::probe_for(&keys, &files).was_cached(1, 0));
@@ -2491,6 +2551,9 @@ mod tests {
             cache_path: "cache".to_string(),
             is_default: true,
             key_scheme: "monolithic".to_string(),
+            slice_size: None,
+            remove_mode: false,
+            slice_sizes: Vec::new(),
         }];
         let (files, _) = cache_eviction_paths::collect_files_on_disk(&datasources, |_| {});
         let was_cached = cache_eviction_paths::probe_for(&keys, &files).was_cached(0, 500);
@@ -2512,9 +2575,97 @@ mod tests {
             cache_path: "cache".to_string(),
             is_default: true,
             key_scheme: "monolithic".to_string(),
+            slice_size: None,
+            remove_mode: false,
+            slice_sizes: Vec::new(),
         }];
         let (files, _) = cache_eviction_paths::collect_files_on_disk(&datasources, |_| {});
         assert!(!cache_eviction_paths::probe_for(&keys, &files).was_cached(0, 500));
         assert!(cache_eviction_paths::probe_for(&keys, &files).was_cached(3, 500));
+    }
+
+    fn auto_datasource(name: &str, cache_path: &std::path::Path) -> DatasourceConfig {
+        DatasourceConfig {
+            name: name.to_string(),
+            cache_path: cache_path.to_string_lossy().into_owned(),
+            is_default: name == "ten",
+            key_scheme: "monolithic".to_string(),
+            slice_size: None,
+            remove_mode: false,
+            slice_sizes: Vec::new(),
+        }
+    }
+
+    fn write_keyed_file(path: &std::path::Path, key: Option<&str>) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let header = match key {
+            Some(key) => format!("\0\nKEY: {key}\n"),
+            None => "\0\nno key line\n".to_string(),
+        };
+        std::fs::write(path, header).unwrap();
+    }
+
+    #[test]
+    fn a_ten_mib_cache_is_sampled_and_its_downloads_read_as_cached() {
+        let parent = tempfile::tempdir().unwrap();
+        let ten_root = parent.path().join("ten");
+        let one_root = parent.path().join("one");
+        let url = "/depot/1/chunk/ten";
+        let ten_mib = 10 * cache_utils::DEFAULT_SLICE_SIZE;
+        let key = format!("steam{url}bytes=0-{}", ten_mib - 1);
+        for root in [&ten_root, &one_root] {
+            write_keyed_file(&cache_utils::calculate_cache_path(root, "steam", url, 0, ten_mib - 1), Some(&key));
+        }
+        let mut datasources = [auto_datasource("ten", &ten_root), auto_datasource("one", &one_root)];
+        datasources[0].slice_sizes = datasource_slice_sizes(&datasources[0], true).unwrap();
+        // The second datasource is given the standard list, as a cache whose sample found 1 MiB.
+        datasources[1].slice_sizes = vec![cache_utils::DEFAULT_SLICE_SIZE];
+        assert_eq!(datasources[0].slice_sizes, vec![ten_mib, cache_utils::DEFAULT_SLICE_SIZE]);
+
+        let roots = cache_eviction_paths::DatasourceRoots::from_configs(&datasources);
+        let (files, _) = cache_eviction_paths::collect_files_on_disk(&datasources, |_| {});
+        let probe = |datasource: &str| {
+            cache_eviction_paths::ProbeKey::new("steam", url.to_string(), Some(datasource), 0, &roots)
+                .has_cache_file(&files)
+        };
+
+        assert!(probe("ten"));
+        assert!(!probe("one"));
+    }
+
+    #[test]
+    fn a_manual_size_datasource_is_sampled_so_a_third_size_still_reads_as_cached() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("cache");
+        let url = "/depot/1/chunk/eight";
+        let eight_mib = 8 * cache_utils::DEFAULT_SLICE_SIZE;
+        let ten_mib = 10 * cache_utils::DEFAULT_SLICE_SIZE;
+        let key = format!("steam{url}bytes=0-{}", eight_mib - 1);
+        write_keyed_file(&cache_utils::calculate_cache_path(&root, "steam", url, 0, eight_mib - 1), Some(&key));
+        let mut source = auto_datasource("manual", &root);
+        source.slice_size = Some(ten_mib);
+
+        assert_eq!(
+            datasource_slice_sizes(&source, true).unwrap(),
+            vec![ten_mib, eight_mib, cache_utils::DEFAULT_SLICE_SIZE]
+        );
+    }
+
+    #[test]
+    fn a_sample_with_no_slice_range_refuses_remove_mode_and_warns_in_report_mode() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("cache");
+        write_keyed_file(
+            &cache_utils::calculate_cache_path(&root, "steam", "/depot/1/chunk/a", 0, 1_048_575),
+            None,
+        );
+        let source = auto_datasource("ten", &root);
+
+        let error = datasource_slice_sizes(&source, true).unwrap_err();
+        assert!(error.to_string().contains("slice size is unknown"));
+        assert_eq!(
+            datasource_slice_sizes(&source, false).unwrap(),
+            vec![cache_utils::DEFAULT_SLICE_SIZE]
+        );
     }
 }

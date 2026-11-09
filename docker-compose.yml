@@ -107,7 +107,20 @@ services:
       #---------------------------------------------------------------------------
 
       # Choose authentication during first setup.
-      # The primary administrator can change it under Users > Access and Security.
+      # The primary administrator can change it under Users > Access and Security,
+      # unless Security__SignInMode below is set: then the environment fixes the mode.
+
+      # Fix the sign-in mode from the environment. Not case-sensitive.
+      # Values: Password, ApiKeyPassword, ApiKeyOidc (alias ApiKeyAndSso), Oidc (alias Sso), Unauthenticated
+      # Read once at start; a change needs a restart.
+      # - Security__SignInMode=Oidc
+
+      # One single sign-on provider. Oidc, GitHub, Microsoft and Apple use the same fields.
+      # The ClientSecretFile text, trimmed, is the secret and wins over ClientSecret.
+      # - Security__Google__ClientId=
+      # - Security__Google__ClientSecretFile=/run/secrets/google_client_secret
+      # - Security__Google__OwnerSubject=
+      # - Security__Google__AllowedSubjects=
 
       # Default guest session duration in hours (configurable in UI after first run)
       # - Security__GuestSessionDurationHours=6

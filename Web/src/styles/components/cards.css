@@ -46,6 +46,12 @@
     box-shadow: var(--shadow-card-hover);
   }
 
+  /* Card shadow for raised rows that are not .themed-card (accordion sections, datasource rows).
+     Light themes only: dark themes separate layers with fill and border, never a shadow. */
+  [data-theme='light'] .light-card-shadow {
+    box-shadow: var(--shadow-card);
+  }
+
   /* Outdated-scan (and other warning) chrome. Same specificity as the light-theme
      border rule above so the warning edge wins in both themes. */
   .themed-card.themed-card--warning,

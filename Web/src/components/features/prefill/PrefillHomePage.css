@@ -298,11 +298,6 @@
   }
 }
 
-/* Prefill progress card */
-.prefill-progress-card {
-  border-color: var(--theme-primary-strong);
-}
-
 /* Reduced-motion: disable fadeIn / fadeInUp stagger animations */
 @media (prefers-reduced-motion: reduce) {
   .prefill-home {

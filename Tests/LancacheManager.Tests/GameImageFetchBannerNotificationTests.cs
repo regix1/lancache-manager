@@ -192,6 +192,10 @@ public sealed class GameImageFetchBannerNotificationTests
         var services = new ServiceCollection();
         services.AddDbContext<AppDbContext>(options => options.UseInMemoryDatabase(databaseName));
         services.AddSingleton(httpClients);
+        // Every pass backfills Xbox banner URLs; without this service that step throws and leaves
+        // an extra warning on the run. No Xbox mappings are seeded, so it never calls out.
+        services.AddSingleton(ResolverUnmatchedScanTests.NewXboxService(
+            new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(databaseName).Options));
         configure?.Invoke(services);
         return services.BuildServiceProvider();
     }
@@ -228,19 +232,6 @@ public sealed class GameImageFetchBannerNotificationTests
     }
 
     private static T NullProxy<T>() where T : class => DispatchProxy.Create<T, NullReturningProxy>();
-
-    /// <summary>Hands out one HttpClient per requested name, all backed by the same handler.</summary>
-    private sealed class SingleHandlerHttpClients : IHttpClientFactory
-    {
-        private readonly HttpMessageHandler _handler;
-
-        public SingleHandlerHttpClients(HttpMessageHandler handler)
-        {
-            _handler = handler;
-        }
-
-        public HttpClient CreateClient(string name) => new(_handler, disposeHandler: false);
-    }
 
     /// <summary>Fails every request, so no phase stores anything.</summary>
     private sealed class FailingHandler : HttpMessageHandler

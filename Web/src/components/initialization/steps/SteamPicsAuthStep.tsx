@@ -133,7 +133,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
           <SelectableCard
             name="steam-auth-mode"
             value="anonymous"
-            disabled={!canUseAnonymous || saving}
+            disabled={!canUseAnonymous}
             checked={selectedMode === 'anonymous'}
             onChange={() => handleModeSelect('anonymous')}
             icon={<Users className="icon-primary" />}
@@ -143,7 +143,7 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
           <SelectableCard
             name="steam-auth-mode"
             value="account"
-            disabled={state.canAuthenticate === false || saving}
+            disabled={state.canAuthenticate === false}
             checked={selectedMode === 'account'}
             onChange={() => handleModeSelect('account')}
             icon={<User className="icon-success" />}

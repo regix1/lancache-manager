@@ -1,5 +1,6 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use lancache_processor::cache_repair;
@@ -8,10 +9,14 @@ use uuid::Uuid;
 
 use super::{DatasourceConfig, RepairSource};
 
+/// One datasource's cache root, key recipe and slice-size list.
+type DatasourceEntry = (PathBuf, cache_utils::CacheKeyScheme, Arc<[u64]>);
+
 pub(super) struct DatasourceRoots {
-    cache_paths_by_name: HashMap<String, (PathBuf, cache_utils::CacheKeyScheme)>,
+    cache_paths_by_name: HashMap<String, DatasourceEntry>,
     default_cache_path: PathBuf,
     default_scheme: cache_utils::CacheKeyScheme,
+    default_slice_sizes: Arc<[u64]>,
     allow_null_default: bool,
     roots: Vec<PathBuf>,
 }
@@ -32,7 +37,7 @@ impl DatasourceRoots {
 
     fn from_paths(datasources: &[DatasourceConfig], paths: &HashMap<String, PathBuf>) -> Self {
         let mut cache_paths_by_name = HashMap::with_capacity(datasources.len());
-        let mut default_entry: Option<(PathBuf, cache_utils::CacheKeyScheme)> = None;
+        let mut default_entry: Option<DatasourceEntry> = None;
         let mut roots: Vec<PathBuf> = Vec::new();
 
         for ds in datasources {
@@ -43,21 +48,23 @@ impl DatasourceRoots {
                 roots.push(cache_path.clone());
             }
             let scheme = cache_utils::CacheKeyScheme::from_config_str(&ds.key_scheme);
+            let slice_sizes: Arc<[u64]> = ds.slice_sizes.as_slice().into();
             cache_paths_by_name.insert(
                 datasource_lookup_key(&ds.name),
-                (cache_path.clone(), scheme),
+                (cache_path.clone(), scheme, slice_sizes.clone()),
             );
             if ds.is_default {
-                default_entry = Some((cache_path, scheme));
+                default_entry = Some((cache_path, scheme, slice_sizes));
             }
         }
 
-        let (default_cache_path, default_scheme) = default_entry
+        let (default_cache_path, default_scheme, default_slice_sizes) = default_entry
             .or_else(|| cache_paths_by_name.values().next().cloned())
             .unwrap_or_else(|| {
                 (
                     PathBuf::from(&datasources[0].cache_path),
                     cache_utils::CacheKeyScheme::from_config_str(&datasources[0].key_scheme),
+                    datasources[0].slice_sizes.as_slice().into(),
                 )
             });
 
@@ -65,6 +72,7 @@ impl DatasourceRoots {
             cache_paths_by_name,
             default_cache_path,
             default_scheme,
+            default_slice_sizes,
             // Older single-datasource installs can have LogEntries written before Datasource
             // was populated. With exactly one datasource the fallback is unambiguous and keeps
             // those rows verifiable. Multiple datasources can share a root while using different
@@ -74,21 +82,26 @@ impl DatasourceRoots {
         }
     }
 
-    fn resolve(&self, datasource: Option<&str>) -> Option<(usize, cache_utils::CacheKeyScheme)> {
-        let (path, scheme) = match datasource {
+    fn resolve(
+        &self,
+        datasource: Option<&str>,
+    ) -> Option<(usize, cache_utils::CacheKeyScheme, Arc<[u64]>)> {
+        let (path, scheme, slice_sizes) = match datasource {
             Some(name) if !name.trim().is_empty() => self
                 .cache_paths_by_name
                 .get(&datasource_lookup_key(name))
-                .map(|(path, scheme)| (path.as_path(), *scheme))?,
-            None if self.allow_null_default => {
-                (self.default_cache_path.as_path(), self.default_scheme)
-            }
+                .map(|(path, scheme, slice_sizes)| (path.as_path(), *scheme, slice_sizes))?,
+            None if self.allow_null_default => (
+                self.default_cache_path.as_path(),
+                self.default_scheme,
+                &self.default_slice_sizes,
+            ),
             Some(_) | None => return None,
         };
         self.roots
             .iter()
             .position(|root| root.as_path() == path)
-            .map(|index| (index, scheme))
+            .map(|index| (index, scheme, slice_sizes.clone()))
     }
 
     pub(super) fn root_path(&self, index: usize) -> &Path {
@@ -110,7 +123,7 @@ impl RepairIndex {
             .filter_map(|origin| {
                 self.roots
                     .resolve(origin)
-                    .map(|(index, _)| self.roots.root_path(index))
+                    .map(|(index, _, _)| self.roots.root_path(index))
             })
             .any(|root| self.affected_roots.contains(root))
     }
@@ -123,7 +136,7 @@ impl RepairIndex {
         let mut saw_origin = false;
         for origin in std::iter::once(primary).chain(origins.iter().map(Option::as_deref)) {
             saw_origin = true;
-            let Some((index, _)) = self.roots.resolve(origin) else {
+            let Some((index, _, _)) = self.roots.resolve(origin) else {
                 return false;
             };
             let root = self.roots.root_path(index);
@@ -146,7 +159,7 @@ impl RepairIndex {
         let mut saw_origin = false;
         for origin in std::iter::once(primary).chain(origins.iter().map(Option::as_deref)) {
             saw_origin = true;
-            let Some((index, _)) = self.roots.resolve(origin) else {
+            let Some((index, _, _)) = self.roots.resolve(origin) else {
                 return false;
             };
             if !self
@@ -166,7 +179,7 @@ impl RepairIndex {
     ) -> bool {
         std::iter::once(primary)
             .chain(origins.iter().map(Option::as_deref))
-            .filter_map(|origin| self.roots.resolve(origin).map(|(_, scheme)| scheme))
+            .filter_map(|origin| self.roots.resolve(origin).map(|(_, scheme, _)| scheme))
             .any(|scheme| scheme == cache_utils::CacheKeyScheme::BareMetal)
     }
 }
@@ -238,6 +251,7 @@ enum ProbeRecipe {
     Resolved {
         root_index: usize,
         scheme: cache_utils::CacheKeyScheme,
+        slice_sizes: Arc<[u64]>,
     },
     /// The datasource was NULL in a multi-datasource install, empty, or unknown. Treating it as
     /// the configured default can select the wrong key scheme on a shared cache root.
@@ -257,7 +271,11 @@ impl ProbeKey {
         roots: &DatasourceRoots,
     ) -> Self {
         let recipe = match roots.resolve(datasource) {
-            Some((root_index, scheme)) => ProbeRecipe::Resolved { root_index, scheme },
+            Some((root_index, scheme, slice_sizes)) => ProbeRecipe::Resolved {
+                root_index,
+                scheme,
+                slice_sizes,
+            },
             None => ProbeRecipe::Unresolved,
         };
         let service = cache_utils::service_name_lowercase(service);
@@ -265,7 +283,11 @@ impl ProbeKey {
         // format! String here would be a per-row allocation on multi-million-row scans.
         let mut memo_hash = md5::Context::new();
         match &recipe {
-            ProbeRecipe::Resolved { root_index, scheme } => {
+            ProbeRecipe::Resolved {
+                root_index,
+                scheme,
+                slice_sizes,
+            } => {
                 memo_hash.consume(b"resolved");
                 memo_hash.consume([MEMO_KEY_SEP as u8]);
                 memo_hash.consume(roots.root_path(*root_index).as_os_str().as_encoded_bytes());
@@ -274,6 +296,11 @@ impl ProbeKey {
                     cache_utils::CacheKeyScheme::Monolithic => b"monolithic".as_slice(),
                     cache_utils::CacheKeyScheme::BareMetal => b"bare_metal".as_slice(),
                 });
+                // Two datasources on one root can carry different slice-size lists.
+                for size in slice_sizes.iter() {
+                    memo_hash.consume([MEMO_KEY_SEP as u8]);
+                    memo_hash.consume(size.to_be_bytes());
+                }
             }
             ProbeRecipe::Unresolved => {
                 memo_hash.consume(b"unresolved");
@@ -300,7 +327,12 @@ impl ProbeKey {
     /// count is sized from `bytes_served` (clamped to [DEFAULT_MAX_CHUNKS, MAX_PROBE_CHUNKS]),
     /// so large objects whose present slices fall past the first 100 MiB are still found.
     pub(super) fn has_cache_file(&self, files_on_disk: &FilesOnDisk) -> bool {
-        let ProbeRecipe::Resolved { root_index, scheme } = &self.recipe else {
+        let ProbeRecipe::Resolved {
+            root_index,
+            scheme,
+            slice_sizes,
+        } = &self.recipe
+        else {
             return false;
         };
         let Some(digests) = files_on_disk.digests_for_index(*root_index) else {
@@ -310,12 +342,22 @@ impl ProbeKey {
         let max_chunks = cache_utils::probe_chunks_for_bytes(self.bytes_served);
         match scheme {
             cache_utils::CacheKeyScheme::Monolithic => {
-                cache_utils::cache_digest_candidates_iter(&self.service, &self.url, max_chunks)
-                    .any(|digest| digests.contains(&digest))
+                cache_utils::cache_digest_candidates_iter(
+                    &self.service,
+                    &self.url,
+                    max_chunks,
+                    slice_sizes,
+                )
+                .any(|digest| digests.contains(&digest))
             }
             cache_utils::CacheKeyScheme::BareMetal => {
-                cache_utils::bare_metal_digest_candidates_iter(&self.service, &self.url, max_chunks)
-                    .any(|digest| digests.contains(&digest))
+                cache_utils::bare_metal_digest_candidates_iter(
+                    &self.service,
+                    &self.url,
+                    max_chunks,
+                    slice_sizes,
+                )
+                .any(|digest| digests.contains(&digest))
             }
         }
     }
@@ -830,6 +872,9 @@ mod tests {
             cache_path: cache_path.to_string_lossy().into_owned(),
             is_default: name == "monolithic",
             key_scheme: key_scheme.to_string(),
+            slice_size: None,
+            remove_mode: false,
+            slice_sizes: Vec::new(),
         }
     }
 
@@ -1437,7 +1482,7 @@ mod tests {
 
         assert_ne!(monolithic.memo_key, bare.memo_key);
 
-        let bare_digest = cache_utils::bare_metal_digest_candidates_iter("steam", url, 100)
+        let bare_digest = cache_utils::bare_metal_digest_candidates_iter("steam", url, 100, &[])
             .next()
             .unwrap();
         let files = indexed_root(root, [bare_digest]);
@@ -1454,7 +1499,7 @@ mod tests {
         ];
         let roots = DatasourceRoots::from_configs(&datasources);
         let url = "/depot/1/chunk/abcdef";
-        let bare_digest = cache_utils::bare_metal_digest_candidates_iter("steam", url, 100)
+        let bare_digest = cache_utils::bare_metal_digest_candidates_iter("steam", url, 100, &[])
             .next()
             .unwrap();
         let files = indexed_root(root, [bare_digest]);
@@ -1495,7 +1540,7 @@ mod tests {
         let datasources = [datasource("only", root, "bare_metal")];
         let roots = DatasourceRoots::from_configs(&datasources);
         let url = "/depot/1/chunk/abcdef";
-        let bare_digest = cache_utils::bare_metal_digest_candidates_iter("steam", url, 100)
+        let bare_digest = cache_utils::bare_metal_digest_candidates_iter("steam", url, 100, &[])
             .next()
             .unwrap();
         let files = indexed_root(root, [bare_digest]);

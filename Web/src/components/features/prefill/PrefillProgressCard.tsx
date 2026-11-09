@@ -17,6 +17,7 @@ import {
 } from './hooks/prefillTypes';
 import { Alert } from '../../ui/Alert';
 import { CollapsibleRegion } from '../../ui/CollapsibleRegion';
+import { ProgressBar } from '../../ui/ProgressBar';
 import Badge from '@components/ui/Badge';
 import { FormattedTimestamp } from '@components/common/FormattedDateTime';
 import type { GameServiceId } from '@/types/gameService';
@@ -91,7 +92,24 @@ export function PrefillProgressCard({
     const active = isPrefillRunActive(run);
     if (!active && !history && completionContext?.isRunCompletionDismissed(run)) return null;
     const { snapshot } = run;
-    const name = run.scheduleName || t('prefill.runs.name', { id: run.runId.slice(0, 8) });
+    // The title names the schedule, else the one game being prefilled, else the platform. The
+    // platform title also stands in before the first progress tick and on a finished card.
+    const singleGameName =
+      active && snapshot.totalApps <= 1 && progress.currentAppName ? progress.currentAppName : '';
+    const platformTitle =
+      serviceId === 'epic'
+        ? t('prefill.titleEpic')
+        : serviceId === 'battlenet'
+          ? t('prefill.titleBattlenet')
+          : serviceId === 'riot'
+            ? t('prefill.titleRiot')
+            : serviceId === 'xbox'
+              ? t('prefill.titleXbox')
+              : t('prefill.title');
+    const name = run.scheduleName || singleGameName || platformTitle;
+    // The bar carries the run's percent; the progress line carries the percent of the game whose
+    // bytes it prints, so the line's number always matches the bytes beside it.
+    const barPercent = Math.floor(showOverall ? overallPercent : appPercent);
     const finished =
       snapshot.completedApps +
       snapshot.cachedApps +
@@ -108,9 +126,6 @@ export function PrefillProgressCard({
     const itemsText = t('prefill.runs.items', {
       count: finished,
       total: snapshot.totalApps
-    });
-    const transferredText = t('prefill.runs.transferred', {
-      size: formatBytes(snapshot.bytesTransferred)
     });
     const outcomes = [
       { label: t('prefill.runs.completed'), count: snapshot.completedApps + snapshot.cachedApps },
@@ -134,7 +149,7 @@ export function PrefillProgressCard({
     return (
       <section data-prefill-run={run.runId} aria-label={name}>
         <Card
-          padding={active ? 'md' : 'sm'}
+          padding="sm"
           className={`overflow-hidden prefill-progress-card${
             active ? '' : ' prefill-progress-card--terminal'
           }`}
@@ -167,8 +182,8 @@ export function PrefillProgressCard({
                 <Button
                   type="button"
                   size="md"
-                  variant="filled"
-                  color="stop"
+                  variant="transparent"
+                  className="text-themed-secondary delete-hover"
                   onClick={onCancel}
                   disabled={disabled || isCancelling}
                   aria-label={t('prefill.runs.cancel', { name })}
@@ -191,34 +206,41 @@ export function PrefillProgressCard({
                 </Button>
               )}
             </div>
-            {active && progress.currentAppId && progress.currentAppId !== '0' && (
-              <p className="text-sm text-themed-primary break-words">
-                {progress.currentAppName ||
-                  t('prefill.progress.appId', { id: progress.currentAppId })}
-              </p>
-            )}
+            {active &&
+              progress.currentAppId &&
+              progress.currentAppId !== '0' &&
+              name !== singleGameName && (
+                <p className="text-sm text-themed-primary break-words">
+                  {progress.currentAppName ||
+                    t('prefill.progress.appId', { id: progress.currentAppId })}
+                </p>
+              )}
             {active && !run.recovering && progress.state === 'downloading' && (
               <>
-                <progress
-                  className="prefill-run-progress"
-                  max={100}
-                  value={appPercent}
-                  aria-label={t('prefill.runs.gameProgress', { name })}
+                <ProgressBar
+                  value={barPercent}
+                  height="sm"
+                  label={
+                    showOverall
+                      ? t('prefill.runs.overallProgress', { name })
+                      : t('prefill.runs.gameProgress', { name })
+                  }
                 />
                 <p className="prefill-run-counts text-xs text-themed-muted">
-                  <span>
-                    {formatBytes(progress.bytesDownloaded)} / {formatBytes(progress.totalBytes)}
-                  </span>
-                  <span>{formatSpeed(progress.bytesPerSecond)}</span>
+                  {t('prefill.runs.progressLine', {
+                    done: formatBytes(progress.bytesDownloaded),
+                    total: formatBytes(progress.totalBytes),
+                    speed: formatSpeed(progress.bytesPerSecond),
+                    percent: formatPercent(Math.floor(appPercent), 0)
+                  })}
                 </p>
               </>
             )}
             {active ? (
               <>
-                <p className="prefill-run-counts text-sm text-themed-muted">
-                  <span>{itemsText}</span>
-                  <span>{transferredText}</span>
-                </p>
+                {snapshot.totalApps > 1 && (
+                  <p className="prefill-run-counts text-sm text-themed-muted">{itemsText}</p>
+                )}
                 {results}
               </>
             ) : (

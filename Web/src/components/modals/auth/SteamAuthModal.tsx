@@ -177,7 +177,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
   const handleSwitchToManualCode = () => {
     if (state.canAuthenticate === false) return;
     cancelPendingRequest();
-    if (state.canAuthenticate === undefined) onCancelLogin?.();
+    (actions.cancelLogin ?? onCancelLogin)?.();
     actions.setWaitingForMobileConfirmation(false);
     actions.setNeedsTwoFactor(true);
     actions.setUseManualCode(true);
@@ -336,7 +336,6 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                             className="w-full px-3 py-2.5 themed-input"
                             disabled={
                               state.canAuthenticate === false ||
-                              loading ||
                               awaitingChallenge ||
                               waitingForMobileConfirmation
                             }
@@ -359,7 +358,6 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                             className="w-full px-3 py-2.5 themed-input"
                             disabled={
                               state.canAuthenticate === false ||
-                              loading ||
                               awaitingChallenge ||
                               waitingForMobileConfirmation
                             }
@@ -388,7 +386,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                         onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
                         placeholder={t('modals.steamAuth.placeholders.guardCode')}
                         className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
-                        disabled={state.canAuthenticate === false || loading}
+                        disabled={state.canAuthenticate === false}
                         autoFocus
                         maxLength={5}
                       />
@@ -410,7 +408,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                         onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
                         placeholder={t('modals.steamAuth.placeholders.guardCode')}
                         className="w-full px-3 py-3 themed-input text-center text-xl tracking-[0.5em] font-mono uppercase"
-                        disabled={state.canAuthenticate === false || loading}
+                        disabled={state.canAuthenticate === false}
                         autoFocus
                         maxLength={5}
                       />

@@ -42,9 +42,7 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 // A scheduled run stalls on the schedule's own timeout, the one its watch uses; a run restored with
                 // no watch is still ended, only not sooner than the admin allowed.
-                var stallTimeout = run.PrefillScheduleId.HasValue
-                    ? _stateService.GetScheduledPrefillConfig().StallTimeout
-                    : TimeSpan.FromSeconds(GetStallTimeoutSeconds());
+                var stallTimeout = GetRunStallTimeout(run);
                 var ticks = Volatile.Read(ref run.LastProgressTicksUtc);
                 if (ticks == 0 || nowUtc - new DateTime(ticks, DateTimeKind.Utc) <= stallTimeout)
                     continue;
@@ -57,6 +55,64 @@ public abstract partial class PrefillDaemonServiceBase
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Could not request cancellation of stalled prefill {RunId}", run.PrefillRunId);
+                }
+            }
+            // A cancel the daemon has not ended within the run's own stall timeout is ended here, because no daemon
+            // event will end it.
+            foreach (var run in session.Runs.Values.Where(run => run.TerminalCompletedFlag == 0 && run.CancelRequested
+                && run.CancelDeadlineUtc <= nowUtc && !run.Recovering && !session.Recovering))
+            {
+                try
+                {
+                    await run.PrefillWork.WaitAsync();
+                    try
+                    {
+                        // A dropped socket marks the run and session recovering under the prefill lock only, so the
+                        // filter above may have read them before the drop.
+                        if (run.TerminalCompletedFlag != 0 || run.Recovering || session.Recovering) continue;
+                        // A daemon that ended the run while its end event was lost still holds that end, which the
+                        // reconcile after this hold saves. A lost connection leaves the run to the recovery pass.
+                        try
+                        {
+                            var page = await session.Client.GetOperationAsync(run.PrefillRunId, run.DaemonInstanceId,
+                                cancellationToken: cancellationToken);
+                            if (page.Operation.State is "completed" or "failed" or "cancelled")
+                            {
+                                run.ReconcileRequested = true;
+                                continue;
+                            }
+                        }
+                        // The host's stop leaves the run to the next start's recovery; the command's own bound still
+                        // ends it here.
+                        catch (Exception ex) when (ex is not (IOException or System.Net.Sockets.SocketException)
+                            && !cancellationToken.IsCancellationRequested)
+                        {
+                            _logger.LogWarning(ex, "Could not read the end of prefill {RunId} whose cancel went unanswered", run.PrefillRunId);
+                        }
+                        run.HistoryIncomplete = true;
+                        await FinishRunAsync(session, run, run.Snapshot with
+                        {
+                            State = "failed",
+                            Reason = run.CancelReason is "stalled" or "auth-lost" or "runtime-exceeded"
+                                ? run.CancelReason : "outcome-unknown",
+                            Sequence = run.Snapshot.Sequence + 1,
+                            UpdatedAt = DateTimeOffset.UtcNow
+                        }, [], CancellationToken.None);
+                    }
+                    finally
+                    {
+                        run.PrefillWork.Release();
+                        ReconcileIfRequested(session, run);
+                    }
+                }
+                // The host's stop leaves the run open and ends the sweep; it is not a run that could not be ended.
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not end prefill {RunId} whose cancel went unanswered", run.PrefillRunId);
                 }
             }
         }
@@ -165,6 +221,7 @@ public abstract partial class PrefillDaemonServiceBase
         if (!session.Runs.TryGetValue(runId, out var run))
             return false;
         await run.PrefillWork.WaitAsync();
+        var cancelRecorded = false;
         try
         {
             // A run whose daemon connection is down gets no progress through no fault of its own.
@@ -177,9 +234,22 @@ public abstract partial class PrefillDaemonServiceBase
                 return false;
             await _sessionService.SetRunCancellationAsync(run.PrefillRunId, CancellationToken.None, "stalled");
             run.CancelReason = "stalled";
+            run.CancelDeadlineUtc = nowUtc + stallThreshold;
             run.CancelRequested = true;
+            cancelRecorded = true;
         }
-        finally { run.PrefillWork.Release(); }
-        return await CancelPrefillRunAsync(session.Id, runId, reason: "stalled");
+        finally
+        {
+            run.PrefillWork.Release();
+            // With a cancel recorded, the cancel below reconciles the run.
+            if (!cancelRecorded) ReconcileIfRequested(session, run);
+        }
+        return await CancelPrefillRunAsync(session.Id, runId, true, reason: "stalled");
     }
+
+    // A scheduled run stalls on the schedule's own timeout, the one its watch uses; any other run on the admin's.
+    private TimeSpan GetRunStallTimeout(DaemonRun run)
+        => run.PrefillScheduleId.HasValue
+            ? _stateService.GetScheduledPrefillConfig().StallTimeout
+            : TimeSpan.FromSeconds(GetStallTimeoutSeconds());
 }

@@ -126,7 +126,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
                 {...noAutofill}
                 {...field}
                 type="password"
-                disabled={!canManage || testing || saving}
+                disabled={!canManage}
                 value={apiKey}
                 onChange={(e) => {
                   setApiKey(e.target.value);

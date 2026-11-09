@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Eye, Shield, Database, CheckCircle } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
@@ -55,6 +55,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [authenticating, setAuthenticating] = useState(false);
+  const authenticateInProgressRef = useRef(false);
   // The service whose challenge is being fetched, so only its button shows the spinner.
   const [startingService, setStartingService] = useState<string | null>(null);
   // A failed external sign-in lands back here with a bounded category in the URL; the text the
@@ -206,10 +207,14 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   };
 
   const handleAuthenticate = async () => {
+    if (resetStatus.isResetting || authenticateInProgressRef.current) {
+      return;
+    }
     if (requiresApiKey(accountMode) && !apiKey.trim()) {
       setAuthError(t('modals.auth.errors.apiKeyRequired'));
       return;
     }
+    authenticateInProgressRef.current = true;
 
     setAuthenticating(true);
     setAuthError(null);
@@ -234,6 +239,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       setAuthError(getErrorMessage(error));
     } finally {
       setAuthenticating(false);
+      authenticateInProgressRef.current = false;
     }
   };
 
@@ -245,6 +251,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   // Connect entry advertises no services and keeps the compatibility button below.
   const services = signInServices(loginServices, accountMode);
   const startService = async (service: LoginService) => {
+    if (startingService !== null) return;
     if (requiresApiKey(accountMode) && !apiKey.trim()) {
       setAuthError(t('modals.auth.errors.apiKeyRequired'));
       return;
@@ -395,7 +402,6 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           password={password}
           onChange={handleCredentialChange}
           onSubmit={handleAuthenticate}
-          disabled={authenticating || resetStatus.isResetting}
           apiKeyPlaceholder={
             resetStatus.isResetting
               ? t('modals.auth.placeholders.waitForReset')
@@ -409,7 +415,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
             <LoginServiceButtons
               services={services}
               starting={startingService}
-              disabled={startingService !== null || !credentialsFilled || resetStatus.isResetting}
+              disabled={!credentialsFilled || resetStatus.isResetting}
               onStart={(service) => void startService(service)}
             />
           ) : (

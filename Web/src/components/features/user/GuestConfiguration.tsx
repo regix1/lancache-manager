@@ -36,6 +36,7 @@ import AppearanceDisplayCard from './AppearanceDisplayCard';
 import {
   toGuestPrefillConfig,
   type GuestPrefillConfig,
+  type GuestPrefillConfigField,
   type GuestPrefillConfigResponse
 } from './guestPrefillConfig';
 import { getThreadOptions } from './threadOptions';
@@ -50,6 +51,13 @@ interface DefaultGuestPreferencesResponse {
   disableTooltips: boolean;
   showDatasourceLabels: boolean;
   allowedTimeFormats?: string[];
+}
+
+// A prefill change held while its service's read or save is open; `field` names the control that
+// shows busy once it is sent.
+interface QueuedPrefillEdit {
+  field: GuestPrefillConfigField;
+  edits: Partial<GuestPrefillConfig>;
 }
 
 interface GuestConfigurationProps {
@@ -118,8 +126,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     Record<GameServiceId, boolean>
   >(() => prefillServiceRecord<boolean>(() => false));
   const [updatingPrefillConfigs, setUpdatingPrefillConfigs] = useState<
-    Record<GameServiceId, boolean>
-  >(() => prefillServiceRecord<boolean>(() => false));
+    Record<GameServiceId, GuestPrefillConfigField | null>
+  >(() => prefillServiceRecord<GuestPrefillConfigField | null>(() => null));
+  // The change a service's open save is sending, and a change made while that save or the first
+  // read was open, held to send when it ends. The panel shows both on top of the stored values.
+  const [sendingPrefillEdits, setSendingPrefillEdits] = useState<
+    Record<GameServiceId, Partial<GuestPrefillConfig> | null>
+  >(() => prefillServiceRecord<Partial<GuestPrefillConfig> | null>(() => null));
+  const [queuedPrefillEdits, setQueuedPrefillEdits] = useState<
+    Record<GameServiceId, QueuedPrefillEdit | null>
+  >(() => prefillServiceRecord<QueuedPrefillEdit | null>(() => null));
 
   const [prefillSectionExpanded, setPrefillSectionExpanded] = useState(false);
   useAccordionGroupItem('guest-prefill-services', prefillSectionExpanded, () =>
@@ -339,6 +355,11 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       }));
     } catch (err) {
       if (request !== prefillConfigRequestRef.current) return;
+      // A change held during the read would be sent on top of the panel's starting values.
+      setQueuedPrefillEdits((prev: Record<GameServiceId, QueuedPrefillEdit | null>) => ({
+        ...prev,
+        [service.id]: null
+      }));
       setPrefillConfigError(getErrorMessage(err));
     } finally {
       if (request === prefillConfigRequestRef.current) {
@@ -360,63 +381,124 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     }
   }, [loadPrefillConfig]);
 
-  const updatePrefillConfig = async (
-    service: PrefillServiceConfig,
-    enabledByDefault: boolean,
-    durationHours: number,
-    maxThreadCount?: number | null
-  ) => {
-    if (authMode !== 'authenticated') return;
-    try {
-      setUpdatingPrefillConfigs((prev: Record<GameServiceId, boolean>) => ({
-        ...prev,
-        [service.id]: true
-      }));
-      const body: Record<string, unknown> = { enabledByDefault, durationHours };
-      if (service.supportsMaxThreads) {
-        body.maxThreadCount =
-          maxThreadCount !== undefined ? maxThreadCount : prefillConfigs[service.id].maxThreadCount;
+  const updatePrefillConfig = useCallback(
+    async (
+      service: PrefillServiceConfig,
+      field: GuestPrefillConfigField,
+      change: Partial<GuestPrefillConfig>
+    ) => {
+      if (authMode !== 'authenticated') return;
+      // One request per service at a time: a change made while its read or save is open is
+      // merged into the held change and sent when that request ends.
+      if (loadingPrefillConfigs[service.id] || updatingPrefillConfigs[service.id] !== null) {
+        setQueuedPrefillEdits((prev: Record<GameServiceId, QueuedPrefillEdit | null>) => ({
+          ...prev,
+          [service.id]: { field, edits: { ...prev[service.id]?.edits, ...change } }
+        }));
+        return;
       }
-      const response = await fetch(
-        service.guestConfigPath,
-        ApiService.getJsonFetchOptions(body, { method: 'POST' })
-      );
+      const next = { ...prefillConfigs[service.id], ...change };
+      try {
+        setUpdatingPrefillConfigs(
+          (prev: Record<GameServiceId, GuestPrefillConfigField | null>) => ({
+            ...prev,
+            [service.id]: field
+          })
+        );
+        setSendingPrefillEdits(
+          (prev: Record<GameServiceId, Partial<GuestPrefillConfig> | null>) => ({
+            ...prev,
+            [service.id]: change
+          })
+        );
+        const body: Record<string, unknown> = {
+          enabledByDefault: next.enabledByDefault,
+          durationHours: next.durationHours
+        };
+        if (service.supportsMaxThreads) {
+          body.maxThreadCount = next.maxThreadCount;
+        }
+        const response = await fetch(
+          service.guestConfigPath,
+          ApiService.getJsonFetchOptions(body, { method: 'POST' })
+        );
 
-      await assertOk(response);
-      const config = (await response.json()) as GuestPrefillConfigResponse;
-      setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
+        await assertOk(response);
+        const config = (await response.json()) as GuestPrefillConfigResponse;
+        setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
+          ...prev,
+          [service.id]: toGuestPrefillConfig(service, config)
+        }));
+        showToast('success', t('user.guest.prefill.updated'));
+      } catch (err: unknown) {
+        // A held change was made on top of the one that failed; the panel falls back to the
+        // stored values, so the error is not followed by a save of half the edit.
+        setQueuedPrefillEdits((prev: Record<GameServiceId, QueuedPrefillEdit | null>) => ({
+          ...prev,
+          [service.id]: null
+        }));
+        notifyError(t('user.guest.prefill.errors.update'), err, {
+          logLabel: `Failed to update ${service.shortName} prefill config`
+        });
+      } finally {
+        setUpdatingPrefillConfigs(
+          (prev: Record<GameServiceId, GuestPrefillConfigField | null>) => ({
+            ...prev,
+            [service.id]: null
+          })
+        );
+        setSendingPrefillEdits(
+          (prev: Record<GameServiceId, Partial<GuestPrefillConfig> | null>) => ({
+            ...prev,
+            [service.id]: null
+          })
+        );
+      }
+    },
+    [authMode, loadingPrefillConfigs, updatingPrefillConfigs, prefillConfigs, notifyError, t]
+  );
+
+  // Sends each held change once its service's read or save has ended.
+  useEffect(() => {
+    for (const service of PREFILL_SERVICES) {
+      const queued = queuedPrefillEdits[service.id];
+      if (
+        queued === null ||
+        loadingPrefillConfigs[service.id] ||
+        updatingPrefillConfigs[service.id] !== null
+      )
+        continue;
+      setQueuedPrefillEdits((prev: Record<GameServiceId, QueuedPrefillEdit | null>) => ({
         ...prev,
-        [service.id]: toGuestPrefillConfig(service, config)
+        [service.id]: null
       }));
-      showToast('success', t('user.guest.prefill.updated'));
-    } catch (err: unknown) {
-      notifyError(t('user.guest.prefill.errors.update'), err, {
-        logLabel: `Failed to update ${service.shortName} prefill config`
-      });
-    } finally {
-      setUpdatingPrefillConfigs((prev: Record<GameServiceId, boolean>) => ({
-        ...prev,
-        [service.id]: false
-      }));
+      void updatePrefillConfig(service, queued.field, queued.edits);
     }
-  };
+  }, [queuedPrefillEdits, loadingPrefillConfigs, updatingPrefillConfigs, updatePrefillConfig]);
+
+  // What the panel shows: the stored values with the change being sent and the held one on top.
+  const shownPrefillConfig = (service: PrefillServiceConfig): GuestPrefillConfig => ({
+    ...prefillConfigs[service.id],
+    ...sendingPrefillEdits[service.id],
+    ...queuedPrefillEdits[service.id]?.edits
+  });
 
   // Handler callbacks for PrefillServicePanel
   const handleToggleEnabled = (service: PrefillServiceConfig) => {
-    const config = prefillConfigs[service.id];
-    updatePrefillConfig(service, !config.enabledByDefault, config.durationHours);
+    void updatePrefillConfig(service, 'enabled', {
+      enabledByDefault: !shownPrefillConfig(service).enabledByDefault
+    });
   };
 
   const handleDurationChange = (service: PrefillServiceConfig, hours: number) => {
-    updatePrefillConfig(service, prefillConfigs[service.id].enabledByDefault, hours);
+    void updatePrefillConfig(service, 'duration', { durationHours: hours });
   };
 
   // Services without a thread cap hide the control entirely, so this can only fire for
   // services that support one; the guard keeps a stray call from posting the field.
   const handleMaxThreadsChange = (service: PrefillServiceConfig, threads: number | null) => {
     if (!service.supportsMaxThreads) return;
-    const config = prefillConfigs[service.id];
-    updatePrefillConfig(service, config.enabledByDefault, config.durationHours, threads);
+    void updatePrefillConfig(service, 'maxThreads', { maxThreadCount: threads });
   };
 
   // Refresh guest defaults when SignalR reconnects (catches config events missed during disconnect)
@@ -543,13 +625,12 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                     serviceName={service.displayName}
                     serviceIcon={service.icon}
                     iconColor={service.colorVar}
-                    config={prefillConfigs[service.id]}
+                    config={shownPrefillConfig(service)}
                     onToggleEnabled={() => handleToggleEnabled(service)}
                     onDurationChange={(hours: number) => handleDurationChange(service, hours)}
                     onMaxThreadsChange={(threads: number | null) =>
                       handleMaxThreadsChange(service, threads)
                     }
-                    loading={loadingPrefillConfigs[service.id]}
                     updating={updatingPrefillConfigs[service.id]}
                     warningText={t('user.guest.prefill.warning')}
                     durationLabel={t('user.guest.prefill.duration.label')}

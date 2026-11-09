@@ -16,8 +16,8 @@ const inputClassName = 'w-full p-3 text-sm themed-input';
  * caller.
  *
  * Enter lives here too. Each copy carried its own key handler that submitted only once all three
- * fields were filled, and each checked a differently named loading flag. A disabled input receives
- * no keyboard events, so `disabled` is the whole guard and the fill check is all that is left.
+ * fields were filled, and each checked a differently named loading flag. The caller's submit handler
+ * ignores a repeat submit while one runs, so this component only checks that the fields are filled.
  */
 const CredentialFields: React.FC<CredentialFieldsProps> = ({
   apiKey,
@@ -25,7 +25,6 @@ const CredentialFields: React.FC<CredentialFieldsProps> = ({
   password,
   onChange,
   onSubmit,
-  disabled,
   apiKeyPlaceholder,
   autoFocus,
   accountMode = 'apiKeyPassword'
@@ -61,7 +60,6 @@ const CredentialFields: React.FC<CredentialFieldsProps> = ({
                 {...noAutofill}
                 name="installation-key"
                 spellCheck={false}
-                disabled={disabled}
                 autoFocus={autoFocus}
               />
             )}
@@ -84,7 +82,6 @@ const CredentialFields: React.FC<CredentialFieldsProps> = ({
                   className={inputClassName}
                   autoComplete="username"
                   name="username"
-                  disabled={disabled}
                   autoFocus={autoFocus && !keyRequired}
                 />
               )}
@@ -104,7 +101,6 @@ const CredentialFields: React.FC<CredentialFieldsProps> = ({
                   className={inputClassName}
                   autoComplete="current-password"
                   name="password"
-                  disabled={disabled}
                 />
               )}
             </FormField>

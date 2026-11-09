@@ -144,7 +144,7 @@ public sealed class DepotImportTests
             await initial.SaveChangesAsync();
         }
 
-        // The person's Cancel lands after the replace committed, while the restore reads what prefill cached.
+        // The user's Cancel lands while the restore reads what prefill cached.
         using var cancellation = new CancellationTokenSource();
         fixture.CancelOnPrefillRead = cancellation;
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -194,6 +194,124 @@ public sealed class DepotImportTests
         var prefill = rows.Single(row => row.AppId == 55);
         Assert.False(prefill.IsOwner);
         Assert.Equal("Newer prefill name", prefill.AppName);
+    }
+
+    [Fact]
+    public async Task AGitHubReplaceWhosePrefillRestoreFailsEndsFailedButKeepsTheImport()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = Snapshot(200);
+        await using (var initial = fixture.Database.Factory.CreateDbContext())
+        {
+            initial.PrefillCachedDepots.AddRange(
+                new PrefillCachedDepot { AppId = 77, DepotId = 770, ManifestId = 1, AppName = "First prefill game", CachedAtUtc = DateTime.UtcNow },
+                new PrefillCachedDepot { AppId = 78, DepotId = 780, ManifestId = 1, AppName = "Rejected prefill game", CachedAtUtc = DateTime.UtcNow },
+                new PrefillCachedDepot { AppId = 79, DepotId = 790, ManifestId = 1, AppName = "Third prefill game", CachedAtUtc = DateTime.UtcNow });
+            initial.Downloads.Add(new Download { DepotId = 10 });
+            await initial.SaveChangesAsync();
+            await initial.Database.ExecuteSqlRawAsync("ALTER TABLE \"SteamDepotMappings\" ADD CONSTRAINT reject_depot CHECK (\"DepotId\" <> 780)");
+        }
+
+        Assert.False(await fixture.Service.ImportFromGitHubAsync());
+
+        var terminal = Assert.Single(fixture.Events.Snapshots, item => item.Event == "DepotMappingComplete");
+        Assert.False(terminal.Content.GetProperty("Success").GetBoolean());
+        Assert.Equal("signalr.depotMapping.github.prefillNamesNotRestored", terminal.Content.GetProperty("StageKey").GetString());
+        // The browser translates the stage key only while no error text is sent beside it.
+        Assert.Equal(JsonValueKind.Null, terminal.Content.GetProperty("Error").ValueKind);
+        Assert.Equal(200u, fixture.State.GetState().LastPicsChangeNumber);
+        Assert.True(fixture.State.GetLastPicsCrawl() > fixture.PreviousCrawl);
+        using (var published = JsonDocument.Parse(await File.ReadAllTextAsync(fixture.MappingFile)))
+        {
+            Assert.Equal(200u, published.RootElement.GetProperty("metadata").GetProperty("lastChangeNumber").GetUInt32());
+        }
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var rows = await db.SteamDepotMappings.ToListAsync();
+        Assert.Equal(new long[] { 2, 3 }, rows.Where(row => row.DepotId == 10).Select(row => row.AppId).Order());
+        Assert.DoesNotContain(rows, row => row.DepotId == 20);
+        Assert.Equal(77, Assert.Single(rows, row => row.DepotId == 770).AppId);
+        Assert.Equal(79, Assert.Single(rows, row => row.DepotId == 790).AppId);
+        Assert.DoesNotContain(rows, row => row.DepotId == 780);
+        Assert.Equal("New owner", (await db.Downloads.SingleAsync()).GameName);
+    }
+
+    [Fact]
+    public async Task AGitHubReplaceCommitsThePrefillOnlyMappingsWithTheReplace()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = Snapshot(200);
+        await using (var initial = fixture.Database.Factory.CreateDbContext())
+        {
+            initial.PrefillCachedDepots.Add(new PrefillCachedDepot
+            {
+                AppId = 77,
+                DepotId = 770,
+                ManifestId = 1,
+                AppName = "Prefill only game",
+                CachedAtUtc = DateTime.UtcNow
+            });
+            initial.SteamDepotMappings.Add(new SteamDepotMapping
+            {
+                DepotId = 770,
+                AppId = 77,
+                AppName = "Prefill only game",
+                IsOwner = true,
+                Source = "Prefill",
+                DiscoveredAt = fixture.PreviousCrawl
+            });
+            await initial.SaveChangesAsync();
+        }
+
+        // A detection that reads the mappings right after the replace commits must still find the
+        // prefill-only depot. The replace's commit is the first one after which depot 20, absent from
+        // the snapshot, is gone.
+        List<SteamDepotMapping>? atCommit = null;
+        fixture.AfterCommit = () =>
+        {
+            if (atCommit != null) return;
+            using var reader = fixture.Database.Factory.CreateDbContext();
+            if (reader.SteamDepotMappings.Any(row => row.DepotId == 20)) return;
+            atCommit = reader.SteamDepotMappings.AsNoTracking().Where(row => row.DepotId == 770).ToList();
+        };
+
+        Assert.True(await fixture.Service.ImportFromGitHubAsync());
+
+        Assert.NotNull(atCommit);
+        var committed = Assert.Single(atCommit);
+        Assert.Equal(77, committed.AppId);
+        Assert.True(committed.IsOwner);
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var restored = Assert.Single(await db.SteamDepotMappings.Where(row => row.DepotId == 770).ToListAsync());
+        Assert.Equal(77, restored.AppId);
+        Assert.True(restored.IsOwner);
+    }
+
+    [Fact]
+    public async Task ASteamCrawlImportGivesAnOwnerlessPrefillDepotItsOwner()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        await using (var initial = fixture.Database.Factory.CreateDbContext())
+        {
+            initial.PrefillCachedDepots.Add(new PrefillCachedDepot
+            {
+                AppId = 77,
+                DepotId = 770,
+                ManifestId = 1,
+                AppName = "Prefill only game",
+                CachedAtUtc = DateTime.UtcNow
+            });
+            await initial.SaveChangesAsync();
+        }
+
+        await (Task)Invoke(fixture.Service, "ImportJsonToDatabaseAsync", CancellationToken.None)!;
+
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var restored = await db.SteamDepotMappings.SingleAsync(row => row.DepotId == 770);
+        Assert.Equal(77, restored.AppId);
+        Assert.True(restored.IsOwner);
     }
 
     [Fact]
@@ -1130,6 +1248,7 @@ public sealed class DepotImportTests
         public bool FailPublication { get; set; }
         public bool FailReload { get; set; }
         public CancellationTokenSource? CancelOnPrefillRead { get; set; }
+        public Action? AfterCommit { get; set; }
         public string MappingFile => Pics.GetPicsJsonFilePath();
         public string StateFile { get; }
 
@@ -1144,7 +1263,7 @@ public sealed class DepotImportTests
             StateFile = Path.Combine(paths.GetStateDirectory(), "state.json");
             var registrations = new ServiceCollection();
             var options = new DbContextOptionsBuilder<AppDbContext>(Database.Options)
-                .AddInterceptors(new ReadFailure(this), Recorder)
+                .AddInterceptors(new ReadFailure(this), Recorder, new PrefillRead(this), new CommitProbe(this))
                 .Options;
             registrations.AddScoped(_ => new AppDbContext(options));
             registrations.AddSingleton<GameImageFetchService>(_ => _images);
@@ -1282,6 +1401,16 @@ public sealed class DepotImportTests
                 if (command.CommandText.Contains("PrefillCachedDepots", StringComparison.Ordinal))
                     fixture.CancelOnPrefillRead?.Cancel();
                 return base.ReaderExecutingAsync(command, commandEvent, result, cancellationToken);
+            }
+        }
+
+        private sealed class CommitProbe(Fixture fixture) : DbTransactionInterceptor
+        {
+            public override Task TransactionCommittedAsync(
+                DbTransaction transaction, TransactionEndEventData transactionEnd, CancellationToken cancellationToken = default)
+            {
+                fixture.AfterCommit?.Invoke();
+                return base.TransactionCommittedAsync(transaction, transactionEnd, cancellationToken);
             }
         }
 

@@ -81,9 +81,9 @@ test('dialog tab stops include only the selected radio in each group', (t) => {
 test('SSO selection and setup actions require an HTTPS page', () => {
   assert.ok(accessSource.includes("const https = window.location.protocol === 'https:'"));
   assert.ok(accessSource.includes('const modeBlocked = oidc && !https'));
-  assert.ok(
-    cardProps(accessSource, 'choice').includes('disabled={busy || (usesOidc(choice) && !https)}')
-  );
+  const choiceDisabled = cardProps(accessSource, 'choice');
+  assert.ok(choiceDisabled.includes('(usesOidc(choice) && !https)'));
+  assert.ok(choiceDisabled.includes('(signInModeFromEnvironment && choice !== accountMode)'));
   assert.ok(accessSource.includes('disabled={busy || modeBlocked}'));
   assert.ok(accessSource.includes('if (busy || modeBlocked) return;'));
   assert.ok(accessSource.includes('if (busy || !https) return;'));
@@ -370,8 +370,13 @@ test('testing a connection stages the settings and then starts the real sign-in'
   const saveStart = accessSource.indexOf('const save = async () => {');
   const save = accessSource.slice(saveStart, accessSource.indexOf('const testSignIn', saveStart));
   const staged = save.indexOf('authService.configureAccess({');
-  const started = save.indexOf('await startTest(');
+  const started = save.indexOf('await startTest(', staged);
   assert.ok(staged > 0 && started > staged, 'the test does not follow the staged save');
+  // With the mode and the connection both from the environment there is nothing to stage, so
+  // that one path starts the sign-in before the save.
+  const environmentStart = save.indexOf('await startTest(selectedConnected.id)');
+  assert.ok(environmentStart > 0 && environmentStart < staged);
+  assert.ok(save.includes('signInModeFromEnvironment &&'));
   assert.ok(
     save.includes('credentialsNeeded || result.requiresLoginTest || result.requiresOidcTest'),
     'a mode change that keeps tested connections is sent through the test step'

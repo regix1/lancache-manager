@@ -23,15 +23,16 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IStateService _stateService;
     private readonly OperationStateService _operationStateService;
+    private readonly IServiceProvider _services;
     private readonly IActivityRegistry? _activityRegistry;
     private bool _loggedNoTrackableDatasources;
     private string? _rustExecutablePath;
     private Process? _rustProcess;
     // Raw tracker output, kept private so diagnostics can still inspect actual tracker state.
     // Everything user-facing (REST + SignalR) goes through BuildClientVisibleSnapshot so hidden
-    // clients cannot leak through either transport. Prefill traffic is NOT excluded: nothing in
-    // the builder or the Rust tracker filters it, so it appears like any other client unless an
-    // operator hides its address by hand.
+    // clients cannot leak through either transport. With prefill separation on, the builder also
+    // drops entries from a live prefill container's address on that container's service; with it
+    // off, prefill traffic appears like any other client.
     private DownloadSpeedSnapshot _currentSnapshot;
     private readonly object _snapshotLock = new();
     private readonly TimeProvider _clock;
@@ -151,6 +152,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         DatasourceCapabilityService capabilityService,
         IStateService stateService,
         OperationStateService operationStateService,
+        IServiceProvider services,
         IActivityRegistry? activityRegistry = null,
         TimeProvider? clock = null)
         : base(logger, configuration)
@@ -162,6 +164,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         _capabilityService = capabilityService;
         _stateService = stateService;
         _operationStateService = operationStateService;
+        _services = services;
         _activityRegistry = activityRegistry;
         _clock = clock ?? TimeProvider.System;
         _streamId = Guid.NewGuid().ToString("N");
@@ -186,13 +189,17 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     {
         var hiddenClientIps = _stateService.GetHiddenClientIps();
         var evictedMode = _stateService.GetEvictedDataMode();
+        // Read before the addresses: a rule change between the two reads then leaves the mark older
+        // than the addresses, so the next call still sees it change.
+        var hiddenPrefillRules = _stateService.GetHiddenPrefillRules();
+        var prefillAddresses = LivePrefillAddresses();
         DownloadSpeedSnapshot raw;
         bool changed;
         lock (_snapshotLock)
         {
             changed = AgeLocked(UtcNow(), CurrentSources());
             var visibilityMark = string.Join('\u001f', hiddenClientIps.OrderBy(ip => ip, StringComparer.Ordinal)) +
-                "\u001e" + evictedMode;
+                "\u001e" + evictedMode + "\u001e" + string.Join(';', hiddenPrefillRules.Select(rule => rule.RuleKey));
             if (_visibilityMark.Length == 0)
             {
                 _visibilityMark = visibilityMark;
@@ -211,10 +218,37 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         {
             PublishReadChange(
                 raw,
-                BuildClientVisibleSnapshot(raw, hiddenClientIps, evictedMode));
+                BuildClientVisibleSnapshot(raw, hiddenClientIps, evictedMode, prefillAddresses));
         }
 
-        return BuildClientVisibleSnapshot(raw, hiddenClientIps, evictedMode);
+        return BuildClientVisibleSnapshot(raw, hiddenClientIps, evictedMode, prefillAddresses);
+    }
+
+    /// <summary>
+    /// The addresses of every live prefill container that a Hide prefill rule covers (its address,
+    /// or any address when empty; its platform, or every platform when empty), each with its cache
+    /// service, read from the daemons' sessions at the moment of the call. A session still tearing
+    /// down is included, so its traffic stays hidden until the container stops.
+    /// </summary>
+    private List<PrefillClientAddress> LivePrefillAddresses()
+    {
+        var hiddenPrefillRules = _stateService.GetHiddenPrefillRules();
+        if (hiddenPrefillRules.Count == 0)
+        {
+            return [];
+        }
+
+        // Every daemon sets Platform from its own ServiceName ("Steam", "Epic", "battlenet",
+        // "riot", "Xbox"), and ToPrefillPlatform maps each of them, so .Value never meets null.
+        return PrefillDaemonServiceBase.ResolveAllDaemons(_services)
+            .SelectMany(daemon => daemon.GetAllSessions(includeTerminating: true))
+            .SelectMany(session => session.PrefillAddresses.Select(address =>
+                (Platform: session.Platform.ToPrefillPlatform()!.Value, Address: address)))
+            .Where(live => hiddenPrefillRules.Any(rule =>
+                (rule.Ip == "" || rule.Ip == live.Address)
+                && (rule.Services.Count == 0 || rule.Services.Contains(live.Platform))))
+            .Select(live => new PrefillClientAddress(live.Platform.ToService(), live.Address))
+            .ToList();
     }
 
     /// <summary>
@@ -317,7 +351,8 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                 BuildClientVisibleSnapshot(
                     snapshot,
                     _stateService.GetHiddenClientIps(),
-                    _stateService.GetEvictedDataMode()));
+                    _stateService.GetEvictedDataMode(),
+                    LivePrefillAddresses()));
         }
 
         return (unreportedSinceUtc, snapshot);
@@ -328,15 +363,20 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     /// exclusion the dashboard applies to recorded downloads) are removed, the evicted-data
     /// display mode is applied, and the top-level totals are recomputed from the retained
     /// entries. Retained game entries are copied so display rewrites (ShowClean) can never
-    /// mutate the tracker's raw snapshot.
+    /// mutate the tracker's raw snapshot. An entry whose address and service match a live prefill
+    /// container is removed too; matching the service keeps another device behind the same
+    /// address visible while it downloads from a different service.
     /// </summary>
     public static DownloadSpeedSnapshot BuildClientVisibleSnapshot(
         DownloadSpeedSnapshot snapshot,
         IReadOnlyCollection<string> hiddenClientIps,
-        string evictedMode)
+        string evictedMode,
+        IReadOnlyCollection<PrefillClientAddress> prefillAddresses)
     {
         var filteredGames = snapshot.GameSpeeds
             .Where(g => string.IsNullOrWhiteSpace(g.ClientIp) || IsVisibleClient(g.ClientIp, hiddenClientIps))
+            .Where(g => !prefillAddresses.Contains(
+                new PrefillClientAddress(ServiceBreakdownMerger.NormalizeXboxService(g.Service), g.ClientIp)))
             .Select(CloneGameSpeed)
             .ToList();
 
@@ -1101,7 +1141,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         }
 
         var visible = BuildClientVisibleSnapshot(
-            raw, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
+            raw, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode(), LivePrefillAddresses());
         await PublishChangeAsync(raw, visible, reportingHealthy: true, stoppingToken);
     }
 
@@ -1254,7 +1294,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         if (changed is not null)
         {
             var visible = BuildClientVisibleSnapshot(
-                changed, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
+                changed, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode(), LivePrefillAddresses());
             await PublishChangeAsync(changed, visible, reportingHealthy: false, stoppingToken);
         }
 
@@ -1325,7 +1365,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         if (changed is not null)
         {
             var visible = BuildClientVisibleSnapshot(
-                changed, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
+                changed, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode(), LivePrefillAddresses());
             await PublishChangeAsync(changed, visible, changed.IsAvailable, stoppingToken);
         }
     }
@@ -1477,7 +1517,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                             if (changed is not null)
                             {
                                 var visible = BuildClientVisibleSnapshot(
-                                    changed, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode());
+                                    changed, _stateService.GetHiddenClientIps(), _stateService.GetEvictedDataMode(), LivePrefillAddresses());
                                 await PublishChangeAsync(changed, visible, reportingHealthy: false, stoppingToken);
                             }
 
@@ -1511,10 +1551,14 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                         catch (OperationCanceledException) when (stoppedForStep)
                         {
                         }
-
-                        if (!stoppedForStep && !stoppingToken.IsCancellationRequested)
+                        finally
                         {
-                            await EndRunAsync(runId, stoppingToken);
+                            // Also when the reader faulted: its last speeds must not stay shown as
+                            // live through the restart delay.
+                            if (!stoppedForStep && !stoppingToken.IsCancellationRequested)
+                            {
+                                await EndRunAsync(runId, stoppingToken);
+                            }
                         }
                     }
                     finally

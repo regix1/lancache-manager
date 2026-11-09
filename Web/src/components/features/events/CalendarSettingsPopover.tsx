@@ -15,6 +15,7 @@ import {
 import { useCalendarSettings } from '@contexts/useCalendarSettings';
 import { Tooltip } from '@components/ui/Tooltip';
 import { Button } from '@components/ui/Button';
+import { Checkbox } from '@components/ui/Checkbox';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { useAnchoredPanel } from '@hooks/useAnchoredPanel';
 import { POPOVER_GUTTER_PX } from '@utils/viewportClamp';
@@ -27,34 +28,6 @@ import type {
 interface CalendarSettingsPopoverProps {
   position?: 'left' | 'right';
 }
-
-// Toggle switch for boolean options
-const CheckboxToggle: React.FC<{
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}> = ({ checked, onChange }) => (
-  <button
-    type="button"
-    onClick={(e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      onChange(!checked);
-    }}
-    className="w-9 h-5 rounded-full relative cursor-pointer"
-    style={{
-      backgroundColor: checked ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
-      border: checked ? 'none' : '1px solid var(--theme-border-secondary)'
-    }}
-  >
-    <span
-      className="absolute top-0.5 w-4 h-4 rounded-full shadow-sm"
-      style={{
-        left: checked ? '18px' : '2px',
-        backgroundColor: checked ? 'var(--theme-button-text)' : 'var(--theme-text-muted)'
-      }}
-    />
-  </button>
-);
 
 /** Gap between the trigger and the popover, whichever side it opens on. */
 const TRIGGER_GAP = 8;
@@ -272,9 +245,10 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                   </div>
                 </div>
                 <div className="flex-shrink-0">
-                  <CheckboxToggle
+                  <Checkbox
                     checked={settings.showWeekNumbers}
-                    onChange={(v) => updateSettings({ showWeekNumbers: v })}
+                    onChange={(e) => updateSettings({ showWeekNumbers: e.target.checked })}
+                    aria-label={t('events.calendar.settings.weekNumbers.title')}
                   />
                 </div>
               </div>
@@ -295,9 +269,10 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                   </div>
                 </div>
                 <div className="flex-shrink-0">
-                  <CheckboxToggle
+                  <Checkbox
                     checked={settings.showAdjacentMonths}
-                    onChange={(v) => updateSettings({ showAdjacentMonths: v })}
+                    onChange={(e) => updateSettings({ showAdjacentMonths: e.target.checked })}
+                    aria-label={t('events.calendar.settings.adjacentMonths.title')}
                   />
                 </div>
               </div>
@@ -318,9 +293,10 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                   </div>
                 </div>
                 <div className="flex-shrink-0">
-                  <CheckboxToggle
+                  <Checkbox
                     checked={settings.hideEndedEvents}
-                    onChange={(v) => updateSettings({ hideEndedEvents: v })}
+                    onChange={(e) => updateSettings({ hideEndedEvents: e.target.checked })}
+                    aria-label={t('events.calendar.settings.hideEnded.title')}
                   />
                 </div>
               </div>
@@ -341,9 +317,10 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
                   </div>
                 </div>
                 <div className="flex-shrink-0">
-                  <CheckboxToggle
+                  <Checkbox
                     checked={settings.compactMode}
-                    onChange={(v) => updateSettings({ compactMode: v })}
+                    onChange={(e) => updateSettings({ compactMode: e.target.checked })}
+                    aria-label={t('events.calendar.settings.compactView.title')}
                   />
                 </div>
               </div>

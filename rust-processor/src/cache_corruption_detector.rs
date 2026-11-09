@@ -293,6 +293,7 @@ pub struct CorruptionDetector {
     lookback_days: u32,
     scan_started_utc: DateTime<Utc>,
     key_scheme: cache_utils::CacheKeyScheme,
+    slice_sizes: Vec<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -335,6 +336,39 @@ fn cache_path_for_key(cache_dir: &Path, key: &str) -> PathBuf {
 /// Maps one repeated-MISS physical-slice identity to the configured cache recipe.
 /// The raw log URL is normalized exactly as ingestion normalizes it before it is passed
 /// to the bare-metal helper; this preserves query strings for `$request_uri` vhosts.
+/// The slice size of one repeated-MISS URL's cache files: [`cache_utils::resolve_slice_size`]
+/// over `slice_sizes`, probing the first slice's path under `key_scheme`. A file whose presence
+/// cannot be checked is an error.
+pub fn url_slice_size(
+    cache_dir: &Path,
+    service: &str,
+    raw_url: &str,
+    normalized_uri: &str,
+    key_scheme: cache_utils::CacheKeyScheme,
+    slice_sizes: &[u64],
+) -> std::io::Result<u64> {
+    let (size, _) = cache_utils::resolve_slice_size(slice_sizes, |size| {
+        let first_slice = CacheSliceKind::Ranged {
+            start: 0,
+            end: size - 1,
+        };
+        for candidate in repeated_miss_cache_paths(
+            cache_dir,
+            service,
+            raw_url,
+            normalized_uri,
+            &first_slice,
+            key_scheme,
+        ) {
+            if cache_utils::cache_file_presence(cache_dir, &candidate.path)? {
+                return Ok(true);
+            }
+        }
+        Ok::<bool, std::io::Error>(false)
+    })?;
+    Ok(size)
+}
+
 pub fn repeated_miss_cache_paths(
     cache_dir: &Path,
     service: &str,
@@ -413,6 +447,7 @@ impl CorruptionDetector {
         miss_threshold: usize,
         lookback_days: u32,
         scan_started_utc: DateTime<Utc>,
+        slice_sizes: Vec<u64>,
     ) -> Self {
         Self {
             miss_threshold,
@@ -420,6 +455,7 @@ impl CorruptionDetector {
             lookback_days,
             scan_started_utc,
             key_scheme: cache_utils::active_key_scheme(),
+            slice_sizes,
         }
     }
 
@@ -511,6 +547,8 @@ impl CorruptionDetector {
         let detailed = HttpDetailedParser::new(timezone);
         let mut interner = StringInterner::default();
         let mut trackers: HashMap<EvidenceKey, EvidenceAccumulator> = HashMap::new();
+        // One URL has many MISS lines, so its slice size is read from disk once per scan.
+        let mut url_slice_sizes: HashMap<(String, String), u64> = HashMap::new();
         let mut eligible_entries = 0usize;
         let mut coverage = RepeatedMissCoverage::default();
 
@@ -611,17 +649,47 @@ impl CorruptionDetector {
                 {
                     continue;
                 }
+                let service = cache_utils::service_name_lowercase(&entry.service);
+                // A range-less or unsupported range maps without a slice size.
+                let slice_size = if matches!(
+                    cache_utils::parse_http_byte_range(&entry.http_range),
+                    Some(ObservedByteRange::Inclusive { .. })
+                ) {
+                    let normalized_uri = cache_utils::nginx_cache_uri(&entry.raw_url).into_owned();
+                    match url_slice_sizes.entry((service.clone(), normalized_uri)) {
+                        std::collections::hash_map::Entry::Occupied(known) => *known.get(),
+                        std::collections::hash_map::Entry::Vacant(unknown) => {
+                            match url_slice_size(
+                                &self.cache_dir,
+                                &service,
+                                &entry.raw_url,
+                                &unknown.key().1,
+                                self.key_scheme,
+                                &self.slice_sizes,
+                            ) {
+                                Ok(size) => *unknown.insert(size),
+                                Err(error) => bail!(
+                                    "repeated-MISS scan incomplete: the slice size of the cache files for {} could not be read; no report was produced: {}",
+                                    entry.raw_url,
+                                    error
+                                ),
+                            }
+                        }
+                    }
+                } else {
+                    cache_utils::DEFAULT_SLICE_SIZE
+                };
                 let Some(mapping) = cache_utils::physical_slices_for_request(
                     &self.cache_dir,
                     &entry.service,
                     &entry.raw_url,
                     &entry.http_range,
+                    slice_size,
                 ) else {
                     coverage.unsupported_ranges = coverage.unsupported_ranges.saturating_add(1);
                     continue;
                 };
 
-                let service = cache_utils::service_name_lowercase(&entry.service);
                 let service_id = interner.intern(&service)?;
                 // Bare-metal Epic/Riot vhosts key on `$request_uri`, so their evidence must
                 // also be grouped by the ingestion-normalized URL (query and escaping kept),
@@ -1158,7 +1226,7 @@ mod tests {
                 .collect::<Vec<_>>(),
         );
 
-        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
+        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start(), vec![cache_utils::DEFAULT_SLICE_SIZE])
             .generate_report(&log_dir, chrono_tz::UTC, None)
             .unwrap();
 
@@ -1266,7 +1334,7 @@ mod tests {
                 .collect::<Vec<_>>(),
         );
 
-        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
+        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start(), vec![cache_utils::DEFAULT_SLICE_SIZE])
             .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
             .generate_report(&log_dir, chrono_tz::UTC, None)
             .unwrap();
@@ -1292,7 +1360,7 @@ mod tests {
         threshold: usize,
         lookback: u32,
     ) -> CorruptionReport {
-        CorruptionDetector::new(cache_dir, threshold, lookback, scan_start())
+        CorruptionDetector::new(cache_dir, threshold, lookback, scan_start(), vec![cache_utils::DEFAULT_SLICE_SIZE])
             .generate_report(log_dir, chrono_tz::UTC, None)
             .unwrap()
     }
@@ -1353,7 +1421,7 @@ mod tests {
         let log_dir = temp.path().join("logs");
         fs::create_dir_all(&log_dir).unwrap();
 
-        let error = CorruptionDetector::new(temp.path(), 3, 1, scan_start())
+        let error = CorruptionDetector::new(temp.path(), 3, 1, scan_start(), vec![cache_utils::DEFAULT_SLICE_SIZE])
             .generate_report(&log_dir, chrono_tz::UTC, None)
             .unwrap_err();
 
@@ -1391,13 +1459,54 @@ mod tests {
     }
 
     #[test]
+    fn repeated_miss_on_an_eight_mib_cache_names_the_slice_file_that_exists() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let log_dir = temp.path().join("logs");
+        let url = "/depot/424242/chunk/eight";
+        let eight_mib = 8 * cache_utils::DEFAULT_SLICE_SIZE;
+        let slice_path = cache_utils::calculate_cache_path(&cache_dir, "steam", url, 0, eight_mib - 1);
+        write_slice(&slice_path);
+        write_log(
+            &log_dir,
+            &(0..3)
+                .map(|second| {
+                    log_line(
+                        scan_start() - Duration::seconds(2 - second),
+                        "GET",
+                        206,
+                        "MISS",
+                        url,
+                        Some("bytes=0-1048575"),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        let result = report(&cache_dir, &log_dir, 3, 1);
+
+        assert_eq!(result.total, 1);
+        assert_eq!(
+            result.candidates[0].exact_paths,
+            vec![slice_path.display().to_string()]
+        );
+        assert_eq!(
+            repeated(&result.candidates[0]).3,
+            &CacheSliceKind::Ranged {
+                start: 0,
+                end: eight_mib - 1
+            }
+        );
+    }
+
+    #[test]
     fn unreadable_compressed_log_fails_instead_of_producing_a_partial_report() {
         let temp = tempfile::tempdir().unwrap();
         let log_dir = temp.path().join("logs");
         fs::create_dir_all(&log_dir).unwrap();
         fs::write(log_dir.join("access.log.1.gz"), b"not a gzip stream").unwrap();
 
-        let error = CorruptionDetector::new(temp.path(), 3, 1, scan_start())
+        let error = CorruptionDetector::new(temp.path(), 3, 1, scan_start(), vec![cache_utils::DEFAULT_SLICE_SIZE])
             .generate_report(&log_dir, chrono_tz::UTC, None)
             .unwrap_err();
 
@@ -1606,7 +1715,7 @@ mod tests {
                 .collect::<Vec<_>>(),
         );
 
-        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
+        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start(), vec![cache_utils::DEFAULT_SLICE_SIZE])
             .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
             .generate_report(&log_dir, chrono_tz::UTC, None)
             .unwrap();
@@ -1651,7 +1760,7 @@ mod tests {
                 .collect::<Vec<_>>(),
         );
 
-        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
+        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start(), vec![cache_utils::DEFAULT_SLICE_SIZE])
             .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
             .generate_report(&log_dir, chrono_tz::UTC, None)
             .unwrap();
@@ -1702,7 +1811,7 @@ mod tests {
                     .collect::<Vec<_>>(),
             );
 
-            let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
+            let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start(), vec![cache_utils::DEFAULT_SLICE_SIZE])
                 .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
                 .generate_report(&log_dir, chrono_tz::UTC, None)
                 .unwrap();
@@ -1756,7 +1865,7 @@ mod tests {
                 .collect::<Vec<_>>(),
         );
 
-        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start())
+        let result = CorruptionDetector::new(&cache_dir, 3, 1, scan_start(), vec![cache_utils::DEFAULT_SLICE_SIZE])
             .with_key_scheme(cache_utils::CacheKeyScheme::BareMetal)
             .generate_report(&log_dir, chrono_tz::UTC, None)
             .unwrap();
@@ -2016,6 +2125,41 @@ mod tests {
         assert_eq!(report(&cache_dir, &log_dir, 3, 1).total, 0);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn unmounted_linked_cache_folder_fails_instead_of_producing_a_partial_report() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let log_dir = temp.path().join("logs");
+        let path = ranged_path(&cache_dir, "/unmounted.bin");
+        let folder = cache_dir.join(path.strip_prefix(&cache_dir).unwrap().components().next().unwrap());
+        fs::create_dir_all(&cache_dir).unwrap();
+        symlink(temp.path().join("unmounted-disk"), &folder).unwrap();
+        write_log(
+            &log_dir,
+            &(0..3)
+                .map(|i| {
+                    log_line(
+                        scan_start() - Duration::seconds(i),
+                        "GET",
+                        206,
+                        "MISS",
+                        "/unmounted.bin",
+                        Some("bytes=0-1048575"),
+                    )
+                })
+                .collect::<Vec<_>>(),
+        );
+
+        let error = CorruptionDetector::new(&cache_dir, 3, 1, scan_start(), vec![cache_utils::DEFAULT_SLICE_SIZE])
+            .generate_report(&log_dir, chrono_tz::UTC, None)
+            .unwrap_err();
+
+        assert!(error.to_string().contains("/unmounted.bin"));
+        assert!(error.to_string().contains("no report was produced"));
+    }
+
     #[test]
     fn report_ids_order_and_wire_shape_are_deterministic_v4() {
         let temp = tempfile::tempdir().unwrap();
@@ -2084,7 +2228,7 @@ mod tests {
         fs::create_dir_all(&log_dir).unwrap();
         for (threshold, lookback) in [(4, 1), (3, 0), (3, 366)] {
             assert!(
-                CorruptionDetector::new(temp.path(), threshold, lookback, scan_start())
+                CorruptionDetector::new(temp.path(), threshold, lookback, scan_start(), vec![cache_utils::DEFAULT_SLICE_SIZE])
                     .generate_report(&log_dir, chrono_tz::UTC, None)
                     .is_err()
             );

@@ -593,7 +593,8 @@ public sealed partial class CacheFileCountContractTests
             capabilityService: null!,
             cacheScanGate: CacheScanGateHarness.Idle(),
             cacheSizeScan: null!,
-            operationStateService: null!);
+            operationStateService: null!,
+            stateService: null!);
 
     private static CacheFileCountStatusResponse Status(CacheController controller, Guid operationId) =>
         Assert.IsType<CacheFileCountStatusResponse>(

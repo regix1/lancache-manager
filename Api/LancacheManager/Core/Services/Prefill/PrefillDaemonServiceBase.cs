@@ -120,6 +120,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     // spinner.
     private static readonly TimeSpan _loginLockWaitTimeout = TimeSpan.FromSeconds(3);
 
+    // Bounds how long a persistent logout waiting for its runs to end takes to notice the daemon's socket
+    // dropped, which leaves those runs to the recovery pass and the logout unconfirmed.
+    private static readonly TimeSpan _logoutRecoveryCheckSlice = TimeSpan.FromSeconds(1);
+
     // Docker labels stamped onto PERSISTENT daemon containers so they can survive a manager restart
     // and be re-adopted (reconnected) instead of being force-removed by the orphan cleanup sweep.
     private const string PersistentLabelKey = "lancache.prefill.persistent";
@@ -410,7 +414,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error notifying {CallbackName}", callbackName);
+            _logger.LogWarning(ex, "Background task {CallbackName} failed", callbackName);
         }
     }
 

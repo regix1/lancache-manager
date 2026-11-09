@@ -950,10 +950,14 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         var cacheService = scopedServices.GetRequiredService<CacheManagementService>();
         var stateService = scopedServices.GetRequiredService<IStateService>();
 
-        var downloads = ExcludedClientsRemoved(
+        // Served figures leave out the prefill rows a prefill rule covers. The miss-bytes total and
+        // the cache growth read allDownloads instead, since a prefill still fills the cache.
+        var allDownloads = ExcludedClientsRemoved(
             context,
             stateService.GetHiddenClientIps(),
             stateService.GetStatsExcludedOnlyClientIps());
+        var prefillRules = stateService.GetPrefillRules();
+        var downloads = allDownloads.ApplyPrefillFilter(prefillRules);
 
         // ============================================
         // CACHE STORAGE METRICS
@@ -1018,21 +1022,25 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         var totalDownloads = totals?.Downloads ?? 0;
         Interlocked.Exchange(ref _totalDownloads, totalDownloads);
 
-        if (totals != null)
-        {
-            Interlocked.Exchange(ref _totalBytesServed, totals.TotalBytes);
-            Interlocked.Exchange(ref _cacheHitBytesTotal, totals.HitBytes);
-            Interlocked.Exchange(ref _cacheMissBytesTotal, totals.MissBytes);
-            Interlocked.Exchange(ref _largestDownloadBytes, totals.MaxSize);
+        var totalBytesServed = totals?.TotalBytes ?? 0;
+        var cacheHitBytes = totals?.HitBytes ?? 0;
+        Interlocked.Exchange(ref _totalBytesServed, totalBytesServed);
+        Interlocked.Exchange(ref _cacheHitBytesTotal, cacheHitBytes);
+        Interlocked.Exchange(ref _largestDownloadBytes, totals?.MaxSize ?? 0);
 
-            var hitRatio = totals.TotalBytes > 0
-                ? (double)totals.HitBytes / totals.TotalBytes
-                : 0;
-            Interlocked.Exchange(ref _cacheHitRatioBits, BitConverter.DoubleToInt64Bits(hitRatio));
+        var servedHitRatio = totalBytesServed > 0
+            ? (double)cacheHitBytes / totalBytesServed
+            : 0;
+        Interlocked.Exchange(ref _cacheHitRatioBits, BitConverter.DoubleToInt64Bits(servedHitRatio));
 
-            var avgSize = totalDownloads > 0 ? totals.TotalBytes / totalDownloads : 0;
-            Interlocked.Exchange(ref _averageDownloadSizeBytes, avgSize);
-        }
+        var avgSize = totalDownloads > 0 ? totalBytesServed / totalDownloads : 0;
+        Interlocked.Exchange(ref _averageDownloadSizeBytes, avgSize);
+
+        // With no prefill rule the two sets are the same rows and the first sum is reused.
+        var addedToCacheBytes = prefillRules.Count > 0
+            ? await allDownloads.SumAsync(d => d.CacheMissBytes, cancellationToken)
+            : totals?.MissBytes ?? 0;
+        Interlocked.Exchange(ref _cacheMissBytesTotal, addedToCacheBytes);
 
         Interlocked.Exchange(ref _steamUnknownGameBytes, totals?.SteamUnknownBytes ?? 0);
         Interlocked.Exchange(ref _steamUnknownGameDownloads, totals?.SteamUnknownDownloads ?? 0);
@@ -1185,7 +1193,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         // CACHE GROWTH METRICS (7-day period)
         // ============================================
-        var dailyGrowth = await DailyGrowthQuery(downloads, sevenDaysAgo)
+        var dailyGrowth = await DailyGrowthQuery(allDownloads, sevenDaysAgo)
             .ToListAsync(cancellationToken);
 
         if (dailyGrowth.Count >= 2)

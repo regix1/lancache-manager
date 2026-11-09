@@ -2273,7 +2273,9 @@ test('a background row hides its Cancel while the connection is lost and gains n
     );
     assert.deepEqual(
       controls.map((node) => node.props.className),
-      connectionLost ? [] : ['background-task-control-row__cancel'],
+      connectionLost
+        ? []
+        : ['background-task-control-row__cancel text-themed-secondary delete-hover'],
       `lost=${connectionLost}`
     );
   }

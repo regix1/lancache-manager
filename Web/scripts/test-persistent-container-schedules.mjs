@@ -1,32 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import typescript from 'typescript';
 
-import { bindLifted, findSoleNode, parseSource } from './transpile-module.mjs';
-
-const SECTION_PATH = 'src/components/features/management/sections/PrefillSessionsSection.tsx';
+import { bindLifted, liftConstArrow } from './transpile-module.mjs';
 
 // The two helpers ship inside a .tsx, which only exports React components, so the shipped
 // code can only be driven by lifting it out of the file.
-const liftArrow = (constName) => {
-  const sourceFile = parseSource(SECTION_PATH, typescript.ScriptKind.TSX);
-  const declaration = findSoleNode(
-    sourceFile,
-    `${constName} declaration`,
-    (node) =>
-      typescript.isVariableDeclaration(node) &&
-      node.name.getText(sourceFile) === constName &&
-      node.initializer !== undefined &&
-      typescript.isArrowFunction(node.initializer)
-  );
-  return declaration.initializer.getText(sourceFile);
-};
+const SECTION_PATH = 'src/components/features/management/sections/PrefillSessionsSection.tsx';
 
 const SERVICE_RUN_ORDER = ['steam', 'epic', 'xbox', 'battleNet', 'riot'];
 
-const persistentContainerSchedules = bindLifted(liftArrow('persistentContainerSchedules'), {
-  SCHEDULED_PREFILL_SERVICE_RUN_ORDER: SERVICE_RUN_ORDER
-});
+const persistentContainerSchedules = bindLifted(
+  liftConstArrow(SECTION_PATH, 'persistentContainerSchedules'),
+  {
+    SCHEDULED_PREFILL_SERVICE_RUN_ORDER: SERVICE_RUN_ORDER
+  }
+);
 
 // The server's stable per-platform default id (ScheduledPrefillConfig.GetDefaultScheduleId),
 // written first by the v5 -> v6 migration. Kept in the fixture only: the panel reads config
@@ -98,7 +86,7 @@ test('lists nothing when the config is absent or the platform holds no schedules
   assert.deepEqual(persistentContainerSchedules(configWith({}), 'Epic'), []);
 });
 
-const scheduleIntervalLabel = bindLifted(liftArrow('scheduleIntervalLabel'), {});
+const scheduleIntervalLabel = bindLifted(liftConstArrow(SECTION_PATH, 'scheduleIntervalLabel'), {});
 
 // Stubs i18next: returns the key so the assertions read as the wording the Schedules page uses,
 // with the interpolated count appended where the real string carries one.

@@ -74,6 +74,70 @@ Every page and action needs a signed-in account or a guest session. The exceptio
 - The `/health` liveness probe always answers.
 - Sign-in and first-run setup must be public so users can reach them.
 
+#### Sign-in from environment variables { #sign-in-environment }
+
+You can set the sign-in mode and single sign-on logins in the Compose file instead of the UI. Every name starts with `Security__`. The app reads these values once at start, so a change needs a restart.
+
+| Variable | Meaning | Default |
+|----------|---------|---------|
+| `Security__SignInMode` | The sign-in mode. Not case-sensitive. Values are listed in the next table. | (unset) |
+
+| Value | Mode |
+|-------|------|
+| `Password` | Username and password |
+| `ApiKeyPassword` | API key, username and password |
+| `ApiKeyOidc` | API key and single sign-on (alias `ApiKeyAndSso`) |
+| `Oidc` | Single sign-on (alias `Sso`) |
+| `Unauthenticated` | Unauthenticated |
+
+Each single sign-on login uses the same fields. The providers are custom OpenID Connect (`Oidc`), `Google`, `GitHub`, `Microsoft` and `Apple`.
+
+| Variable | Meaning | Default |
+|----------|---------|---------|
+| `Security__Oidc__ClientId`<br>`Security__Google__ClientId`<br>`Security__GitHub__ClientId`<br>`Security__Microsoft__ClientId`<br>`Security__Apple__ClientId` | Client ID from the provider's application registration. | (unset) |
+| `Security__Oidc__ClientSecret`<br>`Security__Google__ClientSecret`<br>`Security__GitHub__ClientSecret`<br>`Security__Microsoft__ClientSecret` | Client secret. Prefer the `ClientSecretFile` form so the secret stays out of the Compose file. Apple has no client secret: it uses the private key below. | (unset) |
+| `Security__Oidc__ClientSecretFile`<br>`Security__Google__ClientSecretFile`<br>`Security__GitHub__ClientSecretFile`<br>`Security__Microsoft__ClientSecretFile` | Path inside the container to a file that holds the client secret. | (unset) |
+| `Security__Oidc__DisplayName`<br>`Security__Google__DisplayName`<br>`Security__GitHub__DisplayName`<br>`Security__Microsoft__DisplayName`<br>`Security__Apple__DisplayName` | Name shown on the sign-in button. | (unset) |
+| `Security__Oidc__AllowedSubjects`<br>`Security__Google__AllowedSubjects`<br>`Security__GitHub__AllowedSubjects`<br>`Security__Microsoft__AllowedSubjects`<br>`Security__Apple__AllowedSubjects` | Comma-separated provider account IDs allowed to sign in. See [Allowing other users](sign-in.md#allowing-other-users). | (unset) |
+| `Security__Oidc__OwnerSubject`<br>`Security__Google__OwnerSubject`<br>`Security__GitHub__OwnerSubject`<br>`Security__Microsoft__OwnerSubject`<br>`Security__Apple__OwnerSubject` | Provider account ID of the owner, who signs in as the primary administrator. | (unset) |
+| `Security__Oidc__OwnerIssuer`<br>`Security__Google__OwnerIssuer`<br>`Security__GitHub__OwnerIssuer`<br>`Security__Microsoft__OwnerIssuer`<br>`Security__Apple__OwnerIssuer` | Issuer that goes with `OwnerSubject`. | The provider's validated authority. For GitHub, `https://github.com`. |
+
+Some providers need extra fields.
+
+| Variable | Meaning | Default |
+|----------|---------|---------|
+| `Security__Oidc__Authority` | HTTPS issuer URL of the custom OpenID Connect provider. | (unset) |
+| `Security__Microsoft__Tenant` | Directory (tenant) GUID, or `consumers` for personal accounts. | (unset) |
+| `Security__Apple__TeamId` | Apple Team ID. | (unset) |
+| `Security__Apple__KeyId` | Apple Key ID. | (unset) |
+| `Security__Apple__PrivateKey` | Contents of the Apple `.p8` key. | (unset) |
+| `Security__Apple__PrivateKeyFile` | Path inside the container to the Apple `.p8` key file. | (unset) |
+
+How the values behave:
+
+| Situation | Result |
+|-----------|--------|
+| A `*File` variable | The file's text, trimmed, is the value. An unreadable file logs an error that names the variable, never the value. The field then uses the inline variable when one is set, and stays unset when none is. |
+| A field set inline and by file | The file wins. A warning names both variables. |
+| A field set by environment and in the UI | The environment wins for that field. A field the environment does not set keeps the UI value. |
+| Where the UI shows an environment field | It shows as set by environment variable and cannot be edited. The mode picker is read-only when the mode comes from the environment. |
+| Secrets from the environment | They are never written to `state.json`. |
+| `Oidc` or `ApiKeyOidc` with no valid login | The app falls back to `ApiKeyPassword`, never to `Unauthenticated`, and logs an error that names the missing fields. |
+| An invalid `Security__SignInMode` value | The app logs it once and ignores it. |
+| First-run setup with `Password`, `ApiKeyPassword` or `Unauthenticated` | The access step is skipped. The database and first-account steps still run. |
+| First-run setup with `Oidc` or `ApiKeyOidc` | The access step still shows, read-only. The owner signs in there through the environment login. |
+| You remove the variables later | The access step returns. A stored login that lost its environment fields, with no environment left to fill them, is no longer listed. |
+
+An account that an environment login allows, by `OwnerSubject` or `AllowedSubjects`, cannot be removed:
+
+- Delete and bulk delete refuse it.
+- API key rotation keeps the account.
+- Account reset keeps the account and its saved Steam, Epic and Xbox logins.
+- The refusal reads: "An environment variable allows this account. Remove it from that variable and restart the app before deleting the account."
+- A login service with any environment field cannot be removed in the UI.
+
+If a fallback locks the owner out, follow [Password Recovery](password-recovery.md#single-sign-on-owner).
+
 ### Prefill settings { #prefill-config }
 
 Prefill auto-detects the right values for almost everything in this table. Three things to know before reaching for it:
@@ -134,6 +198,29 @@ If you run more than one cache instance or split services across drives, see [Mu
 | `CacheSnapshots__RetentionDays` | `90` | How long to keep cache snapshots. Older snapshots are automatically deleted. |
 | `CacheSnapshots__IntervalMinutes` | `60` | Advanced. How often to record a cache-size snapshot. |
 
+### Cache slice size { #cache-slice-size }
+
+The **Cache slice size** setting sits in Management, in the **Cache Settings** card at the top of **Cache Operations**. It tells the app how large the slices in your cache are, which your LANCache sets with `CACHE_SLICE_SIZE`. The app uses it to find every slice of a cached file.
+
+| Value | Meaning |
+|-------|---------|
+| **Auto** (default) | The app reads the size from the `KEY:` headers of the cache files. |
+| **Manual size** | The page offers the powers of two from 1 to 64 MiB. For any other whole number of MiB, use the `PATCH` request below. Set it to match `CACHE_SLICE_SIZE`. |
+
+- The app always checks the sizes it finds on disk, so files written at an older size stay visible.
+- The app tries the manual size first, then the sampled sizes, then 1 MiB. When none matches, it tries every power of two from 1 MiB to 64 MiB.
+- A size that is not a power of two, such as `CACHE_SLICE_SIZE=10m`, is not in the page's list. Set it with `PATCH /api/system/cache-slice-size` and `sliceSizeBytes` of `10485760`. Without that, the app matches it only through sampled files. Once saved, the page lists that size and shows it as selected.
+- A game whose files all use one size shows a size badge, such as **8 MB slices**. A game with several sizes shows **Mixed slices**. A game that detection has not scanned yet shows no badge.
+- Eviction in remove mode, game and service removal, and corruption repair stop with an error before they delete anything when a sample file cannot be read for a reason other than "not found".
+- Eviction in remove mode also stops when the slice size is **Auto** and its sample finds no usable `KEY:` range while the cache path holds files. To let it run, set a manual slice size that matches `CACHE_SLICE_SIZE`.
+
+| Request | Body | Notes |
+|---------|------|-------|
+| `GET /api/system/cache-slice-size` | none | Returns `sliceSizeBytes`; `null` means Auto. |
+| `PATCH /api/system/cache-slice-size` | `sliceSizeBytes` | `null` selects Auto. Any other value must be a positive multiple of 1 MiB. |
+
+Both requests need an account-holder session.
+
 ### Complete annotated Compose example { #complete-compose }
 
 The example below is a complete, working compose file. The active lines match Quick Start; every optional setting is present but commented, with its default and when it matters, so copying it is safe.
@@ -173,6 +260,11 @@ services:
 
       # --- Security ---
       # - Security__EnableAuthentication=true     # before a mode is saved: false selects Unauthenticated
+      # - Security__SignInMode=Oidc               # Password, ApiKeyPassword, ApiKeyOidc, Oidc or Unauthenticated; when set, it fixes the mode
+      # - Security__Google__ClientId=             # one provider block; Oidc, GitHub, Microsoft and Apple use the same fields
+      # - Security__Google__ClientSecretFile=/run/secrets/google_client_secret   # file text, trimmed, is the secret
+      # - Security__Google__OwnerSubject=         # provider account ID of the owner
+      # - Security__Google__AllowedSubjects=      # CSV of provider account IDs allowed to sign in
       # - Security__RequireAuthForMetrics=false   # true = /metrics needs a Bearer token
       # - Security__GuestSessionDurationHours=6
       # - Security__AllowedOrigins=               # CSV of CORS origins; empty = same-origin only, * = any origin (no credentials)

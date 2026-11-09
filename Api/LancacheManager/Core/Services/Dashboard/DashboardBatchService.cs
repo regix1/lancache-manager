@@ -181,6 +181,11 @@ public partial class DashboardBatchService : IDashboardBatchService
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
+        var prefillRules = _stateRepository.GetPrefillRules();
+        // From the same read as the key below: a second read could see rules saved meanwhile and
+        // cache their answer under the old rules' key.
+        var hiddenPrefillRules = prefillRules.Where(rule => rule.Mode == ClientExclusionModes.Hide).ToList();
+        var prefillRuleKeys = string.Join(";", prefillRules.Select(rule => rule.RuleKey));
         var eventIdList = eventId.HasValue ? new List<long> { eventId.Value } : new List<long>();
         var requiredGenerations = (Live: liveCacheGeneration, Detection: detectionCacheGeneration);
 
@@ -195,8 +200,11 @@ public partial class DashboardBatchService : IDashboardBatchService
         // bump and would keep serving the pre-change clients, services, dashboard, sparklines and
         // hourly sections for the rest of its window. Joined with a character no address carries so
         // the two lists cannot run together into one shared spelling.
-        var batchKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{readerTimeZoneId}:{includeClientHostnames}:{service}:{client}:{string.Join(",", hiddenClientIps)}|{string.Join(",", statsExcludedOnlyIps)}";
-        var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{readerTimeZoneId}:{liveCacheGeneration}:{detectionCacheGeneration}:{includeClientHostnames}:{service}:{client}:{string.Join(",", hiddenClientIps)}|{string.Join(",", statsExcludedOnlyIps)}";
+        // The prefill rules are in both keys so an answer computed under the old rules is never
+        // served or joined after they change, even before the cache is cleared. Each rule key is
+        // joined with ';', which no rule key contains.
+        var batchKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{prefillRuleKeys}:{readerTimeZoneId}:{includeClientHostnames}:{service}:{client}:{string.Join(",", hiddenClientIps)}|{string.Join(",", statsExcludedOnlyIps)}";
+        var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{prefillRuleKeys}:{readerTimeZoneId}:{liveCacheGeneration}:{detectionCacheGeneration}:{includeClientHostnames}:{service}:{client}:{string.Join(",", hiddenClientIps)}|{string.Join(",", statsExcludedOnlyIps)}";
 
         const int MaxContestedFlightAttempts = 2;
         var attempt = 0;
@@ -216,7 +224,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             var liveCacheEviction = Volatile.Read(ref _liveCacheEviction).Token;
             var detectionCacheEviction = Volatile.Read(ref _detectionCacheEviction).Token;
 
-            cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{readerTimeZoneId}:{liveCacheGeneration}:{detectionCacheGeneration}:{includeClientHostnames}:{service}:{client}:{string.Join(",", hiddenClientIps)}|{string.Join(",", statsExcludedOnlyIps)}";
+            cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}:{prefillRuleKeys}:{readerTimeZoneId}:{liveCacheGeneration}:{detectionCacheGeneration}:{includeClientHostnames}:{service}:{client}:{string.Join(",", hiddenClientIps)}|{string.Join(",", statsExcludedOnlyIps)}";
 
             if (_memoryCache.TryGetValue(cacheKey, out DashboardBatchResponse? cachedResponse) && cachedResponse != null)
             {
@@ -231,7 +239,7 @@ public partial class DashboardBatchService : IDashboardBatchService
                 // looping under pathological contention.
                 var response = await RunSingleFlightAsync(
                     cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
-                    hiddenClientIps, statsExcludedOnlyIps, evictedMode,
+                    hiddenClientIps, statsExcludedOnlyIps, evictedMode, prefillRules, hiddenPrefillRules,
                     isLive, liveCacheGeneration, detectionCacheGeneration,
                     liveCacheEviction, detectionCacheEviction, includeClientHostnames,
                     service, client, ct);
@@ -243,7 +251,7 @@ public partial class DashboardBatchService : IDashboardBatchService
                 detectionCacheGeneration,
                 flight => RunFlightAsync(
                     batchKey, flight, cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
-                    hiddenClientIps, statsExcludedOnlyIps, evictedMode,
+                    hiddenClientIps, statsExcludedOnlyIps, evictedMode, prefillRules, hiddenPrefillRules,
                     isLive, liveCacheGeneration, detectionCacheGeneration,
                     liveCacheEviction, detectionCacheEviction, includeClientHostnames,
                     service, client));
@@ -324,6 +332,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, string readerTimeZoneId,
         List<string> hiddenClientIps, List<string> statsExcludedOnlyIps, string evictedMode,
+        List<ClientExclusionRule> prefillRules, List<ClientExclusionRule> hiddenPrefillRules,
         bool isLive, long liveCacheGeneration, long detectionCacheGeneration,
         CancellationToken liveCacheEviction, CancellationToken detectionCacheEviction,
         bool includeClientHostnames,
@@ -333,7 +342,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         {
             return await RunSingleFlightAsync(
                 cacheKey, startTime, endTime, eventIdList, readerTimeZoneId,
-                hiddenClientIps, statsExcludedOnlyIps, evictedMode,
+                hiddenClientIps, statsExcludedOnlyIps, evictedMode, prefillRules, hiddenPrefillRules,
                 isLive, liveCacheGeneration, detectionCacheGeneration,
                 liveCacheEviction, detectionCacheEviction, includeClientHostnames,
                 service, client, flight.Cancellation.Token);
@@ -355,6 +364,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, string readerTimeZoneId,
         List<string> hiddenClientIps, List<string> statsExcludedOnlyIps, string evictedMode,
+        List<ClientExclusionRule> prefillRules, List<ClientExclusionRule> hiddenPrefillRules,
         bool isLive, long liveCacheGeneration, long detectionCacheGeneration,
         CancellationToken liveCacheEviction, CancellationToken detectionCacheEviction,
         bool includeClientHostnames,
@@ -371,17 +381,17 @@ public partial class DashboardBatchService : IDashboardBatchService
         long usedCacheSize = cacheResult?.UsedCacheSize ?? 0;
 
         // Launch remaining queries fully in parallel. Each section creates its own context.
-        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, includeClientHostnames, ct), ct);
-        var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
-        var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
-        var downloadTotalsTask = SafeExecuteAsync("downloadTotals", () => GetDownloadTotalsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, ct), ct);
-        var filteredDownloadTotalsTask = SafeExecuteAsync("filteredDownloadTotals", () => GetFilteredDownloadTotalsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, service, client, ct), ct);
-        var serviceOptionsTask = SafeExecuteAsync("serviceOptions", () => GetServiceOptionsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, ct), ct);
-        var clientOptionsTask = SafeExecuteAsync("clientOptions", () => GetClientOptionsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, ct), ct);
-        var recentDownloadsTask = SafeExecuteAsync("recentDownloads", () => GetRecentDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, service, client, ct), ct);
+        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, prefillRules, includeClientHostnames, ct), ct);
+        var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, prefillRules, ct), ct);
+        var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, prefillRules, ct), ct);
+        var downloadTotalsTask = SafeExecuteAsync("downloadTotals", () => GetDownloadTotalsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, hiddenPrefillRules, ct), ct);
+        var filteredDownloadTotalsTask = SafeExecuteAsync("filteredDownloadTotals", () => GetFilteredDownloadTotalsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, hiddenPrefillRules, service, client, ct), ct);
+        var serviceOptionsTask = SafeExecuteAsync("serviceOptions", () => GetServiceOptionsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, hiddenPrefillRules, ct), ct);
+        var clientOptionsTask = SafeExecuteAsync("clientOptions", () => GetClientOptionsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, hiddenPrefillRules, ct), ct);
+        var recentDownloadsTask = SafeExecuteAsync("recentDownloads", () => GetRecentDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, hiddenPrefillRules, service, client, ct), ct);
         var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync(usedCacheSize, ct), ct);
-        var sparklinesTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
-        var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, readerTimeZoneId, hiddenClientIps, evictedMode, statsExcludedOnlyIps, ct), ct);
+        var sparklinesTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps, prefillRules, ct), ct);
+        var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, readerTimeZoneId, hiddenClientIps, evictedMode, statsExcludedOnlyIps, prefillRules, ct), ct);
         var cacheSnapshotTask = SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime, ct), ct);
 
         await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadTotalsTask, filteredDownloadTotalsTask, serviceOptionsTask, clientOptionsTask, recentDownloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask);
@@ -514,6 +524,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             ActivityRevision = current.Revision,
             UniqueClients = response.UniqueClients,
             TopService = response.TopService,
+            PrefillSeparated = response.PrefillSeparated,
             Period = response.Period,
             ServiceBreakdown = response.ServiceBreakdown,
             LastUpdated = response.LastUpdated
@@ -565,7 +576,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps, bool includeClientHostnames, CancellationToken ct)
+        List<string> statsExcludedOnlyIps, List<ClientExclusionRule> prefillRules, bool includeClientHostnames, CancellationToken ct)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         var maxLimit = _apiOptions.Value.MaxClientsPerRequest;
@@ -577,6 +588,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         query = query.ApplyHiddenClientFilter(hiddenClientIps);
         query = query.ApplyEvictedFilter(evictedMode);
         query = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+        query = query.ApplyPrefillFilter(prefillRules);
         query = query.ApplyTimeRange(startTime, endTime);
 
         // The GROUP BY and its client-side duration fold are shared with GET /api/stats/clients, so
@@ -613,7 +625,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps, CancellationToken ct)
+        List<string> statsExcludedOnlyIps, List<ClientExclusionRule> prefillRules, CancellationToken ct)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         var query = context.Downloads.AsNoTracking()
@@ -623,7 +635,9 @@ public partial class DashboardBatchService : IDashboardBatchService
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
         query = query.ApplyTimeRange(startTime, endTime);
 
-        var serviceStatsQuery = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+        var serviceStatsQuery = query
+            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps)
+            .ApplyPrefillFilter(prefillRules);
 
         var serviceStats = await ServiceStatsQuery(serviceStatsQuery).ToListAsync(ct);
 
@@ -635,7 +649,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps, CancellationToken ct)
+        List<string> statsExcludedOnlyIps, List<ClientExclusionRule> prefillRules, CancellationToken ct)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         DateTime? cutoffTime = startTime.HasValue ? startTime.Value.FromUnixSeconds() : null;
@@ -649,8 +663,9 @@ public partial class DashboardBatchService : IDashboardBatchService
 
         downloadsQuery = downloadsQuery.ApplyTimeRange(startTime, endTime);
 
-        // Calculate period metrics (exclude stats-excluded IPs)
-        var periodQuery = downloadsQuery.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+        // Calculate period metrics (exclude stats-excluded IPs, and prefill rows when separated)
+        var addedToCacheQuery = downloadsQuery.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+        var periodQuery = addedToCacheQuery.ApplyPrefillFilter(prefillRules);
 
         // Combined period aggregates: hitBytes + missBytes + count in ONE query (was 3 round trips)
         var periodAgg = await periodQuery
@@ -669,9 +684,14 @@ public partial class DashboardBatchService : IDashboardBatchService
         var periodHitRatio = periodTotal > 0 ? (periodHitBytes * 100.0) / periodTotal : 0;
         var periodDownloadCount = periodAgg?.Count ?? 0;
 
+        // A prefill still fills the cache, so Added to cache keeps prefill rows. With no prefill
+        // rule the two queries read the same rows and the first sum is reused.
+        var periodAddedToCache = prefillRules.Count > 0
+            ? await addedToCacheQuery.SumAsync(d => d.CacheMissBytes, ct)
+            : periodMissBytes;
+
         // Unique clients in period
-        var uniqueClientsQuery = downloadsQuery.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
-        var uniqueClientsCount = await uniqueClientsQuery.Select(d => d.ClientIp).Distinct().CountAsync(ct);
+        var uniqueClientsCount = await periodQuery.Select(d => d.ClientIp).Distinct().CountAsync(ct);
 
         // Combined all-time aggregates: hitBytes + missBytes in ONE query (was 2 round trips)
         var allTimeQuery = context.Downloads.AsNoTracking()
@@ -680,6 +700,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
 
         var allTimeAgg = await allTimeQuery
+            .ApplyPrefillFilter(prefillRules)
             .GroupBy(d => 1)
             .Select(g => new
             {
@@ -692,9 +713,13 @@ public partial class DashboardBatchService : IDashboardBatchService
         var totalMissBytes = allTimeAgg?.MissBytes ?? 0;
         var totalServed = totalHitBytes + totalMissBytes;
         var cacheHitRatio = totalServed > 0 ? (totalHitBytes * 100.0) / totalServed : 0;
+        var totalAddedToCache = prefillRules.Count > 0
+            ? await allTimeQuery.SumAsync(d => d.CacheMissBytes, ct)
+            : totalMissBytes;
 
-        // Service breakdown (also provides top service - no separate query needed)
-        var serviceBreakdown = await ServiceBreakdownMerger.QueryMergedAsync(downloadsQuery, periodTotal, ct);
+        // Service breakdown (also provides top service - no separate query needed). It reads the
+        // same rows as periodTotal, so the shares add up to 100% while a client is stats-excluded.
+        var serviceBreakdown = await ServiceBreakdownMerger.QueryMergedAsync(periodQuery, periodTotal, ct);
 
         var topServiceName = serviceBreakdown.FirstOrDefault()?.Service ?? "N/A";
 
@@ -704,7 +729,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         return new DashboardStatsResponse
         {
             TotalBandwidthSaved = totalHitBytes,
-            TotalAddedToCache = totalMissBytes,
+            TotalAddedToCache = totalAddedToCache,
             TotalServed = totalServed,
             CacheHitRatio = cacheHitRatio,
             ActiveDownloads = current.GameSpeeds.Count,
@@ -713,12 +738,13 @@ public partial class DashboardBatchService : IDashboardBatchService
             ActivityRevision = current.Revision,
             UniqueClients = uniqueClientsCount,
             TopService = topServiceName,
+            PrefillSeparated = prefillRules.Count > 0,
             Period = new DashboardPeriodStats
             {
                 Duration = periodLabel,
                 Since = cutoffTime,
                 BandwidthSaved = periodHitBytes,
-                AddedToCache = periodMissBytes,
+                AddedToCache = periodAddedToCache,
                 TotalServed = periodTotal,
                 HitRatio = periodHitRatio,
                 Downloads = periodDownloadCount
@@ -780,7 +806,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         AppDbContext context,
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
-        List<string> hiddenClientIps, string evictedMode)
+        List<string> hiddenClientIps, string evictedMode, List<ClientExclusionRule> hiddenPrefillRules)
     {
         var query = context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
@@ -794,7 +820,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             query = query.Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0);
         }
 
-        return query.ApplyEvictedFilter(evictedMode);
+        return query.ApplyEvictedFilter(evictedMode).ApplyPrefillFilter(hiddenPrefillRules);
     }
 
     /// <summary>
@@ -831,24 +857,24 @@ public partial class DashboardBatchService : IDashboardBatchService
     private async Task<object> GetDownloadTotalsAsync(
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
-        List<string> hiddenClientIps, string evictedMode, CancellationToken ct)
+        List<string> hiddenClientIps, string evictedMode, List<ClientExclusionRule> hiddenPrefillRules, CancellationToken ct)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         return await QueryDownloadTotalsAsync(
-            BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode),
+            BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, hiddenPrefillRules),
             ct);
     }
 
     private async Task<object> GetFilteredDownloadTotalsAsync(
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
-        List<string> hiddenClientIps, string evictedMode,
+        List<string> hiddenClientIps, string evictedMode, List<ClientExclusionRule> hiddenPrefillRules,
         string? service, string? client, CancellationToken ct)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         return await QueryDownloadTotalsAsync(
             ApplyDownloadFilters(
-                BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode),
+                BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, hiddenPrefillRules),
                 service, client),
             ct);
     }
@@ -881,10 +907,10 @@ public partial class DashboardBatchService : IDashboardBatchService
     private async Task<object> GetServiceOptionsAsync(
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
-        List<string> hiddenClientIps, string evictedMode, CancellationToken ct)
+        List<string> hiddenClientIps, string evictedMode, List<ClientExclusionRule> hiddenPrefillRules, CancellationToken ct)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
-        var query = BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode);
+        var query = BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, hiddenPrefillRules);
 
         // Unlike the service breakdown this keeps localhost and ip-address. Neither names a service
         // that files on disk can be attributed to, but both are still values a reader filters by,
@@ -902,10 +928,10 @@ public partial class DashboardBatchService : IDashboardBatchService
     private async Task<object> GetClientOptionsAsync(
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
-        List<string> hiddenClientIps, string evictedMode, CancellationToken ct)
+        List<string> hiddenClientIps, string evictedMode, List<ClientExclusionRule> hiddenPrefillRules, CancellationToken ct)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
-        var query = BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode);
+        var query = BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, hiddenPrefillRules);
 
         return await query.Select(d => d.ClientIp).Distinct().ToListAsync(ct);
     }
@@ -920,12 +946,12 @@ public partial class DashboardBatchService : IDashboardBatchService
     private async Task<object> GetRecentDownloadsAsync(
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
-        List<string> hiddenClientIps, string evictedMode,
+        List<string> hiddenClientIps, string evictedMode, List<ClientExclusionRule> hiddenPrefillRules,
         string? service, string? client, CancellationToken ct)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         var query = ApplyDownloadFilters(
-            BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode),
+            BuildVisibleDownloadsQuery(context, startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, hiddenPrefillRules),
             service, client);
 
         var showClean = evictedMode == EvictedDataMode.ShowClean.ToWireString();
@@ -1588,7 +1614,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps, CancellationToken ct)
+        List<string> statsExcludedOnlyIps, List<ClientExclusionRule> prefillRules, CancellationToken ct)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
@@ -1615,15 +1641,25 @@ public partial class DashboardBatchService : IDashboardBatchService
         // Rows, not a GROUP BY: spreading a download's bytes over the buckets it was active in
         // needs each row's own window, which no per-bucket aggregate carries.
         var spans = await filteredQuery
+            .ApplyPrefillFilter(prefillRules)
             .Select(d => new HourOfDayBuckets.Span(d.StartTimeUtc, d.EndTimeUtc, d.CacheHitBytes, d.CacheMissBytes))
             .ToListAsync(ct);
 
+        // Added to cache keeps prefill rows, since a prefill still fills the cache. With no
+        // prefill rule it reads the same rows, so the list is reused.
+        var addedToCacheSpans = prefillRules.Count > 0
+            ? await filteredQuery
+                .Select(d => new HourOfDayBuckets.Span(d.StartTimeUtc, d.EndTimeUtc, d.CacheHitBytes, d.CacheMissBytes))
+                .ToListAsync(ct)
+            : spans;
+
         // The drawn extent: every download's active window clipped to the picked range. Width and
         // chart window both come from this, so a still-running download carries the series to its
-        // last write instead of ending it at the moment it began.
+        // last write instead of ending it at the moment it began. It is read from the Added to
+        // cache rows, which hold every row the other series draw, so all four share one window.
         DateTime? firstDrawn = null;
         DateTime? lastDrawn = null;
-        foreach (var span in spans)
+        foreach (var span in addedToCacheSpans)
         {
             var start = span.StartUtc;
             var end = span.EndUtc > start ? span.EndUtc : start;
@@ -1678,9 +1714,13 @@ public partial class DashboardBatchService : IDashboardBatchService
         }
 
         var bucketedData = SparklineBuckets.Fill(windowStart, windowEnd, bucketMinutes, present);
+        var addedToCacheBuckets = prefillRules.Count > 0
+            ? SparklineBuckets.Fill(windowStart, windowEnd, bucketMinutes,
+                SparklineBuckets.Spread(addedToCacheSpans, bucketMinutes, cutoffTime, endDateTime))
+            : bucketedData;
 
         var bandwidthSavedData = bucketedData.Select(d => (double)d.CacheHitBytes).ToList();
-        var addedToCacheData = bucketedData.Select(d => (double)d.CacheMissBytes).ToList();
+        var addedToCacheData = addedToCacheBuckets.Select(d => (double)d.CacheMissBytes).ToList();
         var totalServedData = bucketedData.Select(d => (double)(d.CacheHitBytes + d.CacheMissBytes)).ToList();
         var cacheHitRatioData = bucketedData.Select(d =>
         {
@@ -1694,7 +1734,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             .ToList();
 
         // Traffic is a property of the bucket, not of one metric, so every metric trims on this.
-        var lastBucketWithTraffic = bucketedData.FindLastIndex(d => d.CacheHitBytes + d.CacheMissBytes > 0);
+        var lastBucketWithTraffic = addedToCacheBuckets.FindLastIndex(d => d.CacheHitBytes + d.CacheMissBytes > 0);
 
         return new SparklineDataResponse
         {
@@ -1712,7 +1752,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds, string readerTimeZoneId,
         List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps, CancellationToken ct)
+        List<string> statsExcludedOnlyIps, List<ClientExclusionRule> prefillRules, CancellationToken ct)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
@@ -1735,7 +1775,9 @@ public partial class DashboardBatchService : IDashboardBatchService
             query = query.Where(d => d.StartTimeUtc <= endDateTime);
         }
 
-        var filteredQuery = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+        var filteredQuery = query
+            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps)
+            .ApplyPrefillFilter(prefillRules);
 
         // Rows, not a GROUP BY: spreading a download's bytes over the hours it was active needs
         // each row's own window, which no per-hour aggregate carries.

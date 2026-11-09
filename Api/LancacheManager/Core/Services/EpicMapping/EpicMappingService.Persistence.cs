@@ -1,5 +1,6 @@
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using LancacheManager.Middleware;
 using Microsoft.EntityFrameworkCore;
@@ -114,11 +115,11 @@ public partial class EpicMappingService
                     changed = true;
                 }
 
-                // Only update LastSeenAtUtc when it's more than 1 hour old to reduce unnecessary DB writes
+                // Only update LastSeenAtUtc when it's more than 1 hour old to reduce unnecessary DB writes.
+                // Seeing a game again is not a change to it, so the touch does not count the game as updated.
                 if ((now - existing.LastSeenAtUtc).TotalHours >= 1)
                 {
                     existing.LastSeenAtUtc = now;
-                    changed = true;
                 }
 
                 if (changed)
@@ -131,7 +132,8 @@ public partial class EpicMappingService
                 var mapping = new EpicGameMapping
                 {
                     AppId = game.AppId,
-                    Name = game.Name,
+                    // a catalog read that failed or had no title leaves the name empty; the Epic id stands in
+                    Name = string.IsNullOrWhiteSpace(game.Name) ? game.AppId : game.Name,
                     ImageUrl = game.ImageUrl,
                     DiscoveredAtUtc = now,
                     LastSeenAtUtc = now,
@@ -275,9 +277,9 @@ public partial class EpicMappingService
     /// propagates to Downloads table.
     /// </summary>
     /// <returns>
-    /// How many image URLs were updated. Zero both when nothing needed updating and when the run
-    /// could not start - not authenticated, or the token refresh failed. The button that calls
-    /// this reports the count, so zero reads as "nothing to do" either way.
+    /// How many image URLs were updated. Zero when nothing needed updating, when the run could
+    /// not start (not authenticated, the saved refresh token was rejected) and when another login
+    /// replaced this one during the token refresh. A failed read throws, so the caller can warn.
     /// </returns>
     public async Task<int> RefreshImagesAsync(CancellationToken ct = default)
     {
@@ -291,20 +293,22 @@ public partial class EpicMappingService
         if (_currentTokens.ExpiresAt <= DateTime.UtcNow)
         {
             _logger.LogInformation("Access token expired, refreshing before image URL update...");
+            // The release check refuses the write once a logout began, so a cleared record never gets a refresh token back.
+            var releaseVersion = _authStorage.IntegrationReleaseVersion;
+            var refreshedAccountId = _currentTokens.AccountId;
             try
             {
                 var tokens = await _epicApiClient.RefreshTokenAsync(_currentTokens.RefreshToken, ct);
-                _currentTokens = tokens;
-                var activeAuth = _authStorage.GetAuthData();
-                _authStorage.SaveAuthData(new EpicAuthData
+                _authStorage.UpdateAuthData(stored =>
                 {
-                    OwnerAccountId = activeAuth.OwnerAccountId,
-                    RefreshToken = tokens.RefreshToken,
-                    DisplayName = tokens.DisplayName,
-                    AccountId = tokens.AccountId,
-                    LastAuthenticated = DateTime.UtcNow,
-                    GamesDiscovered = _gamesDiscovered
-                });
+                    // a sign-in saved a different login during the token call; its tokens stay
+                    if (stored.AccountId != refreshedAccountId) IntegrationLease.Refuse("login-in-progress");
+                    stored.RefreshToken = tokens.RefreshToken;
+                    stored.DisplayName = tokens.DisplayName;
+                    stored.AccountId = tokens.AccountId;
+                    stored.LastAuthenticated = DateTime.UtcNow;
+                }, expectedReleaseVersion: releaseVersion);
+                _currentTokens = tokens;
                 _logger.LogInformation("Token refreshed successfully");
             }
             catch (ValidationException ex)
@@ -317,16 +321,16 @@ public partial class EpicMappingService
                 _currentTokens = null;
                 return 0;
             }
-            catch (Exception ex)
+            // the write was refused because another login or a logout replaced this one; its tokens stay
+            catch (ConflictException)
             {
-                _logger.LogWarning(ex, "Token refresh failed during image URL refresh");
                 return 0;
             }
         }
 
         // Re-fetch owned games (this calls GetBestImageUrl which selects correct landscape images)
         _logger.LogInformation("Fetching owned games from Epic catalog...");
-        var games = await _epicApiClient.GetOwnedGamesAsync(_currentTokens.AccessToken, ct);
+        var games = await _epicApiClient.GetOwnedGamesAsync(_currentTokens.AccessToken, static (_, _) => Task.CompletedTask, ct);
         _logger.LogInformation("Got {Count} games from Epic catalog", games.Count);
 
         if (games.Count == 0)
@@ -349,15 +353,8 @@ public partial class EpicMappingService
             result.NewGames, result.UpdatedGames, result.UnchangedGames);
 
         // Also propagate to Downloads table
-        try
-        {
-            var imageUpdates = await PropagateGameImagesAsync(_currentTokens.AccessToken, ct);
-            _logger.LogInformation("Propagated {Count} image URLs to Downloads table", imageUpdates);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to propagate image URLs to Downloads table");
-        }
+        var imageUpdates = await PropagateGameImagesAsync(_currentTokens.AccessToken, ct);
+        _logger.LogInformation("Propagated {Count} image URLs to Downloads table", imageUpdates);
 
         var totalUpdated = result.NewGames + result.UpdatedGames;
 

@@ -3,6 +3,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
 namespace LancacheManager.Core.Services.EpicMapping;
@@ -13,15 +14,22 @@ public partial class EpicMappingService
     private IntegrationLogin? _processingLogin;
 
     public IntegrationAccess GetIntegrationAccess(IntegrationCaller caller) => _authStorage.GetIntegrationAccess(caller);
-    public string? GetIntegrationLoginReason(IntegrationCaller caller) => _authStorage.GetIntegrationLoginReason(caller);
+    // A sign-in's mapping holds the session lock until it ends, so a prefill with the saved login is refused at once
+    // instead of waiting on that lock while it holds the store's admission gate.
+    public string? GetIntegrationLoginReason(IntegrationCaller caller) =>
+        _processingLogin is not null ? "login-in-progress" : _authStorage.GetIntegrationLoginReason(caller);
+
     public Task<IntegrationLease> AcquireIntegrationLoginAsync(IntegrationCaller caller, CancellationToken cancellationToken = default)
-        => _authStorage.AcquireIntegrationLoginAsync(caller, cancellationToken);
+    {
+        if (_processingLogin is not null) IntegrationLease.Refuse("login-in-progress");
+        return _authStorage.AcquireIntegrationLoginAsync(caller, cancellationToken);
+    }
 
     public bool TryGetSavedLoginAccount(Guid? accountId, out string? account, IntegrationCaller? caller = null)
     {
         caller ??= new IntegrationCaller(accountId, Guid.Empty, true);
         account = null;
-        if (_authStorage.GetIntegrationLoginReason(caller) is not null) return false;
+        if (GetIntegrationLoginReason(caller) is not null) return false;
         var auth = _authStorage.GetIntegrationLogin(caller);
         account = string.IsNullOrWhiteSpace(auth.RefreshToken) ? null : auth.DisplayName;
         return !string.IsNullOrWhiteSpace(auth.RefreshToken);
@@ -38,9 +46,13 @@ public partial class EpicMappingService
         lease ??= acquired!;
         _authStorage.ValidateIntegrationLease(lease);
         if (lease.Caller?.AccountId != accountId) IntegrationLease.Refuse("owned-by-another-account");
+        // A caller-passed lease skips the check in AcquireIntegrationLoginAsync.
+        if (_processingLogin is not null) IntegrationLease.Refuse("login-in-progress");
         await _sessionLock.WaitAsync(cancellationToken);
         try
         {
+            // A sign-in can start while this request waits for the lock; refusing inside the try releases the lock.
+            if (_processingLogin is not null) IntegrationLease.Refuse("login-in-progress");
             var savedAuth = _authStorage.GetIntegrationLogin(lease);
             var version = _authStorage.GetIntegrationSnapshot().Version;
             if (string.IsNullOrWhiteSpace(savedAuth.RefreshToken)) IntegrationLease.Refuse("no-saved-login");
@@ -87,9 +99,26 @@ public partial class EpicMappingService
     public async Task<EpicLoginUrlResponse> GetAuthorizationUrl(
         IntegrationCaller caller, Guid? attemptId = null, bool recover = false)
     {
+        // Refused before the store is touched, so the attempt id is not spent and the store's version does not move.
+        if (_processingLogin is not null) throw AuthInProgress();
         var login = await _authStorage.BeginIntegrationLoginAsync(caller, attemptId, recover);
-        if (!_authStorage.RunIntegrationLogin(login, () => _loginAttempt = login))
-            throw new OperationCanceledException();
+        var signInRunning = false;
+        var started = _authStorage.RunIntegrationLogin(login, () =>
+        {
+            // A begin that passed the check above before a code submit marked its sign-in processing is undone here,
+            // under the same lock, so its pending login never blocks refreshes and prefills.
+            if (_processingLogin is not null)
+            {
+                signInRunning = true;
+                _authStorage.FinishIntegrationLogin(login);
+            }
+            else
+            {
+                _loginAttempt = login;
+            }
+        });
+        if (signInRunning) throw AuthInProgress();
+        if (!started) throw new OperationCanceledException();
         _ = AnnounceLoginWindowEndAsync(login);
         return new EpicLoginUrlResponse
         {
@@ -107,8 +136,9 @@ public partial class EpicMappingService
     }
 
     /// <summary>
-    /// Exchanges the one-time auth code first. Only after that prerequisite succeeds does the owned
-    /// game/CDN mapping operation enter the tracked lifecycle.
+    /// Exchanges the one-time auth code and saves the sign-in, then returns. The owned game/CDN mapping
+    /// runs afterwards in the background and enters the tracked lifecycle before the save, so its card exists
+    /// when the browser gets its answer.
     /// </summary>
     public async Task OnAuthCodeReceivedAsync(string authorizationCode, Guid? ownerAccountId = null,
         IntegrationCaller? caller = null, Guid? attemptId = null)
@@ -117,16 +147,9 @@ public partial class EpicMappingService
         var login = _authStorage.ContinueIntegrationLogin(caller, attemptId);
         if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0)
         {
-            throw new ConflictException("Epic auth is already in progress")
-            {
-                StageKey = "errors.epic.authInProgress"
-            };
+            throw AuthInProgress();
         }
 
-        await _sessionLock.WaitAsync();
-        // The sign-in window has its own timer and bounds only the steps before the account is saved; a person's cancel, a
-        // logout or a shutdown cancels the sign-in's own source.
-        using var window = new CancellationTokenSource();
         CancellationTokenSource authCts;
         try
         {
@@ -137,8 +160,6 @@ public partial class EpicMappingService
             authCts = new CancellationTokenSource();
         }
 
-        var remaining = login.ExpiresAtUtc - DateTime.UtcNow;
-        window.CancelAfter(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
         if (!_authStorage.RunIntegrationLogin(login, () =>
         {
             _processingLogin = login;
@@ -146,24 +167,26 @@ public partial class EpicMappingService
         }))
         {
             authCts.Dispose();
-            _sessionLock.Release();
             Interlocked.Exchange(ref _isProcessingInt, 0);
-            // A cancel or the window's end that came while this submit waited for the session lock ends the sign-in here.
+            // A cancel or the window's end that came between the continue check and this call ends the sign-in here.
             _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
                 login.AttemptId, OperationStatus.Cancelled, "errors.integration.attemptExpired"));
             await NotifyLoginEndedAsync(login);
             throw new OperationCanceledException();
         }
-        // Every step before the save waits on this token (through steps once the card exists), so the window ends them;
-        // the steps after the save wait on the sign-in's own token, which the window cannot cancel, so a window that
-        // runs out during or after the save leaves a saved sign-in done.
-        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(authCts.Token, window.Token);
+
+        await _sessionLock.WaitAsync();
+        // The sign-in window has its own timer, counted from after the session lock is taken. It bounds the steps before the
+        // save and the mapping after it; a person's cancel, a logout or a shutdown cancels the sign-in's own source.
+        var window = new CancellationTokenSource();
+        var remaining = login.ExpiresAtUtc - DateTime.UtcNow;
+        window.CancelAfter(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
+        // Every step waits on this token (through steps once the card exists), so the window ends the code exchange and,
+        // after the save, the background mapping.
+        var attempt = CancellationTokenSource.CreateLinkedTokenSource(authCts.Token, window.Token);
         MappingOperationReporter? reporter = null;
-        var gamesDiscovered = 0;
-        var newGames = 0;
-        var updatedGames = 0;
-        var saved = false;
-        var failedSteps = 0;
+        long releaseVersion = 0;
+        var handedOff = false;
         try
         {
             _currentStatus = EpicMappingStatus.Authenticating;
@@ -192,57 +215,10 @@ public partial class EpicMappingService
             await reporter.StartAsync(CreateEpicContext(), login: login);
             _currentOperationId = reporter.OperationId;
             _currentStatus = EpicMappingStatus.RefreshingCatalog;
-            // The card's X cancels the reporter's own source, so once the card exists every step before the save also
-            // waits on it; the code exchange above had no card to stop it.
-            using var steps = CancellationTokenSource.CreateLinkedTokenSource(attempt.Token, reporter.Token);
 
-            await reporter.ReportAsync(
-                15,
-                "signalr.epicMapping.fetchingGames",
-                CreateEpicContext());
-            var games = await _epicApiClient.GetOwnedGamesAsync(
-                tokens.AccessToken,
-                steps.Token);
-            steps.Token.ThrowIfCancellationRequested();
-            if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
-            gamesDiscovered = games.Count;
-
-            if (games.Count > 0)
-            {
-                var sessionHash = CryptoUtils.ComputeAnonymousHash("mapping-session");
-                var result = await MergeOwnedGamesAsync(
-                    games,
-                    sessionHash,
-                    "mapping-login",
-                    steps.Token);
-                gamesDiscovered = result.TotalGames;
-                newGames = result.NewGames;
-                updatedGames = result.UpdatedGames;
-            }
-
-            await reporter.ReportAsync(
-                55,
-                "signalr.epicMapping.refreshingCdn",
-                CreateEpicContext());
-            try
-            {
-                var cdnInfos = await _epicApiClient.GetCdnInfoAsync(
-                    tokens.AccessToken,
-                    steps.Token);
-                steps.Token.ThrowIfCancellationRequested();
-                if (!_authStorage.IsIntegrationLoginCurrent(login)) throw new OperationCanceledException();
-                if (cdnInfos.Count > 0)
-                {
-                    await MergeCdnPatternsAsync(cdnInfos, steps.Token);
-                }
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
-            {
-                failedSteps++;
-                _logger.LogWarning(ex, "Failed to collect Epic CDN patterns from mapping login");
-            }
-
-            steps.Token.ThrowIfCancellationRequested();
+            // The card's X before the save still cancels the sign-in, as it did when the card's source was part of every step.
+            attempt.Token.ThrowIfCancellationRequested();
+            reporter.Token.ThrowIfCancellationRequested();
             if (!_authStorage.CompleteIntegrationLogin(login, new EpicAuthData
             {
                 OwnerAccountId = login.AccountId,
@@ -250,68 +226,34 @@ public partial class EpicMappingService
                 DisplayName = tokens.DisplayName,
                 AccountId = tokens.AccountId,
                 LastAuthenticated = DateTime.UtcNow,
-                GamesDiscovered = gamesDiscovered
+                GamesDiscovered = _gamesDiscovered
             }, () =>
             {
-                _gamesDiscovered = gamesDiscovered;
-                _lastNewGames = newGames;
-                _lastUpdatedGames = updatedGames;
+                // A collection time belongs to the Epic account whose mapping finished; a different account starts without one.
+                if (_currentTokens?.AccountId != tokens.AccountId)
+                {
+                    _lastCollectionUtc = null;
+                    _stateService.SetEpicMappingLastCollection(null);
+                }
+                // Read under the save's lock, so an account reset right after the save refuses this sign-in's count write.
+                releaseVersion = _authStorage.IntegrationReleaseVersion;
                 _currentTokens = tokens;
                 SetIsAuthenticated(true);
                 _displayName = tokens.DisplayName;
-                _lastCollectionUtc = DateTime.UtcNow;
-                _lastRefreshTime = DateTime.UtcNow;
-                _stateService.SetEpicMappingLastCollection(_lastCollectionUtc.Value);
                 // Recorded with the save, under the store's lock, so no status read finds the attempt over without
                 // it and a later cancel of the banner pass cannot replace it.
                 _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
                     login.AttemptId, OperationStatus.Completed, "signalr.epicMapping.completed"));
             })) throw new OperationCanceledException();
-            saved = true;
-
-            await reporter.ReportAsync(
-                85,
-                "signalr.epicMapping.applyingMappings",
-                CreateEpicContext());
-            try
-            {
-                await ResolveDownloadsAsync(reporter.Token);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                failedSteps++;
-                _logger.LogWarning(ex, "Failed to resolve Epic downloads after login");
-            }
-
-            await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
-            {
-                totalGames = _gamesDiscovered,
-                newGames = _lastNewGames,
-                updatedGames = _lastUpdatedGames,
-                lastUpdatedUtc = DateTime.UtcNow,
-                source = "mapping-login"
-            });
-            // A follow-up step that failed after the account was saved leaves the sign-in done with a warning, as the
-            // scheduled refresh counts it.
-            if (failedSteps > 0)
-            {
-                reporter.SetWarning(new RunWarning(
-                    "common.notifications.warnings.epicStepsFailed",
-                    new Dictionary<string, object?> { ["count"] = failedSteps }));
-            }
-            await reporter.CompleteAsync(success: true, context: CreateEpicContext());
-
-            _logger.LogInformation(
-                "Epic mapping login complete: {DisplayName}, {Games} games",
-                tokens.DisplayName,
-                _gamesDiscovered);
+            _ = Task.Run(() => RunSignInMappingAsync(reporter, tokens, login, authCts, window, attempt, releaseVersion));
+            handedOff = true;
         }
         // A person's cancel, a logout or a shutdown: the window's timer had not fired and the clock had not passed its end.
         // A check that reads the clock can find the window over a moment before the timer's callback runs.
         catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException &&
-                                                    (saved || !window.IsCancellationRequested && DateTime.UtcNow < login.ExpiresAtUtc))
+                                                    !window.IsCancellationRequested && DateTime.UtcNow < login.ExpiresAtUtc)
         {
-            _logger.LogInformation("Epic mapping auth or collection cancelled");
+            _logger.LogInformation("Epic mapping auth cancelled");
             if (reporter is not null)
             {
                 await reporter.CompleteAsync(
@@ -321,9 +263,7 @@ public partial class EpicMappingService
             }
             // The request this cancel ends answers 499, so a browser reads how its sign-in ended by its attempt id.
             _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
-                login.AttemptId,
-                saved ? OperationStatus.Completed : OperationStatus.Cancelled,
-                saved ? "signalr.epicMapping.completed" : "errors.integration.attemptExpired"));
+                login.AttemptId, OperationStatus.Cancelled, "errors.integration.attemptExpired"));
             throw;
         }
         catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)
@@ -353,42 +293,255 @@ public partial class EpicMappingService
                     context: CreateEpicContext(ex.Message));
             }
 
-            if (!saved)
-            {
-                _authStorage.RecordIntegrationLoginEnding(login, ex is ApiException { StageKey: { } failureKey } refusal
-                    ? new IntegrationLoginEnding(login.AttemptId, OperationStatus.Failed, failureKey, refusal.Context)
-                    : new IntegrationLoginEnding(login.AttemptId, OperationStatus.Failed, "modals.epicAuth.errors.loginFailed"));
-            }
+            _authStorage.RecordIntegrationLoginEnding(login, ex is ApiException { StageKey: { } failureKey } refusal
+                ? new IntegrationLoginEnding(login.AttemptId, OperationStatus.Failed, failureKey, refusal.Context)
+                : new IntegrationLoginEnding(login.AttemptId, OperationStatus.Failed, "modals.epicAuth.errors.loginFailed"));
 
             throw;
         }
         finally
         {
-            if (reporter is not null)
+            if (!handedOff)
             {
-                await reporter.DisposeAsync();
+                await ReleaseSignInAsync(login, reporter, authCts, window, attempt);
             }
-
-            authCts.Dispose();
-            if (ReferenceEquals(_currentRefreshCts, authCts))
-            {
-                _currentRefreshCts = null;
-            }
-
-            if (ReferenceEquals(_currentMappingReporter, reporter))
-            {
-                _currentMappingReporter = null;
-                _currentOperationId = null;
-                _currentStatus = EpicMappingStatus.Idle;
-            }
-            _authStorage.FinishIntegrationLogin(login);
-            if (_loginAttempt == login) _loginAttempt = null;
-            if (_processingLogin == login) _processingLogin = null;
-            _sessionLock.Release();
-            Interlocked.Exchange(ref _isProcessingInt, 0);
-            await NotifyLoginEndedAsync(login);
         }
     }
+
+    // The mapping after the save. It owns every release of the sign-in, so the session lock, the processing flag and the
+    // sign-in's cancel source stay held until it ends.
+    private async Task RunSignInMappingAsync(
+        MappingOperationReporter reporter,
+        EpicOAuthTokens tokens,
+        IntegrationLogin login,
+        CancellationTokenSource authCts,
+        CancellationTokenSource window,
+        CancellationTokenSource attempt,
+        long releaseVersion)
+    {
+        var games = new List<OwnedGame>();
+        var cdnPaths = new List<CdnInfo>();
+        MergeResult? gamesMerge = null;
+        var cdnMerged = false;
+        var failedSteps = 0;
+        try
+        {
+            _lastNewGames = 0;
+            _lastUpdatedGames = 0;
+            await reporter.ReportAsync(
+                5,
+                "signalr.epicMapping.codeAccepted",
+                CreateEpicContext());
+            // The sign-in's window still bounds the mapping after the save, so a catalog that stops answering cannot hold
+            // the sign-in locks past it.
+            using var steps = CancellationTokenSource.CreateLinkedTokenSource(attempt.Token, reporter.Token);
+
+            await reporter.ReportAsync(
+                15,
+                "signalr.epicMapping.fetchingGames",
+                CreateEpicContext());
+            games = await _epicApiClient.GetOwnedGamesAsync(
+                tokens.AccessToken,
+                ProgressReport(reporter, "signalr.epicMapping.readingLibrary", 15, 55),
+                steps.Token);
+            steps.Token.ThrowIfCancellationRequested();
+
+            if (games.Count > 0)
+            {
+                gamesMerge = await MergeOwnedGamesAsync(
+                    games,
+                    CryptoUtils.ComputeAnonymousHash("mapping-session"),
+                    "mapping-login",
+                    steps.Token);
+                StoreMappedCount(gamesMerge, complete: false, releaseVersion);
+            }
+
+            await reporter.ReportAsync(
+                55,
+                "signalr.epicMapping.refreshingCdn",
+                CreateEpicContext());
+            try
+            {
+                // A game whose build moved to a new CDN path is not re-read at sign-in; the next scheduled refresh reads every game.
+                HashSet<string> mappedAppIds;
+                using (var db = _dbContextFactory.CreateDbContext())
+                {
+                    mappedAppIds = await db.EpicCdnPatterns.AsNoTracking().Select(p => p.AppId).ToHashSetAsync(steps.Token);
+                }
+                cdnPaths = await _epicApiClient.GetCdnInfoAsync(
+                    tokens.AccessToken,
+                    mappedAppIds,
+                    ProgressReport(reporter, "signalr.epicMapping.resolvingPaths", 55, 85),
+                    steps.Token);
+                steps.Token.ThrowIfCancellationRequested();
+                if (cdnPaths.Count > 0)
+                {
+                    await MergeCdnPatternsAsync(cdnPaths, steps.Token);
+                    cdnMerged = true;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || ex.InnerException is TimeoutException)
+            {
+                failedSteps++;
+                _logger.LogWarning(ex, "Failed to collect Epic CDN patterns from mapping login");
+            }
+
+            await reporter.ReportAsync(
+                85,
+                "signalr.epicMapping.applyingMappings",
+                CreateEpicContext());
+            try
+            {
+                await ResolveDownloadsAsync(steps.Token);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failedSteps++;
+                _logger.LogWarning(ex, "Failed to resolve Epic downloads after login");
+            }
+
+            // Only a finished mapping sets the collection time: it means "a mapping finished", and the wizard shows Done
+            // after a restart from it. A canceled mapping keeps the sign-in and the count it reached, never the time.
+            StoreMappedCount(null, complete: true, releaseVersion);
+            await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
+            {
+                totalGames = _gamesDiscovered,
+                newGames = _lastNewGames,
+                updatedGames = _lastUpdatedGames,
+                lastUpdatedUtc = DateTime.UtcNow,
+                source = "mapping-login"
+            });
+            // A follow-up step that failed after the account was saved leaves the sign-in done with a warning, as the
+            // scheduled refresh counts it.
+            if (failedSteps > 0)
+            {
+                reporter.SetWarning(new RunWarning(
+                    "common.notifications.warnings.epicStepsFailed",
+                    new Dictionary<string, object?> { ["count"] = failedSteps }));
+            }
+            var done = CreateEpicContext();
+            done["count"] = _gamesDiscovered;
+            await reporter.CompleteAsync(success: true, stageKey: "signalr.epicMapping.mappingDone", context: done);
+
+            _logger.LogInformation(
+                "Epic mapping login complete: {DisplayName}, {Games} games",
+                tokens.DisplayName,
+                _gamesDiscovered);
+        }
+        // A person's cancel, a logout, a shutdown or the window's end. What was read before it is kept; the asset in flight
+        // is left out.
+        catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)
+        {
+            _logger.LogInformation("Epic sign-in mapping cancelled");
+            try
+            {
+                if (gamesMerge is null && games.Count > 0)
+                {
+                    StoreMappedCount(
+                        await MergeOwnedGamesAsync(
+                            games,
+                            CryptoUtils.ComputeAnonymousHash("mapping-session"),
+                            "mapping-login",
+                            CancellationToken.None),
+                        complete: false,
+                        releaseVersion);
+                }
+                if (!cdnMerged && cdnPaths.Count > 0)
+                {
+                    await MergeCdnPatternsAsync(cdnPaths, CancellationToken.None);
+                }
+            }
+            catch (Exception mergeEx)
+            {
+                _logger.LogWarning(mergeEx, "Failed to keep the Epic games read before the sign-in mapping was cancelled");
+            }
+            await reporter.CompleteAsync(
+                success: false,
+                cancelled: true,
+                context: CreateEpicContext());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Epic sign-in mapping failed after the sign-in was saved");
+            await reporter.CompleteAsync(
+                success: false,
+                error: "signalr.epicMapping.failed",
+                stageKey: "signalr.epicMapping.failed",
+                context: CreateEpicContext(ex.Message));
+        }
+        finally
+        {
+            await ReleaseSignInAsync(login, reporter, authCts, window, attempt);
+        }
+    }
+
+    // Writes the merged count to the stored sign-in; the tokens come from the stored record. A complete mapping also
+    // sets the collection time. A release since the save (a logout or an account reset) refuses the write, and the
+    // mapping goes on to its end.
+    private void StoreMappedCount(MergeResult? merge, bool complete, long releaseVersion)
+    {
+        try
+        {
+            _authStorage.UpdateAuthData(stored =>
+            {
+                if (merge is not null)
+                {
+                    stored.GamesDiscovered = merge.TotalGames;
+                    _gamesDiscovered = merge.TotalGames;
+                    _lastNewGames = merge.NewGames;
+                    _lastUpdatedGames = merge.UpdatedGames;
+                }
+                if (!complete) return;
+                var now = DateTime.UtcNow;
+                _lastCollectionUtc = now;
+                _lastRefreshTime = now;
+                _stateService.SetEpicMappingLastCollection(now);
+            }, expectedReleaseVersion: releaseVersion);
+        }
+        catch (ConflictException)
+        {
+            _logger.LogInformation("Epic sign-in was released during its mapping; the stored count was not written");
+        }
+    }
+
+    private async Task ReleaseSignInAsync(
+        IntegrationLogin login,
+        MappingOperationReporter? reporter,
+        CancellationTokenSource authCts,
+        CancellationTokenSource window,
+        CancellationTokenSource attempt)
+    {
+        if (reporter is not null)
+        {
+            await reporter.DisposeAsync();
+        }
+
+        authCts.Dispose();
+        window.Dispose();
+        attempt.Dispose();
+        if (ReferenceEquals(_currentRefreshCts, authCts))
+        {
+            _currentRefreshCts = null;
+        }
+
+        if (ReferenceEquals(_currentMappingReporter, reporter))
+        {
+            _currentMappingReporter = null;
+            _currentOperationId = null;
+            _currentStatus = EpicMappingStatus.Idle;
+        }
+        _authStorage.FinishIntegrationLogin(login);
+        if (_loginAttempt == login) _loginAttempt = null;
+        // The flag a begin reads first goes last: with the other order a begin between the two lines passes both checks
+        // and its code submit then loses the compare-exchange.
+        Interlocked.Exchange(ref _isProcessingInt, 0);
+        if (_processingLogin == login) _processingLogin = null;
+        _sessionLock.Release();
+        await NotifyLoginEndedAsync(login);
+    }
+
+    private static ConflictException AuthInProgress() =>
+        new("Epic auth is already in progress") { StageKey = "errors.epic.authInProgress" };
 
     // A browser that lost this sign-in's answer reads its ending when this arrives.
     private async Task NotifyLoginEndedAsync(IntegrationLogin login)
@@ -418,15 +571,23 @@ public partial class EpicMappingService
 
     public async Task LogoutAsync(IntegrationCaller? caller = null)
     {
+        // Read before the access check: a sign-in is pending before it sets this field, so a source read ahead of a
+        // check that saw no pending sign-in is never a later sign-in's.
+        var runningRefresh = _currentRefreshCts;
+        // Canceled before the release waits, so the release does not wait out a running refresh; a refused logout
+        // stops nothing.
+        if (caller is null || _authStorage.GetIntegrationAccess(caller).CanLogout)
+        {
+            try
+            {
+                runningRefresh?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // A sign-in that ended between the read and the cancel has nothing left to stop.
+            }
+        }
         await using var release = await _authStorage.BeginIntegrationReleaseAsync(caller);
-        try
-        {
-            _currentRefreshCts?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-            // A sign-in that ended between the read and the cancel has nothing left to stop.
-        }
         await _sessionLock.WaitAsync();
         try
         {
@@ -434,6 +595,7 @@ public partial class EpicMappingService
             SetIsAuthenticated(false);
             _displayName = null;
             _lastCollectionUtc = null;
+            _stateService.SetEpicMappingLastCollection(null);
             _gamesDiscovered = 0;
             _currentTokens = null;
             _logger.LogInformation("Epic mapping session logged out and credentials cleared");
@@ -444,9 +606,8 @@ public partial class EpicMappingService
         }
     }
 
-    private async Task TryAutoReconnectAsync()
+    private async Task TryAutoReconnectAsync(CancellationToken cancellationToken)
     {
-        var cancellationToken = _cancellationTokenSource.Token;
         await _sessionLock.WaitAsync(cancellationToken);
         var snapshot = _authStorage.GetIntegrationSnapshot();
         try
@@ -468,7 +629,7 @@ public partial class EpicMappingService
                     SetIsAuthenticated(true);
                     _displayName = tokens.DisplayName;
                     _gamesDiscovered = snapshot.Auth.GamesDiscovered;
-                    _lastCollectionUtc = _stateService.GetEpicMappingCollectedAt() ?? snapshot.Auth.LastAuthenticated;
+                    _lastCollectionUtc = _stateService.GetEpicMappingCollectedAt();
                 });
             }
             catch (OperationCanceledException) { throw; }

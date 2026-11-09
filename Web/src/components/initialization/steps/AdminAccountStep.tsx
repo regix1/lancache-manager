@@ -228,7 +228,8 @@ export const AdminAccountStep: React.FC = () => {
               placeholder={t('initialization.adminAccount.usernamePlaceholder')}
               className="themed-input setup-input"
               autoComplete="username"
-              disabled={isSubmitting}
+              // Held while Submit sends it, so the account created is the one on screen.
+              readOnly={isSubmitting}
             />
           )}
         </FormField>
@@ -243,7 +244,7 @@ export const AdminAccountStep: React.FC = () => {
           error={errors.password}
           placeholder={t('initialization.adminAccount.passwordPlaceholder')}
           autoComplete="new-password"
-          disabled={isSubmitting}
+          readOnly={isSubmitting}
           inputClassName="themed-input setup-input"
           showPasswordLabel={t('aria.showPassword')}
           hidePasswordLabel={t('aria.hidePassword')}
@@ -265,7 +266,7 @@ export const AdminAccountStep: React.FC = () => {
           error={errors.confirmPassword}
           placeholder={t('initialization.adminAccount.confirmPasswordPlaceholder')}
           autoComplete="new-password"
-          disabled={isSubmitting}
+          readOnly={isSubmitting}
           inputClassName="themed-input setup-input"
           showPasswordLabel={t('aria.showPassword')}
           hidePasswordLabel={t('aria.hidePassword')}
@@ -288,7 +289,7 @@ export const AdminAccountStep: React.FC = () => {
               onChange={handleInputChange('apiKey')}
               placeholder={t('initialization.adminAccount.apiKeyPlaceholder')}
               className="themed-input setup-input"
-              disabled={isSubmitting}
+              readOnly={isSubmitting}
             />
           )}
         </FormField>

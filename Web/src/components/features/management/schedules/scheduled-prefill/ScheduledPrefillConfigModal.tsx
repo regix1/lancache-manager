@@ -123,6 +123,9 @@ export function ScheduledPrefillConfigModal({
   const confirmed = useRef({ onSaved, onLoaded });
   confirmed.current = { onSaved, onLoaded };
   const writes = useRef(new Map<string, object>());
+  // The opening whose new schedule the server already stored while the dialog stayed open over a
+  // later edit; its next Save updates that schedule instead of creating a second one.
+  const createdOpening = useRef<number | null>(null);
   const [gameSelection, setGameSelection] = useState<ScheduledPrefillGameSelectionState | null>(
     null
   );
@@ -233,21 +236,29 @@ export function ScheduledPrefillConfigModal({
     setSaving(true);
     setError(null);
     try {
-      const result = target.create
-        ? await ApiService.createScheduledPrefillSchedule(
-            getPersistentServiceId(target.serviceKey),
-            config
-          )
-        : await ApiService.updateScheduledPrefillSchedule(
-            getPersistentServiceId(target.serviceKey),
-            config
-          );
+      const result =
+        target.create && createdOpening.current !== opening
+          ? await ApiService.createScheduledPrefillSchedule(
+              getPersistentServiceId(target.serviceKey),
+              config
+            )
+          : await ApiService.updateScheduledPrefillSchedule(
+              getPersistentServiceId(target.serviceKey),
+              config
+            );
       const saved = result[target.serviceKey].schedules.find((record) => record.id === config.id);
       if (!saved) throw new Error(t(`${baseKey}.records.missing`));
       if (writes.current.get(key) !== write) return;
       confirmed.current.onSaved(target.serviceKey, saved);
       if (current.current?.opening !== opening) return;
       baseline.current = JSON.stringify(saved);
+      // The fields stay editable while the save runs; an edit made meanwhile stays on screen,
+      // unsaved, and keeps the dialog open.
+      if (JSON.stringify(configRef.current) !== JSON.stringify(config)) {
+        if (target.create) createdOpening.current = opening;
+        dirty.current = JSON.stringify(configRef.current) !== baseline.current;
+        return;
+      }
       dirty.current = false;
       setConfig(saved);
       onClose();
@@ -526,7 +537,6 @@ export function ScheduledPrefillConfigModal({
                   <ScheduledPrefillPlatformsPanel
                     serviceKey={target.serviceKey}
                     config={config}
-                    disabled={saving}
                     gameSelectionLoading={loadingGameSelectionService !== null && !gameLoaded}
                     gameSelectionBlocked={gameSelectionBlocked}
                     onChange={change}

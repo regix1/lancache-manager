@@ -26,7 +26,9 @@ import {
   isPersistentLoginAuthenticatedResponse,
   isPersistentLoginCredentialChallenge,
   markPersistentLoginAuthenticated,
-  resetPersistentLoginSessionReplaced
+  resetPersistentLoginSessionReplaced,
+  updatePersistentLoginState,
+  type PersistentLoginWaitKey
 } from './persistentLoginStore';
 
 const LOGIN_REQUIRED_SERVICE_IDS: readonly PersistentPrefillServiceId[] =
@@ -35,6 +37,38 @@ const LOGIN_REQUIRED_SERVICE_IDS: readonly PersistentPrefillServiceId[] =
 // The device-confirmation ack ('confirm') must be sent exactly once per challenge. Tracked at module
 // scope so a listener re-registration (containersByService change) cannot re-send it.
 const acknowledgedDeviceConfirmationIds = new Set<string>();
+
+// Session pushes seen per service. A reconnect read that was sent before a later push is older than
+// that push, so its answer must not overwrite what the push wrote.
+const sessionPushCounts = new Map<PersistentPrefillServiceId, number>();
+
+// Shared sessionId fence: only act on an event whose session matches the currently known
+// container for the service AND the login store's pinned session (when pinned). Drops a stale
+// event or a concurrent guest login for the same platform.
+function sessionMatches(
+  containersByService: Map<PersistentPrefillServiceId, PersistentPrefillContainerDto>,
+  serviceId: PersistentPrefillServiceId,
+  eventSessionId: string
+): boolean {
+  const container = containersByService.get(serviceId);
+  if (!container || container.sessionId !== eventSessionId) {
+    return false;
+  }
+  if (!hasPersistentLoginIntent(serviceId)) {
+    return false;
+  }
+  const pinnedSessionId = getPersistentLoginSessionId(serviceId);
+  const requestedSessionId = getPersistentLoginStartRequest(serviceId)?.sessionId;
+  return (pinnedSessionId ?? requestedSessionId) === eventSessionId;
+}
+
+function writeLoginWaitKey(
+  serviceId: PersistentPrefillServiceId,
+  loginWaitKey: PersistentLoginWaitKey | null
+): void {
+  if (getPersistentLoginState(serviceId).loginWaitKey !== loginWaitKey)
+    updatePersistentLoginState(serviceId, (current) => ({ ...current, loginWaitKey }));
+}
 
 // A sign-in ending, pushed with the session or read after a reconnect, ends the dialog only when it belongs to the attempt
 // the dialog waits on: success closes it signed in, any other ending clears the prompt and shows its reason.
@@ -62,6 +96,7 @@ interface AuthStateChangedPayload {
 interface UpdatedSession {
   id: string;
   loginEnding?: PrefillLoginEnding;
+  loginWaitKey: PersistentLoginWaitKey | null;
 }
 
 interface UsePersistentLoginChallengeSignalROptions {
@@ -103,30 +138,11 @@ export function usePersistentLoginChallengeSignalR({
       return;
     }
 
-    // Shared sessionId fence: only act on an event whose session matches the currently known
-    // container for the service AND the login store's pinned session (when pinned). Drops a stale
-    // event or a concurrent guest login for the same platform.
-    const sessionMatches = (
-      serviceId: PersistentPrefillServiceId,
-      eventSessionId: string
-    ): boolean => {
-      const container = containersByService.get(serviceId);
-      if (!container || container.sessionId !== eventSessionId) {
-        return false;
-      }
-      if (!hasPersistentLoginIntent(serviceId)) {
-        return false;
-      }
-      const pinnedSessionId = getPersistentLoginSessionId(serviceId);
-      const requestedSessionId = getPersistentLoginStartRequest(serviceId)?.sessionId;
-      return (pinnedSessionId ?? requestedSessionId) === eventSessionId;
-    };
-
     const handlers = LOGIN_REQUIRED_SERVICE_IDS.flatMap((serviceId) => {
       const challengeEvent = getPersistentPrefillCredentialChallengeEvent(serviceId);
       const challengeHandler: EventHandler = (payload) => {
         const event = payload as CredentialChallengePayload;
-        if (!sessionMatches(serviceId, event.sessionId)) {
+        if (!sessionMatches(containersByService, serviceId, event.sessionId)) {
           return;
         }
         if (
@@ -172,7 +188,10 @@ export function usePersistentLoginChallengeSignalR({
       const authEvent = getPersistentPrefillAuthStateChangedEvent(serviceId);
       const authHandler: EventHandler = (payload) => {
         const event = payload as AuthStateChangedPayload;
-        if (event.authState !== 'Authenticated' || !sessionMatches(serviceId, event.sessionId)) {
+        if (
+          event.authState !== 'Authenticated' ||
+          !sessionMatches(containersByService, serviceId, event.sessionId)
+        ) {
           return;
         }
         markPersistentLoginAuthenticated(serviceId);
@@ -181,7 +200,10 @@ export function usePersistentLoginChallengeSignalR({
       const sessionUpdatedEvent = getPersistentPrefillSessionUpdatedEvent(serviceId);
       const sessionUpdatedHandler: EventHandler = (message) => {
         const session = message as UpdatedSession;
-        if (!session.loginEnding || !sessionMatches(serviceId, session.id)) return;
+        if (!sessionMatches(containersByService, serviceId, session.id)) return;
+        sessionPushCounts.set(serviceId, (sessionPushCounts.get(serviceId) ?? 0) + 1);
+        writeLoginWaitKey(serviceId, session.loginWaitKey);
+        if (!session.loginEnding) return;
         endPersistentLoginOnEnding(serviceId, session.loginEnding, t(session.loginEnding.stageKey));
       };
 
@@ -231,5 +253,31 @@ export function usePersistentLoginChallengeSignalR({
         () => undefined
       );
     }
+
+    // What a waiting Log in waits for arrives only with a session push, and no challenge exists yet
+    // to read it from, so the session itself is read.
+    const waiting = LOGIN_REQUIRED_SERVICE_IDS.flatMap((serviceId) => {
+      const sessionId = containersByService.get(serviceId)?.sessionId;
+      return sessionId && sessionMatches(containersByService, serviceId, sessionId)
+        ? [{ serviceId, sessionId, pushes: sessionPushCounts.get(serviceId) ?? 0 }]
+        : [];
+    });
+    if (waiting.length === 0) return;
+    void ApiService.getActivePrefillSessions().then(
+      (sessions) => {
+        for (const { serviceId, sessionId, pushes } of waiting) {
+          // A session the caller may not see is left out of the answer, which says nothing about its key.
+          const session = sessions.find((candidate) => candidate.id === sessionId);
+          if (
+            !session ||
+            (sessionPushCounts.get(serviceId) ?? 0) !== pushes ||
+            !sessionMatches(containersByService, serviceId, sessionId)
+          )
+            continue;
+          writeLoginWaitKey(serviceId, session.loginWaitKey ?? null);
+        }
+      },
+      () => undefined
+    );
   });
 }

@@ -15,6 +15,10 @@ public class SteamService : IDisposable
     // Caches for performance
     private readonly ConcurrentDictionary<long, GameInfo> _gameCache = new();
 
+    // The store API rate-limits, so an app whose lookup failed is asked again only after an hour.
+    private readonly ConcurrentDictionary<long, DateTime> _failedLookupAtUtc = new();
+    private static readonly TimeSpan _failedLookupRetryAfter = TimeSpan.FromHours(1);
+
     public class GameInfo
     {
         public long AppId { get; set; }
@@ -61,6 +65,12 @@ public class SteamService : IDisposable
                 _gameCache.TryRemove(appId, out _);
             }
 
+            if (_failedLookupAtUtc.TryGetValue(appId, out var failedAt) &&
+                DateTime.UtcNow - failedAt < _failedLookupRetryAfter)
+            {
+                return null;
+            }
+
             var gameInfo = await GetDetailedGameInfoAsync(appId);
             if (gameInfo != null)
             {
@@ -68,6 +78,7 @@ public class SteamService : IDisposable
                 return gameInfo;
             }
 
+            _failedLookupAtUtc[appId] = DateTime.UtcNow;
             return null;
         }
         catch (Exception ex)
@@ -78,14 +89,26 @@ public class SteamService : IDisposable
     }
 
     /// <summary>
+    /// App ids whose last store lookup failed less than an hour ago. <see cref="GetGameInfoAsync"/>
+    /// answers null for these without asking Steam, so a batch that asks for names can leave them out.
+    /// </summary>
+    public long[] GetRecentlyFailedAppIds()
+    {
+        var cutoff = DateTime.UtcNow - _failedLookupRetryAfter;
+        return _failedLookupAtUtc
+            .Where(failed => failed.Value > cutoff)
+            .Select(failed => failed.Key)
+            .ToArray();
+    }
+
+    /// <summary>
     /// Asks the Steam Store API for an app's details.
     /// </summary>
     /// <returns>
-    /// The store's answer, or <c>FallbackGameInfo</c> when the store could not be reached or read.
-    /// The fallback carries the app id and whatever name we already had, so it is a real answer
-    /// rather than a blank standing in for one, but it has no store fields on it.
+    /// The store's answer, or null when the store could not be reached, answered with an error, or
+    /// sent a body without a name.
     /// </returns>
-    private async Task<GameInfo?> GetDetailedGameInfoAsync(long appId, string? knownName = null)
+    private async Task<GameInfo?> GetDetailedGameInfoAsync(long appId)
     {
         await _apiSemaphore.WaitAsync();
         try
@@ -95,28 +118,28 @@ public class SteamService : IDisposable
 
             if (!response.IsSuccessStatusCode)
             {
-                return FallbackGameInfo(appId, knownName);
+                return null;
             }
 
             var json = await response.Content.ReadAsStringAsync();
-            return ParseStoreApiResponse(json, appId, knownName);
+            return ParseStoreApiResponse(json, appId);
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
             // Steam Store API timed out - this is expected for some apps
-            _logger.LogWarning($"Steam Store API timeout for app {appId} ({knownName ?? "Unknown"}) - using fallback");
-            return FallbackGameInfo(appId, knownName);
+            _logger.LogWarning($"Steam Store API timeout for app {appId}");
+            return null;
         }
         catch (TaskCanceledException)
         {
             // Request was cancelled for other reasons
-            _logger.LogWarning($"Steam Store API request cancelled for app {appId} ({knownName ?? "Unknown"}) - using fallback");
-            return FallbackGameInfo(appId, knownName);
+            _logger.LogWarning($"Steam Store API request cancelled for app {appId}");
+            return null;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Error fetching detailed game info for app {appId}");
-            return FallbackGameInfo(appId, knownName);
+            return null;
         }
         finally
         {
@@ -128,10 +151,10 @@ public class SteamService : IDisposable
     /// Turns a Steam Store API response body into a game record.
     /// </summary>
     /// <returns>
-    /// The parsed store record, or <c>FallbackGameInfo</c> when the response was not the shape we
-    /// expected. Same meaning as above: a name and an id, none of the store fields.
+    /// The parsed store record, or null when the store answered <c>success: false</c>, the body was
+    /// not the shape we expected, or it carried no name.
     /// </returns>
-    private GameInfo? ParseStoreApiResponse(string json, long appId, string? knownName = null)
+    private GameInfo? ParseStoreApiResponse(string json, long appId)
     {
         try
         {
@@ -143,13 +166,19 @@ public class SteamService : IDisposable
                 !success.GetBoolean() ||
                 !appData.TryGetProperty("data", out var data))
             {
-                return FallbackGameInfo(appId, knownName);
+                return null;
+            }
+
+            var storeName = data.TryGetProperty("name", out var name) ? name.GetString() : null;
+            if (string.IsNullOrEmpty(storeName))
+            {
+                return null;
             }
 
             var gameInfo = new GameInfo
             {
                 AppId = appId,
-                Name = data.TryGetProperty("name", out var name) ? name.GetString() ?? knownName ?? $"App {appId}" : knownName ?? $"App {appId}",
+                Name = storeName,
                 Type = data.TryGetProperty("type", out var type) ? type.GetString() ?? "game" : "game",
                 IsFree = data.TryGetProperty("is_free", out var isFree) && isFree.GetBoolean(),
                 HeaderImage = data.TryGetProperty("header_image", out var headerImage) ? headerImage.GetString() : null,
@@ -162,21 +191,8 @@ public class SteamService : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, $"Error parsing Store API response for {appId}");
-            return FallbackGameInfo(appId, knownName);
+            return null;
         }
-    }
-
-    private static GameInfo FallbackGameInfo(long appId, string? knownName = null)
-    {
-        return new GameInfo
-        {
-            AppId = appId,
-            Name = knownName ?? $"Steam App {appId}",
-            Type = "game",
-            HeaderImage = null,
-            Description = null,
-            CacheTime = DateTime.UtcNow
-        };
     }
 
     #endregion

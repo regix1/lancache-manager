@@ -117,6 +117,13 @@ public class AppDbContext : DbContext
             .HasIndex(d => new { d.IsEvicted, d.StartTimeUtc, d.ClientIp })
             .HasDatabaseName("IX_Downloads_IsEvicted_StartTimeUtc_ClientIp");
 
+        // Log ingest and the history import insert Downloads rows with raw SQL that never names
+        // this column, so the default has to exist in a schema built from the model as well as
+        // in one built by the migration.
+        modelBuilder.Entity<Download>()
+            .Property(d => d.IsPrefill)
+            .HasDefaultValue(false);
+
         // SteamDepotMapping indexes. DepotId-only lookups (the depot -> app JOINs in cache
         // detection and removal) are served by the leading column of the unique
         // IX_SteamDepotMappings_DepotId_AppId index declared further below.

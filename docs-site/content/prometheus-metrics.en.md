@@ -2,11 +2,16 @@
 
 The app exposes Prometheus metrics on `/metrics`. Scrape them, build dashboards in Grafana or any Prometheus-compatible stack, alert on cache hit ratio - whatever you need. The metrics URL and refresh settings also surface in **Management → Integrations**.
 
-!!! note "Prefill traffic is counted here, the same as on the dashboard"
+!!! note "Prefill traffic follows the prefill traffic rules, the same as on the dashboard"
 
-    The prefill daemon downloads through the cache like any other client, so its traffic is recorded under its own client IP, normally `127.0.0.1`. Both `/metrics` and the dashboard count it, and the two agree.
+    The prefill daemon downloads through the cache like any other client. `/metrics` and the dashboard handle its traffic the same way, and the two agree:
 
-    A prefill run is nearly all MISS bytes, so it pulls every hit-ratio series down for a while. [Troubleshooting](troubleshooting.md#troubleshooting) explains the arithmetic and how to filter the daemon out of a view.
+    | Prefill traffic rule | Prefill runs on `/metrics` |
+    |---|---|
+    | None matches the run | Counted in every series. A prefill run is nearly all MISS bytes, so it pulls every hit-ratio series down for a while. |
+    | One matches the run, in either mode | Left out of every download series except `lancache_cache_miss_bytes_total` and the cache growth series, which still count them, since a prefill still fills the cache. |
+
+    The rules are part of Client Exclusions on **Management → Clients**. [Prefill traffic rules](troubleshooting.md#prefill-traffic-rules) lists the rule fields, which runs are marked and when they cannot be marked.
 
 !!! warning "Client Exclusions now apply to `/metrics`"
 
@@ -14,7 +19,7 @@ The app exposes Prometheus metrics on `/metrics`. Scrape them, build dashboards 
 
     If you have any client excluded, those series drop on the release carrying this change. Your history is not rewritten, but every value from that point on is lower than the equivalent value before it. Re-check any `rate()` panel or alert threshold you tuned against the old numbers.
 
-    This is also how to keep prefill traffic out of Prometheus. Exclude the daemon's client IP, normally `127.0.0.1`, under **Management → Clients**.
+    To keep prefill traffic out of Prometheus, add a **Prefill traffic** rule instead of an all-traffic rule for the client. An all-traffic rule also takes the client out of `lancache_cache_miss_bytes_total`.
 
 ### Available metrics
 

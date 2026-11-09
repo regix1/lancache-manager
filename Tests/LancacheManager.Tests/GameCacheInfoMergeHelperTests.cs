@@ -66,4 +66,22 @@ public class GameCacheInfoMergeHelperTests
         Assert.Equal(600UL, existing.TotalSizeBytes);
         Assert.Equal(new List<string> { "a", "b" }, existing.Datasources);
     }
+
+    [Theory]
+    [InlineData("1048576", "8388608", "1048576,8388608")]
+    [InlineData("8388608", "1048576", "1048576,8388608")]
+    [InlineData("1048576", "1048576", "1048576")]
+    [InlineData("1048576,8388608", "8388608", "1048576,8388608")]
+    [InlineData(null, "8388608", "8388608")]
+    [InlineData("1048576", null, "1048576")]
+    [InlineData(null, null, null)]
+    public void MergeGame_TwoDatasources_KeepsTheUnionOfSliceSizes(string? first, string? second, string? expected)
+    {
+        var existing = new GameCacheInfo { GameAppId = 730, SliceSizes = first };
+        var incoming = new GameCacheInfo { GameAppId = 730, SliceSizes = second };
+
+        GameCacheInfoMergeHelper.MergeGame(existing, incoming);
+
+        Assert.Equal(expected, existing.SliceSizes);
+    }
 }

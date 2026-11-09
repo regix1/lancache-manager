@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { bindLifted, liftConstArrow, liftHookCallback, parseSource } from './transpile-module.mjs';
+import typescript from 'typescript';
+import {
+  bindLifted,
+  compileToUrl,
+  findSoleNode,
+  liftConstArrow,
+  liftHookCallback,
+  parseSource
+} from './transpile-module.mjs';
 
 const CONFIG_CONTEXT = 'src/contexts/ConfigContext.tsx';
 const DATASOURCES = 'src/components/features/management/datasources/DatasourcesInfo.tsx';
 const CACHE_MANAGER = 'src/components/features/management/cache/CacheManager.tsx';
+const CACHE_SETTINGS = 'src/components/features/management/cache/CacheSettings.tsx';
 const LOG_REMOVAL = 'src/components/features/management/log-processing/LogRemovalManager.tsx';
 
 const heldReads = () => {
@@ -54,15 +63,16 @@ const setValue = (state, key) => (value) => {
 const buildSaveHarness = (initialConfig) => {
   const state = {
     config: initialConfig,
-    saving: null,
+    saving: {},
     draft: { alpha: '250G' },
     errors: {},
     successes: [],
     refreshes: 0,
-    dataRefreshes: 0
+    dataRefreshes: 0,
+    requested: []
   };
   const configRef = { current: state.config };
-  const cacheSizeSaveRequestRef = { current: 0 };
+  const cacheSizeSaveRequestRef = { current: new Map() };
   const cacheSizeSaveAllowedRef = { current: true };
   const requests = heldReads();
   const setConfig = (update) => {
@@ -73,36 +83,45 @@ const buildSaveHarness = (initialConfig) => {
     liftHookCallback(CONFIG_CONTEXT, 'useCallback', "typeof patch === 'function'"),
     { setConfig }
   );
-  const saveCacheSize = bindLifted(liftConstArrow(DATASOURCES, 'saveCacheSize'), {
-    cacheSizeSaving: null,
-    isAdmin: true,
-    mockMode: false,
-    config: initialConfig,
-    cacheSizeSaveRequestRef,
-    cacheSizeSaveAllowedRef,
-    configRef,
-    setCacheSizeSaving: setValue(state, 'saving'),
-    setCacheSizeError: setValue(state, 'errors'),
-    ApiService: { setDatasourceCacheSize: requests.start },
-    updateConfig,
-    setCacheSizeDraft: setValue(state, 'draft'),
-    onSuccess: (message) => state.successes.push(message),
-    t: (key) => key,
-    refreshConfig: async () => {
-      state.refreshes += 1;
-    },
-    onDataRefresh: () => {
-      state.dataRefreshes += 1;
-    },
-    getErrorMessage: (error) => error.message
-  });
+  const saveSource = liftConstArrow(DATASOURCES, 'saveCacheSize');
+  // Each click runs the handler of the render it happened in, so it reads the state of that moment.
+  const saveCacheSize = (name, raw, action) =>
+    bindLifted(saveSource, {
+      cacheSizeSaving: state.saving,
+      cacheSizeDraft: state.draft,
+      isAdmin: true,
+      mockMode: false,
+      config: initialConfig,
+      cacheSizeSaveRequestRef,
+      cacheSizeSaveAllowedRef,
+      configRef,
+      setCacheSizeSaving: setValue(state, 'saving'),
+      setCacheSizeError: setValue(state, 'errors'),
+      ApiService: {
+        setDatasourceCacheSize: (requestedName, value) => {
+          state.requested.push([requestedName, value]);
+          return requests.start();
+        }
+      },
+      updateConfig,
+      setCacheSizeDraft: setValue(state, 'draft'),
+      onSuccess: (message) => state.successes.push(message),
+      t: (key) => key,
+      refreshConfig: async () => {
+        state.refreshes += 1;
+      },
+      onDataRefresh: () => {
+        state.dataRefreshes += 1;
+      },
+      getErrorMessage: (error) => error.message
+    })(name, raw, action);
 
   const render = ({ nextConfig = state.config, allowed = true, mockMode = false } = {}) => {
     state.config = nextConfig;
     configRef.current = nextConfig;
     cacheSizeSaveAllowedRef.current = allowed && !mockMode;
-    if (state.saving === null) return;
-    bindLifted(liftHookCallback(DATASOURCES, 'useEffect', 'cacheSizeSaving.cachePath'), {
+    if (Object.keys(state.saving).length === 0) return;
+    bindLifted(liftHookCallback(DATASOURCES, 'useEffect', 'saving.cachePath'), {
       cacheSizeSaving: state.saving,
       config: nextConfig,
       isAdmin: allowed,
@@ -207,6 +226,7 @@ test('a failed log file delete still reloads the counts', async () => {
     pendingLogFileDeletionRef: { current: 'alpha' },
     setPendingLogFileDeletion: () => undefined,
     deletingLogFiles: { isSelected: () => false, setMany: () => undefined },
+    deletingLogFileRef: { current: new Set() },
     setLogFileDeleteError: (message) => state.errors.push(message),
     ApiService: { deleteLogFile: () => Promise.reject(new Error('unlink failed')) },
     loadData: async () => {
@@ -296,7 +316,7 @@ test('a deferred cache-size save merges three values into the current datasource
   assert.equal(harness.state.refreshes, 1);
   assert.equal(harness.state.dataRefreshes, 1);
   assert.equal(harness.state.draft.alpha, '');
-  assert.equal(harness.state.saving, null);
+  assert.deepEqual(harness.state.saving, {});
 });
 
 test('removed, renamed, and rebound save targets are never restored', async () => {
@@ -319,7 +339,7 @@ test('removed, renamed, and rebound save targets are never restored', async () =
     assert.deepEqual(harness.state.config, nextConfig);
     assert.deepEqual(harness.state.successes, []);
     assert.equal(harness.state.refreshes, 0);
-    assert.equal(harness.state.saving, null);
+    assert.deepEqual(harness.state.saving, {});
   }
 });
 
@@ -331,21 +351,57 @@ test('current authorization loss and a newer save owner suppress stale effects',
   await deniedSave;
   assert.deepEqual(denied.state.errors, { alpha: undefined });
   assert.deepEqual(denied.state.successes, []);
-  assert.equal(denied.state.saving, null);
+  assert.deepEqual(denied.state.saving, {});
 
   const superseded = buildSaveHarness(config([datasource('alpha')], 'initial'));
   const olderSave = superseded.saveCacheSize('alpha', '250G', 'save');
-  superseded.cacheSizeSaveRequestRef.current += 1;
+  superseded.cacheSizeSaveRequestRef.current.set('alpha', {});
   superseded.state.saving = {
-    name: 'alpha',
-    action: 'reset',
-    cachePath: '/cache/alpha',
-    logsPath: '/logs/alpha'
+    alpha: {
+      name: 'alpha',
+      action: 'reset',
+      cachePath: '/cache/alpha',
+      logsPath: '/logs/alpha'
+    }
   };
   superseded.requests.reads[0].reject(new Error('stale save failure'));
   await olderSave;
-  assert.equal(superseded.state.saving.action, 'reset');
+  assert.equal(superseded.state.saving.alpha.action, 'reset');
   assert.equal(superseded.state.errors.alpha, undefined);
+});
+
+test('a cache size typed while its row saves is kept', async () => {
+  const harness = buildSaveHarness(config([datasource('alpha')], 'initial'));
+  const saving = harness.saveCacheSize('alpha', '250G', 'save');
+  setValue(harness.state, 'draft')((previous) => ({ ...previous, alpha: '300G' }));
+  harness.requests.reads[0].resolve({
+    cacheSizeOverrideBytes: 250,
+    resolvedCacheSizeBytes: 500,
+    cacheSizeSource: 'manual'
+  });
+  await saving;
+
+  assert.equal(harness.state.draft.alpha, '300G');
+});
+
+test('another row saves while one row saves, a repeat on the same row does not', async () => {
+  const harness = buildSaveHarness(config([datasource('alpha'), datasource('beta')], 'initial'));
+  const first = harness.saveCacheSize('alpha', '250G', 'save');
+  const second = harness.saveCacheSize('beta', '1T', 'save');
+  const repeat = harness.saveCacheSize('alpha', '250G', 'save');
+
+  assert.deepEqual(harness.state.requested, [
+    ['alpha', '250G'],
+    ['beta', '1T']
+  ]);
+  for (const read of harness.requests.reads)
+    read.resolve({
+      cacheSizeOverrideBytes: 1,
+      resolvedCacheSizeBytes: 1,
+      cacheSizeSource: 'manual'
+    });
+  await Promise.all([first, second, repeat]);
+  assert.deepEqual(harness.state.saving, {}, 'both rows end their busy state');
 });
 
 test('datasource rows and empty states preserve enabled and empty meanings', () => {
@@ -413,6 +469,135 @@ test('a missing cache-clear target sends no request while an existing target doe
   });
   await startExisting();
   assert.deepEqual(calls, ['alpha']);
+});
+
+test('the slice-size control lists a stored size outside the powers of two', () => {
+  const sourceFile = parseSource(CACHE_SETTINGS);
+  const initializerOf = (constName) =>
+    findSoleNode(
+      sourceFile,
+      `${constName} declaration`,
+      (node) =>
+        typescript.isVariableDeclaration(node) &&
+        node.name.getText(sourceFile) === constName &&
+        node.initializer !== undefined
+    ).initializer.getText(sourceFile);
+  const mebibyte = 1024 * 1024;
+  const manualSizes = bindLifted(initializerOf('MANUAL_SLICE_SIZES'), {});
+  const optionsFor = (sliceSize) =>
+    bindLifted(initializerOf('sliceSizeOptions'), {
+      MANUAL_SLICE_SIZES: manualSizes,
+      sliceSize,
+      formatBytes: (bytes) => `${bytes / mebibyte} MB`,
+      t: (key) => key
+    });
+
+  // The dropdown selects the option whose value equals String(sliceSize).
+  const stored = optionsFor(10 * mebibyte);
+  assert.deepEqual(
+    stored.map((option) => option.value),
+    ['auto', ...[1, 2, 4, 8, 10, 16, 32, 64].map((size) => String(size * mebibyte))]
+  );
+  assert.equal(stored.find((option) => option.value === String(10 * mebibyte))?.label, '10 MB');
+
+  const listed = [1, 2, 4, 8, 16, 32, 64].map((size) => String(size * mebibyte));
+  assert.deepEqual(
+    optionsFor(8 * mebibyte).map((option) => option.value),
+    ['auto', ...listed]
+  );
+  assert.deepEqual(
+    optionsFor(null).map((option) => option.value),
+    ['auto', ...listed]
+  );
+  assert.deepEqual(
+    optionsFor(undefined).map((option) => option.value),
+    ['auto', ...listed]
+  );
+});
+
+test('an open page reloads the slice size when another save announces it', async () => {
+  const subscribed = [];
+  const unsubscribed = [];
+  let loads = 0;
+  const cleanup = bindLifted(
+    liftHookCallback(CACHE_SETTINGS, 'useEffect', 'CacheSliceSizeChanged'),
+    {
+      signalR: {
+        on: (name, handler) => subscribed.push({ name, handler }),
+        off: (name, handler) => unsubscribed.push({ name, handler })
+      },
+      loadSliceSize: () => {
+        loads += 1;
+      }
+    }
+  )();
+
+  assert.deepEqual(
+    subscribed.map(({ name }) => name),
+    ['CacheSliceSizeChanged']
+  );
+  subscribed[0].handler();
+  assert.equal(loads, 1);
+  cleanup();
+  assert.deepEqual(unsubscribed, subscribed);
+
+  // The hub connection dispatches only the names in this list.
+  const { SIGNALR_EVENTS } = await import(
+    await compileToUrl('../src/contexts/SignalRContext/types.ts')
+  );
+  assert.ok(SIGNALR_EVENTS.includes('CacheSliceSizeChanged'));
+});
+
+test('the slice size has its own card above Disk Cache Management', async () => {
+  // Disk Cache Management no longer holds the setting, so its collapsed chip cannot count it.
+  assert.doesNotMatch(
+    parseSource(CACHE_MANAGER).text,
+    /sliceSize|SliceSize|MANUAL_SLICE_SIZES|cacheSliceSize/
+  );
+
+  // Read from the TSX tree, not the text, so a card hidden behind `{false && ...}` or moved out
+  // of the group fails.
+  const storage = parseSource(
+    'src/components/features/management/sections/StorageSection.tsx',
+    typescript.ScriptKind.TSX
+  );
+  const diskCache = findSoleNode(
+    storage,
+    'Disk Cache Management glow',
+    (node) =>
+      typescript.isJsxElement(node) &&
+      node.openingElement.getText(storage).startsWith('<HighlightGlow enabled={highlightCacheScan}')
+  );
+  const group = diskCache.parent;
+  assert.ok(
+    typescript.isJsxElement(group) &&
+      group.openingElement.getText(storage) === '<div className="space-y-4">'
+  );
+  const card = group.children.find(
+    (child) =>
+      typescript.isJsxSelfClosingElement(child) &&
+      child.tagName.getText(storage) === 'CacheSettings'
+  );
+  assert.ok(card, 'CacheSettings is a direct child of the Disk Cache Management group');
+  assert.ok(group.children.indexOf(card) < group.children.indexOf(diskCache));
+
+  const settings = parseSource(CACHE_SETTINGS, typescript.ScriptKind.TSX);
+  const badge = findSoleNode(
+    settings,
+    'card badge',
+    (node) => typescript.isJsxAttribute(node) && node.name.getText(settings) === 'badge'
+  );
+  assert.match(
+    badge.initializer.getText(settings),
+    /sliceSizeLoadError !== null && !sectionExpanded && <SectionErrorChip \/>/
+  );
+
+  for (const locale of ['en', 'zh']) {
+    const strings = JSON.parse(
+      await readFile(new URL(`../src/i18n/locales/${locale}.json`, import.meta.url), 'utf8')
+    );
+    assert.equal(typeof strings.management.cacheSliceSize.cardTitle, 'string');
+  }
 });
 
 test('new datasource strings exist with matching placeholders in both locales', async () => {

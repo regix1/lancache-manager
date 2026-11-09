@@ -25,11 +25,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [authenticationEnabled, setAuthenticationEnabled] = useState(true);
   const [accountMode, setAccountMode] = useState<AccountMode>('apiKeyPassword');
   const [authenticationSetupRequired, setAuthenticationSetupRequired] = useState(false);
+  const [signInModeFromEnvironment, setSignInModeFromEnvironment] = useState(false);
   const [oidcDisplayName, setOidcDisplayName] = useState('');
   const [oidcPending, setOidcPending] = useState(false);
   const [ownerOidcEnabled, setOwnerOidcEnabled] = useState(false);
   const [ownerPasswordEnabled, setOwnerPasswordEnabled] = useState(false);
   const [loginServices, setLoginServices] = useState<LoginService[]>([]);
+  const [incompleteLoginServices, setIncompleteLoginServices] = useState<LoginService[]>([]);
   const [ownerLoginServices, setOwnerLoginServices] = useState<string[]>([]);
   const [loginSetupPending, setLoginSetupPending] = useState(false);
   const [pendingLoginKind, setPendingLoginKind] = useState<LoginKind | null>(null);
@@ -78,11 +80,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setAuthenticationEnabled(data.authenticationEnabled);
       setAccountMode(data.accountMode ?? 'apiKeyPassword');
       setAuthenticationSetupRequired(data.authenticationSetupRequired === true);
+      setSignInModeFromEnvironment(data.signInModeFromEnvironment === true);
       setOidcDisplayName(data.oidcDisplayName ?? '');
       setOidcPending(data.oidcPending === true);
       setOwnerOidcEnabled(data.ownerOidcEnabled === true);
       setOwnerPasswordEnabled(data.ownerPasswordEnabled === true);
       setLoginServices(data.loginServices ?? []);
+      setIncompleteLoginServices(data.incompleteLoginServices);
       setOwnerLoginServices(data.ownerLoginServices ?? []);
       setLoginSetupPending(data.loginSetupPending === true);
       setPendingLoginKind(data.pendingLoginKind ?? null);
@@ -340,11 +344,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         authenticationEnabled,
         accountMode,
         authenticationSetupRequired,
+        signInModeFromEnvironment,
         oidcDisplayName,
         oidcPending,
         ownerOidcEnabled,
         ownerPasswordEnabled,
         loginServices,
+        incompleteLoginServices,
         ownerLoginServices,
         loginSetupPending,
         pendingLoginKind,

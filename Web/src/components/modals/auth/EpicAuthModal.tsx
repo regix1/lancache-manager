@@ -5,10 +5,12 @@ import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import FormField from '@components/ui/FormField';
+import { ProgressBar } from '@components/ui/ProgressBar';
 import { LoginSteps } from './LoginSteps';
 import { LoginAttemptStatus } from './LoginAttemptStatus';
 import { cancelAuthModalLogin } from './authModalCancel';
 import { type EpicAuthState, type EpicAuthActions } from '@hooks/useEpicMappingAuth';
+import { describeEpicMappingRun } from '@hooks/useEpicMappingRun';
 import { useTranslation } from 'react-i18next';
 import { getIntegrationReasonKey } from '../../../types';
 
@@ -22,9 +24,11 @@ interface EpicAuthModalProps {
    * 'cancel' (default, the manager's own mapping-login flow): any close - X, backdrop, Escape, or
    * the footer button - cancels the in-flight login. 'keep-pending' (the persistent-container
    * flow): X, Escape and the footer button cancel the daemon login; a backdrop click does nothing.
+   * 'background' (the mapping sign-in): like 'cancel' until the server accepts the code; after that the account is
+   * saved and the games are mapped in the background, so every close leaves the mapping running.
    */
-  dismissBehavior?: 'cancel' | 'keep-pending';
-  /** Epoch ms this login attempt expires at, from whichever timer governs THIS mount - only the
+  dismissBehavior?: 'cancel' | 'keep-pending' | 'background';
+  /** Unix time in ms this login attempt expires at, from whichever timer governs THIS mount - only the
    *  persistent-container store has one. `null`/unset renders no countdown, which is the honest
    *  answer for the other Epic mounts: nothing client-side is counting there. */
   loginDeadline?: number | null;
@@ -45,7 +49,9 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const isKeepPending = dismissBehavior === 'keep-pending';
+  const accepted = dismissBehavior === 'background' && state.codeAccepted === true;
   const { loading, needsAuthorizationCode, authorizationUrl, authorizationCode, error } = state;
+  const mapping = state.mapping;
 
   const { setAuthorizationCode, handleAuthenticate, cancelPendingRequest } = actions;
 
@@ -55,6 +61,10 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
   const isConnecting = (loading || isSubmitting) && !needsAuthorizationCode;
 
   const handleCloseModal = () => {
+    if (accepted) {
+      onClose();
+      return;
+    }
     if (state.canAuthenticate !== undefined) {
       handleExplicitCancel();
       return;
@@ -92,10 +102,8 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
     setIsSubmitting(true);
 
     try {
-      const success = await handleAuthenticate();
-      if (success) {
-        onClose();
-      }
+      // The host closes the dialog when its task ends; a mapping sign-in keeps it open for the mapping's progress.
+      await handleAuthenticate();
     } finally {
       setIsSubmitting(false);
     }
@@ -143,7 +151,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
           {state.recovering && (
             <p className="text-sm text-themed-secondary">{t('errors.integration.recovery')}</p>
           )}
-          {state.canAuthenticate === false && (
+          {!accepted && state.canAuthenticate === false && (
             <p className="text-sm text-themed-secondary">
               {state.accessUnavailable
                 ? t('errors.integration.statusUnavailable')
@@ -155,36 +163,51 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
             pastFirstStep={needsAuthorizationCode}
           />
 
+          {accepted && mapping && (
+            <div className="space-y-3" role="status" aria-live="polite">
+              <p className="text-sm text-themed-primary">{describeEpicMappingRun(mapping, t)}</p>
+              {(mapping.phase === 'none' || mapping.phase === 'running') && (
+                <ProgressBar
+                  value={mapping.percent}
+                  height="md"
+                  label={describeEpicMappingRun(mapping, t)}
+                />
+              )}
+            </div>
+          )}
+
           <div className="login-states">
             {/* Rendered in every state, so the live region is already in the page when the login
               moves on and its label changes. The error rides under it: it is the same title and
               reason the notification bar gets, drawn where the person is actually looking,
               because the modal sits over the bar and a rejected code used to change nothing on
               screen at all. */}
-            <LoginAttemptStatus
-              label={
-                isConnecting
-                  ? t('modals.epicAuth.connectingSubtitle')
-                  : needsAuthorizationCode && (loading || isSubmitting)
-                    ? t('modals.epicAuth.authenticatingMessage')
-                    : needsAuthorizationCode
-                      ? t('common.waitingForCode')
-                      : onRetry
-                        ? t('common.pressRetry')
-                        : ''
-              }
-              busy={loading || isSubmitting}
-              deadline={loginDeadline}
-              error={error}
-              errorTitle={t('common.errors.signInFailed', {
-                platform: t('prefill.persistent.services.epic')
-              })}
-            />
+            {!accepted && (
+              <LoginAttemptStatus
+                label={
+                  isConnecting
+                    ? t('modals.epicAuth.connectingSubtitle')
+                    : needsAuthorizationCode && (loading || isSubmitting)
+                      ? t('modals.epicAuth.authenticatingMessage')
+                      : needsAuthorizationCode
+                        ? t('common.waitingForCode')
+                        : onRetry
+                          ? t('common.pressRetry')
+                          : ''
+                }
+                busy={loading || isSubmitting}
+                deadline={loginDeadline}
+                error={error}
+                errorTitle={t('common.errors.signInFailed', {
+                  platform: t('prefill.persistent.services.epic')
+                })}
+              />
+            )}
 
             {/* Sign-in prompt, and the connect that follows it: the same box either way, so pressing
               Continue changes the line in the strip and moves the panel no pixels. A failed attempt
               swaps it for the error, so the prompt keeps about the same height. */}
-            {!needsAuthorizationCode && !onRetry && (
+            {!accepted && !needsAuthorizationCode && !onRetry && (
               <div>
                 <h3 className="text-base font-semibold text-themed-primary">
                   {t('modals.epicAuth.signInTitle')}
@@ -196,7 +219,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
             )}
 
             {/* Authorization Code Input - shown after user gets the URL */}
-            {needsAuthorizationCode && (
+            {!accepted && needsAuthorizationCode && (
               <>
                 <h3 className="text-base font-semibold text-themed-primary">
                   {t('modals.epicAuth.enterCodeTitle')}
@@ -236,7 +259,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                           }
                           placeholder={t('modals.epicAuth.authorizationCodePlaceholder')}
                           className="w-full px-3 py-2.5 themed-input font-mono text-sm"
-                          disabled={loading || isSubmitting || state.canAuthenticate === false}
+                          disabled={state.canAuthenticate === false}
                           autoFocus
                         />
                       )}
@@ -249,14 +272,36 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
         </CustomScrollbar>
 
         <div className="confirmation-modal__actions">
-          <Button
-            variant="default"
-            onClick={isKeepPending ? handleExplicitCancel : handleCloseModal}
-            className="min-h-[44px] sm:min-h-10"
-          >
-            {t('common.cancel')}
-          </Button>
-          {needsAuthorizationCode ? (
+          {accepted ? (
+            <>
+              <Button variant="default" onClick={onClose} className="min-h-[44px] sm:min-h-10">
+                {mapping?.phase === 'done' ||
+                mapping?.phase === 'failed' ||
+                mapping?.phase === 'cancelled'
+                  ? t('common.close')
+                  : t('modals.epicAuth.actions.continueInBackground')}
+              </Button>
+              {(mapping?.phase === 'failed' || mapping?.phase === 'cancelled') && (
+                <Button
+                  variant="filled"
+                  color="primary"
+                  onClick={actions.retryLogin}
+                  className="min-h-[44px] sm:min-h-10"
+                >
+                  {t('common.retry')}
+                </Button>
+              )}
+            </>
+          ) : (
+            <Button
+              variant="default"
+              onClick={isKeepPending ? handleExplicitCancel : handleCloseModal}
+              className="min-h-[44px] sm:min-h-10"
+            >
+              {t('common.cancel')}
+            </Button>
+          )}
+          {accepted ? null : needsAuthorizationCode ? (
             <Button
               variant="filled"
               color="primary"

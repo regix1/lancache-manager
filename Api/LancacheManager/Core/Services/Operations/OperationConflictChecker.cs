@@ -391,6 +391,20 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                 context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
         }
 
+        // Detection writes back every game and service its cache walk found, so a removal that
+        // deletes a detection row while one runs has that row restored with the removed sizes. An
+        // eviction scan runs a full detection before its own walk, so it waits the same way.
+        if (((newType is OperationType.GameDetection or OperationType.EvictionScan)
+                && (activeOp.Type is OperationType.GameRemoval or OperationType.ServiceRemoval)) ||
+            ((newType is OperationType.GameRemoval or OperationType.ServiceRemoval)
+                && (activeOp.Type is OperationType.GameDetection or OperationType.EvictionScan)))
+        {
+            return BuildResponse(activeOp, activeScope,
+                stageKey: "errors.conflict.overlappingEntity",
+                englishError: $"Cannot start {newType}: an active {activeOp.Type} is changing the detected games.",
+                context: new Dictionary<string, object?> { ["activeType"] = activeOp.Type.ToString() });
+        }
+
         // Other GameDetection/CorruptionDetection pairings remain compatible.
         if (newType == OperationType.GameDetection || newType == OperationType.CorruptionDetection)
         {

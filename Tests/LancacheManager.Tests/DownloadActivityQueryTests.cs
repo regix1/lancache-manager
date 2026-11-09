@@ -32,7 +32,7 @@ public sealed class DownloadActivityQueryTests
             "GetDashboardStatsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var task = (Task<object>)method.Invoke(
             service,
-            [start, end, new List<long>(), null, new List<string>(), "show", new List<string>(), CancellationToken.None])!;
+            [start, end, new List<long>(), null, new List<string>(), "show", new List<string>(), new List<ClientExclusionRule>(), CancellationToken.None])!;
         var response = Assert.IsType<DashboardStatsResponse>(await task);
 
         Assert.Equal(1, reads);
@@ -193,6 +193,8 @@ public sealed class DownloadActivityQueryTests
             {
                 nameof(IStateService.GetHiddenClientIps) => new List<string>(),
                 nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
+                nameof(IStateService.GetHiddenPrefillRules) => new List<ClientExclusionRule>(),
+                nameof(IStateService.GetPrefillRules) => new List<ClientExclusionRule>(),
                 _ when targetMethod?.ReturnType == typeof(string) => "show",
                 _ => throw new NotSupportedException(targetMethod?.Name)
             };

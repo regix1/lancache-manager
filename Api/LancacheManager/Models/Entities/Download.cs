@@ -20,6 +20,12 @@ public class Download : IUtcMarkable, IGameNameRow
     public bool IsActive { get; set; }
     public bool IsEvicted { get; set; } = false;
 
+    /// <summary>
+    /// True when the row came from a prefill run's container. Written only by the manager's
+    /// prefill marking pass, never by log ingest.
+    /// </summary>
+    public bool IsPrefill { get; set; }
+
     // New fields for game information
     public long? GameAppId { get; set; }
     public string? GameName { get; set; }

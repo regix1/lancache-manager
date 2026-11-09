@@ -140,88 +140,78 @@ public partial class SteamKit2Service
     /// delisted/removed games whose depots never appear in Steam's GetAppList API.
     /// </summary>
     /// <returns>
-    /// An empty list both when nothing was orphaned and when the resolution failed. This pass is
-    /// an extra on top of the ordinary mapping, so an empty list leaves those depots unmapped
-    /// rather than failing the crawl.
+    /// An empty list when nothing was orphaned. A failure throws so the caller can count it in the
+    /// run's warning; this pass is an extra on top of the ordinary mapping and never fails the crawl.
     /// </returns>
     private async Task<List<uint>> ResolveOrphanDepotsAsync(CancellationToken ct)
     {
-        try
+        // Deliberately separate from UnknownGameResolutionService: this is PICS-time depot ownership recovery, not runtime cache-detection resolution.
+        if (_steamApps == null || !_isLoggedOn)
         {
-            // Deliberately separate from UnknownGameResolutionService: this is PICS-time depot ownership recovery, not runtime cache-detection resolution.
-            if (_steamApps == null || !_isLoggedOn)
-            {
-                _logger.LogDebug("Skipping orphan depot resolution - not connected to Steam");
-                return new List<uint>();
-            }
-
-            using var scopedDb = _scopeFactory.CreateScopedDbContext();
-
-            // Every depot the logs have seen. Ownership, not the download's GameAppId, decides what
-            // needs resolving: a download keeps the name it was given at ingest even after the
-            // mapping behind it loses its owner row, and the queries that name a depot later - the
-            // Rust cache-detection game query, lookup_depot_mapping - all require IsOwner, so such a
-            // depot reads as an Unknown Game forever while its download still shows a title.
-            // Selecting on GameAppId == null skipped exactly those depots. The owner filter below
-            // is what narrows this list, and it runs in the database over the same depot ids.
-            var downloadDepotIdsLong = await scopedDb.DbContext.Downloads
-                .Where(d => d.DepotId.HasValue)
-                .Select(d => d.DepotId!.Value)
-                .Distinct()
-                .ToListAsync(ct);
-
-            if (downloadDepotIdsLong.Count == 0)
-            {
-                _logger.LogDebug("No orphan depots to resolve");
-                return new List<uint>();
-            }
-
-            // Filter out depots that are already mapped in memory or database
-            var dbMappedDepotsList = await scopedDb.DbContext.SteamDepotMappings
-                .Where(m => downloadDepotIdsLong.Contains(m.DepotId) && m.IsOwner)
-                .Select(m => m.DepotId)
-                .ToListAsync(ct);
-            var dbMappedDepots = new HashSet<uint>(dbMappedDepotsList.Select(id => (uint)id));
-
-            var downloadDepotIds = downloadDepotIdsLong.Select(id => (uint)id).ToList();
-            var orphanDepotIds = downloadDepotIds
-                .Where(depotId => !_depotOwners.ContainsKey(depotId) && !dbMappedDepots.Contains(depotId))
-                .ToList();
-
-            if (orphanDepotIds.Count == 0)
-            {
-                _logger.LogDebug("All unmapped depots already have owner mappings");
-                return new List<uint>();
-            }
-
-            _logger.LogInformation("Attempting orphan depot resolution for {Count} unmapped depot(s)", orphanDepotIds.Count);
-
-            var candidates = GenerateCandidateAppIds(orphanDepotIds);
-
-            // Filter out candidates already scanned during the main PICS pass
-            candidates.ExceptWith(_scannedApps);
-
-            if (candidates.Count == 0)
-            {
-                _logger.LogDebug("All candidate parent apps were already scanned");
-                return new List<uint>();
-            }
-
-            _logger.LogInformation("Querying PICS for {Count} candidate parent app(s) for orphan depots", candidates.Count);
-
-            var (resolvedDepotIds, _) = await QueryPicsDepotsAsync(orphanDepotIds, candidates, ct);
-
-            _logger.LogInformation("Orphan depot resolution complete: {Resolved} new depot mapping(s) discovered from {Candidates} candidate(s)",
-                resolvedDepotIds.Count, candidates.Count);
-
-            return resolvedDepotIds;
-        }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Orphan depot resolution failed (non-fatal) - some delisted game depots may remain unmapped");
+            _logger.LogDebug("Skipping orphan depot resolution - not connected to Steam");
             return new List<uint>();
         }
+
+        using var scopedDb = _scopeFactory.CreateScopedDbContext();
+
+        // Every depot the logs have seen. Ownership, not the download's GameAppId, decides what
+        // needs resolving: a download keeps the name it was given at ingest even after the
+        // mapping behind it loses its owner row, and the queries that name a depot later - the
+        // Rust cache-detection game query, lookup_depot_mapping - all require IsOwner, so such a
+        // depot reads as an Unknown Game forever while its download still shows a title.
+        // Selecting on GameAppId == null skipped exactly those depots. The owner filter below
+        // is what narrows this list, and it runs in the database over the same depot ids.
+        var downloadDepotIdsLong = await scopedDb.DbContext.Downloads
+            .Where(d => d.DepotId.HasValue)
+            .Select(d => d.DepotId!.Value)
+            .Distinct()
+            .ToListAsync(ct);
+
+        if (downloadDepotIdsLong.Count == 0)
+        {
+            _logger.LogDebug("No orphan depots to resolve");
+            return new List<uint>();
+        }
+
+        // Filter out depots that are already mapped in memory or database
+        var dbMappedDepotsList = await scopedDb.DbContext.SteamDepotMappings
+            .Where(m => downloadDepotIdsLong.Contains(m.DepotId) && m.IsOwner)
+            .Select(m => m.DepotId)
+            .ToListAsync(ct);
+        var dbMappedDepots = new HashSet<uint>(dbMappedDepotsList.Select(id => (uint)id));
+
+        var downloadDepotIds = downloadDepotIdsLong.Select(id => (uint)id).ToList();
+        var orphanDepotIds = downloadDepotIds
+            .Where(depotId => !_depotOwners.ContainsKey(depotId) && !dbMappedDepots.Contains(depotId))
+            .ToList();
+
+        if (orphanDepotIds.Count == 0)
+        {
+            _logger.LogDebug("All unmapped depots already have owner mappings");
+            return new List<uint>();
+        }
+
+        _logger.LogInformation("Attempting orphan depot resolution for {Count} unmapped depot(s)", orphanDepotIds.Count);
+
+        var candidates = GenerateCandidateAppIds(orphanDepotIds);
+
+        // Filter out candidates already scanned during the main PICS pass
+        candidates.ExceptWith(_scannedApps);
+
+        if (candidates.Count == 0)
+        {
+            _logger.LogDebug("All candidate parent apps were already scanned");
+            return new List<uint>();
+        }
+
+        _logger.LogInformation("Querying PICS for {Count} candidate parent app(s) for orphan depots", candidates.Count);
+
+        var (resolvedDepotIds, _) = await QueryPicsDepotsAsync(orphanDepotIds, candidates, ct);
+
+        _logger.LogInformation("Orphan depot resolution complete: {Resolved} new depot mapping(s) discovered from {Candidates} candidate(s)",
+            resolvedDepotIds.Count, candidates.Count);
+
+        return resolvedDepotIds;
     }
 
     /// <summary>
@@ -306,6 +296,7 @@ public partial class SteamKit2Service
                 // Session-fatal failures abort the resolution pass - the session could not be
                 // re-established, so every remaining candidate batch would fail the same way.
                 _logger.LogWarning(ex, "Failed to process candidate batch for depot resolution. Continuing...");
+                _failedOrphanBatches++;
             }
         }
 
@@ -432,7 +423,7 @@ public partial class SteamKit2Service
 
                         // Get game info from Steam API
                         var gameInfo = await _steamService.GetGameInfoAsync(appId.Value);
-                        if (gameInfo != null && !gameInfo.Name.StartsWith("Steam App ") && !gameInfo.Name.StartsWith("App "))
+                        if (gameInfo != null)
                         {
                             download.GameName = gameInfo.Name;
                             download.GameImageUrl = gameInfo.HeaderImage;

@@ -572,6 +572,7 @@ public class CorruptionDetectionService
             // The starting notification above is awaited and may allow cache-layout evidence
             // to change. Resolve the guarded wire value only now, immediately before launch.
             var keyScheme = _capabilityService.GetKeySchemeWireValue(datasource);
+            var sliceSizeArguments = RustProcessHelper.SliceSizeArguments(_stateService.GetCacheSliceSizeBytes());
             var startInfo = detectionMethod switch
             {
                 CorruptionDetectionMethod.RepeatedMiss =>
@@ -589,21 +590,25 @@ public class CorruptionDetectionService
                             "--scan-started-utc",
                             scanStartedUtc,
                             "--key-scheme",
-                            keyScheme
+                            keyScheme,
+                            .. sliceSizeArguments
                         ]),
                 CorruptionDetectionMethod.Structural =>
                     _rustProcessHelper.CreateProcessStartInfo(
                         rustBinaryPath,
-                        BuildStructuralProcessArguments(
-                            cacheDir,
-                            progressFile,
-                            scanStartedUtc,
-                            scanMode ?? throw new ValidationException("Structural scan mode is required")
-                            {
-                                StageKey = "errors.corruption.structuralModeRequired"
-                            },
-                            stateScope,
-                            keyScheme)),
+                        [
+                            .. BuildStructuralProcessArguments(
+                                cacheDir,
+                                progressFile,
+                                scanStartedUtc,
+                                scanMode ?? throw new ValidationException("Structural scan mode is required")
+                                {
+                                    StageKey = "errors.corruption.structuralModeRequired"
+                                },
+                                stateScope,
+                                keyScheme),
+                            .. sliceSizeArguments
+                        ]),
                 _ => throw new ValidationException("Unsupported corruption detection method")
                 {
                     StageKey = "errors.corruption.unsupportedMethod"
@@ -1793,6 +1798,7 @@ public class CorruptionDetectionService
                     stemPositionsFile: stemPositionsPath,
                     resumeFile: RustLogProcessorService.ResumePath(_pathResolver, datasource.Name),
                     keyScheme: keyScheme,
+                    sliceSizeBytes: _stateService.GetCacheSliceSizeBytes(),
                     cancellationToken: cancellationToken,
                     operationId: operationId,
                     onProgressEvent: onProgress == null

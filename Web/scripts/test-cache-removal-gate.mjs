@@ -104,6 +104,32 @@ test('a single running, queued or cancelling removal still gates the controls', 
   }
 });
 
+test('a cancelling removal still holds the cache lock for every removal-running check', async () => {
+  const { REMOVAL_TYPES } = await import(
+    await compileToUrl('../src/contexts/notifications/constants.ts')
+  );
+  const runs = [{ id: 'x', type: 'game_removal', status: 'cancelling', details: {} }];
+  const isAnyRemovalRunning = bindLifted(
+    liftHookCallback(
+      'src/contexts/notifications/NotificationsContext.tsx',
+      'useMemo',
+      'REMOVAL_TYPES.includes'
+    ),
+    { runs, REMOVAL_TYPES }
+  );
+  assert.equal(isAnyRemovalRunning(), true, 'the clear tooltip keeps its queue hint');
+
+  const otherRemoval = bindLifted(
+    liftHookCallback(
+      'src/components/features/management/log-processing/LogRemovalManager.tsx',
+      'find',
+      'REMOVAL_TYPES.includes'
+    ),
+    { REMOVAL_TYPES }
+  );
+  assert.equal(runs.find(otherRemoval), runs[0], 'the disabled log controls name the removal');
+});
+
 test('a Hidden removal gates the controls though it draws no card', async () => {
   const active = await activeFor(
     [],

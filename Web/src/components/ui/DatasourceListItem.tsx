@@ -32,10 +32,10 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
 
   return (
     <div
-      className={`group themed-border-radius overflow-hidden transition duration-300 border ${
+      className={`group themed-border-radius light-card-shadow overflow-hidden transition duration-300 border ${
         isExpanded
-          ? `bg-themed-card ${enabled ? 'border-themed-primary' : 'border-themed-secondary'} shadow-[0_4px_16px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.15)]`
-          : 'bg-[var(--theme-bg-primary-emphasis)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
+          ? `bg-themed-card ${enabled ? 'border-themed-primary' : 'border-themed-secondary'}`
+          : 'bg-[var(--theme-bg-primary-emphasis)] border-themed-secondary'
       } ${enabled ? 'opacity-100' : 'opacity-65'}`}
     >
       {/* Header is a row, not a <button>, so the expand control can be a real Button. */}

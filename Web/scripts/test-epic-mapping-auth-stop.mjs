@@ -176,6 +176,10 @@ const hookAliases = {
     react: reactStubUrl
   })
 };
+// The mapping progress hook has its own reads; these tests cover the sign-in itself.
+hookAliases['./useEpicMappingRun'] = toUrl(
+  'const clear = () => {}; export const useEpicMappingRun = () => ({ run: { phase: "none", percent: 0, stageKey: null, context: null }, clear });'
+);
 hookAliases['./useSignInEndingWait'] = await compileToUrl(
   '../src/hooks/useSignInEndingWait.ts',
   hookAliases

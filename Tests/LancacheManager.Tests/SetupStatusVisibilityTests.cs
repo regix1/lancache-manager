@@ -1,15 +1,19 @@
+using System.Net;
+using System.Net.Http.Json;
 using System.Reflection;
-using System.Security.Claims;
+using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
+using LancacheManager.Models.ApiRequests;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using static LancacheManager.Tests.StateTestMethods;
 
@@ -36,6 +40,7 @@ namespace LancacheManager.Tests;
 /// The controller is exercised directly rather than through the pipeline, so the returned
 /// <see cref="ObjectResult"/> carries the same body in every hosting environment.
 /// </summary>
+[Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class SetupStatusVisibilityTests : IDisposable
 {
     private readonly string _root;
@@ -116,11 +121,9 @@ public sealed class SetupStatusVisibilityTests : IDisposable
     }
 
     [Fact]
-    public void ASignedInCaller_StillReceivesTheConnectionTarget()
+    public void AnAccountHolder_StillReceivesTheConnectionTarget()
     {
-        _controller.HttpContext.User = new ClaimsPrincipal(
-            new ClaimsIdentity([new Claim(ClaimTypes.Role, "admin")], "Session"));
-        Assert.True(_controller.HttpContext.User.Identity?.IsAuthenticated);
+        _controller.HttpContext.Items["Session"] = NewSession();
 
         var body = ReadSetupStatus();
 
@@ -227,6 +230,184 @@ public sealed class SetupStatusVisibilityTests : IDisposable
 
         Assert.Null(body.AccountExists);
         Assert.False(body.MainAdminRecoveryAvailable);
+    }
+
+    /// <summary>
+    /// A guest holds a session, so being signed in is not the test: the connection target and the
+    /// folder layout belong to the people who run the installation, and a guest is not one of them.
+    /// </summary>
+    [Fact]
+    public async Task AGuest_IsNotToldWhereTheDatabaseOrTheFoldersAre_ButAnAdminIs()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        host.Application.Services.GetRequiredService<StateService>().SetSetupCompleted(true);
+        using var admin = await host.CreateAdminClientAsync();
+        using var guest = await CreateGuestClientAsync(host);
+
+        var adminSetup = await admin.GetFromJsonAsync<JsonElement>("/api/system/setup");
+        var guestSetup = await guest.GetFromJsonAsync<JsonElement>("/api/system/setup");
+        var adminConfig = await admin.GetFromJsonAsync<JsonElement>("/api/system/config");
+        var guestConfig = await guest.GetFromJsonAsync<JsonElement>("/api/system/config");
+
+        Assert.False(IsAbsent(adminSetup, "postgresDatabase"));
+        foreach (var field in new[] { "postgresHost", "postgresPort", "postgresDatabase", "postgresUser" })
+        {
+            Assert.True(IsAbsent(guestSetup, field), $"A guest was told {field}.");
+        }
+
+        Assert.NotEmpty(TextOf(adminConfig, "cachePath"));
+        Assert.NotEmpty(TextOf(adminConfig, "logsPath"));
+        Assert.NotEmpty(TextOf(adminConfig, "dataPath"));
+        Assert.Empty(TextOf(guestConfig, "cachePath"));
+        Assert.Empty(TextOf(guestConfig, "logsPath"));
+        Assert.Empty(TextOf(guestConfig, "dataPath"));
+        Assert.NotEmpty(guestConfig.GetProperty("dataSources").EnumerateArray().ToList());
+    }
+
+    [Fact]
+    public async Task AfterSetup_ACallerWithNoSessionGetsNoDatasourcesButStillGetsTheTimeZone()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        host.Application.Services.GetRequiredService<StateService>().SetSetupCompleted(true);
+        using var anonymous = host.Application.CreateClient();
+
+        var config = await anonymous.GetFromJsonAsync<JsonElement>("/api/system/config");
+
+        Assert.Empty(config.GetProperty("dataSources").EnumerateArray().ToList());
+        Assert.NotEmpty(TextOf(config, "timeZone"));
+        Assert.Empty(TextOf(config, "cachePath"));
+    }
+
+    /// <summary>
+    /// Before setup completes the wizard's log step lists the datasources while nobody can sign in
+    /// yet, so the names stay; the paths never go to a caller without an account.
+    /// </summary>
+    [Fact]
+    public async Task BeforeSetup_ACallerWithNoSessionGetsDatasourceNamesButNoPaths()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        using var anonymous = host.Application.CreateClient();
+
+        var config = await anonymous.GetFromJsonAsync<JsonElement>("/api/system/config");
+
+        var datasources = config.GetProperty("dataSources").EnumerateArray().ToList();
+        Assert.NotEmpty(datasources);
+        foreach (var datasource in datasources)
+        {
+            Assert.NotEmpty(TextOf(datasource, "name"));
+            Assert.Empty(TextOf(datasource, "cachePath"));
+            Assert.Empty(TextOf(datasource, "logsPath"));
+        }
+
+        Assert.Empty(TextOf(config, "cachePath"));
+        Assert.Empty(TextOf(config, "dataPath"));
+    }
+
+    [Fact]
+    public async Task TheAvailableGameImagesList_NeedsASession_AndAGuestHasOne()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        using var anonymous = host.Application.CreateClient();
+        using var guest = await CreateGuestClientAsync(host);
+
+        using var withoutSession = await anonymous.GetAsync("/api/game-images/available");
+        using var withGuestSession = await guest.GetAsync("/api/game-images/available");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, withoutSession.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, withGuestSession.StatusCode);
+    }
+
+    /// <summary>
+    /// With authentication off every caller shares one admin session, so the target and the folders
+    /// stay visible to it.
+    /// </summary>
+    [Fact]
+    public async Task WithAuthenticationOff_TheSharedSessionStillSeesTheDatabaseAndTheFolders()
+    {
+        using var host = new EndpointAuthorizationHost(authenticationEnabled: false);
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        host.Application.Services.GetRequiredService<StateService>().SetSetupCompleted(true);
+        using var caller = host.Application.CreateClient();
+
+        var setup = await caller.GetFromJsonAsync<JsonElement>("/api/system/setup");
+        var config = await caller.GetFromJsonAsync<JsonElement>("/api/system/config");
+
+        Assert.False(IsAbsent(setup, "postgresDatabase"));
+        Assert.NotEmpty(TextOf(config, "cachePath"));
+        Assert.NotEmpty(TextOf(config, "dataPath"));
+    }
+
+    [Fact]
+    public async Task TheCacheSliceSize_IsReadAndSavedByAnAccountHolderOnly()
+    {
+        using var host = new EndpointAuthorizationHost();
+        using var isolationClient = host.Application.CreateClient();
+        await host.AssertIsolationAsync(isolationClient);
+        using var anonymous = host.Application.CreateClient();
+        using var admin = await host.CreateAdminClientAsync();
+        const string route = "/api/system/cache-slice-size";
+        const long eightMegabytes = 8L * 1024 * 1024;
+
+        using var withoutSession = await anonymous.GetAsync(route);
+        Assert.Equal(HttpStatusCode.Unauthorized, withoutSession.StatusCode);
+
+        using var manual = await admin.PatchAsJsonAsync(route, new CacheSliceSizeRequest { SliceSizeBytes = eightMegabytes });
+        Assert.Equal(HttpStatusCode.NoContent, manual.StatusCode);
+        var saved = await admin.GetFromJsonAsync<JsonElement>(route);
+        Assert.Equal(eightMegabytes, saved.GetProperty("sliceSizeBytes").GetInt64());
+
+        using var auto = await admin.PatchAsJsonAsync(route, new CacheSliceSizeRequest { SliceSizeBytes = null });
+        Assert.Equal(HttpStatusCode.NoContent, auto.StatusCode);
+        using var autoRead = await admin.GetAsync(route);
+        Assert.Equal(HttpStatusCode.OK, autoRead.StatusCode);
+        Assert.True(IsAbsent(await autoRead.Content.ReadFromJsonAsync<JsonElement>(), "sliceSizeBytes"));
+
+        using var invalid = await admin.PatchAsJsonAsync(route, new CacheSliceSizeRequest { SliceSizeBytes = 1000 });
+        Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        var refusal = await invalid.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("errors.cache.sliceSizeInvalid", refusal.GetProperty("stageKey").GetString());
+    }
+
+    private static bool IsAbsent(JsonElement body, string name) =>
+        !body.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null;
+
+    private static string TextOf(JsonElement body, string name) =>
+        body.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()!
+            : string.Empty;
+
+    private static async Task<HttpClient> CreateGuestClientAsync(EndpointAuthorizationHost host)
+    {
+        var client = host.Application.CreateClient();
+
+        try
+        {
+            using var scope = host.Application.Services.CreateScope();
+            var sessions = scope.ServiceProvider.GetRequiredService<SessionService>();
+            var guest = await sessions.CreateGuestSessionAsync(new DefaultHttpContext());
+            Assert.NotNull(guest);
+
+            var cookieWriter = new DefaultHttpContext();
+            sessions.SetSessionCookie(cookieWriter, guest!.Value.RawToken, DateTime.UtcNow.AddDays(1));
+            client.DefaultRequestHeaders.Add(
+                "Cookie",
+                cookieWriter.Response.Headers.SetCookie.ToString().Split(';')[0]);
+            return client;
+        }
+        catch
+        {
+            client.Dispose();
+            throw;
+        }
     }
 
     private static UserSession NewSession() => new()

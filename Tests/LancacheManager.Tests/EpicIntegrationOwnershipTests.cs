@@ -84,9 +84,10 @@ public sealed class EpicIntegrationOwnershipTests
         var completing = fixture.Service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: first.AttemptId);
         await fixture.Handler.Reached.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await fixture.Service.CancelRefreshAsync(fixture.Owner, first.AttemptId);
-        var next = await fixture.Service.GetAuthorizationUrl(fixture.Owner);
         fixture.Handler.Release.TrySetResult();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => completing);
+        // A new sign-in cannot begin while another one is still processing, so it starts once the late exchange is over.
+        var next = await fixture.Service.GetAuthorizationUrl(fixture.Owner);
         Assert.Equal(next.AttemptId, fixture.Service.GetAuthStatus(fixture.Owner).AttemptId);
         Assert.Equal("original", fixture.Storage.GetAuthData().RefreshToken);
         await Assert.ThrowsAsync<ConflictException>(() => fixture.Service.CancelRefreshAsync(fixture.Owner, first.AttemptId));
@@ -242,7 +243,7 @@ public sealed class EpicIntegrationOwnershipTests
             OwnerAccountId = Owner.AccountId, RefreshToken = "original", DisplayName = "owner"
         });
         public Task Reconnect() => (Task)typeof(EpicMappingService)
-            .GetMethod("TryAutoReconnectAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(Service, null)!;
+            .GetMethod("TryAutoReconnectAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(Service, [CancellationToken.None])!;
         public void Dispose()
         {
             Handler.Release.TrySetResult();

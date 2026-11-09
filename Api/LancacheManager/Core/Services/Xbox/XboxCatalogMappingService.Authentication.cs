@@ -314,13 +314,24 @@ public partial class XboxCatalogMappingService
                 90,
                 "signalr.xboxMapping.backfilling",
                 CreateXboxMappingContext(resolved: resolved));
+            // The sign-in is saved, so nothing in the banner pass, a cancel or a timeout included, can make it
+            // anything but completed; unfinished banners only add a warning.
+            var bannersFailed = false;
             try
             {
-                await _mappingService.BackfillMissingBannerArtAsync(reporter.Token);
+                bannersFailed = (await _mappingService.BackfillMissingBannerArtAsync(reporter.Token)).Failed > 0;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex)
             {
+                bannersFailed = true;
                 _logger.LogWarning(ex, "Xbox banner-art backfill failed after login");
+            }
+
+            if (bannersFailed)
+            {
+                reporter.SetWarning(new RunWarning(
+                    "common.notifications.warnings.xboxBannersNotRefreshed",
+                    new Dictionary<string, object?>()));
             }
 
             await reporter.CompleteAsync(
@@ -581,16 +592,10 @@ public partial class XboxCatalogMappingService
             finally { _authSessionLock.Release(); }
             return newPatterns;
         }
-        catch (OperationCanceledException) { throw; }
         catch (ValidationException ex)
         {
             _logger.LogWarning(ex, "Xbox refresh token was rejected");
             _authStorage.TryInvalidateAuth(version, () => SetIsAuthenticated(false));
-            return 0;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Xbox manager-side catalog harvest failed");
             return 0;
         }
         finally { signer?.Dispose(); }

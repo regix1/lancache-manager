@@ -1,4 +1,5 @@
 import { usesOidc, type AccountMode } from './accountMode';
+import type { EnvironmentField } from '@contexts/AuthContext.types';
 
 /** Wire values of `loginServices[].kind`, `pendingLoginKind` and `login.kind` on /api/auth. */
 export type LoginKind = 'google' | 'github' | 'microsoft' | 'apple' | 'customOidc';
@@ -8,6 +9,7 @@ export interface LoginService {
   id: string;
   kind: LoginKind;
   displayName: string;
+  environmentFields: EnvironmentField[];
 }
 
 /** Order the setup screen offers the kinds in. Custom OpenID Connect stays last as "Other". */

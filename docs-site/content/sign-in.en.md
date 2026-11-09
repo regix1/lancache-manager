@@ -16,9 +16,20 @@ On first run you choose how users sign in. An upgraded install asks you to confi
 - The two single sign-on modes need HTTPS.
 - Password and API key modes work over plain HTTP. Use HTTPS on any network you do not trust, so passwords and session cookies are not sent in the clear.
 
+### Set the mode from the environment
+
+Set `Security__SignInMode` in the Compose file to fix the mode. The mode picker is then read-only, and first-run setup works like this:
+
+| `Security__SignInMode` | Access step of first-run setup |
+|---|---|
+| `Password`, `ApiKeyPassword` or `Unauthenticated` | Skipped. The database and first-account steps still run. |
+| `Oidc` or `ApiKeyOidc` | Shown read-only. The owner signs in there through the environment login. |
+
+If you remove the variables later, the access step comes back. The values and names are in [Sign-in from environment variables](configuration-reference.md#sign-in-environment).
+
 ### Default before you choose
 
-Until a mode is saved, the `Security__EnableAuthentication` compose variable picks the default:
+Without `Security__SignInMode`, and until a mode is saved, the `Security__EnableAuthentication` compose variable picks the default:
 
 | Value | Default mode |
 |---|---|
@@ -51,6 +62,10 @@ There is no central sign-in service. You register an application with each provi
 - **Microsoft:** use the tenant GUID, or `consumers` for personal accounts. The values `common` and `organizations` are rejected.
 - **Apple:** the app creates Apple's client secret for you. Apple needs an HTTPS domain and rejects localhost and IP addresses.
 
+### Set it up from the environment
+
+Set the provider's fields as `Security__` variables instead of pasting them into the app. A field set by environment wins over the value saved in the UI and cannot be edited there. An `Oidc` or `ApiKeyOidc` mode with no valid login falls back to **API key, username and password**, never to **Unauthenticated**. The full list, including the `*File` form for secrets, is in [Sign-in from environment variables](configuration-reference.md#sign-in-environment).
+
 ### Set it up
 
 1. Open the app at the address users will use to reach it. The callback URLs are built from that address.
@@ -81,7 +96,9 @@ You allow users by their account ID from the provider, not by email address or d
 
 ### Locked out by single sign-on
 
-Run the recovery script on the host:
+If an environment login fell back to **API key, username and password** and the owner has no local password, follow the numbered steps in [Password Recovery](password-recovery.md#single-sign-on-owner).
+
+Otherwise, run the recovery script on the host:
 
 ```bash
 ./data/scripts/reset-main-admin-password.sh

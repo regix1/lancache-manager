@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { UnifiedNotification } from '@contexts/notifications';
 import type { BadgeVariant } from '@components/ui/Badge.types';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
+import { NOTIFICATION_TITLE_KEYS } from '@contexts/notifications/notificationTitleKeys';
 import { useMediaQuery } from '@hooks/useMediaQuery';
 import { useExitPresence } from '@hooks/useExitPresence';
 import './CondensedNotificationStrip.css';
@@ -418,15 +419,14 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
       const spokenStatus = transitioned.notification.details?.cancelled
         ? 'cancelled'
         : transitioned.notification.status;
-      const statusLabel = t(`common.notifications.condensedStatus.${spokenStatus}`, {
-        defaultValue: spokenStatus
-      });
+      const statusLabel = t(`common.notifications.condensedStatus.${spokenStatus}`);
+      const titleKey = NOTIFICATION_TITLE_KEYS[transitioned.notification.type];
       setLiveAssertive(transitioned.notification.status === 'failed');
+      // A generic card reaches the strip through its schedule's condensed style or the mobile card cap, and its type has no title key.
       setLiveStatusText(
-        t('common.notifications.condensedLive', {
-          title: transitioned.notification.message,
-          status: statusLabel
-        })
+        titleKey
+          ? t('common.notifications.condensedLive', { title: t(titleKey), status: statusLabel })
+          : statusLabel
       );
     }
   }, [segments, open, t]);

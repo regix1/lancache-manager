@@ -95,12 +95,25 @@ public class SetupController : ControllerBase
                 return null;
             }
 
-            return BadRequest(ApiResponse.Error(AntiforgeryToken.MissingTokenMessage));
+            return BadRequest(new ErrorResponse
+            {
+                Error = AntiforgeryToken.MissingTokenMessage,
+                StageKey = AntiforgeryToken.MissingTokenStageKey
+            });
         }
 
+        // AuthenticationHelper.ValidateApiKey answers 429 only for the invalid-key throttle; 401 and
+        // 403 both mean the key this form needs was missing or wrong. Every failed result it returns
+        // carries its ErrorMessage; only a success leaves it null.
         return StatusCode(
             apiKeyResult.StatusCode,
-            ApiResponse.Error(apiKeyResult.ErrorMessage ?? "API key required"));
+            new ErrorResponse
+            {
+                Error = apiKeyResult.ErrorMessage!,
+                StageKey = apiKeyResult.StatusCode == StatusCodes.Status429TooManyRequests
+                    ? "errors.setup.tooManyInvalidKeys"
+                    : AccountSetupRefusalResponse.ApiKeyRequired
+            });
     }
 
     /// <summary>
@@ -143,13 +156,16 @@ public class SetupController : ControllerBase
         var mode = Environment.GetEnvironmentVariable("POSTGRES_MODE") ?? "embedded";
         if (mode == "external")
         {
-            return BadRequest(ApiResponse.Error(
-                "POSTGRES_MODE=external is set. Use POST /api/setup/external to configure the external database connection."));
+            return BadRequest(new ErrorResponse
+            {
+                Error = "POSTGRES_MODE=external is set. Use POST /api/setup/external to configure the external database connection.",
+                StageKey = "errors.setup.externalMode"
+            });
         }
 
         var passwordProblem = CheckNewRolePassword(request.Password);
         if (passwordProblem != null)
-            return BadRequest(ApiResponse.Error(passwordProblem));
+            return BadRequest(passwordProblem);
 
         // Connect with the settings the app resolved at startup, not the raw appsettings string.
         // Program.cs layers POSTGRES_USER and POSTGRES_DB over that base, so reading it back here
@@ -174,10 +190,14 @@ public class SetupController : ControllerBase
 
         var usernameProblem = CheckUsername(username);
         if (usernameProblem != null)
-            return BadRequest(ApiResponse.Error(usernameProblem));
+            return BadRequest(usernameProblem);
 
         if (string.Equals(request.Password, username, StringComparison.OrdinalIgnoreCase))
-            return BadRequest(ApiResponse.Error("Password cannot be the same as the username"));
+            return BadRequest(new ErrorResponse
+            {
+                Error = "Password cannot be the same as the username",
+                StageKey = "initialization.databaseSetup.errors.passwordSameAsUsername"
+            });
 
         var configPath = _pathResolver.GetPostgresCredentialsPath();
 
@@ -213,7 +233,11 @@ public class SetupController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to set PostgreSQL password for user {Username}", username);
-            return StatusCode(500, ApiResponse.Error("Failed to set PostgreSQL password"));
+            return StatusCode(500, new ErrorResponse
+            {
+                Error = "Failed to set PostgreSQL password",
+                StageKey = "errors.setup.setPasswordFailed"
+            });
         }
 
         // Save credentials only after ALTER USER succeeds.
@@ -259,7 +283,11 @@ public class SetupController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to write credentials config file");
-            return StatusCode(500, ApiResponse.Error("Failed to save credentials file"));
+            return StatusCode(500, new ErrorResponse
+            {
+                Error = "Failed to save credentials file",
+                StageKey = "initialization.databaseSetup.errors.saveFailed"
+            });
         }
 
         return Ok(new SetupCredentialsResponse
@@ -317,25 +345,43 @@ public class SetupController : ControllerBase
         {
             return StatusCode(
                 StatusCodes.Status403Forbidden,
-                ApiResponse.Error(
-                    "The window for changing the database connection has closed. Restart the application to reopen it."));
+                new ErrorResponse
+                {
+                    Error = "The window for changing the database connection has closed. Restart the application to reopen it.",
+                    StageKey = "errors.setup.connectionWindowClosed"
+                });
         }
 
         var mode = Environment.GetEnvironmentVariable("POSTGRES_MODE") ?? "embedded";
         if (mode != "external")
         {
-            return BadRequest(ApiResponse.Error(
-                "External-mode endpoint called while POSTGRES_MODE is not 'external'. Set POSTGRES_MODE=external in your environment first."));
+            return BadRequest(new ErrorResponse
+            {
+                Error = "External-mode endpoint called while POSTGRES_MODE is not 'external'. Set POSTGRES_MODE=external in your environment first.",
+                StageKey = "errors.setup.notExternalMode"
+            });
         }
 
         if (string.IsNullOrWhiteSpace(request.Host))
-            return BadRequest(ApiResponse.Error("Host is required"));
+            return BadRequest(new ErrorResponse
+            {
+                Error = "Host is required",
+                StageKey = "initialization.externalDb.errors.hostRequired"
+            });
 
         if (request.Port <= 0 || request.Port > 65535)
-            return BadRequest(ApiResponse.Error("Port must be between 1 and 65535"));
+            return BadRequest(new ErrorResponse
+            {
+                Error = "Port must be between 1 and 65535",
+                StageKey = "initialization.externalDb.errors.portRange"
+            });
 
         if (string.IsNullOrWhiteSpace(request.Database))
-            return BadRequest(ApiResponse.Error("Database name is required"));
+            return BadRequest(new ErrorResponse
+            {
+                Error = "Database name is required",
+                StageKey = "initialization.externalDb.errors.databaseRequired"
+            });
 
         // The same username rule as the embedded path, and for a sharper reason than tidiness: this
         // name is persisted to the credentials file, and entrypoint.sh reads it back and interpolates
@@ -345,11 +391,11 @@ public class SetupController : ControllerBase
         var username = request.Username.Trim();
         var usernameProblem = CheckUsername(username);
         if (usernameProblem != null)
-            return BadRequest(ApiResponse.Error(usernameProblem));
+            return BadRequest(usernameProblem);
 
         var passwordProblem = CheckPassword(request.Password);
         if (passwordProblem != null)
-            return BadRequest(ApiResponse.Error(passwordProblem));
+            return BadRequest(passwordProblem);
 
         // Validate the supplied credentials by attempting a real connection with a short timeout.
         // We intentionally don't run ALTER USER - the external Postgres isn't ours to manage.
@@ -380,17 +426,30 @@ public class SetupController : ControllerBase
             cmd.CommandText = "SELECT has_database_privilege(current_user, current_database(), 'CREATE')";
             if (await cmd.ExecuteScalarAsync() is false)
             {
-                return BadRequest(ApiResponse.Error(
-                    $"The role '{username}' cannot create objects in '{request.Database.Trim()}'",
-                    "The schema installs the citext extension, which PostgreSQL only allows for a role holding CREATE on the database. Grant it with GRANT CREATE ON DATABASE, or ask a database administrator to run CREATE EXTENSION citext in that database first."));
+                return BadRequest(new ErrorResponse
+                {
+                    Error = $"The role '{username}' cannot create objects in '{request.Database.Trim()}'",
+                    Details = "The schema installs the citext extension, which PostgreSQL only allows for a role holding CREATE on the database. Grant it with GRANT CREATE ON DATABASE, or ask a database administrator to run CREATE EXTENSION citext in that database first.",
+                    StageKey = "errors.setup.roleCannotCreate",
+                    Context = new() { ["role"] = username, ["database"] = request.Database.Trim() }
+                });
             }
         }
         catch (Exception ex)
         {
+            // The driver's own reason stays in this log line; the browser shows the keyed sentence.
             _logger.LogWarning(ex, "External DB credential validation failed for {Host}:{Port}", request.Host, request.Port);
-            return BadRequest(ApiResponse.Error(
-                $"Could not connect to {request.Host}:{request.Port}/{request.Database}",
-                ex.Message));
+            return BadRequest(new ErrorResponse
+            {
+                Error = $"Could not connect to {request.Host}:{request.Port}/{request.Database}",
+                StageKey = "errors.setup.connectFailed",
+                Context = new()
+                {
+                    ["host"] = request.Host,
+                    ["port"] = request.Port,
+                    ["database"] = request.Database
+                }
+            });
         }
 
         // Persist to postgres-credentials.json with extended schema (host/port/database).
@@ -440,7 +499,11 @@ public class SetupController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to write external credentials config file");
-            return StatusCode(500, ApiResponse.Error("Failed to save credentials file"));
+            return StatusCode(500, new ErrorResponse
+            {
+                Error = "Failed to save credentials file",
+                StageKey = "initialization.externalDb.errors.saveFailed"
+            });
         }
 
         return Ok(new SetExternalDbCredentialsResponse
@@ -463,22 +526,42 @@ public class SetupController : ControllerBase
     /// The length ceiling is here rather than beside the embedded rules so both endpoints stop at the
     /// same place: the value ends up in the same file whichever of the two wrote it.
     /// </summary>
-    private static string? CheckPassword(string password)
+    private static ErrorResponse? CheckPassword(string password)
     {
         if (string.IsNullOrWhiteSpace(password))
-            return "Password is required";
+            return new ErrorResponse
+            {
+                Error = "Password is required",
+                StageKey = "initialization.databaseSetup.errors.passwordRequired"
+            };
 
         if (password.Length < 8)
-            return "Password must be at least 8 characters";
+            return new ErrorResponse
+            {
+                Error = "Password must be at least 8 characters",
+                StageKey = "initialization.databaseSetup.errors.passwordTooShort"
+            };
 
         if (password.Length > 256)
-            return "Password cannot exceed 256 characters";
+            return new ErrorResponse
+            {
+                Error = "Password cannot exceed 256 characters",
+                StageKey = "initialization.adminAccount.errors.passwordTooLong"
+            };
 
         if (password.AsSpan().IndexOfAny(_disallowedPasswordChars) >= 0)
-            return "Password contains disallowed characters.";
+            return new ErrorResponse
+            {
+                Error = "Password contains disallowed characters.",
+                StageKey = "errors.setup.passwordDisallowedCharacters"
+            };
 
         if (_blockedPasswords.Contains(password, StringComparer.OrdinalIgnoreCase))
-            return "This password is too common. Please choose a more secure password.";
+            return new ErrorResponse
+            {
+                Error = "This password is too common. Please choose a more secure password.",
+                StageKey = "initialization.databaseSetup.errors.passwordTooCommon"
+            };
 
         return null;
     }
@@ -488,7 +571,7 @@ public class SetupController : ControllerBase
     /// SUPERUSER, so this matches the account-password classes rather than the 8-character floor
     /// <see cref="CheckPassword"/> keeps for an already-running external server.
     /// </summary>
-    private static string? CheckNewRolePassword(string password)
+    private static ErrorResponse? CheckNewRolePassword(string password)
     {
         var existing = CheckPassword(password);
         if (existing != null)
@@ -497,18 +580,26 @@ public class SetupController : ControllerBase
         }
 
         if (password.Length < PasswordRules.AccountMinimumLength)
-            return PasswordRules.MinimumLengthMessage;
+            return new ErrorResponse
+            {
+                Error = PasswordRules.MinimumLengthMessage,
+                StageKey = "initialization.adminAccount.errors.passwordTooShort"
+            };
 
         if (!PasswordRules.UsesThreeCharacterClasses(password))
         {
-            return PasswordRules.CharacterClassesMessage;
+            return new ErrorResponse
+            {
+                Error = PasswordRules.CharacterClassesMessage,
+                StageKey = "initialization.adminAccount.errors.passwordCharacterClasses"
+            };
         }
 
         return null;
     }
 
     /// <summary>
-    /// The username rule both setup endpoints apply. Returns the sentence to send back, or null when
+    /// The username rule both setup endpoints apply. Returns the refusal to send back, or null when
     /// the name passes.
     ///
     /// The character set is narrow because this name outlives the request: it is persisted to
@@ -517,13 +608,21 @@ public class SetupController : ControllerBase
     /// embedded path also puts it through format('%I'), which is safe on its own but is not the only
     /// place the value ends up.
     /// </summary>
-    private static string? CheckUsername(string username)
+    private static ErrorResponse? CheckUsername(string username)
     {
         if (string.IsNullOrWhiteSpace(username))
-            return "Username is required";
+            return new ErrorResponse
+            {
+                Error = "Username is required",
+                StageKey = "initialization.databaseSetup.errors.usernameRequired"
+            };
 
         if (!Regex.IsMatch(username, "^[A-Za-z0-9_]+$"))
-            return "Username may only contain letters, numbers, and underscores";
+            return new ErrorResponse
+            {
+                Error = "Username may only contain letters, numbers, and underscores",
+                StageKey = "errors.setup.usernameInvalid"
+            };
 
         return null;
     }
