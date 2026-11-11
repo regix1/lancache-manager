@@ -29,6 +29,7 @@ namespace LancacheManager.Tests;
 public class ScheduleRunGateTests
 {
     private const string DownloadReason = "A client download is writing to the cache right now.";
+    private const string DownloadKey = "errors.unmappedRemoval.downloadInProgress";
     private const string EvictionKey = "cacheReconciliation";
 
     [Fact]
@@ -47,7 +48,7 @@ public class ScheduleRunGateTests
         Assert.All(duplicates, duplicate =>
         {
             Assert.True(duplicate.Status.IsRunning);
-            Assert.False(duplicate.FollowUpQueued);
+            Assert.False(duplicate.FollowUpWaiting);
             Assert.Null(duplicate.Status.OperationId);
         });
         var notice = await service.TakePendingManualRunAsync();
@@ -66,7 +67,7 @@ public class ScheduleRunGateTests
         {
             var running = await registry.TriggerRunAsync(service.ScheduleServiceKey, duplicateActor);
             Assert.True(running.Status.IsRunning);
-            Assert.False(running.FollowUpQueued);
+            Assert.False(running.FollowUpWaiting);
             Assert.Empty(tracker.GetActiveOperations());
         }
         finally
@@ -90,7 +91,7 @@ public class ScheduleRunGateTests
             if (key != service.ServiceKey) return previous is null ? null : await previous(key, trigger);
             var admission = await service.TryTriggerImmediateRunAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual));
             Assert.False(admission.Admitted);
-            Assert.False(admission.FollowUpQueued);
+            Assert.False(admission.FollowUpWaiting);
             if (throws) throw new IOException("gate unavailable");
             return "not ready";
         };
@@ -119,9 +120,9 @@ public class ScheduleRunGateTests
         var tracker = CreateRealTracker();
         var notifications = CreateDefaultProxy<ISignalRNotificationService>();
         var registry = CreateRegistry(services, CacheScanGateHarness.Idle(), tracker, notifications);
-        var queue = new OperationQueueService(tracker,
+        var queue = new OperationWaitlistService(tracker,
             OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var starts = new Dictionary<string, TaskCompletionSource<Guid>>
         {
             [detection.ServiceKey] = new(TaskCreationOptions.RunContinuationsAsynchronously),
@@ -152,7 +153,7 @@ public class ScheduleRunGateTests
                         }
                         starts[service.ServiceKey].TrySetResult(id);
                         return Task.FromResult<Guid?>(id);
-                    }, CancellationToken.None, notice: notice);
+                    }, CancellationToken.None, OperationConflictTestServices.RequestKeyFor(type), notice: notice);
                 });
         }
         foreach (var service in services)
@@ -194,23 +195,23 @@ public class ScheduleRunGateTests
                 operationId = reporter.OperationId;
                 var reporterToken = reporter.Token;
                 tracker.CancelOperation(operationId);
-                Assert.True(notice.Cancelled);
+                Assert.True(notice.Canceled);
                 Assert.False(token.IsCancellationRequested);
                 Assert.False(nested.IsCancellationRequested);
-                await reporter.CompleteAsync(success: false, cancelled: true);
+                await reporter.CompleteAsync(success: false, canceled: true);
                 reporterToken.ThrowIfCancellationRequested();
             });
         Assert.False(result.RunFailed);
         Assert.False(result.ShuttingDown);
         Assert.Equal(operationId, notice.OperationId);
-        Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(operationId)!.Status);
+        Assert.Equal(OperationStatus.Canceled, tracker.GetOperation(operationId)!.Status);
         Assert.Single(terminals);
         Assert.Empty(tracker.GetActiveOperations());
         Assert.Empty(tracker.GetWaitingOperations());
     }
 
     [Fact]
-    public async Task CancelledRunTokenDoesNotReportAnotherFailure()
+    public async Task CanceledRunTokenDoesNotReportAnotherFailure()
     {
         using var service = new RunGateProbeService(EvictionKey);
         var tracker = CreateRealTracker();
@@ -220,12 +221,12 @@ public class ScheduleRunGateTests
         var operationId = tracker.RegisterOperation(OperationType.EvictionScan, "Cache scan", cts);
         var completed = service.RunCompleted;
         string? error = null;
-        var cancelled = false;
-        service.RunCompleted = (admitted, key, failure, wasCancelled, kept) =>
+        var canceled = false;
+        service.RunCompleted = (admitted, key, failure, wasCanceled, kept) =>
         {
             error = failure;
-            cancelled = wasCancelled;
-            completed?.Invoke(admitted, key, failure, wasCancelled, kept);
+            canceled = wasCanceled;
+            completed?.Invoke(admitted, key, failure, wasCanceled, kept);
         };
         var lastRun = DateTime.UtcNow.AddHours(-1);
         service.SetLastRunUtc(lastRun);
@@ -233,20 +234,20 @@ public class ScheduleRunGateTests
             token =>
             {
                 Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(operationId));
-                tracker.CompleteOperation(operationId, success: false, cancelled: true);
+                tracker.CompleteOperation(operationId, success: false, canceled: true);
                 token.ThrowIfCancellationRequested();
                 return Task.CompletedTask;
             });
-        Assert.False(notice.Cancelled);
+        Assert.False(notice.Canceled);
         Assert.False(result.RunFailed);
         Assert.False(result.ShuttingDown);
         Assert.Null(error);
-        Assert.True(cancelled);
+        Assert.True(canceled);
         Assert.True(service.WorkRan);
         Assert.True(service.LastRunUtc > lastRun);
         Assert.Empty(tracker.GetActiveOperations());
         Assert.Empty(tracker.GetWaitingOperations());
-        Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(operationId)!.Status);
+        Assert.Equal(OperationStatus.Canceled, tracker.GetOperation(operationId)!.Status);
     }
 
     [Fact]
@@ -279,6 +280,33 @@ public class ScheduleRunGateTests
         Assert.Equal(RunVisibility.Hidden, failed.Visibility);
     }
 
+    [Fact]
+    public async Task ThrowingScheduledWorkEndsOnTheGenericFailedKeyWithTheTextAsDetail()
+    {
+        using var service = new RunGateProbeService("gameDetection");
+        var tracker = CreateRealTracker();
+        var announced = new TaskCompletionSource<ScheduledRunCompleteEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var notifications = CreateProxy<ISignalRNotificationService>((_, args) =>
+        {
+            if (args?.Length > 1 && args[1] is ScheduledRunCompleteEvent terminal)
+                announced.TrySetResult(terminal);
+            return Task.CompletedTask;
+        });
+        _ = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker, notifications);
+
+        await service.InvokeRunScheduledWorkAsync(
+            RunTrigger.Scheduled,
+            CancellationToken.None,
+            new RunNotice(NotificationMode.All, RunTrigger.Scheduled),
+            _ => throw new InvalidOperationException("boom"));
+        var terminal = await announced.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var run = tracker.GetOperation(terminal.OperationId)!;
+        Assert.Equal("signalr.generic.failed", run.Message);
+        Assert.Equal("boom", run.ErrorDetail);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -301,7 +329,7 @@ public class ScheduleRunGateTests
         Assert.False(service.EndBroadcast);
         var admission = await service.TryTriggerImmediateRunAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual));
         Assert.True(admission.Admitted);
-        Assert.False(admission.FollowUpQueued);
+        Assert.False(admission.FollowUpWaiting);
     }
 
     [Fact]
@@ -366,7 +394,7 @@ public class ScheduleRunGateTests
             Assert.False(notice.ShowNotification);
             if (consumeFirst) Assert.NotNull(consumed = await service.TakePendingManualRunAsync());
             Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(waiting.Id));
-            Assert.True(notice.Cancelled);
+            Assert.True(notice.Canceled);
             var deadline = DateTime.UtcNow.AddSeconds(5);
             while (await service.HasPendingRunAsync() && DateTime.UtcNow < deadline) await Task.Delay(10);
             Assert.False(await service.HasPendingRunAsync());
@@ -389,7 +417,7 @@ public class ScheduleRunGateTests
         Assert.True((await service.TryTriggerImmediateRunAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual))).Retained.ShowNotification);
         var later = await service.TakePendingManualRunAsync();
         Assert.NotNull(later);
-        Assert.False(later!.Cancelled);
+        Assert.False(later!.Canceled);
     }
 
     [Fact]
@@ -404,14 +432,14 @@ public class ScheduleRunGateTests
         var notice = Assert.IsType<RunNotice>(held.Notice);
         Assert.Equal(held.Id, notice.OperationId);
         tracker.CancelOperation(held.Id);
-        Assert.True(notice.Cancelled);
+        Assert.True(notice.Canceled);
         var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (tracker.GetOperation(held.Id)?.Status != OperationStatus.Cancelled && DateTime.UtcNow < deadline)
+        while (tracker.GetOperation(held.Id)?.Status != OperationStatus.Canceled && DateTime.UtcNow < deadline)
             await Task.Delay(10);
-        RaiseDownloadsEnded();
+        CacheScanGateHarness.RaiseDownloadsEnded();
         Assert.False(await service.HasPendingRunAsync());
         Assert.Null(await service.TakePendingDeferredRunAsync());
-        Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(held.Id)!.Status);
+        Assert.Equal(OperationStatus.Canceled, tracker.GetOperation(held.Id)!.Status);
     }
 
     [Fact]
@@ -423,32 +451,32 @@ public class ScheduleRunGateTests
         var tracker = CreateRealTracker();
         var notifications = CreateDefaultProxy<ISignalRNotificationService>();
         var registry = CreateRegistry(service, CacheScanGateHarness.With(snapshot), tracker, notifications);
-        var queue = new OperationQueueService(tracker,
+        var queue = new OperationWaitlistService(tracker,
             OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var blocker = tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var notice = new RunNotice(NotificationMode.Silent, RunTrigger.Manual);
-        var queued = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
-            () => throw new DownloadInProgressException("Downloading"), CancellationToken.None, notice: notice);
-        Assert.Same(notice, tracker.GetOperation(queued.OperationId)!.Notice);
+        var waitingRun = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+            () => throw new DownloadInProgressException("Downloading", DownloadKey), CancellationToken.None, OperationRequestKey.Plain, notice: notice);
+        Assert.Same(notice, tracker.GetOperation(waitingRun.OperationId)!.Notice);
         CacheScanGateHarness.MakeBusy(snapshot);
         tracker.CompleteOperation(blocker, success: true);
         var deadline = DateTime.UtcNow.AddSeconds(5);
         while ((await service.ReadRunStatusAsync()).HeldCard is null)
         {
-            Assert.True(DateTime.UtcNow < deadline, "The queued terminal did not retain its download hold");
+            Assert.True(DateTime.UtcNow < deadline, "The waiting run's terminal did not retain its download hold");
             await Task.Delay(10);
         }
         Assert.Same(notice, tracker.GetOperation((await service.ReadRunStatusAsync()).HeldCard!.Value)!.Notice);
         CacheScanGateHarness.MakeIdle(snapshot);
-        RaiseDownloadsEnded();
+        CacheScanGateHarness.RaiseDownloadsEnded();
         var consumed = await service.TakePendingManualRunAsync();
         Assert.NotNull(consumed);
         Assert.Same(notice, consumed);
         tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var second = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
-            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: consumed);
-        Assert.True(second.Queued);
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, OperationRequestKey.Plain, notice: consumed);
+        Assert.Equal(OperationStartStatus.Waiting, second.Status);
         Assert.Same(notice, tracker.GetOperation(second.OperationId)!.Notice);
         // A silent run parked a second time is still one background row.
         Assert.Equal(RunVisibility.Background,
@@ -469,16 +497,16 @@ public class ScheduleRunGateTests
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
-        var held = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>((await controller.TriggerRunAsync(EvictionKey)).Result).Value);
-        Assert.Equal("skipped", held.Status);
+        var held = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>((await controller.TriggerRunAsync(EvictionKey)).Result).Value);
+        Assert.Equal(OperationStartStatus.Skipped, held.Status);
         var holdRun = Assert.Single(tracker.GetWaitingOperations());
         Assert.Equal(RunVisibility.Background, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == holdRun.Id).Visibility);
         Assert.False(await service.HasPendingRunAsync());
         var notice = tracker.GetOperation((await service.ReadRunStatusAsync()).HeldCard!.Value)!.Notice!;
         CacheScanGateHarness.MakeIdle(snapshot);
         service.SetNotificationMode(NotificationMode.All);
-        var resumed = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>((await controller.TriggerRunAsync(EvictionKey)).Result).Value);
-        Assert.Equal("started", resumed.Status);
+        var resumed = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>((await controller.TriggerRunAsync(EvictionKey)).Result).Value);
+        Assert.Equal(OperationStartStatus.Started, resumed.Status);
         var consumed = await service.TakePendingManualRunAsync();
         Assert.NotNull(consumed);
         Assert.Same(notice, consumed);
@@ -486,15 +514,15 @@ public class ScheduleRunGateTests
         Assert.Same(notice, service.CurrentRunNotice);
         Assert.Equal(RunTrigger.Manual, notice.Trigger);
         tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
-        var queue = new OperationQueueService(tracker,
+        var queue = new OperationWaitlistService(tracker,
             OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
-        var queued = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
-            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
-        Assert.True(queued.Queued);
-        Assert.Same(notice, tracker.GetOperation(queued.OperationId)!.Notice);
+            NullLogger<OperationWaitlistService>.Instance);
+        var waitingRun = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, OperationRequestKey.Plain, notice: notice);
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
+        Assert.Same(notice, tracker.GetOperation(waitingRun.OperationId)!.Notice);
         // The schedule's mode changed after the hold, but the run keeps the notice it was admitted with.
-        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId);
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == waitingRun.OperationId);
         Assert.Equal("evictionScan", row.OperationType);
         Assert.Equal(RunVisibility.Background, row.Visibility);
     }
@@ -523,10 +551,10 @@ public class ScheduleRunGateTests
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
         try
         {
-            var response = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>((await controller.TriggerRunAsync(EvictionKey)).Result).Value);
+            var response = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>((await controller.TriggerRunAsync(EvictionKey)).Result).Value);
             await controller.TriggerRunAsync(EvictionKey);
-            Assert.True(response.AlreadyRunning);
-            Assert.True(response.FollowUpQueued);
+            Assert.Equal(OperationStartStatus.AlreadyRunning, response.Status);
+            Assert.True(response.FollowUpWaiting);
             // Two clicks behind the running loop park one follow-up, a background row under Silent.
             var parked = Assert.Single(tracker.GetWaitingOperations());
             Assert.Equal(RunVisibility.Background, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == parked.Id).Visibility);
@@ -567,7 +595,7 @@ public class ScheduleRunGateTests
             Assert.Same(notice, held.Notice);
             Assert.Equal(visibility, Assert.Single(holdTracker.GetRuns().Runs, run => run.OperationId == held.Id).Visibility);
             service.SetNotificationMode(NotificationMode.All);
-            RaiseDownloadsEnded();
+            CacheScanGateHarness.RaiseDownloadsEnded();
             // The peek reports the released run in either slot; which slot holds it is read below.
             Assert.True(await service.HasPendingRunAsync());
             RunNotice? consumed;
@@ -582,13 +610,13 @@ public class ScheduleRunGateTests
             {
                 var tracker = CreateRealTracker();
                 tracker.RegisterOperation(OperationType.EvictionScan, "scan", new CancellationTokenSource());
-                var queue = new OperationQueueService(tracker,
+                var queue = new OperationWaitlistService(tracker,
                     OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-                    NullLogger<OperationQueueService>.Instance);
-                var queued = await queue.EnqueueAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), "size",
-                    () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, notice: notice);
+                    NullLogger<OperationWaitlistService>.Instance);
+                var waitingRun = await queue.EnqueueAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), "size",
+                    () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, OperationRequestKey.Plain, notice: notice);
                 Assert.Equal(RunVisibility.Background,
-                    Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId).Visibility);
+                    Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == waitingRun.OperationId).Visibility);
             }
         }
         finally
@@ -1024,7 +1052,7 @@ public class ScheduleRunGateTests
         Assert.NotNull(skippedReason);
         // The answer says the run is kept rather than telling the person to try again, which is what
         // the gate's own sentence does for the controllers.
-        Assert.Contains("queued", skippedReason);
+        Assert.Equal(CacheScanGate.ScheduleWaitingReasonKey, skippedReason);
         Assert.False(await service.HasPendingRunAsync());
 
         CacheScanGateHarness.MakeIdle(snapshot);
@@ -1096,7 +1124,7 @@ public class ScheduleRunGateTests
 
             // Downloads end. Nothing asks the gate, which is exactly the case that used to stay
             // armed-out; the tracker's own edge is what re-arms it.
-            RaiseDownloadsEnded();
+            CacheScanGateHarness.RaiseDownloadsEnded();
 
             Assert.NotNull(await gate(EvictionKey, RunTrigger.Scheduled));
             var second = Assert.Single(tracker.GetWaitingOperations());
@@ -1107,15 +1135,6 @@ public class ScheduleRunGateTests
         {
             ScheduledServiceBase.ScheduleRunGate = previous;
         }
-    }
-
-    // The event is static and parameterless, so the test raises it the way the tracker does.
-    private static void RaiseDownloadsEnded()
-    {
-        var field = typeof(RustSpeedTrackerService).GetField(
-            nameof(RustSpeedTrackerService.DownloadsEnded),
-            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-        ((Action?)field!.GetValue(null))?.Invoke();
     }
 
     [Fact]
@@ -1195,7 +1214,7 @@ public class ScheduleRunGateTests
         Assert.False(await service.HasPendingRunAsync());
 
         CacheScanGateHarness.MakeIdle(snapshot);
-        RaiseDownloadsEnded();
+        CacheScanGateHarness.RaiseDownloadsEnded();
 
         Assert.Null(await service.TakePendingDeferredRunAsync());
         var woken = await service.TakePendingManualRunAsync();
@@ -1204,7 +1223,7 @@ public class ScheduleRunGateTests
         Assert.Same(actor, woken.Actor);
     }
 
-    // Run All starts idle schedules only. A second run queued behind a busy one put up a waiting card
+    // Run All starts idle schedules only. A second run waiting behind a busy one put up a waiting card
     // for a run nobody asked for.
     [Fact]
     public async Task RunAll_LeavesAScheduleWhoseLoopIsRunningAlone()
@@ -1254,7 +1273,7 @@ public class ScheduleRunGateTests
     // A detection parked in the queue behind a cache file scan is not running yet, but its run is
     // coming, so Run All counts it with the running ones instead of asking for another.
     [Fact]
-    public async Task RunAll_CountsAScheduleWithAQueuedRunAsAlreadyRunning()
+    public async Task RunAll_CountsAScheduleWithAWaitingRunAsAlreadyRunning()
     {
         using var service = new RunGateProbeService("gameDetection");
         var tracker = CreateRealTracker();
@@ -1292,7 +1311,7 @@ public class ScheduleRunGateTests
     // A Run Now pressed while the schedule runs queues a second run. Its waiting card prints the
     // schedule's title, not the internal key.
     [Fact]
-    public async Task RunNowWhileRunning_NamesTheQueuedRunByItsTitle()
+    public async Task RunNowWhileRunning_NamesTheWaitingRunByItsTitle()
     {
         using var service = new RunGateProbeService("logRotation");
         var tracker = CreateRealTracker();
@@ -1304,9 +1323,9 @@ public class ScheduleRunGateTests
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
         try
         {
-            var (_, _, followUpQueued) = await schedules.TriggerRunAsync("logRotation");
+            var (_, _, followUpWaiting) = await schedules.TriggerRunAsync("logRotation");
 
-            Assert.True(followUpQueued);
+            Assert.True(followUpWaiting);
             Assert.Equal("Log Rotation", Assert.Single(tracker.GetWaitingOperations()).Name);
         }
         finally
@@ -1334,7 +1353,7 @@ public class ScheduleRunGateTests
             var held = new RunNotice(NotificationMode.All, RunTrigger.RunAll) { PendingId = Guid.NewGuid() };
             var admission = await service.TryTriggerImmediateRunAsync(held);
             Assert.True(admission.Admitted);
-            Assert.True(admission.FollowUpQueued);
+            Assert.True(admission.FollowUpWaiting);
             Assert.Same(held, admission.Retained);
         }
         finally
@@ -1376,18 +1395,18 @@ public class ScheduleRunGateTests
         }
     }
 
-    // A queued run that is being canceled will not run, so Run All starts the schedule instead of
+    // A waiting run that is being canceled will not run, so Run All starts the schedule instead of
     // counting it as already running.
     [Fact]
-    public async Task RunAll_StartsAScheduleWhoseQueuedRunIsBeingCancelled()
+    public async Task RunAll_StartsAScheduleWhoseWaitingRunIsBeingCanceled()
     {
         using var service = new RunGateProbeService("gameDetection");
         var tracker = CreateRealTracker();
         var schedules = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker);
-        var queued = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
+        var waitingRun = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
             initialStatus: OperationStatus.Waiting);
-        tracker.CancelOperation(queued);
-        Assert.Equal(OperationStatus.Cancelling, tracker.GetOperation(queued)!.Status);
+        tracker.CancelOperation(waitingRun);
+        Assert.Equal(OperationStatus.Canceling, tracker.GetOperation(waitingRun)!.Status);
 
         var (triggered, alreadyRunning, _, _) = await schedules.TriggerAllAsync();
 
@@ -1397,7 +1416,7 @@ public class ScheduleRunGateTests
     }
 
     // The route matches a schedule in any casing, and depot mapping keeps no waiting card for a run
-    // queued behind its own. Asked under the URL's casing, that rule missed the key.
+    // waiting behind its own. Asked under the URL's casing, that rule missed the key.
     [Fact]
     public async Task RunNowUnderAnotherCasing_QueuesDepotMappingWithoutAWaitingCard()
     {
@@ -1415,10 +1434,10 @@ public class ScheduleRunGateTests
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
         try
         {
-            var response = Assert.IsType<QueuedOperationResponse>(
+            var response = Assert.IsType<OperationStartResponse>(
                 Assert.IsType<AcceptedResult>((await controller.TriggerRunAsync("DepotMapping")).Result).Value);
 
-            Assert.True(response.FollowUpQueued);
+            Assert.True(response.FollowUpWaiting);
             Assert.True(await service.HasPendingRunAsync());
             Assert.Empty(tracker.GetWaitingOperations());
         }
@@ -1443,7 +1462,7 @@ public class ScheduleRunGateTests
         var copy = tracker.RegisterOperation(OperationType.CacheSnapshot, "Cache Snapshot", new CancellationTokenSource());
         tracker.CancelOperation(scan);
         tracker.CancelOperation(copy);
-        Assert.Equal(OperationStatus.Cancelling, tracker.GetOperation(scan)!.Status);
+        Assert.Equal(OperationStatus.Canceling, tracker.GetOperation(scan)!.Status);
 
         var (triggered, alreadyRunning, _, _) = await schedules.TriggerAllAsync();
 
@@ -1464,11 +1483,11 @@ public class ScheduleRunGateTests
         var scan = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
         tracker.CancelOperation(scan);
 
-        var (status, skippedReason, followUpQueued) = await schedules.TriggerRunAsync("gameDetection");
+        var (status, skippedReason, followUpWaiting) = await schedules.TriggerRunAsync("gameDetection");
 
         Assert.False(status.IsRunning);
         Assert.Null(skippedReason);
-        Assert.False(followUpQueued);
+        Assert.False(followUpWaiting);
         Assert.True(await service.HasPendingRunAsync());
     }
 
@@ -1543,12 +1562,12 @@ public class ScheduleRunGateTests
     public async Task RefusalAtPromotion_CompletesAsSkippedRatherThanFailedAsync()
     {
         var (status, row, _) =
-            await PromoteWithStartFailureAsync(new DownloadInProgressException(DownloadReason));
+            await PromoteWithStartFailureAsync(new DownloadInProgressException(DownloadReason, DownloadKey));
 
         Assert.Equal(OperationStatus.Skipped, status.Status);
-        // The operation record keeps the reason, which is what the logs and the history read. A
-        // null startError would send this decline into the transient retry path instead.
-        Assert.Equal(DownloadReason, status.Message);
+        // The operation record ends on the refusal's own key, which the card translates. A null
+        // startError would send this decline into the transient retry path instead.
+        Assert.Equal(DownloadKey, status.Message);
 
         // The waiting row ends declined, not handed to something that took it over.
         Assert.Equal("skipped", row.Status);
@@ -1561,7 +1580,7 @@ public class ScheduleRunGateTests
     [Fact]
     public async Task RefusalOnTheImmediatePath_StillReachesTheCallerAsync()
     {
-        // Nothing is queued ahead of it, so the start delegate runs inline. A refusal there has to
+        // Nothing is waiting ahead of it, so the start delegate runs inline. A refusal there has to
         // come back out: the HTTP caller is waiting on it and its 400 with the reason is the answer,
         // and swallowing it here would take that away.
         //
@@ -1598,18 +1617,18 @@ public class ScheduleRunGateTests
                 activityRegistry: null,
                 cacheScanGate: CacheScanGateHarness.Idle());
 
-            var queue = new OperationQueueService(
+            var queue = new OperationWaitlistService(
                 tracker,
                 OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-                NullLogger<OperationQueueService>.Instance);
+                NullLogger<OperationWaitlistService>.Instance);
 
             var refused = await Assert.ThrowsAsync<DownloadInProgressException>(
                 () => queue.EnqueueAsync(
                     OperationType.GameDetection,
                     ConflictScope.Bulk(),
                     "Game Detection",
-                    () => throw new DownloadInProgressException(DownloadReason),
-                    CancellationToken.None));
+                    () => throw new DownloadInProgressException(DownloadReason, DownloadKey),
+                    CancellationToken.None, new GameDetectionRequestKey(DetectionScanType.Full)));
 
             Assert.Equal(DownloadReason, refused.Message);
             Assert.Empty(tracker.GetWaitingOperations());
@@ -1660,18 +1679,18 @@ public class ScheduleRunGateTests
                 activityRegistry: null);
 
             // No gate, so the registry cannot hold the refused run and announces the skip instead.
-            var queue = new OperationQueueService(
+            var queue = new OperationWaitlistService(
                 tracker,
                 OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-                NullLogger<OperationQueueService>.Instance);
+                NullLogger<OperationWaitlistService>.Instance);
 
             await Assert.ThrowsAsync<DownloadInProgressException>(
                 () => queue.EnqueueAsync(
                     OperationType.GameDetection,
                     ConflictScope.Bulk(),
                     "Game Detection",
-                    () => throw new DownloadInProgressException(DownloadReason),
-                    CancellationToken.None,
+                    () => throw new DownloadInProgressException(DownloadReason, DownloadKey),
+                    CancellationToken.None, new GameDetectionRequestKey(DetectionScanType.Full),
                     reportRefusal: true));
 
             var terminal = await announced.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -1733,7 +1752,9 @@ public class ScheduleRunGateTests
             await PromoteWithStartFailureAsync(new ValidationException("Cannot write to the cache directory"));
 
         Assert.Equal(OperationStatus.Failed, status.Status);
-        Assert.Equal("Cannot write to the cache directory", status.Message);
+        // An unkeyed failure ends on the generic key; its text stays on the record as the detail.
+        Assert.Equal("signalr.generic.failed", status.Message);
+        Assert.Equal("Cannot write to the cache directory", status.ErrorDetail);
         Assert.Equal("failed", row.Status);
         Assert.Null(row.NextOperationId);
     }
@@ -1749,31 +1770,31 @@ public class ScheduleRunGateTests
         var tracker = CreateRealTracker();
         var conflictChecker = OperationConflictTestServices.Create(
             tracker, NullLogger<OperationConflictChecker>.Instance);
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker, conflictChecker,
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
 
         using var blockerCts = new CancellationTokenSource();
         var blocker = tracker.RegisterOperation(
             OperationType.CacheSizeScan, "Cache File Scan", blockerCts);
 
-        var queued = await queue.EnqueueAsync(
+        var waitingRun = await queue.EnqueueAsync(
             OperationType.GameDetection,
             ConflictScope.Bulk(),
             "Game Detection",
             () => throw startFailure,
-            CancellationToken.None);
-        Assert.True(queued.Queued);
+            CancellationToken.None, new GameDetectionRequestKey(DetectionScanType.Full));
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
 
         tracker.CompleteOperation(blocker, success: true);
 
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
         while (DateTime.UtcNow < deadline)
         {
-            var waiting = tracker.GetOperation(queued.OperationId);
+            var waiting = tracker.GetOperation(waitingRun.OperationId);
             if (waiting is not null && waiting.Status.IsTerminal())
             {
-                return (waiting, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId), tracker);
+                return (waiting, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == waitingRun.OperationId), tracker);
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(25));
@@ -1788,7 +1809,7 @@ public class ScheduleRunGateTests
         var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
         var runNow = JsonSerializer.Serialize(
-            new QueuedOperationResponse { Status = "skipped", SkippedReason = DownloadReason },
+            new OperationStartResponse { Status = OperationStartStatus.Skipped, SkippedReason = DownloadReason },
             options);
         var runAll = JsonSerializer.Serialize(
             new TriggerAllResponse { SkippedCount = 1, SkippedReason = DownloadReason },

@@ -1,5 +1,5 @@
-// Hit-rate classification shared by every view that colours a cache-hit percentage: the retro row
-// renderer (gauge colour, accent stripe), the recent-downloads list, the clients table and the top
+// Hit-rate classification shared by every view that colors a cache-hit percentage: the retro row
+// renderer (gauge color, accent stripe), the recent-downloads list, the clients table and the top
 // clients table. Four bands so the worst outcomes read as more severe than a plain miss.
 export type EfficiencyTier = 'success' | 'warning' | 'error' | 'critical';
 

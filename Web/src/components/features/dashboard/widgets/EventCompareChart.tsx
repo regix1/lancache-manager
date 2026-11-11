@@ -231,7 +231,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
           cubicInterpolationMode: 'monotone',
           hidden: hiddenSeries.has(index),
           // An event that has only just started has one value and nulls after it, and a lone value
-          // has no neighbour to draw a line to, so at radius 0 the series is invisible.
+          // has no neighbor to draw a line to, so at radius 0 the series is invisible.
           pointRadius: values.filter((value) => value !== null).length === 1 ? 4 : 0,
           pointHoverRadius: 5,
           pointHoverBorderWidth: 2,

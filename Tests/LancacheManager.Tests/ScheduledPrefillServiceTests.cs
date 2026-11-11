@@ -27,7 +27,7 @@ namespace LancacheManager.Tests;
 /// auth-orchestrator rip-out left the container able to activate <see cref="ScheduledPrefillService"/>
 /// without the deleted scheduled-prefill auth-orchestrator dependency; and (3) a benign, user-initiated
 /// cancellation of a scheduled run is swallowed INSIDE <see cref="ScheduledPrefillService"/> (logged at
-/// Information and completed as cancelled) so it never surfaces to the shared
+/// Information and completed as canceled) so it never surfaces to the shared
 /// <c>ConfigurableScheduledService</c> loop as a hard "error in scheduled work", and the recurring
 /// schedule keeps ticking afterward.
 /// </summary>
@@ -669,7 +669,7 @@ public class ScheduledPrefillServiceTests
                 NullLogger<StateService>.Instance, pathResolver, encryption, steamAuthStorage);
 
             // Seed an empty in-memory state so GetState() short-circuits on the cache and the save path
-            // never runs the legacy-file migration - this isolates the test to the anchor behaviour.
+            // never runs the legacy-file migration - this isolates the test to the anchor behavior.
             var cachedStateField = typeof(StateService).GetField(
                 "_cachedState", BindingFlags.Instance | BindingFlags.NonPublic)!;
             cachedStateField.SetValue(StateService, new AppState());
@@ -733,15 +733,15 @@ public class ScheduledPrefillServiceTests
 
     // ---- Benign cancellation is handled in ScheduledPrefillService, not the shared base loop ----
     // Regression guard: a user cancel of a running scheduled prefill must be swallowed inside
-    // ExecuteWorkAsync (Information log + operation completed as cancelled) and must NOT propagate as an
+    // ExecuteWorkAsync (Information log + operation completed as canceled) and must NOT propagate as an
     // OperationCanceledException to ConfigurableScheduledService.ExecuteAsync, whose generic catch would
     // mis-log the benign cancel as a hard "error in scheduled work" and where an over-broad OCE catch
     // would instead silently swallow genuinely-unrelated internal timeouts.
 
     [Fact]
-    public async Task ExecuteWorkAsync_BenignCancellation_SwallowsException_AndCompletesOperationAsCancelled()
+    public async Task ExecuteWorkAsync_BenignCancellation_SwallowsException_AndCompletesOperationAsCanceled()
     {
-        var harness = CreateCancellingHarness();
+        var harness = CreateCancelingHarness();
         using var provider = harness.Provider;
 
         var executeWork = typeof(ScheduledPrefillService)
@@ -749,7 +749,7 @@ public class ScheduledPrefillServiceTests
 
         // The base scheduling loop calls ExecuteWorkAsync once per tick, so invoking it twice in a row
         // and getting a normal return each time is the method-level guarantee that a cancel (surfaced
-        // here by the fake tracker cancelling the adopted CTS) is handled locally and never escapes to
+        // here by the fake tracker canceling the adopted CTS) is handled locally and never escapes to
         // the shared loop, which would otherwise log it as "error in scheduled work".
         var thrown = await Record.ExceptionAsync(async () =>
         {
@@ -770,13 +770,13 @@ public class ScheduledPrefillServiceTests
         Assert.DoesNotContain(harness.Logger.Entries, entry => entry.Level == LogLevel.Error);
         Assert.Contains(
             harness.Logger.Entries,
-            entry => entry.Level == LogLevel.Information && entry.Message.Contains("cancelled"));
+            entry => entry.Level == LogLevel.Information && entry.Message.Contains("canceled"));
     }
 
     [Fact]
     public async Task SchedulingLoop_ContinuesTicking_AfterBenignCancellation()
     {
-        var harness = CreateCancellingHarness();
+        var harness = CreateCancelingHarness();
         using var provider = harness.Provider;
         var service = harness.Service;
 
@@ -808,7 +808,7 @@ public class ScheduledPrefillServiceTests
             entry => entry.Level == LogLevel.Error && entry.Message.Contains("error in scheduled work"));
         Assert.Contains(
             harness.Logger.Entries,
-            entry => entry.Level == LogLevel.Information && entry.Message.Contains("cancelled"));
+            entry => entry.Level == LogLevel.Information && entry.Message.Contains("canceled"));
     }
 
     // A pass a person or Run All started is doing the work from the moment it is taken; a scheduled
@@ -890,10 +890,38 @@ public class ScheduledPrefillServiceTests
         var serviceTerminals = harness.Notifications.Terminals.Values.ToArray();
         Assert.NotEmpty(serviceTerminals);
         Assert.All(serviceTerminals, terminal => Assert.Equal("signalr.scheduledPrefill.failed", terminal.StageKey));
-        // The run-level operation stores its own error; each service run stores the key.
+        // Each service run stores the key, and so does the run-level operation the throw ended.
         Assert.Equal(
-            serviceTerminals.Length,
+            serviceTerminals.Length + 1,
             harness.Tracker.CompletedErrors.Count(error => error == "signalr.scheduledPrefill.failed"));
+    }
+
+    [Fact]
+    public async Task ARunEndedByAThrow_KeepsTheErrorTextOnItsRow()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var services = harness.Provider;
+        harness.Notifications.FailNextStarted = true;
+
+        await Record.ExceptionAsync(() => InvokeExecuteWorkAsync(harness.Service));
+        harness.Service.Dispose();
+
+        // The run-level operation completes last, after every service run it opened.
+        Assert.Equal("signalr.scheduledPrefill.failed", harness.Tracker.CompletedErrors[^1]);
+        Assert.Equal("hub send failed", harness.Tracker.CompletedDetails[^1]);
+    }
+
+    [Fact]
+    public async Task ARunThatEndsWithoutAThrow_LeavesItsRowErrorToTheKey()
+    {
+        var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
+        using var services = harness.Provider;
+
+        await InvokeExecuteWorkAsync(harness.Service);
+        harness.Service.Dispose();
+
+        Assert.NotEmpty(harness.Tracker.CompletedDetails);
+        Assert.All(harness.Tracker.CompletedDetails, Assert.Null);
     }
 
     // A listener on the process-wide run-state event that throws is the only way an on-demand run ends before it
@@ -1234,9 +1262,9 @@ public class ScheduledPrefillServiceTests
         Assert.False(schedule.Single(row => row.ServiceId == PrefillPlatform.Steam).IsRunning);
     }
 
-    // ---- The per-platform run route tells a start from a queue ----
-    // A run already in flight holds the loop, so a platform outside it only queues. The row's toast
-    // must say so rather than claim a start, which is what the response's queued flag carries.
+    // ---- The per-platform run route tells a start from a wait ----
+    // A run already in flight holds the loop, so a platform outside it only waits. The row's toast
+    // must say so rather than claim a start, which is what the response's status carries.
 
     // These three name Battle.net because it is ENABLED in the default config. A disabled platform is
     // refused before either branch below is reached, so testing them with one would pass for the wrong
@@ -1249,7 +1277,7 @@ public class ScheduledPrefillServiceTests
         active.Add(RunLevelOperation());
 
         // A run in flight no longer holds this back, because the new run does not go through the
-        // scheduling loop that run is occupying. This used to answer "queued".
+        // scheduling loop that run is occupying. This used to answer that it would wait.
         Assert.IsType<AcceptedResult>(await controller.RunService(
             PrefillPlatform.BattleNet,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.BattleNet)));
@@ -1343,8 +1371,8 @@ public class ScheduledPrefillServiceTests
         var harness = CreateRecordingHarness<PrefillConfigStateServiceProxy>();
         using var provider = harness.Provider;
 
-        // A whole-schedule Run Now landing on top of a queued per-row run must not be narrowed down
-        // to that one platform, which is what leaving the queued platform in place would do.
+        // A whole-schedule Run Now landing on top of a waiting per-row run must not be narrowed down
+        // to that one platform, which is what leaving the waiting platform in place would do.
         harness.Service.TriggerServiceRun(
             PrefillPlatform.Riot,
             ScheduledPrefillConfigFactory.GetDefaultScheduleId(PrefillPlatform.Riot));
@@ -1646,7 +1674,7 @@ public class ScheduledPrefillServiceTests
         }
     }
 
-    // Records the name every operation registers under, in order, without cancelling anything.
+    // Records the name every operation registers under, in order, without canceling anything.
     // Not sealed: DispatchProxy.Create derives the concrete proxy type from this class.
     private class RecordingTrackerProxy : DispatchProxy
     {
@@ -1658,6 +1686,8 @@ public class ScheduledPrefillServiceTests
         public int CompletedCount { get { lock (_sync) return _completed.Count; } }
         public int ActiveCount { get { lock (_sync) return _tokens.Count; } }
         public List<string?> CompletedErrors { get; } = [];
+        /// <summary>The ErrorDetail each completion's onCompleting leaves on the run, in completion order.</summary>
+        public List<string?> CompletedDetails { get; } = [];
 
         public string[] RegisteredNames
         {
@@ -1686,6 +1716,9 @@ public class ScheduledPrefillServiceTests
                 {
                     Assert.True(_completed.Add(completed));
                     CompletedErrors.Add(args[2] as string);
+                    var ended = new OperationInfo { Id = completed, Type = OperationType.ScheduledPrefill, Name = "ended" };
+                    (args[5] as Action<OperationInfo>)?.Invoke(ended);
+                    CompletedDetails.Add(ended.ErrorDetail);
                     if (_tokens.Remove(completed, out var token)) token.Dispose();
                 }
             }
@@ -1694,10 +1727,10 @@ public class ScheduledPrefillServiceTests
         }
     }
 
-    private static CancellingHarness CreateCancellingHarness()
+    private static CancelingHarness CreateCancelingHarness()
     {
-        var trackerProxy = DispatchProxy.Create<IUnifiedOperationTracker, CancellingTrackerProxy>();
-        var tracker = (CancellingTrackerProxy)trackerProxy;
+        var trackerProxy = DispatchProxy.Create<IUnifiedOperationTracker, CancelingTrackerProxy>();
+        var tracker = (CancelingTrackerProxy)trackerProxy;
         var notifications = (ISignalRNotificationService)DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
         var stateService = (IStateService)DispatchProxy.Create<IStateService, PrefillConfigStateServiceProxy>();
 
@@ -1712,13 +1745,13 @@ public class ScheduledPrefillServiceTests
             provider.GetRequiredService<IServiceScopeFactory>(),
             stateService);
 
-        return new CancellingHarness(service, logger, tracker, provider);
+        return new CancelingHarness(service, logger, tracker, provider);
     }
 
-    private sealed record CancellingHarness(
+    private sealed record CancelingHarness(
         ScheduledPrefillService Service,
         CapturingLogger Logger,
-        CancellingTrackerProxy Tracker,
+        CancelingTrackerProxy Tracker,
         ServiceProvider Provider);
 
     private sealed record LogEntry(LogLevel Level, string Message);
@@ -1752,10 +1785,10 @@ public class ScheduledPrefillServiceTests
     }
 
     // Reproduces the user/tracker cancel path (OperationsController -> tracker.CancelOperation ->
-    // cts.Cancel): cancelling the adopted CTS the instant the run registers makes runToken fire, which
+    // cts.Cancel): canceling the adopted CTS the instant the run registers makes runToken fire, which
     // ScheduledPrefillService.ExecuteWorkAsync must treat as a benign, already-handled cancellation.
     // Not sealed: DispatchProxy.Create derives the concrete proxy type from this class.
-    private class CancellingTrackerProxy : DispatchProxy
+    private class CancelingTrackerProxy : DispatchProxy
     {
         private int _registerCount;
         private int _runRegisterCount;
@@ -1784,7 +1817,7 @@ public class ScheduledPrefillServiceTests
                     }
 
                     // args[2] is the CancellationTokenSource the run hands over (RegisterOperation's
-                    // third parameter). Cancelling it here stands in for the user pressing Cancel.
+                    // third parameter). Canceling it here stands in for the user pressing Cancel.
                     (args?[2] as CancellationTokenSource)?.Cancel();
                     return Guid.NewGuid();
                 case nameof(IUnifiedOperationTracker.CompleteOperation):

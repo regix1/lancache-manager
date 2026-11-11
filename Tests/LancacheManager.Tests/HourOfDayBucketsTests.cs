@@ -11,7 +11,7 @@ namespace LancacheManager.Tests;
 public class HourOfDayBucketsTests
 {
     /// <summary>
-    /// The zone has to be one the server is not on, or a cut that ignores it and one that honours
+    /// The zone has to be one the server is not on, or a cut that ignores it and one that honors
     /// it produce the same buckets and the test proves nothing. India is +05:30, which is also not
     /// a whole number of hours from UTC.
     /// </summary>

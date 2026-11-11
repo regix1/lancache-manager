@@ -28,7 +28,7 @@ interface XboxDaemonStatusProps {
   onSuccess?: (message: string) => void;
 }
 
-const TERMINAL_AUTH_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+const TERMINAL_AUTH_STATUSES = new Set(['completed', 'failed', 'canceled']);
 
 const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({ mockMode, onError, onSuccess }) => {
   const { t } = useTranslation();

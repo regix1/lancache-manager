@@ -20,7 +20,7 @@ export type BulkQueueEntry =
  */
 export type EvictedQueueEntry = BulkQueueEntry;
 
-/** One (datasource, service) pair queued for sequential log removal. */
+/** One (datasource, service) pair waiting for sequential log removal. */
 export interface LogBatchEntry {
   datasource: string;
   service: string;

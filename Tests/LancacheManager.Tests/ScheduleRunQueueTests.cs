@@ -39,7 +39,7 @@ public sealed class ScheduleRunQueueTests
         Action<OperationInfo>? handle = null;
         var declined = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
         // The queue's immediate path as it runs on a refusal: a declined row for the notice, then the throw.
-        async Task<QueuedOperationResponse> DeclineAsync(RunNotice notice)
+        async Task<OperationStartResponse> DeclineAsync(RunNotice notice)
         {
             CacheScanGateHarness.MakeBusy(snapshot);
             var id = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
@@ -52,7 +52,7 @@ public sealed class ScheduleRunQueueTests
                 await WaitForAsync(() => tracker.GetWaitingOperations().Any());
             }
             declined.TrySetResult(operation);
-            throw new DownloadInProgressException("A download is in progress");
+            throw new DownloadInProgressException("A download is in progress", "errors.unmappedRemoval.downloadInProgress");
         }
 
         using var loop = new GameDetectionService(
@@ -61,7 +61,7 @@ public sealed class ScheduleRunQueueTests
             pathResolver: null!,
             scopeFactory: null!,
             cacheReconciliationService: null!,
-            operationQueue: CacheScanGateHarness.CreateProxy<IOperationQueue>((_, args) => DeclineAsync((RunNotice)args![6]!)),
+            operationQueue: CacheScanGateHarness.CreateProxy<IOperationWaitlist>((_, args) => DeclineAsync((RunNotice)args![7]!)),
             logger: NullLogger<GameDetectionService>.Instance,
             configuration: new ConfigurationBuilder().Build());
         using var schedules = Install([loop], CacheScanGateHarness.With(snapshot), tracker);
@@ -117,7 +117,7 @@ public sealed class ScheduleRunQueueTests
         Assert.False(await loop.HasRequestAsync());
 
         CacheScanGateHarness.MakeIdle(snapshot);
-        RaiseDownloadsEnded();
+        CacheScanGateHarness.RaiseDownloadsEnded();
         var deadline = DateTime.UtcNow + Timeout;
         while (!await loop.HasRequestAsync())
         {
@@ -189,19 +189,18 @@ public sealed class ScheduleRunQueueTests
         DetectionScanType running, DetectionScanType requested, bool joins)
     {
         var tracker = CreateTracker();
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker,
             OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
             detectionScanType: running);
 
         var response = await queue.EnqueueAsync(
             OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
-            () => Task.FromResult<Guid?>(null), CancellationToken.None, detectionScanType: requested);
+            () => Task.FromResult<Guid?>(null), CancellationToken.None, new GameDetectionRequestKey(requested));
 
-        Assert.Equal(joins, response.AlreadyRunning);
-        Assert.Equal(!joins, response.Queued);
+        Assert.Equal(joins ? OperationStartStatus.AlreadyRunning : OperationStartStatus.Waiting, response.Status);
     }
 
     // A Games-page scan held for a download runs as the scan type the person picked, even when the schedule's
@@ -209,17 +208,17 @@ public sealed class ScheduleRunQueueTests
     [Fact]
     public async Task AHeldGamesPageScan_RunsTheScanTypeThePersonPicked()
     {
-        var enqueuedType = new TaskCompletionSource<DetectionScanType?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requestedScanType = new TaskCompletionSource<DetectionScanType?>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var loop = new GameDetectionService(
             detectionService: null!,
             stateService: DispatchProxy.Create<IStateService, NullReturningProxy>(),
             pathResolver: null!,
             scopeFactory: null!,
             cacheReconciliationService: null!,
-            operationQueue: CacheScanGateHarness.CreateProxy<IOperationQueue>((_, args) =>
+            operationQueue: CacheScanGateHarness.CreateProxy<IOperationWaitlist>((_, args) =>
             {
-                enqueuedType.TrySetResult((DetectionScanType?)args![11]);
-                return Task.FromResult(new QueuedOperationResponse { OperationId = Guid.NewGuid(), Status = "started" });
+                requestedScanType.TrySetResult(((GameDetectionRequestKey)args![5]!).ScanType);
+                return Task.FromResult(new OperationStartResponse { OperationId = Guid.NewGuid(), Status = OperationStartStatus.Started });
             }),
             logger: NullLogger<GameDetectionService>.Instance,
             configuration: new ConfigurationBuilder().Build());
@@ -230,7 +229,7 @@ public sealed class ScheduleRunQueueTests
             await loop.TryTriggerImmediateRunAsync(
                 new RunNotice(NotificationMode.All, RunTrigger.Manual) { RequestedScanType = DetectionScanType.Incremental });
 
-            Assert.Equal(DetectionScanType.Incremental, await enqueuedType.Task.WaitAsync(Timeout));
+            Assert.Equal(DetectionScanType.Incremental, await requestedScanType.Task.WaitAsync(Timeout));
         }
         finally
         {
@@ -388,23 +387,24 @@ public sealed class ScheduleRunQueueTests
     public async Task AGamesPageScanJoiningTheSchedulesWaitingRun_KeepsItsScanType()
     {
         var tracker = CreateTracker();
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker,
             OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
         var scheduled = new RunNotice(NotificationMode.All, RunTrigger.Scheduled);
         var person = new RunNotice(NotificationMode.All, RunTrigger.Manual) { RequestedScanType = DetectionScanType.Full };
 
         var parked = await queue.EnqueueAsync(
             OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
-            () => Task.FromResult<Guid?>(null), CancellationToken.None, notice: scheduled, detectionScanType: DetectionScanType.Full);
+            () => Task.FromResult<Guid?>(null), CancellationToken.None, new GameDetectionRequestKey(DetectionScanType.Full), notice: scheduled);
         var joined = await queue.EnqueueAsync(
             OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
-            () => Task.FromResult<Guid?>(null), CancellationToken.None, notice: person, detectionScanType: DetectionScanType.Full);
+            () => Task.FromResult<Guid?>(null), CancellationToken.None, new GameDetectionRequestKey(DetectionScanType.Full), notice: person);
 
-        Assert.True(parked.Queued);
-        Assert.True(joined.AlreadyRunning);
+        Assert.Equal(OperationStartStatus.Waiting, parked.Status);
+        Assert.Equal(OperationStartStatus.Waiting, joined.Status);
+        Assert.Equal(parked.OperationId, joined.OperationId);
         Assert.Equal(DetectionScanType.Full, scheduled.RequestedScanType);
     }
 
@@ -559,7 +559,7 @@ public sealed class ScheduleRunQueueTests
         var admission = await loop.TryTriggerImmediateRunAsync(new RunNotice(NotificationMode.All, RunTrigger.RunAll));
 
         Assert.True(admission.Admitted);
-        Assert.True(admission.FollowUpQueued);
+        Assert.True(admission.FollowUpWaiting);
     }
 
     // An extra scan taken right after a run leaves the countdown that run just set where it was.
@@ -758,7 +758,7 @@ public sealed class ScheduleRunQueueTests
         Assert.NotNull(await loop.TakeRequestAsync());
         if (wake == "afterTake")
         {
-            Assert.True((await loop.TryTriggerImmediateRunAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual))).FollowUpQueued);
+            Assert.True((await loop.TryTriggerImmediateRunAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual))).FollowUpWaiting);
         }
 
         Assert.Equal(cutsShort, await loop.SleepAsync(TimeSpan.FromMilliseconds(300)));
@@ -791,10 +791,10 @@ public sealed class ScheduleRunQueueTests
     public async Task ADetectionRequestDuringAnEvictionScansDetectionStep_WaitsForTheScan()
     {
         var tracker = CreateTracker();
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker,
             OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var scan = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
         tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
             new GameDetectionMetrics { ParentOperationId = scan }, parentOperationId: scan,
@@ -802,10 +802,10 @@ public sealed class ScheduleRunQueueTests
 
         var response = await queue.EnqueueAsync(
             OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
-            () => Task.FromResult<Guid?>(null), CancellationToken.None, detectionScanType: DetectionScanType.Full);
+            () => Task.FromResult<Guid?>(null), CancellationToken.None, new GameDetectionRequestKey(DetectionScanType.Full));
 
-        Assert.False(response.AlreadyRunning);
-        Assert.True(response.Queued);
+        Assert.NotEqual(OperationStartStatus.AlreadyRunning, response.Status);
+        Assert.Equal(OperationStartStatus.Waiting, response.Status);
         var waiting = tracker.GetOperation(response.OperationId)!;
         Assert.Equal(OperationType.EvictionScan, waiting.BlockedByType);
     }
@@ -841,22 +841,23 @@ public sealed class ScheduleRunQueueTests
     public async Task ARequestWithAWaitingCardRefusedAtItsStart_HandsItsCardToTheDeclinedRow()
     {
         var tracker = CreateTracker();
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker,
             OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
         var waitingCard = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
             initialStatus: OperationStatus.Waiting, notice: notice);
         notice.Attach(tracker, waitingCard);
-        Task<Guid?> RefuseAsync() => throw new DownloadInProgressException("A download is in progress");
+        Task<Guid?> RefuseAsync() => throw new DownloadInProgressException(
+            "A download is in progress", "errors.unmappedRemoval.downloadInProgress");
 
         await Assert.ThrowsAsync<DownloadInProgressException>(() => queue.EnqueueAsync(
             OperationType.GameDetection,
             ConflictScope.Bulk(),
             "Game Detection",
             RefuseAsync,
-            CancellationToken.None,
+            CancellationToken.None, new GameDetectionRequestKey(DetectionScanType.Full),
             reportRefusal: true,
             notice: notice));
 
@@ -888,13 +889,13 @@ public sealed class ScheduleRunQueueTests
         await loop.HoldRunAsync(held, notice =>
         {
             // The card's token carries no dismissal callback, so the cancel stops at the card: the
-            // moment between the card turning Cancelling and its notice being canceled.
+            // moment between the card turning Canceling and its notice being canceled.
             card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
                 initialStatus: OperationStatus.Waiting, notice: notice);
             notice.Attach(tracker, card);
         });
         tracker.CancelOperation(card);
-        Assert.False(held.Cancelled);
+        Assert.False(held.Canceled);
 
         loop.ReleaseHeldRun(_ => null);
 
@@ -930,7 +931,7 @@ public sealed class ScheduleRunQueueTests
         var running = loop.RunAsync(RunTrigger.Scheduled, null, () => { started.TrySetResult(); return release.Task; });
         await started.Task.WaitAsync(Timeout);
 
-        Assert.True((await schedules.Service.TriggerRunAsync(EvictionKey)).FollowUpQueued);
+        Assert.True((await schedules.Service.TriggerRunAsync(EvictionKey)).FollowUpWaiting);
         var followUpCard = Assert.Single(tracker.GetWaitingOperations()).Id;
         CacheScanGateHarness.MakeBusy(snapshot);
         Assert.NotNull((await schedules.Service.TriggerRunAsync(EvictionKey)).SkippedReason);
@@ -946,9 +947,9 @@ public sealed class ScheduleRunQueueTests
         // The follow-up's card joined the hold's: dismissing it leaves the hold waiting.
         Assert.Equal(OperationCancelResult.AlreadyFinished, tracker.CancelOperation(followUpCard));
         Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(holdCard)!.Status);
-        Assert.False(tracker.GetOperation(holdCard)!.Notice!.Cancelled);
+        Assert.False(tracker.GetOperation(holdCard)!.Notice!.Canceled);
         CacheScanGateHarness.MakeIdle(snapshot);
-        RaiseDownloadsEnded();
+        CacheScanGateHarness.RaiseDownloadsEnded();
         var held = await loop.TakeRequestAsync();
         Assert.NotNull(held);
         Assert.Equal(holdCard, held!.OperationId);
@@ -972,7 +973,7 @@ public sealed class ScheduleRunQueueTests
         var holdCard = Assert.Single(tracker.GetWaitingOperations()).Id;
 
         CacheScanGateHarness.MakeIdle(snapshot);
-        RaiseDownloadsEnded();
+        CacheScanGateHarness.RaiseDownloadsEnded();
         var request = await loop.TakeRequestAsync();
         Assert.NotNull(request);
         Assert.Equal(RunTrigger.Manual, request!.Trigger);
@@ -1008,7 +1009,7 @@ public sealed class ScheduleRunQueueTests
     }
 
     // A Run All run held for a download and released while its schedule is busy is the busy run's own
-    // work: no second run is queued, and its card closes when that run ends.
+    // work: no second run waits, and its card closes when that run ends.
     [Fact]
     public async Task RunAllHoldReleasedIntoABusyLoop_RunsOnceAndClosesItsCard()
     {
@@ -1026,7 +1027,7 @@ public sealed class ScheduleRunQueueTests
         await started.Task.WaitAsync(Timeout);
 
         CacheScanGateHarness.MakeIdle(snapshot);
-        RaiseDownloadsEnded();
+        CacheScanGateHarness.RaiseDownloadsEnded();
         Assert.False(await loop.HasRequestAsync());
         Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(held.Id)!.Status);
         release.TrySetResult();
@@ -1054,7 +1055,7 @@ public sealed class ScheduleRunQueueTests
         var scan = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", scanCts);
 
         CacheScanGateHarness.MakeIdle(snapshot);
-        RaiseDownloadsEnded();
+        CacheScanGateHarness.RaiseDownloadsEnded();
         await loop.ReadRunStatusAsync();
 
         Assert.Equal(scan, tracker.GetOperation(held.Id)!.NextOperationId);
@@ -1086,7 +1087,7 @@ public sealed class ScheduleRunQueueTests
         Assert.False(status.IsRunning);
         var request = await loop.TakeRequestAsync();
         Assert.NotNull(request);
-        Assert.False(request!.Cancelled);
+        Assert.False(request!.Canceled);
     }
 
     // The same dismissal gap during the download: a Run Now is held on a card of its own instead of
@@ -1104,7 +1105,7 @@ public sealed class ScheduleRunQueueTests
         await schedules.Service.TriggerRunAsync(EvictionKey);
 
         Assert.Contains(tracker.GetWaitingOperations(), operation => operation.Id != dismissed.Id
-            && operation.Notice is { Cancelled: false });
+            && operation.Notice is { Canceled: false });
     }
 
     // An owed run beside a Run Now whose card was just dismissed: the loop takes the owed run, not the
@@ -1160,7 +1161,7 @@ public sealed class ScheduleRunQueueTests
             tracker.CompleteOperation(scan, success: true, skipped: true);
             holdCard = await WaitForWaitingCardAsync(tracker, run);
             CacheScanGateHarness.MakeIdle(snapshot);
-            RaiseDownloadsEnded();
+            CacheScanGateHarness.RaiseDownloadsEnded();
         });
 
         Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(holdCard)!.Status);
@@ -1175,9 +1176,9 @@ public sealed class ScheduleRunQueueTests
     public async Task QueueAttach_LeavesANoticeHeldAgainDuringItsStart()
     {
         var tracker = CreateTracker();
-        var queue = new OperationQueueService(tracker,
+        var queue = new OperationWaitlistService(tracker,
             OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var notice = new RunNotice(NotificationMode.All, RunTrigger.Scheduled);
         Guid holdCard = default;
 
@@ -1190,7 +1191,7 @@ public sealed class ScheduleRunQueueTests
                 initialStatus: OperationStatus.Waiting, notice: notice);
             notice.Attach(tracker, holdCard);
             return Task.FromResult<Guid?>(scan);
-        }, CancellationToken.None, notice: notice);
+        }, CancellationToken.None, OperationRequestKey.Plain, notice: notice);
 
         Assert.Equal(holdCard, notice.OperationId);
         Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(holdCard)!.Status);
@@ -1211,7 +1212,7 @@ public sealed class ScheduleRunQueueTests
 
         await WithGate(AllowEveryRun, () => loop.RunAsync(RunTrigger.Scheduled, null, () =>
         {
-            RaiseDownloadsEnded();
+            CacheScanGateHarness.RaiseDownloadsEnded();
             return Task.CompletedTask;
         }));
 
@@ -1232,7 +1233,7 @@ public sealed class ScheduleRunQueueTests
         using var schedules = Install([loop], CacheScanGateHarness.With(snapshot), tracker);
         await HoldScheduledRunAsync(loop);
         CacheScanGateHarness.MakeIdle(snapshot);
-        RaiseDownloadsEnded();
+        CacheScanGateHarness.RaiseDownloadsEnded();
 
         await WithGate(AllowEveryRun, () => loop.RunAsync(RunTrigger.Scheduled, null));
 
@@ -1257,7 +1258,7 @@ public sealed class ScheduleRunQueueTests
         var gate = ScheduledServiceBase.ScheduleRunGate!;
         ScheduledServiceBase.ScheduleRunGate = (key, trigger) =>
         {
-            if (key == EvictionKey && trigger == RunTrigger.Startup) RaiseDownloadsEnded();
+            if (key == EvictionKey && trigger == RunTrigger.Startup) CacheScanGateHarness.RaiseDownloadsEnded();
             return gate(key, trigger);
         };
 
@@ -1294,7 +1295,7 @@ public sealed class ScheduleRunQueueTests
         Assert.Equal(0, triggered);
         Assert.Equal(1, alreadyRunning);
         Assert.False(await loop.HasRequestAsync());
-        RaiseDownloadsEnded();
+        CacheScanGateHarness.RaiseDownloadsEnded();
         Assert.False(await loop.HasRequestAsync());
         Assert.Null(await loop.TakeOwedAsync());
         Assert.Equal(holdCard, taken!.OperationId);
@@ -1303,7 +1304,7 @@ public sealed class ScheduleRunQueueTests
     // A held run released while the schedule's scan is being canceled is not merged into the canceled
     // scan: its join onto that scan is refused, and it waits for the loop and runs.
     [Fact]
-    public async Task HoldReleasedWhileTheScanIsCanceled_IsQueued()
+    public async Task HoldReleasedWhileTheScanIsCanceled_Waits()
     {
         using var loop = new LoopProbe(EvictionKey);
         var snapshot = new DownloadSpeedSnapshot();
@@ -1325,7 +1326,7 @@ public sealed class ScheduleRunQueueTests
     }
 
     // The same release through its other branch: the run the loop took has a scan that is being
-    // canceled, so the held run cannot join it and is queued on its own card.
+    // canceled, so the held run cannot join it and waits on its own card.
     [Fact]
     public async Task HeldRunReleasedBesideAPassWhoseScanIsCanceled_Queues()
     {
@@ -1384,7 +1385,7 @@ public sealed class ScheduleRunQueueTests
         Assert.Equal("Scheduled Prefill", held.BlockedByName);
 
         CacheScanGateHarness.MakeIdle(snapshot);
-        RaiseDownloadsEnded();
+        CacheScanGateHarness.RaiseDownloadsEnded();
         await loop.ReadRunStatusAsync();
 
         Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(held.Id)!.Status);
@@ -1407,14 +1408,14 @@ public sealed class ScheduleRunQueueTests
         Assert.True(Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == held.Id).WaitingForDownload);
 
         CacheScanGateHarness.MakeIdle(snapshot);
-        RaiseDownloadsEnded();
+        CacheScanGateHarness.RaiseDownloadsEnded();
         await loop.ReadRunStatusAsync();
 
         Assert.False(Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == held.Id).WaitingForDownload);
     }
 
     // With Run on startup on, a person cancels the startup eviction scan and presses Run All before it
-    // stops: Run All counts the schedule as started, shows the queued run's own waiting card at once,
+    // stops: Run All counts the schedule as started, shows the waiting run's own card at once,
     // and the run starts once the canceled scan ends, closing that card into its own scan.
     [Fact]
     public async Task RunAllWhileTheStartupScanIsCanceled_RunsAfterIt()
@@ -1457,7 +1458,7 @@ public sealed class ScheduleRunQueueTests
             Assert.Equal(0, alreadyRunning);
             var card = Assert.Single(tracker.GetWaitingOperations());
             Assert.Equal(RunTrigger.RunAll, card.Notice!.Trigger);
-            tracker.CompleteOperation(scan, success: false, cancelled: true);
+            tracker.CompleteOperation(scan, success: false, canceled: true);
             scanEnded.TrySetResult();
             Assert.Equal(RunTrigger.RunAll, await nextRun.Task.WaitAsync(Timeout));
             Assert.Equal(nextScan, tracker.GetOperation(card.Id)!.NextOperationId);
@@ -1535,7 +1536,7 @@ public sealed class ScheduleRunQueueTests
         var report = loop.RunCompleted!;
         loop.RunCompleted = (notice, key, error, canceled, kept) =>
         {
-            RaiseDownloadsEnded();
+            CacheScanGateHarness.RaiseDownloadsEnded();
             report(notice, key, error, canceled, kept);
         };
 
@@ -1560,12 +1561,12 @@ public sealed class ScheduleRunQueueTests
         var running = loop.RunAsync(RunTrigger.Scheduled, null, () => { started.TrySetResult(); return release.Task; });
         await started.Task.WaitAsync(Timeout);
 
-        var (status, _, followUpQueued) = await schedules.Service.TriggerRunAsync(LogRotationKey);
+        var (status, _, followUpWaiting) = await schedules.Service.TriggerRunAsync(LogRotationKey);
         release.TrySetResult();
         await running;
 
         Assert.Equal(passWorking, status.IsRunning);
-        Assert.False(followUpQueued);
+        Assert.False(followUpWaiting);
         Assert.Equal(!passWorking, await loop.HasRequestAsync());
     }
 
@@ -1822,14 +1823,6 @@ public sealed class ScheduleRunQueueTests
         {
             ScheduledServiceBase.ScheduleRunGate = previous;
         }
-    }
-
-    private static void RaiseDownloadsEnded()
-    {
-        var field = typeof(RustSpeedTrackerService).GetField(
-            nameof(RustSpeedTrackerService.DownloadsEnded),
-            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-        ((Action?)field!.GetValue(null))?.Invoke();
     }
 
     private static UnifiedOperationTracker CreateTracker()

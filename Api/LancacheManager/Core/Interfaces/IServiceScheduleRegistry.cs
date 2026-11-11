@@ -55,7 +55,7 @@ public interface IServiceScheduleRegistry
     /// <summary>
     /// Sets the custom schedule that decides when the service runs, or clears it with <c>null</c> so
     /// the service returns to its interval. Returns false when the key names a service whose loop
-    /// cannot honour a schedule, in which case nothing is stored: a schedule the UI shows as active
+    /// cannot honor a schedule, in which case nothing is stored: a schedule the UI shows as active
     /// while the service keeps running on its old interval is worse than refusing to save one.
     /// </summary>
     bool SetCustomSchedule(string serviceKey, CustomSchedule? schedule);
@@ -68,10 +68,10 @@ public interface IServiceScheduleRegistry
     /// colliding with the run described by the returned status, not starting a new one.
     ///
     /// SkippedReason identifies a retained download hold before the loop is armed.
-    /// FollowUpQueued reports whether admission retained an additional run behind current work.
+    /// FollowUpWaiting reports whether admission retained an additional run behind current work.
     /// Throws a conflict when the service is scheduled prefill and no prefill schedule is enabled.
     /// </summary>
-    Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpQueued)> TriggerRunAsync(
+    Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpWaiting)> TriggerRunAsync(
         string serviceKey,
         ScheduleActor? actor = null);
 
@@ -86,7 +86,7 @@ public interface IServiceScheduleRegistry
     /// Triggers an immediate run of every VISIBLE idle service (both scheduled and configurable),
     /// regardless of their interval, using the same visibility gate as <see cref="GetAll"/> so the
     /// counts never exceed the rows the user can see. A service with a pending, starting or active
-    /// run is left alone and counted as already running; no second run is queued behind it.
+    /// run is left alone and counted as already running; no second run waits behind it.
     /// Services refused before they were armed are counted separately
     /// with the single reason they all share, so the fan-out still triggers everything that can run
     /// rather than being blocked as a whole.

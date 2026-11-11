@@ -1,9 +1,12 @@
+using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -119,6 +122,37 @@ public sealed class ActiveInWindowFilterTests
     }
 
     [Fact]
+    public async Task EventDownloadsLeaveOutAHiddenClientsDownloads()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = database.Factory.CreateDbContext();
+        var now = DateTime.UtcNow;
+        context.Events.Add(new Event
+        {
+            Id = 3,
+            Name = "LAN Party",
+            StartTimeUtc = now.AddHours(-1),
+            EndTimeUtc = now.AddHours(1),
+            CreatedAtUtc = now.AddHours(-1),
+            ColorIndex = 1
+        });
+        context.Downloads.AddRange(
+            Row(50, "hidden", now.AddMinutes(-20), now.AddMinutes(-10)),
+            Row(51, "visible", now.AddMinutes(-20), now.AddMinutes(-10)));
+        context.EventDownloads.AddRange(
+            new EventDownload { EventId = 3, DownloadId = 50, TaggedAtUtc = now },
+            new EventDownload { EventId = 3, DownloadId = 51, TaggedAtUtc = now });
+        await context.SaveChangesAsync();
+        var service = new EventsService(context, NullLogger<EventsService>.Instance, SeparatedPrefillState("hidden"));
+
+        var inWindow = await service.GetEventDownloadsAsync(3, taggedOnly: false);
+        var tagged = await service.GetEventDownloadsAsync(3, taggedOnly: true);
+
+        Assert.Equal(new[] { 51L }, inWindow.Select(d => d.Id));
+        Assert.Equal(new[] { 51L }, tagged.Select(d => d.Id));
+    }
+
+    [Fact]
     public void DailyGrowthQueryTranslatesTheConditionalFirstDayBucket()
     {
         using var context = new AppDbContext(
@@ -200,12 +234,61 @@ public sealed class ActiveInWindowFilterTests
             StringComparison.Ordinal);
     }
 
-    // A Hide prefill rule for any address and every service.
-    private static IStateService SeparatedPrefillState() =>
-        CacheScanGateHarness.CreateProxy<IStateService>((method, _) =>
-            method.Name == nameof(IStateService.GetHiddenPrefillRules)
-                ? new List<ClientExclusionRule> { CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Hide) }
-                : throw new NotSupportedException(method.Name));
+    [Fact]
+    public async Task AnAddressSeenOnlyInHiddenPrefillDownloadsGetsNoHostnameLookup()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using var context = database.Factory.CreateDbContext();
+        var now = DateTime.UtcNow;
+        var prefill = Row(61, "10.0.0.2", now.AddMinutes(-5), now.AddMinutes(-1));
+        prefill.IsPrefill = true;
+        context.Downloads.AddRange(Row(60, "10.0.0.1", now.AddMinutes(-20), now.AddMinutes(-10)), prefill);
+        await context.SaveChangesAsync();
+        var state = CacheScanGateHarness.CreateProxy<IStateService>((method, _) => method.Name switch
+        {
+            nameof(IStateService.GetPrefillRules) =>
+                new List<ClientExclusionRule> { CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Hide) },
+            nameof(IStateService.GetHiddenClientIps) => new List<string>(),
+            nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
+            // The evicted mode reads as null, which hides nothing.
+            _ => null
+        });
+        var asked = new List<string>();
+        var hostnames = CacheScanGateHarness.CreateProxy<IClientHostnameService>((method, args) => method.Name switch
+        {
+            nameof(IClientHostnameService.IsEnabled) => true,
+            nameof(IClientHostnameService.GetSettings) => new ClientHostnameSettings(),
+            nameof(IClientHostnameService.ResolveAsync) => RecordAsked((IReadOnlyCollection<string>)args![0]!),
+            _ => throw new NotSupportedException(method.Name)
+        });
+        Task<ClientHostnameLookupOutcome> RecordAsked(IReadOnlyCollection<string> clientIps)
+        {
+            asked.AddRange(clientIps);
+            return Task.FromResult(new ClientHostnameLookupOutcome(new Dictionary<string, string>(), ClientHostnamesReason.None));
+        }
+        var controller = new ClientHostnamesController(
+            context,
+            hostnames,
+            CacheScanGateHarness.CreateProxy<ISignalRNotificationService>((method, _) => throw new NotSupportedException(method.Name)),
+            state);
+        var http = new DefaultHttpContext();
+        http.Items["Session"] = new UserSession { Id = Guid.NewGuid(), SessionType = SessionType.Admin };
+        controller.ControllerContext = new ControllerContext { HttpContext = http };
+
+        await controller.GetHostnamesAsync(CancellationToken.None);
+
+        Assert.Equal(new[] { "10.0.0.1" }, asked);
+    }
+
+    // A Hide prefill rule for any address and every service, plus Hide rules for the given addresses.
+    private static IStateService SeparatedPrefillState(params string[] hiddenClientIps) =>
+        CacheScanGateHarness.CreateProxy<IStateService>((method, _) => method.Name switch
+        {
+            nameof(IStateService.GetHiddenPrefillRules) =>
+                new List<ClientExclusionRule> { CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Hide) },
+            nameof(IStateService.GetHiddenClientIps) => hiddenClientIps.ToList(),
+            _ => throw new NotSupportedException(method.Name)
+        });
 
     private static long UnixSeconds(DateTime value) =>
         new DateTimeOffset(value, TimeSpan.Zero).ToUnixTimeSeconds();

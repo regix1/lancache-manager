@@ -94,7 +94,8 @@ export function DatabaseImportForm({
     if (!cs) {
       setValidationResult({
         valid: false,
-        message: t('initialization.importHistorical.pleaseEnter')
+        message: '',
+        stageKey: 'initialization.importHistorical.pleaseEnter'
       });
       return;
     }
@@ -108,7 +109,8 @@ export function DatabaseImportForm({
     } catch (error: unknown) {
       setValidationResult({
         valid: false,
-        message: getErrorMessage(error)
+        message: getErrorMessage(error),
+        stageKey: 'management.database.import.connectionFailed'
       });
     } finally {
       setValidating(false);
@@ -132,9 +134,8 @@ export function DatabaseImportForm({
     } catch (error: unknown) {
       setValidationResult({
         valid: false,
-        message: t('initialization.importHistorical.importFailed', {
-          error: getErrorMessage(error)
-        })
+        message: getErrorMessage(error),
+        stageKey: 'initialization.importHistorical.importFailed'
       });
     } finally {
       setImporting(false);
@@ -259,9 +260,7 @@ export function DatabaseImportForm({
             )
           }
         >
-          {validationResult.stageKey
-            ? t(validationResult.stageKey, { defaultValue: validationResult.message })
-            : validationResult.message}
+          {t(validationResult.stageKey, { detail: validationResult.message })}
           {validationResult.recordCount != null &&
             ` ${t('initialization.importHistorical.foundRecords', {
               count: validationResult.recordCount ?? 0,
@@ -291,16 +290,11 @@ export function DatabaseImportForm({
       {importResult && (
         <Alert
           color={importResult.errors > 0 ? 'warning' : 'success'}
-          title={
-            importResult.stageKey
-              ? t(importResult.stageKey, {
-                  imported: formatCount(importResult.imported),
-                  skipped: formatCount(importResult.skipped),
-                  errors: formatCount(importResult.errors),
-                  defaultValue: importResult.message
-                })
-              : importResult.message
-          }
+          title={t(importResult.stageKey, {
+            imported: formatCount(importResult.imported),
+            skipped: formatCount(importResult.skipped),
+            errors: formatCount(importResult.errors)
+          })}
         >
           <div className="database-import-form__import-result-grid">
             <div>

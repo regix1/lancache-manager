@@ -486,13 +486,9 @@ export const formatCacheClearProgressMessage = (event: CacheClearProgressEvent):
  * @param event - The cache clear complete event from SignalR
  * @returns Formatted success message string
  */
-export const formatCacheClearCompleteMessage = (event: CacheClearCompleteEvent): string => {
-  // The required message carries completion counts when no localized key was supplied.
-  if (event.stageKey) {
-    return i18n.t(event.stageKey, event.context ?? {});
-  }
-  return event.message;
-};
+export const formatCacheClearCompleteMessage = (event: CacheClearCompleteEvent): string =>
+  // The success key carries the directory and datasource values its sentence names.
+  i18n.t(event.stageKey, event.context ?? {});
 
 /**
  * Formats the failure message for cache clear.
@@ -567,13 +563,13 @@ export const formatDataImportCompleteDetailMessage = (
   });
 };
 
-export const formatDataImportCompleteMessage = (event: DataImportCompleteEvent): string => {
-  // The required message preserves the import summary when no localized key was supplied.
-  if (event.stageKey) {
-    return i18n.t(event.stageKey, event.context ?? {});
-  }
-  return event.message;
-};
+export const formatDataImportCompleteMessage = (event: DataImportCompleteEvent): string =>
+  // The summary's counts come from the typed count fields, formatted like the detail line below it.
+  i18n.t(event.stageKey, {
+    imported: formatCount(event.recordsImported ?? 0),
+    skipped: formatCount(event.recordsSkipped ?? 0),
+    errors: formatCount(event.recordsErrors ?? 0)
+  });
 
 /**
  * Formats the failure message for data import.

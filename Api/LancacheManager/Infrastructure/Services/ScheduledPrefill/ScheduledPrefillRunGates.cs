@@ -53,7 +53,7 @@ public static class ScheduledPrefillRunGates
 
     /// <summary>
     /// Reason attached to the needs-login skip when the persistent container IS running but its
-    /// account is logged out (e.g. a cancelled interactive login left the session active while the
+    /// account is logged out (e.g. a canceled interactive login left the session active while the
     /// daemon logged everything out). Kept distinct from the no-container reason produced by
     /// <see cref="TryGetRunnablePersistentSession"/> so UI and logs can tell the two apart.
     /// </summary>
@@ -248,7 +248,7 @@ public static class ScheduledPrefillRunGates
         var needingLogin = 0;
         var skipped = 0;
         var failed = 0;
-        var cancelled = 0;
+        var canceled = 0;
 
         foreach (var result in results)
         {
@@ -263,8 +263,8 @@ public static class ScheduledPrefillRunGates
                 case ScheduledPrefillServiceRunResult.Failed:
                     failed++;
                     break;
-                case ScheduledPrefillServiceRunResult.Cancelled:
-                    cancelled++;
+                case ScheduledPrefillServiceRunResult.Canceled:
+                    canceled++;
                     break;
                 default:
                     skipped++;
@@ -272,7 +272,7 @@ public static class ScheduledPrefillRunGates
             }
         }
 
-        return new ScheduledPrefillRunTally(ran, needingLogin, skipped, failed, cancelled);
+        return new ScheduledPrefillRunTally(ran, needingLogin, skipped, failed, canceled);
     }
 
     /// <summary>
@@ -315,7 +315,7 @@ public readonly record struct ScheduledPrefillRunTally(
     int NeedingLogin,
     int Skipped,
     int Failed,
-    int Cancelled)
+    int Canceled)
 {
     /// <summary>
     /// True when the run as a whole should report as stopped rather than as a success or a failure.
@@ -323,5 +323,5 @@ public readonly record struct ScheduledPrefillRunTally(
     /// run only claims to have been stopped when nothing reached
     /// <see cref="ScheduledPrefillServiceRunResult.Ran"/>.
     /// </summary>
-    public bool ReportsCancelled => Cancelled > 0 && Ran == 0;
+    public bool ReportsCanceled => Canceled > 0 && Ran == 0;
 }

@@ -24,180 +24,10 @@ namespace LancacheManager.Tests;
 /// never through a service-wide field. A silent scheduled run and a manual visible start can
 /// overlap: the second call is rejected as "already active" (or triggers stale cleanup of the
 /// first), and neither may give the running run the other run's notice. A run that was running when
-/// the server stopped comes back with the notice it was saved with, including a state saved by the
-/// previous version, which carried display flags instead.
+/// the server stopped comes back from its saved repair with the identity and notice it was saved with.
 /// </summary>
 public class GameDetectionVisibilityRaceTests
 {
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task RestoringPersistedRunsPreservesIdentityAndCancelsOrphanedChildren(bool child)
-    {
-        using var ctx = new ServiceContext();
-        var id = Guid.NewGuid();
-        Guid? parent = child ? Guid.NewGuid() : null;
-        var startedAt = DateTime.UtcNow.AddMinutes(-2);
-        ctx.States.SaveState($"gameDetection_{id}", new LancacheManager.Core.Services.OperationState
-        {
-            Key = $"gameDetection_{id}", Type = OperationType.GameDetection.ToWireString(), Status = "running",
-            Fields = JsonSerializer.SerializeToElement(new
-            {
-                operationId = id, parentOperationId = parent, startedAt,
-                scanType = DetectionScanType.Full, showNotification = false
-            })
-        });
-        await ctx.Service.RestoreInterruptedOperations(CancellationToken.None);
-        var notice = ctx.Tracker.NoticeOf(id)!;
-        if (child)
-        {
-            Assert.Null(ctx.Tracker.Get(id));
-            var complete = Assert.IsType<SignalRNotifications.GameDetectionComplete>(Assert.Single(ctx.Notifications.Events).Value);
-            Assert.Equal(parent, complete.ParentOperationId);
-            Assert.True(complete.Cancelled);
-            // A restored child phase stays hidden, as the live one is.
-            Assert.Equal(NotificationMode.Hidden, notice.Mode);
-            Assert.Equal(RunTrigger.Manual, notice.Trigger);
-            Assert.Equal("cancelled", ctx.States.GetAllStates().Single(s => s.Key.EndsWith(id.ToString())).Status);
-        }
-        else
-        {
-            var operation = ctx.Tracker.Get(id)!;
-            Assert.Equal(startedAt, operation.StartedAt);
-            var metrics = Assert.IsType<GameDetectionMetrics>(operation.Metadata);
-            Assert.Equal(DetectionScanType.Full, metrics.ScanType);
-            Assert.Equal(NotificationMode.Silent, notice.Mode);
-            Assert.Equal(RunTrigger.Scheduled, notice.Trigger);
-            Assert.Null(operation.ParentOperationId);
-        }
-    }
-
-    [Theory]
-    [InlineData(NotificationMode.All, RunTrigger.Manual, RunVisibility.Card)]
-    [InlineData(NotificationMode.All, RunTrigger.Scheduled, RunVisibility.Card)]
-    [InlineData(NotificationMode.Manual, RunTrigger.Manual, RunVisibility.Card)]
-    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, RunVisibility.Background)]
-    [InlineData(NotificationMode.Silent, RunTrigger.Manual, RunVisibility.Background)]
-    [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, RunVisibility.Background)]
-    [InlineData(NotificationMode.Hidden, RunTrigger.Manual, RunVisibility.Hidden)]
-    [InlineData(NotificationMode.Hidden, RunTrigger.Scheduled, RunVisibility.Hidden)]
-    public async Task ARunningDetectionRestoresWithTheNoticeItWasSavedWith(NotificationMode mode, RunTrigger trigger, RunVisibility expected)
-    {
-        using var ctx = new ServiceContext();
-        var id = Guid.NewGuid();
-        var startedAt = DateTime.UtcNow.AddMinutes(-1);
-        ctx.States.SaveState($"gameDetection_{id}", new LancacheManager.Core.Services.OperationState
-        {
-            Key = $"gameDetection_{id}",
-            Type = OperationType.GameDetection.ToWireString(),
-            Status = "running",
-            Fields = JsonSerializer.SerializeToElement(new
-            {
-                operationId = id,
-                startedAt,
-                scanType = DetectionScanType.Incremental,
-                notificationMode = mode,
-                trigger
-            })
-        });
-        Assert.Equal("running", ctx.States.GetAllStates().Single(s => s.Key.EndsWith(id.ToString())).Status);
-
-        // A second service over the same saved states performs the explicit startup restoration.
-        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
-            NullLogger<UnifiedOperationTracker>.Instance);
-        await ctx.Restart(tracker);
-
-        var restored = tracker.GetOperation(id)!.Notice!;
-        Assert.Equal(mode, restored.Mode);
-        Assert.Equal(trigger, restored.Trigger);
-        Assert.Equal(expected, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == id).Visibility);
-    }
-
-    [Theory]
-    [InlineData("hidden", NotificationMode.Hidden, RunTrigger.Manual, RunVisibility.Hidden)]
-    [InlineData("shown", NotificationMode.All, RunTrigger.Manual, RunVisibility.Card)]
-    [InlineData("silent", NotificationMode.Silent, RunTrigger.Scheduled, RunVisibility.Background)]
-    [InlineData("none", NotificationMode.All, RunTrigger.Manual, RunVisibility.Card)]
-    public async Task ARunningDetectionSavedByThePreviousVersionRestoresWithTheSameLook(
-        string saved, NotificationMode mode, RunTrigger trigger, RunVisibility expected)
-    {
-        using var ctx = new ServiceContext();
-        var id = Guid.NewGuid();
-        var startedAt = DateTime.UtcNow.AddMinutes(-1);
-        object data = saved switch
-        {
-            "hidden" => new { operationId = id, startedAt, scanType = DetectionScanType.Full, showNotification = false, hideNotification = true },
-            "shown" => new { operationId = id, startedAt, scanType = DetectionScanType.Full, showNotification = true, hideNotification = false },
-            "silent" => new { operationId = id, startedAt, scanType = DetectionScanType.Full, showNotification = false, hideNotification = false },
-            _ => new { operationId = id, startedAt, scanType = DetectionScanType.Full }
-        };
-        ctx.States.SaveState($"gameDetection_{id}", new LancacheManager.Core.Services.OperationState
-        {
-            Key = $"gameDetection_{id}", Type = OperationType.GameDetection.ToWireString(), Status = "running",
-            Fields = JsonSerializer.SerializeToElement(data)
-        });
-        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
-            NullLogger<UnifiedOperationTracker>.Instance);
-
-        await ctx.Restart(tracker);
-
-        var restored = tracker.GetOperation(id)!.Notice!;
-        Assert.Equal(mode, restored.Mode);
-        Assert.Equal(trigger, restored.Trigger);
-        Assert.Equal(expected, Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == id).Visibility);
-    }
-
-    [Fact]
-    public async Task CompletedRepairOwnershipPreventsLegacyRestart()
-    {
-        using var ctx = new ServiceContext();
-        var id = Guid.NewGuid();
-        var startedAt = DateTime.UtcNow.AddMinutes(-1);
-        var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
-        await ctx.States.PrepareRepairAsync(
-            new OperationRepair
-            {
-                Id = id,
-                Type = OperationType.GameDetection,
-                Name = "Game Detection",
-                StartedAt = startedAt,
-                Notice = notice,
-                GameDetection = new GameDetectionMetrics
-                {
-                    StartTime = startedAt,
-                    ScanType = DetectionScanType.Full
-                }
-            },
-            CancellationToken.None);
-        await ctx.States.FinishRepairAsync(
-            id,
-            success: true,
-            cancelled: false,
-            error: null);
-        ctx.States.SaveState($"gameDetection_{id}", new LancacheManager.Core.Services.OperationState
-        {
-            Key = $"gameDetection_{id}",
-            Type = OperationType.GameDetection.ToWireString(),
-            Status = OperationStatus.Running.ToWireString(),
-            Fields = JsonSerializer.SerializeToElement(new
-            {
-                operationId = id,
-                startedAt,
-                scanType = DetectionScanType.Full,
-                notificationMode = notice.Mode,
-                trigger = notice.Trigger
-            })
-        });
-
-        var tracker = new UnifiedOperationTracker(
-            new ProcessManager(NullLogger<ProcessManager>.Instance),
-            NullLogger<UnifiedOperationTracker>.Instance);
-        await ctx.Restart(tracker);
-
-        Assert.True(ctx.States.OwnsRepair(id));
-        Assert.Null(tracker.GetOperation(id));
-    }
-
     [Fact]
     public async Task ParentIdentityTravelsThroughStartedRecoveryAndWinningTerminal()
     {
@@ -212,18 +42,15 @@ public class GameDetectionVisibilityRaceTests
         Assert.Equal(DetectionScanType.Full, ((GameDetectionMetrics)active.Metadata!).ScanType);
         var started = JsonSerializer.SerializeToElement(ctx.Notifications.Events.Single(e => e.Event == SignalREvents.GameDetectionStarted).Value);
         Assert.Equal(parent, started.GetProperty("ParentOperationId").GetGuid());
-        var running = ctx.States.GetAllStates().Single(s => s.Key.EndsWith(id.ToString()));
-        Assert.Equal(parent, running.Fields!.Value.GetProperty("parentOperationId").GetGuid());
-        Assert.Equal("hidden", running.Fields.Value.GetProperty("notificationMode").GetString());
-        Assert.Equal((int)RunTrigger.Manual, running.Fields.Value.GetProperty("trigger").GetInt32());
-        Assert.Equal(((GameDetectionMetrics)active.Metadata!).StartTime, running.Fields.Value.GetProperty("startedAt").GetDateTime());
-        ctx.Tracker.FireTerminal(id, success: false, cancelled: true, error: "Cancelled by user");
+        var running = ctx.States.GetPendingRepairs().Single(repair => repair.Id == id);
+        Assert.Equal(parent, running.GameDetection!.ParentOperationId);
+        Assert.Equal(NotificationMode.Hidden, running.Notice!.Mode);
+        Assert.Equal(RunTrigger.Manual, running.Notice.Trigger);
+        Assert.Equal(((GameDetectionMetrics)active.Metadata!).StartTime, running.StartedAt);
+        ctx.Tracker.FireTerminal(id, success: false, canceled: true, error: "Canceled by user");
         var complete = Assert.IsType<SignalRNotifications.GameDetectionComplete>(ctx.Notifications.Events.Single(e => e.Event == SignalREvents.GameDetectionComplete).Value);
         Assert.Equal(parent, complete.ParentOperationId);
-        Assert.True(complete.Cancelled);
-        var persisted = ctx.States.GetAllStates().Single(s => s.Key.EndsWith(id.ToString()));
-        Assert.Equal("cancelled", persisted.Status);
-        Assert.Equal(parent, persisted.Fields!.Value.GetProperty("parentOperationId").GetGuid());
+        Assert.True(complete.Canceled);
     }
 
     [Fact]
@@ -245,8 +72,7 @@ public class GameDetectionVisibilityRaceTests
         var start = ctx.Service.StartDetectionAsync(new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled));
         var oldId = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var old = tracker.GetOperation(oldId)!;
-        tracker.CompleteOperation(oldId, success: false, error: "Cancelled by user", cancelled: true);
-        var persisted = ctx.States.GetAllStates().Single(s => s.Key.EndsWith(oldId.ToString())).Fields!.Value.GetRawText();
+        tracker.CompleteOperation(oldId, success: false, error: "Canceled by user", canceled: true);
         release.TrySetResult();
         await start;
 
@@ -257,11 +83,10 @@ public class GameDetectionVisibilityRaceTests
         var finalize = typeof(GameCacheDetectionService).GetMethod("FinalizeDetectionAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         await (Task)finalize.Invoke(ctx.Service, [oldId, true, OperationStatus.Completed, "signalr.gameDetect.complete.full", false,
             new Dictionary<string, object?> { ["newGamesCount"] = 999 }, 999, 999])!;
-        Assert.Equal(OperationStatus.Cancelled, old.Status);
+        Assert.Equal(OperationStatus.Canceled, old.Status);
         Assert.Null(((GameDetectionMetrics)old.Metadata!).CompletionContext);
-        Assert.Equal(persisted, ctx.States.GetAllStates().Single(s => s.Key.EndsWith(oldId.ToString())).Fields!.Value.GetRawText());
         Assert.Equal(nextId, typeof(GameCacheDetectionService).GetField("_currentTrackerOperationId", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(ctx.Service));
-        tracker.CompleteOperation(nextId, success: false, cancelled: true);
+        tracker.CompleteOperation(nextId, success: false, canceled: true);
         release.TrySetResult();
         await nextStart;
     }
@@ -285,39 +110,10 @@ public class GameDetectionVisibilityRaceTests
         Assert.Null(secondId);
 
         // The active silent run still ends under ITS OWN notice, not the rejected attempt's.
-        ctx.Tracker.FireTerminal(firstId!.Value, success: true, cancelled: false, error: null);
+        ctx.Tracker.FireTerminal(firstId!.Value, success: true, canceled: false, error: null);
 
         Assert.True(ctx.Notifications.Completed(firstId.Value));
         Assert.Same(silent, ctx.Tracker.NoticeOf(firstId.Value));
-    }
-
-    // A person can start a detection in the second between recovery releasing its ownership and the
-    // startup restore. The interrupted run is then not restored beside it, and the running one keeps
-    // its worker, so a later start does not take it for stale.
-    [Fact]
-    public async Task ARestoreAfterAManualStartLeavesTheManualRunAlone()
-    {
-        using var ctx = new ServiceContext();
-        var manualId = (await ctx.Service.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual), incremental: true))!.Value;
-        var currentDetectionTask = typeof(GameCacheDetectionService)
-            .GetField("_currentDetectionTask", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        currentDetectionTask.SetValue(ctx.Service, ((Guid, Task)?)(manualId, new TaskCompletionSource().Task));
-        var interruptedId = Guid.NewGuid();
-        ctx.States.SaveState($"gameDetection_{interruptedId}", new LancacheManager.Core.Services.OperationState
-        {
-            Key = $"gameDetection_{interruptedId}", Type = OperationType.GameDetection.ToWireString(), Status = "running",
-            Fields = JsonSerializer.SerializeToElement(new
-            {
-                operationId = interruptedId, startedAt = DateTime.UtcNow.AddMinutes(-1),
-                scanType = DetectionScanType.Full, showNotification = true
-            })
-        });
-
-        await ctx.Service.RestoreInterruptedOperations(CancellationToken.None);
-
-        Assert.Null(ctx.Tracker.Get(interruptedId));
-        var worker = ((Guid, Task)?)currentDetectionTask.GetValue(ctx.Service);
-        Assert.Equal(manualId, worker!.Value.Item1);
     }
 
     [Theory]
@@ -363,7 +159,7 @@ public class GameDetectionVisibilityRaceTests
     }
 
     [Fact]
-    public async Task ADetectionCancelledBeforeItsSaveEndsAtOnceAndKeepsNothingAsync()
+    public async Task ADetectionCanceledBeforeItsSaveEndsAtOnceAndKeepsNothingAsync()
     {
         await using var run = await DetectionRun.CreateAsync();
         // Another job's repair is still running; the cancel handler must not wait for it.
@@ -392,17 +188,17 @@ public class GameDetectionVisibilityRaceTests
         run.Repairs.Tracker.CancelOperation(id);
         var terminal = await run.WaitForTerminalAsync(id).WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        Assert.Equal(OperationStatus.Canceled, terminal.Status);
         var stored = run.Repairs.StateService.LoadOperationRepairs().Single(repair => repair.Id == id);
         Assert.Equal(OperationRepairPhase.Completed, stored.Phase);
-        Assert.Equal(OperationStatus.Cancelled, stored.Outcome);
+        Assert.Equal(OperationStatus.Canceled, stored.Outcome);
         Assert.False(stored.DatabaseWriteStarted);
         await using var context = run.CreateContext();
         Assert.Equal(0, await context.CachedGameDetections.CountAsync());
     }
 
     [Fact]
-    public async Task ADetectionCancelledWhileSavingKeepsItsPartialResultsAsync()
+    public async Task ADetectionCanceledWhileSavingKeepsItsPartialResultsAsync()
     {
         await using var run = await DetectionRun.CreateAsync();
         run.CancelAtStage = "signalr.gameDetect.db.complete";
@@ -411,7 +207,7 @@ public class GameDetectionVisibilityRaceTests
         var id = (await run.Detection.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual), incremental: false))!.Value;
         var terminal = await run.WaitForTerminalAsync(id).WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        Assert.Equal(OperationStatus.Canceled, terminal.Status);
         Assert.True(run.Repairs.StateService.LoadOperationRepairs().Single(repair => repair.Id == id).DatabaseWriteStarted);
         await using var context = run.CreateContext();
         Assert.Equal(570, Assert.Single(await context.CachedGameDetections.ToListAsync()).GameAppId);
@@ -467,7 +263,7 @@ public class GameDetectionVisibilityRaceTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task AFailedOutcomeSaveStillEndsTheDetectionAsync(bool cancelled)
+    public async Task AFailedOutcomeSaveStillEndsTheDetectionAsync(bool canceled)
     {
         await using var run = await DetectionRun.CreateAsync();
         var startedAt = DateTime.UtcNow;
@@ -488,17 +284,17 @@ public class GameDetectionVisibilityRaceTests
             },
             CancellationToken.None);
         await run.Repairs.Owner.StartWorkAsync(id, null, CancellationToken.None);
-        var stageKey = cancelled ? "signalr.gameDetect.cancelled" : "signalr.gameDetect.complete.full";
+        var stageKey = canceled ? "signalr.gameDetect.canceled" : "signalr.gameDetect.complete.full";
 
         run.State.FailNextRepairWrite = true;
         var finalize = typeof(GameCacheDetectionService).GetMethod(
             "FinalizeDetectionAsync",
             BindingFlags.Instance | BindingFlags.NonPublic)!;
-        await (Task)finalize.Invoke(run.Detection, [id, !cancelled,
-            cancelled ? OperationStatus.Cancelled : OperationStatus.Completed, stageKey, cancelled, null, 3, 1])!;
+        await (Task)finalize.Invoke(run.Detection, [id, !canceled,
+            canceled ? OperationStatus.Canceled : OperationStatus.Completed, stageKey, canceled, null, 3, 1])!;
 
         Assert.Equal(
-            cancelled ? OperationStatus.Cancelled : OperationStatus.Completed,
+            canceled ? OperationStatus.Canceled : OperationStatus.Completed,
             run.Repairs.Tracker.GetOperation(id)!.Status);
         var unsaved = run.State.LoadOperationRepairs().Single(repair => repair.Id == id);
         Assert.Equal(OperationRepairPhase.Running, unsaved.Phase);
@@ -506,18 +302,162 @@ public class GameDetectionVisibilityRaceTests
 
         run.RetryRelease.Release();
         var landed = await run.WaitForCompletedRepairAsync(id);
-        Assert.Equal(cancelled ? OperationStatus.Cancelled : OperationStatus.Completed, landed.Outcome);
+        Assert.Equal(canceled ? OperationStatus.Canceled : OperationStatus.Completed, landed.Outcome);
         Assert.Equal(stageKey, landed.GameDetection!.CompletionStageKey);
         Assert.Equal(3, landed.GameDetection.TotalGamesDetected);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ARestoredDetectionKeepsItsIdentityAsync(bool child)
+    {
+        await using var run = await DetectionRun.CreateAsync();
+        var id = Guid.NewGuid();
+        Guid? parent = child ? Guid.NewGuid() : null;
+        var startedAt = DateTime.UtcNow.AddMinutes(-2);
+        await run.Repairs.Owner.PrepareRepairAsync(
+            new OperationRepair
+            {
+                Id = id,
+                Type = OperationType.GameDetection,
+                Name = "Game Detection",
+                StartedAt = startedAt,
+                Notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Manual),
+                GameDetection = new GameDetectionMetrics
+                {
+                    StartTime = startedAt,
+                    ScanType = DetectionScanType.Full,
+                    ParentOperationId = parent
+                }
+            },
+            CancellationToken.None);
+
+        // The repair read back from disk is what a restart hands the detection.
+        await run.Detection.RestoreRepairAsync(
+            run.State.LoadOperationRepairs().Single(repair => repair.Id == id),
+            CancellationToken.None);
+
+        var operation = run.Repairs.Tracker.GetOperation(id)!;
+        Assert.Equal(parent, operation.ParentOperationId);
+        Assert.Equal(startedAt, operation.StartedAt);
+        Assert.Equal(DetectionScanType.Full, Assert.IsType<GameDetectionMetrics>(operation.Metadata).ScanType);
+    }
+
+    [Theory]
+    [InlineData(NotificationMode.All, RunTrigger.Manual, RunVisibility.Card)]
+    [InlineData(NotificationMode.All, RunTrigger.Scheduled, RunVisibility.Card)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Manual, RunVisibility.Card)]
+    [InlineData(NotificationMode.Manual, RunTrigger.Scheduled, RunVisibility.Background)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Manual, RunVisibility.Background)]
+    [InlineData(NotificationMode.Silent, RunTrigger.Scheduled, RunVisibility.Background)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Manual, RunVisibility.Hidden)]
+    [InlineData(NotificationMode.Hidden, RunTrigger.Scheduled, RunVisibility.Hidden)]
+    public async Task ARestoredDetectionKeepsTheNoticeItWasSavedWithAsync(NotificationMode mode, RunTrigger trigger, RunVisibility expected)
+    {
+        await using var run = await DetectionRun.CreateAsync();
+        var id = Guid.NewGuid();
+        var startedAt = DateTime.UtcNow.AddMinutes(-1);
+        await run.Repairs.Owner.PrepareRepairAsync(
+            new OperationRepair
+            {
+                Id = id,
+                Type = OperationType.GameDetection,
+                Name = "Game Detection",
+                StartedAt = startedAt,
+                Notice = new RunNotice(mode, trigger),
+                GameDetection = new GameDetectionMetrics { StartTime = startedAt, ScanType = DetectionScanType.Incremental }
+            },
+            CancellationToken.None);
+
+        await run.Detection.RestoreRepairAsync(
+            run.State.LoadOperationRepairs().Single(repair => repair.Id == id),
+            CancellationToken.None);
+
+        var restored = run.Repairs.Tracker.GetOperation(id)!.Notice!;
+        Assert.Equal(mode, restored.Mode);
+        Assert.Equal(trigger, restored.Trigger);
+        Assert.Equal(expected, Assert.Single(run.Repairs.Tracker.GetRuns().Runs, row => row.OperationId == id).Visibility);
+    }
+
     // A real detection over a test database, its native scan replaced by a report of one game.
+    [Fact]
+    public async Task AnIncrementalScanThatFindsNewMappingsTellsTheCardAsync()
+    {
+        await using var run = await DetectionRun.CreateAsync();
+        await using (var seed = run.CreateContext())
+        {
+            foreach (var depotId in new long[] { 9001, 9002, 9003 })
+            {
+                seed.CachedGameDetections.Add(new CachedGameDetection
+                {
+                    GameAppId = depotId,
+                    GameName = $"Unknown Game (Depot {depotId})",
+                    IsUnresolvedDepot = true,
+                    Service = "steam",
+                    CacheFilesFound = 1,
+                    TotalSizeBytes = 100
+                });
+            }
+            seed.SteamDepotMappings.Add(new SteamDepotMapping { DepotId = 9001, AppId = 4000, IsOwner = true });
+            await seed.SaveChangesAsync();
+        }
+
+        var sentEvents = new System.Collections.Concurrent.ConcurrentQueue<(string Event, object? Value)>();
+        run.Notifications.OnSend = (eventName, value) =>
+        {
+            sentEvents.Enqueue((eventName, value));
+            return Task.CompletedTask;
+        };
+
+        var id = (await run.Detection.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual), incremental: true))!.Value;
+        await run.WaitForTerminalAsync(id).WaitAsync(TimeSpan.FromSeconds(10));
+        for (var attempt = 0; attempt < 200 && !sentEvents.Any(item => item.Event == SignalREvents.GameDetectionComplete); attempt++)
+        {
+            await Task.Delay(25);
+        }
+
+        var progressStages = sentEvents
+            .Where(item => item.Event == SignalREvents.GameDetectionProgress)
+            .Select(item => (
+                StageKey: item.Value?.GetType().GetProperty("StageKey")?.GetValue(item.Value) as string,
+                Context: item.Value?.GetType().GetProperty("Context")?.GetValue(item.Value) as Dictionary<string, object?>))
+            .ToList();
+        foreach (var stage in new[] { "signalr.gameDetect.mappingsFound", "signalr.gameDetect.rescanningWithMappings" })
+        {
+            var sent = Assert.Single(progressStages, item => item.StageKey == stage);
+            Assert.Equal(1, Assert.IsType<int>(sent.Context!["count"]));
+        }
+    }
+
+    [Fact]
+    public async Task ADetectionWhoseStartAnnouncementFailedSavesItsErrorDetailAsync()
+    {
+        await using var run = await DetectionRun.CreateAsync();
+        run.Notifications.OnSend = (eventName, _) => eventName == SignalREvents.GameDetectionStarted
+            ? Task.FromException(new InvalidOperationException("The hub refused the Started announcement."))
+            : Task.CompletedTask;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            run.Detection.StartDetectionAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual)));
+
+        var saved = Assert.Single(run.State.LoadOperationRepairs(), repair => repair.Type == OperationType.GameDetection);
+        Assert.Equal("signalr.gameDetect.error.fatal", saved.Error);
+        var reason = Assert.IsType<RunWarning>(saved.FailureReason);
+        Assert.Equal("signalr.gameDetect.error.fatal", reason.StageKey);
+        // Read back from the saved file, so the value is a JSON element.
+        Assert.Equal("The hub refused the Started announcement.", reason.Context["errorDetail"]?.ToString());
+        // The live run keeps the same key and value, so a restart restores the same failure.
+        var live = run.Repairs.Tracker.GetOperation(saved.Id)!;
+        Assert.Equal(reason.StageKey, Assert.IsType<RunWarning>(live.FailureReason).StageKey);
+    }
+
     private sealed class DetectionRun : IAsyncDisposable
     {
         private readonly TestDatabase _database;
         private readonly string _root;
         private readonly TaskCompletionSource _blockerRelease = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private Guid? _cancelling;
+        private Guid? _canceling;
 
         private DetectionRun(string root, TestDatabase database)
         {
@@ -575,7 +515,7 @@ public class GameDetectionVisibilityRaceTests
                 {
                     if (run.CancelOnFirstSave)
                     {
-                        run._cancelling = operationId;
+                        run._canceling = operationId;
                     }
                     else
                     {
@@ -645,9 +585,9 @@ public class GameDetectionVisibilityRaceTests
 
             public Task<AppDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
             {
-                if (run._cancelling is { } operationId)
+                if (run._canceling is { } operationId)
                 {
-                    run._cancelling = null;
+                    run._canceling = null;
                     run.Repairs.Tracker.CancelOperation(operationId);
                     cancellationToken.ThrowIfCancellationRequested();
                 }
@@ -707,8 +647,6 @@ public class GameDetectionVisibilityRaceTests
     private sealed class ServiceContext : IDisposable
     {
         private readonly string _root;
-        private readonly List<GameCacheDetectionService> _restarted = [];
-        private readonly Func<IUnifiedOperationTracker, GameCacheDetectionService> _create;
         private readonly ServiceProvider _services;
 
         public FakeTrackerProxy Tracker { get; }
@@ -767,7 +705,7 @@ public class GameDetectionVisibilityRaceTests
             Directory.CreateDirectory(datasource.LogPath);
             File.WriteAllText(Path.Combine(datasource.LogPath, "access.log"), string.Empty);
 
-            _create = tracker => new GameCacheDetectionService(
+            Service = new GameCacheDetectionService(
                 NullLogger<GameCacheDetectionService>.Instance,
                 pathResolver,
                 States,
@@ -779,29 +717,16 @@ public class GameDetectionVisibilityRaceTests
                 (ISignalRNotificationService)(object)Notifications,
                 datasourceService,
                 capabilityService,
-                tracker,
+                (IUnifiedOperationTracker)(object)Tracker,
                 CacheScanGateHarness.Idle(),
                 stateService);
-            Service = _create((IUnifiedOperationTracker)(object)Tracker);
             repairOwner = Service;
             _services.GetRequiredService<GameCacheDetectionService>();
             States.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
 
-        /// <summary>
-        /// A second service over the same saved states, as after a server restart: its constructor
-        /// restores every detection saved as running.
-        /// </summary>
-        public async Task Restart(IUnifiedOperationTracker tracker)
-        {
-            var service = _create(tracker);
-            _restarted.Add(service);
-            await service.RestoreInterruptedOperations(CancellationToken.None);
-        }
-
         public void Dispose()
         {
-            foreach (var restarted in _restarted) restarted.Dispose();
             States.StopAsync(CancellationToken.None).GetAwaiter().GetResult();
             _services.Dispose();
             try
@@ -890,7 +815,7 @@ public class GameDetectionVisibilityRaceTests
                     var id = (Guid)args![0]!;
                     var success = (bool)args[1]!;
                     var error = args[2] as string;
-                    FireTerminal(id, success, cancelled: (bool?)args[3] ?? false, error,
+                    FireTerminal(id, success, canceled: (bool?)args[3] ?? false, error,
                         args[5] as Action<OperationInfo>);
                     return null;
                 }
@@ -920,7 +845,7 @@ public class GameDetectionVisibilityRaceTests
 
         internal RunNotice? NoticeOf(Guid id) { lock (_sync) return _notices[id]; }
 
-        internal void FireTerminal(Guid id, bool success, bool cancelled, string? error, Action<OperationInfo>? onCompleting = null)
+        internal void FireTerminal(Guid id, bool success, bool canceled, string? error, Action<OperationInfo>? onCompleting = null)
         {
             Func<OperationTerminalInfo, Task>? emit;
             lock (_sync)
@@ -928,13 +853,13 @@ public class GameDetectionVisibilityRaceTests
                 var operation = _active.FirstOrDefault(o => o.Id == id);
                 if (operation == null) return;
                 onCompleting?.Invoke(operation);
-                operation.Status = cancelled ? OperationStatus.Cancelled : success ? OperationStatus.Completed : OperationStatus.Failed;
+                operation.Status = canceled ? OperationStatus.Canceled : success ? OperationStatus.Completed : OperationStatus.Failed;
                 _active.Remove(operation);
                 _finished[id] = operation;
                 _emits.Remove(id, out emit);
             }
 
-            emit?.Invoke(new OperationTerminalInfo(success, cancelled, error));
+            emit?.Invoke(new OperationTerminalInfo(success, canceled, error));
         }
     }
 

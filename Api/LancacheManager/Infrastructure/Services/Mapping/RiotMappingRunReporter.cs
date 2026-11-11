@@ -103,7 +103,7 @@ internal sealed class RiotMappingRunReporter : IAsyncDisposable
     /// nothing here to name), and a pass that hit warnings cannot make it. Such a run reports its
     /// real counts instead, which say it ran and named nothing without pretending it found nothing.
     /// </param>
-    public async Task CompleteAsync(bool success, bool cancelled, string? error, bool completedCleanly)
+    public async Task CompleteAsync(bool success, bool canceled, string? error, bool completedCleanly)
     {
         await _gate.WaitAsync(CancellationToken.None);
         try
@@ -117,11 +117,11 @@ internal sealed class RiotMappingRunReporter : IAsyncDisposable
 
             // A pass that observed Riot hosts but named none of them left every row as it found it,
             // so it reports skipped rather than claiming a completed mapping. Only a run that both
-            // succeeded and was not cancelled can end this way - a failure and a cancellation each
+            // succeeded and was not canceled can end this way - a failure and a cancellation each
             // keep their own terminal, because neither is a run that simply had nothing to do.
             // A run that finished with warnings is excluded for the same reason: it tried and got
             // nowhere, which is not the same as having nothing to do.
-            if (success && !cancelled && completedCleanly && _mapped == 0)
+            if (success && !canceled && completedCleanly && _mapped == 0)
             {
                 await _reporter.CompleteSkippedAsync(NothingResolvedSkipStageKey, Context());
                 return;
@@ -130,7 +130,7 @@ internal sealed class RiotMappingRunReporter : IAsyncDisposable
             await _reporter.CompleteAsync(
                 success,
                 error,
-                cancelled,
+                canceled,
                 context: Context(error));
         }
         finally

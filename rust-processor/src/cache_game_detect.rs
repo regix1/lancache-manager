@@ -140,6 +140,8 @@ fn write_progress(
 struct GameCacheInfo {
     game_app_id: u32,
     game_name: String,
+    /// True for a Steam depot no owning app is mapped to; `game_name` is then a placeholder.
+    is_unresolved_depot: bool,
     cache_files_found: usize,
     total_size_bytes: u64,
     depot_ids: Vec<u32>,
@@ -397,14 +399,14 @@ fn detect_unmapped_services(
     let now = SystemTime::now();
     for (digest, size_bytes) in unmapped {
         // Cooperative cancel: check between key reads, one disk read each
-        if cancel::is_cancelled() {
+        if cancel::is_canceled() {
             eprintln!(
                 "\nCancel requested — stopping unclaimed file grouping after {}/{} files",
                 processed, total
             );
             write_progress(
                 progress_path,
-                "cancelled",
+                "canceled",
                 "signalr.gameDetect.unmapped.progress",
                 json!({ "processed": processed, "total": total }),
                 90.0 + (processed as f64 / total.max(1) as f64) * 2.0,
@@ -542,6 +544,7 @@ fn detect_unmapped_services(
                             detected_games.push(GameCacheInfo {
                                 game_app_id: 0,
                                 game_name: game_name.clone(),
+                                is_unresolved_depot: false,
                                 cache_files_found: 0,
                                 total_size_bytes: 0,
                                 depot_ids: Vec::new(),
@@ -660,7 +663,7 @@ fn run_unmapped_files(
     };
     let mut processed = 0usize;
     for file in eligible {
-        if cancel::is_cancelled() {
+        if cancel::is_canceled() {
             eprintln!(
                 "
 Cancel requested - stopping unmapped file removal after {}/{} files",
@@ -668,7 +671,7 @@ Cancel requested - stopping unmapped file removal after {}/{} files",
             );
             write_progress(
                 progress_path,
-                "cancelled",
+                "canceled",
                 "signalr.unmappedRemove.running",
                 json!({ "processed": processed, "total": total }),
                 92.0 + (processed as f64 / total.max(1) as f64) * 3.5,
@@ -967,12 +970,12 @@ async fn main() -> Result<()> {
 
     for (game_id, records) in games_in_claim_order(games_map) {
         // Cooperative cancel: check between Steam game iterations (read-only, safe to stop here)
-        if cancel::is_cancelled() {
+        if cancel::is_canceled() {
             eprintln!("\nCancel requested — stopping Steam game scan after {}/{} games", processed_count, total_games);
             let partial_percent = 30.0 + (processed_count as f64 / total_games.max(1) as f64) * 40.0;
             write_progress(
                 progress_path.as_deref(),
-                "cancelled",
+                "canceled",
                 "signalr.gameDetect.matching.progress",
                 json!({ "processed": processed_count, "totalGames": total_games }),
                 partial_percent,
@@ -1069,11 +1072,11 @@ async fn main() -> Result<()> {
         for epic_id in epic_ids {
             let (game_name, service_urls) = &epic_map[epic_id];
             // Cooperative cancel: check between Epic game iterations
-            if cancel::is_cancelled() {
+            if cancel::is_canceled() {
                 eprintln!("\nCancel requested — stopping Epic game scan after {}/{} games", epic_processed, total_epic);
                 write_progress(
                     progress_path.as_deref(),
-                    "cancelled",
+                    "canceled",
                     "signalr.gameDetect.epic.progress",
                     json!({ "processed": epic_processed, "totalGames": total_epic, "name": game_name }),
                     70.0 + (epic_processed as f64 / total_epic.max(1) as f64) * 5.0,
@@ -1179,11 +1182,11 @@ async fn main() -> Result<()> {
         for named_key in named_keys {
             let (service, game_name, service_urls) = &named_map[named_key];
             // Cooperative cancel: check between named game iterations
-            if cancel::is_cancelled() {
+            if cancel::is_canceled() {
                 eprintln!("\nCancel requested — stopping named game scan after {}/{} games", named_processed, total_named);
                 write_progress(
                     progress_path.as_deref(),
-                    "cancelled",
+                    "canceled",
                     "signalr.gameDetect.named.progress",
                     json!({ "processed": named_processed, "totalGames": total_named, "name": game_name }),
                     75.0 + (named_processed as f64 / total_named.max(1) as f64) * 5.0,
@@ -1339,12 +1342,12 @@ async fn main() -> Result<()> {
 
         for (service_name, service_urls) in sorted_services {
             // Cooperative cancel: check between service iterations
-            if cancel::is_cancelled() {
+            if cancel::is_canceled() {
                 eprintln!("\nCancel requested — stopping service scan after {}/{} services", services_processed, total_services);
                 let partial_percent = 80.0 + (services_processed as f64 / total_services.max(1) as f64) * 10.0;
                 write_progress(
                     progress_path.as_deref(),
-                    "cancelled",
+                    "canceled",
                     "signalr.gameDetect.services.progress",
                     json!({ "processed": services_processed, "total": total_services }),
                     partial_percent,
@@ -1407,9 +1410,9 @@ async fn main() -> Result<()> {
                 let progress_path_for_monitor = progress_path.clone();
                 let service_name_for_monitor = service_name.clone();
                 thread::spawn(move || {
-                    while !stop_monitor.load(Ordering::Relaxed) && !cancel::is_cancelled() {
+                    while !stop_monitor.load(Ordering::Relaxed) && !cancel::is_canceled() {
                         thread::sleep(Duration::from_millis(500));
-                        if stop_monitor.load(Ordering::Relaxed) || cancel::is_cancelled() {
+                        if stop_monitor.load(Ordering::Relaxed) || cancel::is_canceled() {
                             break;
                         }
                         let done = url_counter.load(Ordering::Relaxed);
@@ -1924,6 +1927,7 @@ mod tests {
             games: vec![GameCacheInfo {
                 game_app_id: 440,
                 game_name: "Team Fortress 2".to_string(),
+                is_unresolved_depot: false,
                 cache_files_found: 2,
                 total_size_bytes: 84,
                 depot_ids: vec![441],

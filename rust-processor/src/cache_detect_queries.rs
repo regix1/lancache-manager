@@ -15,6 +15,8 @@ pub struct DownloadRecord {
     /// Max bytes observed for this URL (`MAX(LogEntries.BytesServed)`); sizes the probe chunk
     /// count via `cache_utils::probe_chunks_for_bytes`. 0 means unknown → falls back to floor.
     pub(crate) bytes_served: i64,
+    /// True for a depot no owning app is mapped to; its `game_name` is a placeholder.
+    pub(crate) is_unresolved_depot: bool,
 }
 
 #[derive(Debug)]
@@ -176,6 +178,7 @@ pub async fn query_game_downloads(
                 url,
                 depot_id: depot_id.map(|d| d as u32),
                 bytes_served: bytes_served.unwrap_or(0),
+                is_unresolved_depot: false,
             };
 
             if let Some(limit) = max_urls_per_game {
@@ -282,6 +285,7 @@ pub async fn query_game_downloads(
                     url,
                     depot_id: Some(depot_id_u32),
                     bytes_served: bytes_served.unwrap_or(0),
+                    is_unresolved_depot: true,
                 });
         }
     }

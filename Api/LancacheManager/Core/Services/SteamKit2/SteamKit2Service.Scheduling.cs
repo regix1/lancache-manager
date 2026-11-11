@@ -1,3 +1,4 @@
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
 
@@ -111,7 +112,45 @@ public partial class SteamKit2Service
                 // Pass the trigger this loop iteration actually resolved (matching the non-GitHub
                 // dispatch below). Hardcoding Scheduled here made a Run Now look automatic, so the
                 // Manual notification mode gated every event of a user-requested import away.
-                var success = await ImportFromGitHubAsync(stoppingToken, CurrentRunTrigger, CurrentRunNotice);
+                var notice = CurrentRunNotice;
+                var trigger = CurrentRunTrigger;
+                IOperationWaitlist queue;
+                using (var scope = _scopeFactory.CreateScope())
+                {
+                    queue = scope.ServiceProvider.GetRequiredService<IOperationWaitlist>();
+                }
+
+                Task<bool>? import = null;
+                async Task<Guid?> StartImportAsync(CancellationToken runToken)
+                {
+                    var registered = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    import = ImportFromGitHubAsync(runToken, trigger, notice, started: registered);
+                    await Task.WhenAny(registered.Task, import);
+                    return registered.Task.IsCompleted ? await registered.Task : null;
+                }
+
+                // The import never joins a crawl, nor a crawl the import: each is other work.
+                var conflict = await queue.StartUnlessBusyAsync(
+                    OperationType.DepotMapping, ConflictScope.Bulk(), () => StartImportAsync(stoppingToken), stoppingToken,
+                    new DepotMappingRequestKey(DepotMappingWork.GitHubImport));
+                if (conflict != null)
+                {
+                    // An import blocked by another job waits on the queue's card and starts when that job ends.
+                    // The caller's token belongs to a request or schedule tick that has ended by the time a
+                    // waiting import starts; the import's own card cancels it from then on.
+                    var queueResponse = await queue.EnqueueAsync(
+                        OperationType.DepotMapping, ConflictScope.Bulk(), "Depot Mapping",
+                        () => StartImportAsync(CancellationToken.None), stoppingToken,
+                        new DepotMappingRequestKey(DepotMappingWork.GitHubImport), notice: notice);
+                    // The queue's re-check starts the import at once when the blocker ended meanwhile; this
+                    // tick then ends with that import, as an unblocked one does.
+                    if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
+                    {
+                        return;
+                    }
+                }
+
+                var success = await import!;
 
                 if (success)
                 {
@@ -204,7 +243,7 @@ public partial class SteamKit2Service
                 }
             }
 
-            if (TryStartRebuild(stoppingToken, incrementalOnly: incremental, trigger: CurrentRunTrigger, notice: CurrentRunNotice))
+            if (await StartRebuildThroughQueueAsync(incremental, CurrentRunNotice, stoppingToken))
             {
                 // Await the background task so the base class sets LastRunUtc and fires the run-end
                 // ServiceExecutionStateChanged broadcast only after the actual PICS crawl finishes -

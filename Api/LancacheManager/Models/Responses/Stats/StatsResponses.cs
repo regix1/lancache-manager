@@ -276,7 +276,7 @@ public class EvictionScanStartedResponse
 {
     /// <summary>
     /// The started scan's operation id. Null when the scan could not start immediately and was
-    /// parked in the wait-queue instead (the queued-operation response is returned in that case).
+    /// parked in the wait-queue instead (the operation queue's response is returned in that case).
     /// </summary>
     public Guid? OperationId { get; set; }
 }

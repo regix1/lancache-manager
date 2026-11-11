@@ -10,13 +10,15 @@ interface DomainSourceFooterProps {
   onRefresh: () => void;
   refreshing: boolean;
   refreshError: string | null;
+  reloadError: string | null;
 }
 
 const DomainSourceFooter: React.FC<DomainSourceFooterProps> = ({
   source,
   onRefresh,
   refreshing,
-  refreshError
+  refreshError,
+  reloadError
 }) => {
   const { t } = useTranslation();
   const keys = 'management.sections.statusCheck';
@@ -57,6 +59,11 @@ const DomainSourceFooter: React.FC<DomainSourceFooterProps> = ({
       {refreshError && (
         <p className="text-xs text-themed-warning mt-1">
           {t(`${keys}.refreshFailed`, { error: refreshError })}
+        </p>
+      )}
+      {reloadError && (
+        <p className="text-xs text-themed-warning mt-1">
+          {t(`${keys}.reloadFailed`, { error: reloadError })}
         </p>
       )}
       {!refreshError && source?.error && (

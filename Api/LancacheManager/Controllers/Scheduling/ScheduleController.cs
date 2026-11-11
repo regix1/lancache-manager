@@ -59,10 +59,10 @@ public class ScheduleController : ControllerBase
         if (status.HasValue
             && status.Value is not (OperationStatus.Completed
                 or OperationStatus.Failed
-                or OperationStatus.Cancelled
+                or OperationStatus.Canceled
                 or OperationStatus.Skipped))
         {
-            throw new ValidationException("Status must be completed, failed, cancelled, or skipped.");
+            throw new ValidationException("Status must be completed, failed, canceled, or skipped.");
         }
 
         return Ok(await _scheduleExecutions.GetPageAsync(
@@ -315,8 +315,8 @@ public class ScheduleController : ControllerBase
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("{serviceKey}/run")]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
-    public async Task<ActionResult<QueuedOperationResponse>> TriggerRunAsync(string serviceKey)
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
+    public async Task<ActionResult<OperationStartResponse>> TriggerRunAsync(string serviceKey)
     {
         var info = _registry.Get(serviceKey);
         if (info == null)
@@ -328,14 +328,14 @@ public class ScheduleController : ControllerBase
             HttpContext.GetUserSession()?.AccountId,
             HttpContext.RequestAborted);
         // The route accepts any casing, but the registry's per-key rules compare the exact key.
-        var (status, skippedReason, followUpQueued) = await _registry.TriggerRunAsync(info.Key, actor);
+        var (status, skippedReason, followUpWaiting) = await _registry.TriggerRunAsync(info.Key, actor);
         if (skippedReason is not null)
         {
             // The run is retained until downloads finish; its waiting row is what the browser draws.
-            return Accepted(new QueuedOperationResponse
+            return Accepted(new OperationStartResponse
             {
-                Status = "skipped",
-                FollowUpQueued = followUpQueued,
+                Status = OperationStartStatus.Skipped,
+                FollowUpWaiting = followUpWaiting,
                 SkippedReason = skippedReason
             });
         }
@@ -343,26 +343,25 @@ public class ScheduleController : ControllerBase
         // Don't broadcast a schedule snapshot here. The run's status dot is driven by the service
         // loop's own ServiceExecutionStateChanged broadcasts - a START fires the moment the woken loop
         // begins the run. A snapshot at this point would capture IsRunning=false (the loop hasn't
-        // started yet) and could be delivered AFTER that START, leaving the dot grey for the whole run.
+        // started yet) and could be delivered AFTER that START, leaving the dot gray for the whole run.
         if (status.IsRunning)
         {
             // OperationId defaults to Guid.Empty when it can't be parsed (e.g. a running service the
-            // tracker hasn't attached an id to yet) - the caller reads AlreadyRunning/Status, not this
+            // tracker hasn't attached an id to yet) - the caller reads Status, not this
             // field alone, so that default is an acceptable fallback rather than an error to surface.
             _ = Guid.TryParse(status.OperationId, out var activeOperationId);
-            return Accepted(new QueuedOperationResponse
+            return Accepted(new OperationStartResponse
             {
-                Status = "alreadyRunning",
-                FollowUpQueued = followUpQueued,
-                AlreadyRunning = true,
+                Status = OperationStartStatus.AlreadyRunning,
+                FollowUpWaiting = followUpWaiting,
                 OperationId = activeOperationId
             });
         }
 
-        return Accepted(new QueuedOperationResponse
+        return Accepted(new OperationStartResponse
         {
-            Status = "started",
-            FollowUpQueued = followUpQueued
+            Status = OperationStartStatus.Started,
+            FollowUpWaiting = followUpWaiting
         });
     }
 

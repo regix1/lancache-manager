@@ -160,7 +160,7 @@ interface DepotScanModeRequirement {
 
 // One place decides what each scan mode needs, so the dropdown and the save path can never
 // disagree about which modes can run. Every term here reads a fact that survives at rest: the
-// crawl closes its own Steam socket when it finishes, so a connection flag would grey both Steam
+// crawl closes its own Steam socket when it finishes, so a connection flag would gray both Steam
 // modes out permanently.
 const getDepotScanModeRequirement = (
   mode: DepotScheduledScanMode,
@@ -171,7 +171,7 @@ const getDepotScanModeRequirement = (
     return null;
   }
   // Each fact below arrives from its own request after mount. Until they have all landed nothing
-  // counts as a missing requirement: an unread value read as an absent capability would grey both
+  // counts as a missing requirement: an unread value read as an absent capability would gray both
   // Steam modes out on every page load and pop them back a moment later. This is the one place the
   // loading window is stated, so a fourth requirement cannot spell it a fourth way.
   if (!availability.isKnown) {
@@ -459,7 +459,7 @@ const DepotIncrementalCheck = memo(function DepotIncrementalCheck({
 
   // The same control closes the answer and the "check did not finish" note, so it is written
   // once here. It can be pressed while a request is out, since the previous answer stays on
-  // screen through a re-check - handleDismiss retires the reply rather than cancelling it.
+  // screen through a re-check - handleDismiss retires the reply rather than canceling it.
   const dismissButton = (
     <Button
       type="button"
@@ -504,7 +504,7 @@ const DepotIncrementalCheck = memo(function DepotIncrementalCheck({
               seconds does not swap the text and resize the button under the pointer. Loading is
               not repeated in disabled - Button already blocks a second press while it spins, and
               hand-toggling disabled for an in-flight request is what flashed every control on
-              this card to the greyed-out look (see the note on isDisabled below). */}
+              this card to the grayed-out look (see the note on isDisabled below). */}
           <Button
             type="button"
             variant="subtle"
@@ -664,7 +664,7 @@ const ScheduleRow = memo(function ScheduleRow({
   const scanMode = service.scanMode ?? null;
   const isCacheReconciliation = service.key === 'cacheReconciliation';
   // The Xbox sign-in registers a tracked XboxMapping operation for the whole device-code wait, which
-  // is what turns isRunningOrPending true below and greys out Run Now. Without this the button looks
+  // is what turns isRunningOrPending true below and grays out Run Now. Without this the button looks
   // broken for up to 15 minutes, so the row says which one of the two is holding it.
   const isAwaitingSignIn = service.key === 'xboxMapping' && service.awaitingSignIn === true;
   // Server truth (isRunningDot) catches a run started by the scheduler itself, another browser
@@ -740,7 +740,7 @@ const ScheduleRow = memo(function ScheduleRow({
     [service.key, onScanModeChange]
   );
 
-  // Cancelling the Full Scan Required prompt hides it for the rest of the browser tab, on purpose.
+  // Canceling the Full Scan Required prompt hides it for the rest of the browser tab, on purpose.
   // This is the way back to it. App owns the prompt and sits far above this row, so the request
   // travels as a window event, the same route the dashboard widgets use to ask App to change tab.
   // The figures come from the schedules response, so they survive a reload that the SignalR event
@@ -855,7 +855,7 @@ const ScheduleRow = memo(function ScheduleRow({
                   </HelpPopover>
                 </span>
               </span>
-              {/* Compact pills, same colour axes as the scheduled-prefill platform
+              {/* Compact pills, same color axes as the scheduled-prefill platform
               badges: filled purple = all runs, filled blue = manual only, dotted
               outline = silent. Each tooltip pairs the value with its label. */}
               {hasSettingsFlags && (
@@ -1178,7 +1178,7 @@ const ScheduleRow = memo(function ScheduleRow({
             )}
 
             {/* Only while the sign-in is still waiting, so the row goes back to its usual shape as
-            soon as the code is approved, cancelled or expires. Nothing to click: the approval
+            soon as the code is approved, canceled or expires. Nothing to click: the approval
             happens on Microsoft's page, so this row carries the sentence itself instead of the
             label-plus-control pair the settings rows use. */}
             {isAwaitingSignIn && (
@@ -1401,7 +1401,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   // Map of schedule key -> glow variant. `navigate` is the default (2-pulse attention
   // grab) used by Run Now and external View Schedule navigation. `subtle` is used by
   // Reset to Defaults where every row flashes at once and needs to feel like an
-  // acknowledgement rather than an attention-grab.
+  // acknowledgment rather than an attention-grab.
   const [completedKeys, setCompletedKeys] = useState<Record<string, HighlightGlowVariant>>({});
   const { on, off, isConnected } = useSignalR();
   const { addNotification, runs } = useNotifications();
@@ -1834,12 +1834,12 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
 
       try {
         const result = await ApiService.triggerSchedule(key);
-        // A Run Now draws no popup of its own: a started run, a queued follow-up and a held run
+        // A Run Now draws no popup of its own: a started run, a waiting follow-up and a held run
         // each answer with their own card or row. A skip (a retained hold owns its waiting event)
-        // and a run already going with nothing queued retire the optimistic running state.
+        // and a run already going with nothing waiting clear the early running state.
         if (
           result.status === 'skipped' ||
-          (result.alreadyRunning && result.followUpQueued === false)
+          (result.status === 'alreadyRunning' && result.followUpWaiting === false)
         ) {
           clearPending(key);
           setCompletedKeys((prev) => {

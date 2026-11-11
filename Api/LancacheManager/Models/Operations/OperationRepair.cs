@@ -43,7 +43,7 @@ public sealed class OperationRepair
     /// The person stopped the run after its job had saved its own outcome (an eviction scan stopped during its
     /// remove step); a run restored after a restart ends canceled as it did.
     /// </summary>
-    public bool RunCancelled { get; set; }
+    public bool RunCanceled { get; set; }
     /// <summary>
     /// The job saved its outcome before more work on the same run (an eviction scan's remove step and tail); the run's
     /// last save clears it. A record restored with it still set was stopped by a restart before that save.
@@ -54,6 +54,11 @@ public sealed class OperationRepair
     /// after a restart ends failed with it, as it did.
     /// </summary>
     public string? RunError { get; set; }
+    /// <summary>
+    /// The values the saved error key's sentence names, so a run a restart restores words its failure as the live card
+    /// did. Null on records older versions saved.
+    /// </summary>
+    public RunWarning? FailureReason { get; set; }
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter))]

@@ -198,7 +198,7 @@
  *   2. features/dashboard.css and features/edit-mode.css are imported after this
  *      file and define the same selectors at equal specificity, so they too would
  *      win on order.
- * Honouring the operating system's reduced-motion setting is an accessibility
+ * Honoring the operating system's reduced-motion setting is an accessibility
  * guarantee, so it should not be defeatable by a later stylesheet or by a
  * transition/animation utility applied inline on the element. Raising specificity
  * by compounding the selectors would fix today's conflicts but silently regress

@@ -13,7 +13,7 @@ namespace LancacheManager.Tests;
 /// Also proves that a Run Now arriving <em>while ExecuteWorkAsync is running</em> is honored promptly:
 /// at that moment the trigger cancels the delay source of the already-finished prior sleep, so the loop
 /// must re-check the pending flag after work completes instead of sleeping a full interval (or, for a
-/// paused service, forever) and mislabelling the deferred run as Manual.
+/// paused service, forever) and mislabeling the deferred run as Manual.
 /// </summary>
 public class ScheduledBackgroundServiceManualRunTests
 {
@@ -185,7 +185,7 @@ public class ScheduledBackgroundServiceManualRunTests
     // A Run Now accepted while a run works is for the run that follows it. When that run fails, the back-off
     // waits out its delay instead of retrying at once as a scheduled run.
     [Fact]
-    public async Task AFailedRunAfterAQueuedRunNow_WaitsOutTheBackOff()
+    public async Task AFailedRunAfterAWaitingRunNow_WaitsOutTheBackOff()
     {
         using var service = new FailSecondRunProbeService();
         await service.StartAsync(CancellationToken.None);
@@ -194,7 +194,7 @@ public class ScheduledBackgroundServiceManualRunTests
             await service.TryTriggerImmediateRunAsync(new RunNotice(NotificationMode.Silent, RunTrigger.Manual));
             await service.FirstRunStarted.WaitAsync(Timeout);
             var followUp = await service.TryTriggerImmediateRunAsync(new RunNotice(NotificationMode.Silent, RunTrigger.Manual));
-            Assert.True(followUp.FollowUpQueued);
+            Assert.True(followUp.FollowUpWaiting);
             service.ReleaseFirstRun();
             await service.SecondRunFailed.WaitAsync(Timeout);
             await Task.Delay(500);
@@ -449,13 +449,13 @@ public class ConfigurableScheduledServiceManualRunTests
         var admission = await service.TryTriggerImmediateRunAsync(first, (_, _) => acknowledgments++);
         Assert.True(admission.Admitted);
         Assert.Same(first, admission.Retained);
-        Assert.False(admission.FollowUpQueued);
+        Assert.False(admission.FollowUpWaiting);
         admission = await service.TryTriggerImmediateRunAsync(new RunNotice(
             NotificationMode.All, RunTrigger.Manual, secondActor), (_, _) => acknowledgments++);
         Assert.False(admission.Admitted);
         Assert.Same(first, admission.Retained);
         Assert.Same(firstActor, admission.Retained.Actor);
-        Assert.False(admission.FollowUpQueued);
+        Assert.False(admission.FollowUpWaiting);
         var consumed = await service.TakePendingManualRunAsync();
         Assert.NotNull(consumed);
         await service.TryTriggerImmediateRunAsync(new RunNotice(service.EffectiveNotificationMode, RunTrigger.Manual));
@@ -469,7 +469,7 @@ public class ConfigurableScheduledServiceManualRunTests
             (_, _) => acknowledgments++);
         Assert.False(admission.Admitted);
         Assert.Same(first, admission.Retained);
-        Assert.False(admission.FollowUpQueued);
+        Assert.False(admission.FollowUpWaiting);
         service.ReleaseFirstRun();
         await run.WaitAsync(Timeout);
         Assert.False(await service.HasPendingRunAsync());
@@ -477,7 +477,7 @@ public class ConfigurableScheduledServiceManualRunTests
         Assert.Equal(1, acknowledgments);
         admission = await service.TryTriggerImmediateRunAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual));
         Assert.True(admission.Admitted);
-        Assert.False(admission.FollowUpQueued);
+        Assert.False(admission.FollowUpWaiting);
     }
 
     [Fact]
@@ -492,12 +492,12 @@ public class ConfigurableScheduledServiceManualRunTests
         Assert.Equal(RunTrigger.Manual, service.CurrentRunNotice.Trigger);
         Assert.False(await service.HasPendingRunAsync());
 
-        var cancelled = new RunNotice(NotificationMode.All, RunTrigger.Manual);
-        await service.TryTriggerImmediateRunAsync(cancelled);
+        var canceled = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        await service.TryTriggerImmediateRunAsync(canceled);
         // Drops the request the way a dismissed card does, leaving the notice itself uncanceled.
-        service.DismissCard(Guid.Empty, cancelled);
+        service.DismissCard(Guid.Empty, canceled);
         Assert.False(await service.HasPendingRunAsync());
-        Assert.True((await service.TryTriggerImmediateRunAsync(cancelled)).Admitted);
+        Assert.True((await service.TryTriggerImmediateRunAsync(canceled)).Admitted);
         var consumed = await service.TakePendingManualRunAsync();
         Assert.NotNull(consumed);
         using var stop = new CancellationTokenSource();
@@ -514,7 +514,7 @@ public class ConfigurableScheduledServiceManualRunTests
         Assert.NotNull(await service.TakePendingManualRunAsync());
         var admission = await service.TryTriggerImmediateRunAsync(new RunNotice(NotificationMode.All, RunTrigger.Manual));
         Assert.True(admission.Admitted);
-        Assert.True(admission.FollowUpQueued);
+        Assert.True(admission.FollowUpWaiting);
         Assert.True(await service.HasPendingRunAsync());
     }
 

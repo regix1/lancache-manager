@@ -10,28 +10,6 @@ namespace LancacheManager.Core.Services.SteamKit2;
 public partial class SteamKit2Service
 {
     /// <summary>
-    /// Clear game information from Steam downloads (used before full scans/GitHub imports)
-    /// </summary>
-    private async Task ClearDownloadGameDataAsync()
-    {
-        using var scopedDb = _scopeFactory.CreateScopedDbContext();
-
-        _logger.LogInformation("Clearing game information from Steam downloads (GameName, GameImageUrl, GameAppId)");
-
-        // Only Steam traffic carries a DepotId, and only Steam rows get a name back from depot
-        // mappings. Xbox, Blizzard, Riot and Epic rows keep their identity in GameName, so wiping
-        // them here leaves those games unnamed for good.
-        await scopedDb.DbContext.Downloads
-            .Where(d => d.DepotId != null)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(d => d.GameName, (string?)null)
-                .SetProperty(d => d.GameImageUrl, (string?)null)
-                .SetProperty(d => d.GameAppId, (long?)null));
-
-        _logger.LogInformation("Cleared game information from Steam downloads - ready for fresh mapping");
-    }
-
-    /// <summary>
     /// Manually apply depot mappings to existing downloads (called from UI)
     /// </summary>
     public async Task ManuallyApplyDepotMappingsAsync()
@@ -57,7 +35,6 @@ public partial class SteamKit2Service
             await reporter.StartAsync(new Dictionary<string, object?>
             {
                 ["scanMode"] = _activeDepotScanMode,
-                ["message"] = "Applying depot mappings to downloads...",
             }, "signalr.depotMapping.applyingToDownloads");
             _currentPicsOperationId = reporter.OperationId;
             RaiseExecutionStateChanged();
@@ -66,16 +43,14 @@ public partial class SteamKit2Service
             await reporter.CompleteAsync(
                 success: true,
                 stageKey: "signalr.depotMapping.finalized",
-                context: CreateDepotContext(
-                    message: "Depot mappings applied to downloads",
-                    depotMappingsFound: _depotToAppMappings.Count));
+                context: CreateDepotContext(depotMappingsFound: _depotToAppMappings.Count));
         }
         catch (OperationCanceledException)
         {
             await reporter.CompleteAsync(
                 success: false,
-                cancelled: true,
-                stageKey: "signalr.depotMapping.cancelled");
+                canceled: true,
+                stageKey: "signalr.depotMapping.canceled");
             throw;
         }
         catch (Exception ex)
@@ -115,9 +90,7 @@ public partial class SteamKit2Service
         await reporter.ReportAsync(
             90,
             "signalr.depotMapping.applyingToDownloads",
-            CreateDepotContext(
-                status: "Applying mappings to downloads",
-                message: "Applying mappings to downloads"));
+            CreateDepotContext());
         var (updated, _) = await ApplyDepotMappingsAsync(reporter, cancellationToken, progressStart: 90, progressEnd: 99, replace: replace);
         _emitDownloadsUpdated = updated;
 
@@ -320,15 +293,13 @@ public partial class SteamKit2Service
         {
             using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
-            // Get downloads that have depot IDs but no game info, missing image, or placeholder names
-            // The placeholder name check (e.g. "Steam App 12345") ensures downloads get re-resolved
-            // when the Steam API later returns the real name
+            // Get downloads that have depot IDs but no app id, no image or no name, or every one when
+            // replacing; a download stored with no name gets its name once Steam returns one
             var downloadsNeedingGameInfo = await scopedDb.DbContext.Downloads
                 .Where(d => d.DepotId.HasValue && (
                     replace || d.GameAppId == null ||
                     string.IsNullOrEmpty(d.GameImageUrl) ||
-                    d.GameName == null ||
-                    EF.Functions.Like(d.GameName, "Steam App %")))
+                    d.GameName == null))
                 .ToListAsync(cancellationToken);
 
             _logger.LogInformation($"Found {downloadsNeedingGameInfo.Count} downloads needing game info after PICS completion");
@@ -362,13 +333,9 @@ public partial class SteamKit2Service
                 cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    if (replace)
-                    {
-                        download.GameAppId = null;
-                        download.GameName = null;
-                        download.GameImageUrl = null;
-                    }
-                    uint? appId = download.GameAppId.HasValue ? (uint)download.GameAppId.Value : null; // Use existing appId if available
+                    // Replacing looks the owner up again, but a download is only rewritten once an owner
+                    // is found; one with no owner keeps the name it has.
+                    uint? appId = !replace && download.GameAppId.HasValue ? (uint)download.GameAppId.Value : null; // Use existing appId if available
 
                     // If no AppId yet, use owner ID from PICS data
                     if (!appId.HasValue && download.DepotId.HasValue)
@@ -409,6 +376,11 @@ public partial class SteamKit2Service
 
                     if (appId.HasValue)
                     {
+                        // A store lookup that fails (SteamService.GetGameInfoAsync returns null) must not
+                        // blank a download whose app did not change, so its stored name and banner stay.
+                        var sameApp = download.GameAppId == appId.Value;
+                        var storedName = sameApp ? download.GameName : null;
+                        var storedImageUrl = sameApp ? download.GameImageUrl : null;
                         download.GameAppId = appId.Value;
 
                         // First check if we have a PICS name (works for all apps including redistributables/launchers)
@@ -429,11 +401,11 @@ public partial class SteamKit2Service
                             download.GameImageUrl = gameInfo.HeaderImage;
                             updated++;
                         }
-                        else if (!string.IsNullOrEmpty(picsName) && !picsName.StartsWith("App "))
+                        else if (!string.IsNullOrEmpty(picsName) && picsName != $"App {appId.Value}")
                         {
                             // Use PICS name if Steam Store API failed (e.g., redistributables/launchers)
                             download.GameName = picsName;
-                            download.GameImageUrl = gameInfo?.HeaderImage;
+                            download.GameImageUrl = storedImageUrl;
                             updated++;
                         }
                         else if (!string.IsNullOrEmpty(depotName))
@@ -441,14 +413,14 @@ public partial class SteamKit2Service
                             // Use depot name as fallback for shared redistributables
                             // e.g., "Ubisoft Connect PC Client Content", "RGL/SC Content"
                             download.GameName = depotName;
-                            download.GameImageUrl = null;
+                            download.GameImageUrl = storedImageUrl;
                             _logger.LogInformation("Using depot name for depot {DepotId}: {DepotName}", download.DepotId, depotName);
                             updated++;
                         }
                         else
                         {
-                            download.GameName = $"Steam App {appId}";
-                            download.GameImageUrl = null;
+                            download.GameName = storedName;
+                            download.GameImageUrl = storedImageUrl;
                             updated++;
                         }
                     }
@@ -482,8 +454,6 @@ public partial class SteamKit2Service
                                 overallPercent,
                                 "signalr.depotMapping.applyingToDownloads",
                                 CreateDepotContext(
-                                    status: "Applying mappings to downloads",
-                                    message: "Applying mappings to downloads",
                                     totalMappings: totalDownloads,
                                     processedMappings: processed,
                                     mappingsApplied: updated));
@@ -512,7 +482,7 @@ public partial class SteamKit2Service
                 // one ends.
                 using var imageFetchScope = _scopeFactory.CreateScope();
                 var imageFetchService = imageFetchScope.ServiceProvider.GetRequiredService<GameImageFetchService>();
-                await imageFetchService.StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled);
+                await imageFetchService.StartFetchThroughQueueAsync();
             }
             else
             {
@@ -525,8 +495,6 @@ public partial class SteamKit2Service
                     progressEnd,
                     "signalr.depotMapping.finalized",
                     CreateDepotContext(
-                        status: "Finalizing depot mappings",
-                        message: "Finalizing depot mappings",
                         totalMappings: totalDownloads,
                         processedMappings: totalDownloads,
                         mappingsApplied: updated));

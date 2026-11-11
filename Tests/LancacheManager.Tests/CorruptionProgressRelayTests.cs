@@ -7,7 +7,7 @@ namespace LancacheManager.Tests;
 public class CorruptionProgressRelayTests
 {
     [Fact]
-    public async Task CancelledTokenStillStartsWorkerSoItCanReachTerminalCleanup()
+    public async Task CanceledTokenStillStartsWorkerSoItCanReachTerminalCleanup()
     {
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();

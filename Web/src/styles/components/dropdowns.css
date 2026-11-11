@@ -296,7 +296,7 @@
     border-color: var(--theme-border-focus) !important;
   }
 
-  /* The border above already carries the focus colour, so the shared ring is pulled
+  /* The border above already carries the focus color, so the shared ring is pulled
      inside to sit against it rather than standing 2px clear as a second ring. */
   .ed-trigger:focus-visible,
   .ed-option:focus-visible,
@@ -314,6 +314,19 @@
     box-shadow: var(--shadow-dropdown);
   }
 
+  /* Dark themes separate a floating layer from what it floats over with a lighter fill and a
+     border, never a shadow; light themes keep the shadow. Covers every menu in this file and
+     the dashboard's hidden-cards menu, and the MultiSelect menu's top glint goes with its shadow. */
+  [data-theme='dark'] .ed-dropdown,
+  [data-theme='dark'] .msd-dropdown,
+  [data-theme='dark'] .github-dropdown,
+  [data-theme='dark'] .am-dropdown,
+  [data-theme='dark'] .dash-hidden-dropdown {
+    background-color: var(--theme-bg-surface);
+    border-color: var(--theme-card-border);
+    box-shadow: none;
+  }
+
   .ed-option,
   .ed-submenu-option,
   .msd-option {
@@ -327,7 +340,7 @@
   /* Selected row = the app-wide selected-state tokens (theme.service). The old
      neutral bg-tertiary/bg-hover pair read as a washed-out band in themes whose
      neutrals resolve bright; the selected tokens tint with each theme's own primary
-     and hover deepens the same tint instead of jumping to the neutral grey. */
+     and hover deepens the same tint instead of jumping to the neutral gray. */
   .ed-option-selected {
     background-color: var(--theme-selected-bg) !important;
   }
@@ -376,7 +389,7 @@
     background-color: var(--theme-selected-bg-hover) !important;
   }
 
-  /* On the selected tint the muted description grey reads too dark; step it up
+  /* On the selected tint the muted description gray reads too dark; step it up
      to the selected-state text color, softened so the label still leads. */
   .msd-option-selected .msd-option-desc {
     color: var(--theme-selected-text);
@@ -402,6 +415,11 @@
   .msd-checkbox-selected .msd-checkbox-inner {
     opacity: 1;
     transform: scale(1);
+  }
+
+  /* The checked box's primary fill marks it in dark themes without the glow. */
+  [data-theme='dark'] .msd-checkbox-selected {
+    box-shadow: none;
   }
 
   .msd-accent {
@@ -505,6 +523,11 @@
     background-color: var(--theme-bg-secondary);
   }
 
+  /* Takes the menu's dark fill so the header is not a darker band inside a lighter menu. */
+  [data-theme='dark'] .github-dropdown-header {
+    background-color: var(--theme-bg-surface);
+  }
+
   .github-dropdown-header-content {
     display: flex;
     align-items: center;
@@ -537,7 +560,7 @@
     padding: 0.25rem 0.5rem 0.5rem;
   }
 
-  /* Size/weight/uppercase/muted colour from shared .caps-label; keep the slightly
+  /* Size/weight/uppercase/muted color from shared .caps-label; keep the slightly
      wider tracking and pill padding/radius. Compounds .caps-label so those
      overrides win regardless of cross-chunk bundle order (see patterns.css). */
   .caps-label.github-section-label {
@@ -739,7 +762,7 @@
   }
 
   /* Fork chip - inline with repo name. Box, type and corners come from .themed-badge;
-     only the quiet outline colours and the row-hover reaction are local. */
+     only the quiet outline colors and the row-hover reaction are local. */
   .github-fork-pill {
     background-color: var(--theme-bg-tertiary);
     color: var(--theme-text-muted);

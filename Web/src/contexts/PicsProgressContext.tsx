@@ -51,9 +51,13 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
       const response = await fetch('/api/depots/rebuild/progress', ApiService.getFetchOptions());
       if (response.ok) {
         const data: PicsProgress = await response.json();
-        setProgress(data);
+        // The server holds its busy flag while it disconnects from Steam after the crawl has
+        // finished, so a completed phase is a finished crawl whatever that flag says.
+        const settled: PicsProgress =
+          data.status === 'completed' ? { ...data, isProcessing: false } : data;
+        setProgress(settled);
         // Cache to sessionStorage to prevent loading flashes
-        sessionStore.setItem('pics_progress_cache', JSON.stringify(data));
+        sessionStore.setItem('pics_progress_cache', JSON.stringify(settled));
       }
     } catch (error) {
       // Background poll (mount + SignalR reconnect recovery). The sessionStorage cache and
@@ -79,7 +83,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
   const createDefaultProgress = useCallback(
     (): PicsProgress => ({
       isProcessing: false,
-      status: 'Idle',
+      status: 'idle',
       totalApps: 0,
       processedApps: 0,
       totalBatches: 0,
@@ -130,7 +134,9 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
       setProgress((prev) => ({
         ...(prev ?? createDefaultProgress()),
         isProcessing: true,
-        status: event.status || 'Running',
+        status: event.status,
+        stageKey: event.stageKey,
+        context: event.context,
         totalApps: event.totalApps || prev?.totalApps || 0,
         processedApps: event.processedApps || 0,
         // Backend sends 'percentComplete', map it to 'progressPercent'
@@ -145,7 +151,8 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
           ? {
               ...prev,
               isProcessing: true,
-              status: event.status,
+              stageKey: event.stageKey,
+              context: event.context,
               totalApps: event.totalApps || prev.totalApps,
               processedApps: event.processedApps || prev.processedApps,
               totalBatches: event.totalBatches || prev.totalBatches,
@@ -164,15 +171,16 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
       const now = new Date().toISOString();
 
       // Handle both success and failure cases
-      const isSuccess = event.success && !event.cancelled;
-      const isCancelled = event.cancelled;
+      const isSuccess = event.success && !event.canceled;
 
       setProgress((prev) =>
         prev
           ? {
               ...prev,
               isProcessing: false,
-              status: isCancelled ? 'Cancelled' : isSuccess ? 'Completed' : 'Failed',
+              status: event.status,
+              stageKey: event.stageKey,
+              context: event.context,
               progressPercent: isSuccess ? 100 : prev.progressPercent,
               processedApps: event.totalApps || prev.totalApps,
               processedBatches: event.totalBatches || prev.totalBatches,

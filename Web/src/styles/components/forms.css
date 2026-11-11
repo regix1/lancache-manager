@@ -22,7 +22,7 @@
   }
 
   /* The ring is drawn INSIDE the box, flush against the border. A focused input already
-     repaints its border in the focus colour, so a ring standing 2px clear of it reads as
+     repaints its border in the focus color, so a ring standing 2px clear of it reads as
      two separate rings around one field. Inset, the two touch and read as one edge - and
      it also survives a field sitting flush inside an overflow-clipped container. */
   .themed-input:focus-visible {
@@ -178,7 +178,7 @@
      track's own border-radius clips it. Painted on the input it kept its square ends and
      showed as a sliver in the corner the rounded cap leaves uncovered.
      WebKit and Gecko need separate rules: a browser drops the whole rule if it does not
-     recognise one selector in the list. */
+     recognize one selector in the list. */
   input[type='range']::-webkit-slider-runnable-track {
     background-color: var(--theme-slider-track);
     background-image: linear-gradient(
@@ -425,7 +425,7 @@
 
   /* Setup wizard field. The access dialog and every initialization step share this one box so
      their inputs match in size, and on a phone the box reaches the same 44px touch floor as the
-     buttons beside it. Compound with .themed-input, which draws the border and colours. */
+     buttons beside it. Compound with .themed-input, which draws the border and colors. */
   .setup-input {
     width: 100%;
     padding: 0.625rem 0.75rem;
@@ -473,7 +473,7 @@
 }
 
 /* Clear affordance sitting inside a search field. The hover swap is media-guarded because
-   on touch the hovered colour sticks to the button after the tap that emptied the box, so
+   on touch the hovered color sticks to the button after the tap that emptied the box, so
    the control keeps reading as pressed next to a field that is already clear. */
 .search-input-clear {
   color: var(--theme-text-muted);
@@ -487,7 +487,7 @@
 }
 
 /* Setup wizard action row: a secondary action beside the primary one, each keeping its own
-   behaviour. Below a phone width the two stack, primary on top, so a long label such as
+   behavior. Below a phone width the two stack, primary on top, so a long label such as
    "Sign in as primary administrator" keeps to one or two lines instead of three. Unlayered so
    the wrapping outranks the Button's own nowrap utility. */
 .setup-actions {

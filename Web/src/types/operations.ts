@@ -6,15 +6,15 @@
 export type OperationStatus =
   | 'pending'
   | 'running'
-  | 'cancelling'
+  | 'canceling'
   | 'completed'
   | 'failed'
-  | 'cancelled'
+  | 'canceled'
   | 'waiting'
   /**
    * Not a state an operation sits in: the enqueue response uses it to say the request was
    * deduplicated onto an identical operation that is ALREADY LIVE, so the id it hands back
-   * belongs to work the caller never started (`OperationQueueService.EnqueueAsync`). A request
+   * belongs to work the caller never started (`OperationWaitlistService.EnqueueAsync`). A request
    * deduplicated onto a parked waiter answers `'waiting'` instead.
    */
   | 'alreadyRunning'
@@ -32,7 +32,7 @@ export type NotificationVariant = 'success' | 'error' | 'info' | 'warning';
  * `PrefillSessionStatus` enum which is explicitly serialized as PascalCase
  * (see comment in `Api/LancacheManager/Models/PrefillSessionStatus.cs`).
  */
-export type PrefillSessionStatus = 'Active' | 'Terminated' | 'Orphaned' | 'Cleaned' | 'Cancelled';
+export type PrefillSessionStatus = 'Active' | 'Terminated' | 'Orphaned' | 'Cleaned' | 'Canceled';
 
 /**
  * In-flight status of the short-lived daemon container (not the persisted

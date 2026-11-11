@@ -122,9 +122,24 @@ export function registerPrefillEventHandlers(
   // Handle status changes
   connection.on(
     getEventName('StatusChanged', serviceId),
-    ({ status }: { sessionId: string; status: { status: string; message: string } }) => {
-      if (status.message) {
-        addLog('info', t('prefill.log.statusMessage', { message: status.message }));
+    ({
+      status
+    }: {
+      sessionId: string;
+      status: { status: string; isInitialized?: boolean | null };
+    }) => {
+      // Only a status read says whether the daemon is ready; a pushed status leaves it unset.
+      if (typeof status.isInitialized === 'boolean') {
+        addLog(
+          'info',
+          t('prefill.log.statusMessage', {
+            message: t(
+              status.isInitialized
+                ? 'signalr.prefill.daemonInitialized'
+                : 'signalr.prefill.daemonNotInitialized'
+            )
+          })
+        );
       }
     }
   );

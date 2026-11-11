@@ -30,7 +30,7 @@ public class StatsController : ControllerBase
     private readonly ISignalRNotificationService _notifications;
     private readonly CacheReconciliationService _reconciliationService;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly IOperationQueue _operationQueue;
+    private readonly IOperationWaitlist _operationQueue;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly IClientHostnameService _clientHostnameService;
     private readonly IEventsService _eventsService;
@@ -46,7 +46,7 @@ public class StatsController : ControllerBase
         ISignalRNotificationService notifications,
         CacheReconciliationService reconciliationService,
         IUnifiedOperationTracker operationTracker,
-        IOperationQueue operationQueue,
+        IOperationWaitlist operationQueue,
         DatasourceCapabilityService capabilityService,
         IClientHostnameService clientHostnameService,
         IEventsService eventsService,
@@ -106,7 +106,7 @@ public class StatsController : ControllerBase
     private IQueryable<Download> BaseDownloadsQuery(List<string> hiddenClientIps, string evictedMode)
     {
         return _context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyClientFilters(hiddenClientIps, [], [])
             .ApplyEvictedFilter(evictedMode);
     }
 
@@ -127,7 +127,7 @@ public class StatsController : ControllerBase
 
         // Single atomic query - filter out excluded IPs directly
         // This prevents race conditions where data changes between queries
-        var filtered = query.ApplyStatsExcludedClientFilter(statsExcludedIps);
+        var filtered = query.ApplyClientFilters([], statsExcludedIps, []);
         return await aggregator(filtered);
     }
 
@@ -240,10 +240,9 @@ public class StatsController : ControllerBase
         // Management passes includeExcluded=true so admins can still pick any known client.
         var hiddenClientIps = includeExcluded ? new List<string>() : _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = includeExcluded ? new List<string>() : _stateRepository.GetStatsExcludedOnlyClientIps();
-        query = query.ApplyHiddenClientFilter(hiddenClientIps);
         // Management's pickers (includeExcluded) list every client, the prefill machine included.
-        query = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps)
-            .ApplyPrefillFilter(includeExcluded ? [] : _stateRepository.GetPrefillRules());
+        query = query.ApplyClientFilters(
+            hiddenClientIps, statsExcludedOnlyIps, includeExcluded ? [] : _stateRepository.GetPrefillRules());
 
         var evictedMode = _stateRepository.GetEvictedDataMode();
         query = query.ApplyEvictedFilter(evictedMode);
@@ -255,7 +254,7 @@ public class StatsController : ControllerBase
 
         var ipToGroupMapping = await _clientGroupsRepository.GetIpMappingAsync(ct);
 
-        // Empty unless the hostname lookup is on, in which case a row with no nickname is labelled
+        // Empty unless the hostname lookup is on, in which case a row with no nickname is labeled
         // with the machine's own name instead of its address. Only the addresses that will be
         // displayed are resolved, so the busiest clients are the ones that get names.
         var ipToHostname = (await _clientHostnameService.ResolveAsync(
@@ -468,12 +467,12 @@ public class StatsController : ControllerBase
 
             var outcome = await _operationQueue.EnqueueAsync(
                 OperationType.EvictionRemoval, ConflictScope.Bulk(), "Evicted Data Removal (all)",
-                StartBulkRemovalAsync, HttpContext.RequestAborted);
+                StartBulkRemovalAsync, HttpContext.RequestAborted, OperationRequestKey.Plain);
             return Accepted(new
             {
                 evictedDataMode = _stateRepository.GetEvictedDataMode(),
                 operationId = (Guid?)outcome.OperationId,
-                queued = outcome.Queued
+                status = outcome.Status
             });
         }
 
@@ -510,8 +509,8 @@ public class StatsController : ControllerBase
         Task<Guid?> StartManualScanAsync() => Task.FromResult(_reconciliationService.RunManualAsync(notice));
         var result = await _operationQueue.EnqueueAsync(
             OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
-            StartManualScanAsync, cancellationToken, notice: notice);
-        if (result.Queued || result.AlreadyRunning)
+            StartManualScanAsync, cancellationToken, OperationRequestKey.Plain, notice: notice);
+        if (result.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
             return Accepted(result);
         }
@@ -585,8 +584,8 @@ public class StatsController : ControllerBase
         // monitor in CacheReconciliationService), so it doubles as the i18n stageKey the frontend
         // recovery card interpolates. The tracker's OperationInfo carries no context dictionary, so
         // the reconciliation service exposes the latest progress context (totalProcessed/
-        // totalEstimate) for placeholder-bearing keys like signalr.evictionScan.progress.
-        var stageKey = string.IsNullOrWhiteSpace(activeScan.Message) ? null : activeScan.Message;
+        // totalEstimate) for placeholder-bearing keys like signalr.evictionScan.progress. The tracker writes a key
+        // from registration on, so it is never empty.
         var context = activeScan.Metadata is Dictionary<string, object?> values &&
             values.GetValueOrDefault("context") is IReadOnlyDictionary<string, object?> currentContext
             ? currentContext : _reconciliationService.CurrentScanProgressContext;
@@ -596,8 +595,8 @@ public class StatsController : ControllerBase
             IsProcessing = true,
             Status = activeScan.Status,
             PercentComplete = activeScan.PercentComplete,
-            Message = stageKey ?? "Scanning for evictable cache entries...",
-            StageKey = stageKey,
+            Message = activeScan.Message,
+            StageKey = activeScan.Message,
             Context = context,
             OperationId = activeScan.Id
         });
@@ -652,8 +651,7 @@ public class StatsController : ControllerBase
 
         // Aggregate by service from Downloads table (exclude stats-excluded IPs from calculations)
         var serviceStatsQuery = query
-            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps)
-            .ApplyPrefillFilter(_stateRepository.GetPrefillRules());
+            .ApplyClientFilters([], statsExcludedOnlyIps, _stateRepository.GetPrefillRules());
         var serviceStats = await DashboardBatchService
             .ServiceStatsQuery(serviceStatsQuery)
             .ToListAsync();
@@ -728,7 +726,7 @@ public class StatsController : ControllerBase
         // to cache reads the rows without that filter, since a prefill still fills the cache. With
         // no prefill rule the two read the same rows and the first sum is reused.
         var allTimeQuery = BaseDownloadsQuery(hiddenClientIps, evictedMode);
-        var allTimeServedQuery = allTimeQuery.ApplyPrefillFilter(prefillRules);
+        var allTimeServedQuery = allTimeQuery.ApplyClientFilters([], [], prefillRules);
         var totalHitBytes = await AggregateExcludingAsync(allTimeServedQuery, statsExcludedOnlyIps,
             q => q.SumAsync(d => d.CacheHitBytes));
         var totalMissBytes = await AggregateExcludingAsync(allTimeServedQuery, statsExcludedOnlyIps,
@@ -739,7 +737,7 @@ public class StatsController : ControllerBase
             : totalMissBytes;
 
         // Calculate PERIOD-specific metrics (exclude stats-excluded IPs from calculations)
-        var periodServedQuery = downloadsQuery.ApplyPrefillFilter(prefillRules);
+        var periodServedQuery = downloadsQuery.ApplyClientFilters([], [], prefillRules);
         var periodHitBytes = await AggregateExcludingAsync(periodServedQuery, statsExcludedOnlyIps,
             q => q.SumAsync(d => d.CacheHitBytes));
         var periodMissBytes = await AggregateExcludingAsync(periodServedQuery, statsExcludedOnlyIps,
@@ -759,7 +757,7 @@ public class StatsController : ControllerBase
         // instead of all time. Reading it off the breakdown in this same response is what keeps
         // the two agreeing. It reads the same rows as periodTotal, stats-excluded clients left out,
         // so the shares add up to 100%.
-        var filteredQuery = periodServedQuery.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+        var filteredQuery = periodServedQuery.ApplyClientFilters([], statsExcludedOnlyIps, []);
         var serviceBreakdown = await ServiceBreakdownMerger.QueryMergedAsync(
             filteredQuery, periodTotal, HttpContext.RequestAborted);
         var topServiceName = serviceBreakdown.FirstOrDefault()?.Service ?? "N/A";

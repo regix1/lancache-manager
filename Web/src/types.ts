@@ -65,21 +65,17 @@ export interface CacheSizeUnavailableInfo {
  */
 export interface CacheSizeScanStartInfo {
   operationId: string;
-  queued: boolean;
-  alreadyRunning: boolean;
   status: 'waiting' | 'started' | 'alreadyRunning';
 }
 
 /**
- * Mirrors the backend `QueuedOperationResponse` contract shared by every conflict-guarded
- * endpoint: whether the request started the work, found the identical operation already
- * running, or was parked behind a different one in the wait queue.
+ * Mirrors the backend `OperationStartResponse` contract shared by every conflict-guarded
+ * endpoint: `status` says whether the request started the work, found the identical operation
+ * already running, or was parked behind a different one in the wait queue.
  */
-export interface QueuedOperationResponse {
+export interface OperationStartResponse {
   operationId: string;
-  queued: boolean;
-  alreadyRunning: boolean;
-  followUpQueued?: boolean | null;
+  followUpWaiting?: boolean | null;
   status: 'waiting' | 'started' | 'alreadyRunning' | 'skipped';
   /** Set only with `status: 'skipped'`: why the run was refused before it started. */
   skippedReason?: string;
@@ -314,7 +310,6 @@ export interface ProcessingStatus {
   processingRate?: number;
   status?: string;
   entriesProcessed?: number;
-  entriesQueued?: number;
   pendingEntries?: number;
   linesProcessed?: number;
   totalLines?: number;
@@ -324,11 +319,11 @@ export interface ProcessingStatus {
 
 export interface ClearCacheResponse {
   operationId: string;
-  message: string;
-  /** Wait-queue model: request was parked behind a conflicting op (purple card owns the UI). */
-  queued?: boolean;
-  /** Wait-queue model: identical op already active/queued - response carries its id. */
-  alreadyRunning?: boolean;
+  /** Set when this request started the clear. */
+  message?: string;
+  /** Wait-queue model: `waiting` when the request is parked behind a conflicting op (purple card
+   * owns the UI), `alreadyRunning` when it joined the identical op; the response carries its id. */
+  status?: string;
 }
 
 interface MessageResponse {
@@ -409,7 +404,7 @@ export interface DatasourceLogPosition {
     | 'completed_with_warnings'
     | 'partial'
     | 'failed'
-    | 'cancelled';
+    | 'canceled';
   /** Human-readable message set while the log directory has no access-log sources at all. */
   missingSourcesMessage?: string | null;
 }
@@ -638,6 +633,8 @@ export interface ServiceDetectionSummary {
 export interface GameCacheInfo {
   game_app_id: number;
   game_name: string;
+  // True for a Steam depot no game could be matched to (game_name is a placeholder).
+  is_unresolved_depot: boolean;
   cache_files_found: number;
   total_size_bytes: number;
   depot_ids: number[];
@@ -822,6 +819,8 @@ export interface GameSpeedInfo {
   depotId: number;
   gameName?: string | null;
   gameAppId?: number | null;
+  // True only when gameName came from a game lookup; false when it is a service or fixed label.
+  gameNameResolved: boolean;
   service: string;
   clientIp: string;
   bytesPerSecond: number;
@@ -987,7 +986,7 @@ export function getIntegrationReasonKey(reason: string | null | undefined): stri
 /** How one sign-in ended, read by its attempt id after its ending event was missed. */
 export interface IntegrationLoginEnding {
   attemptId: string;
-  status: 'completed' | 'failed' | 'cancelled';
+  status: 'completed' | 'failed' | 'canceled';
   stageKey: string;
   context?: Record<string, string | number | boolean>;
 }
@@ -995,7 +994,7 @@ export interface IntegrationLoginEnding {
 /** How a prefill session's last sign-in ended, kept by its attempt number for a browser that missed the ending. */
 export interface PrefillLoginEnding {
   loginAttempt: number;
-  status: 'completed' | 'failed' | 'cancelled';
+  status: 'completed' | 'failed' | 'canceled';
   stageKey: string;
 }
 

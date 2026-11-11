@@ -95,7 +95,7 @@ const StatCard: React.FC<StatCardProps> = ({
     if (glassmorphism) {
       classes.push('glass-card');
     } else {
-      classes.push('themed-card', 'hover:shadow-lg');
+      classes.push('themed-card');
       if (tone === 'warning') {
         classes.push('themed-card--warning');
       }

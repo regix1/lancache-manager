@@ -153,6 +153,13 @@ public class DaemonStatus
     public string? Message { get; set; }
 
     /// <summary>
+    /// Whether the daemon finished its startup, which is not a finished sign-in. Only a status read reports it;
+    /// null on a pushed status, which does not say.
+    /// </summary>
+    [JsonPropertyName("isInitialized")]
+    public bool? IsInitialized { get; set; }
+
+    /// <summary>
     /// The daemon's code for why it is signed out: <c>auth-lost</c> after a dropped Steam connection.
     /// Null for a log-off, a person's Log out, a signed-in daemon, and daemons that do not send it.
     /// </summary>

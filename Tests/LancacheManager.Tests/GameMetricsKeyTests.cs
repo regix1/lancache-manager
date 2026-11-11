@@ -9,12 +9,12 @@ namespace LancacheManager.Tests;
 /// <see cref="GamesOnDiskCalculator.GetGameKey"/> keys the <see cref="GameCacheInfo"/> shape, where a
 /// named (Blizzard/Riot/Xbox) game carries <c>GameAppId</c> 0.
 /// <see cref="GamesOnDiskCalculator.GetDownloadGameKey"/> keys the <see cref="Download"/> shape, where
-/// the same game carries NULL. Per-game download figures and per-game on-disk figures are labelled
+/// the same game carries NULL. Per-game download figures and per-game on-disk figures are labeled
 /// from these two helpers, so any divergence splits one game into two unrelated label sets and
 /// nothing reports an error.
 ///
 /// Also pins the identity-exact top-N selection: a game whose rows carry several different recorded
-/// <c>GameName</c> values must be totalled as one game BEFORE the ranking cut, otherwise it is read
+/// <c>GameName</c> values must be totaled as one game BEFORE the ranking cut, otherwise it is read
 /// as a handful of small games and dropped.
 /// </summary>
 public class GameMetricsKeyTests
@@ -249,7 +249,7 @@ public class GameMetricsKeyTests
         Assert.Equal("steam:10", top[0].Key);
         Assert.Equal(1000L, top[0].TotalBytes);
 
-        // 600 bytes spread over six rows beats a single 500-byte row once the rows are totalled.
+        // 600 bytes spread over six rows beats a single 500-byte row once the rows are totaled.
         Assert.Equal("steam:99", top[1].Key);
         Assert.Equal(600L, top[1].TotalBytes);
         Assert.DoesNotContain(top, total => total.Key == "steam:20");
@@ -263,7 +263,7 @@ public class GameMetricsKeyTests
     [InlineData(2)]
     [InlineData(3)]
     [InlineData(4)]
-    public void RankingRowsBeforeTotallingThemDropsTheSplitGame(int multiplier)
+    public void RankingRowsBeforeTotalingThemDropsTheSplitGame(int multiplier)
     {
         var top = TopGamesByOverFetch(SplitNameRows(), 2, multiplier);
 

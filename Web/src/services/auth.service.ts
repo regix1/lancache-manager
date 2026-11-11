@@ -112,8 +112,9 @@ interface LoginResponse {
   success: boolean;
   sessionType: SessionType;
   expiresAt: string;
-  error?: string;
 }
+
+export type SignInResult = { success: true } | { success: false; message: string };
 
 const API_URL = getApiUrl();
 const AUTH_CHECK_TIMEOUT_MS = 10000;
@@ -258,11 +259,7 @@ class AuthService {
     }
   }
 
-  login(
-    apiKey: string,
-    username: string,
-    password: string
-  ): Promise<{ success: boolean; message?: string }> {
+  login(apiKey: string, username: string, password: string): Promise<SignInResult> {
     return this.serialize(async () => {
       try {
         // The antiforgery token the server issues belongs to whoever asked for it, so one left over
@@ -286,22 +283,20 @@ class AuthService {
           const data: ApiErrorData = await response.json().catch(() => ({}));
           return {
             success: false,
-            message:
-              data.error ||
-              data.message ||
-              i18n.t('auth.errors.loginFailedStatus', { status: response.status })
+            message: data.stageKey
+              ? i18n.t(data.stageKey, data.context ?? undefined)
+              : i18n.t('auth.errors.loginFailedStatus', { status: response.status })
           };
         }
 
+        // The server answers 200 only with Success = true.
         const data: LoginResponse = await response.json();
-        if (data.success) {
-          this.isAuthenticated = true;
-          this.authMode = 'authenticated';
-          // The role comes from the account that signed in, so a user session is not recorded as admin.
-          this.sessionType = data.sessionType;
-        }
+        this.isAuthenticated = true;
+        this.authMode = 'authenticated';
+        // The role comes from the account that signed in, so a user session is not recorded as admin.
+        this.sessionType = data.sessionType;
 
-        return { success: data.success, message: data.error };
+        return { success: true };
       } catch (error: unknown) {
         console.error('[AuthService] login error:', error);
         return { success: false, message: i18n.t('auth.errors.networkDuringLogin') };
@@ -393,7 +388,7 @@ class AuthService {
     });
   }
 
-  startGuestSession(): Promise<{ success: boolean; message?: string }> {
+  startGuestSession(): Promise<SignInResult> {
     return this.serialize(async () => {
       try {
         // Same reason as login above: a guest whose session was cleared still holds that session's
@@ -411,18 +406,17 @@ class AuthService {
           const data: ApiErrorData = await response.json().catch(() => ({}));
           return {
             success: false,
-            message: data.error || data.message || i18n.t('auth.errors.guestSessionFailed')
+            message: data.stageKey
+              ? i18n.t(data.stageKey, data.context ?? undefined)
+              : i18n.t('auth.errors.guestSessionFailed')
           };
         }
 
-        const data: LoginResponse = await response.json();
-        if (data.success) {
-          this.isAuthenticated = true;
-          this.authMode = 'guest';
-          this.sessionType = 'guest';
-        }
+        this.isAuthenticated = true;
+        this.authMode = 'guest';
+        this.sessionType = 'guest';
 
-        return { success: data.success, message: data.error };
+        return { success: true };
       } catch (error: unknown) {
         console.error('[AuthService] startGuestSession error:', error);
         return { success: false, message: i18n.t('auth.errors.network') };

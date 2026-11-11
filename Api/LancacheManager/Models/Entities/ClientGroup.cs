@@ -10,7 +10,7 @@ public class ClientGroup : IUtcMarkable
     public string? Description { get; set; }
 
     /// <summary>
-    /// When true the client stats surfaces emit one row per member IP, each labelled with the
+    /// When true the client stats surfaces emit one row per member IP, each labeled with the
     /// nickname, instead of summing the members into a single row. Defaults to false so
     /// existing groups keep reporting as one combined row.
     /// </summary>

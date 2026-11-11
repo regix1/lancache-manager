@@ -193,7 +193,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ iconOnly = false }) => {
       const timeValue = value as TimeRange;
       if (timeValue === 'custom') {
         // Sync local pending dates from context before opening picker. The range is committed once
-        // dates exist; switching it here leaves a rolling window labelled "Custom".
+        // dates exist; switching it here leaves a rolling window labeled "Custom".
         setPendingStartDate(customStartDate);
         setPendingEndDate(customEndDate);
         setShowDatePicker(true);

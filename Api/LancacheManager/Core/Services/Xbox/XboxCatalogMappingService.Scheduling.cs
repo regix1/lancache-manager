@@ -168,7 +168,7 @@ public partial class XboxCatalogMappingService
             {
                 await reporter.CompleteAsync(
                     success: false,
-                    cancelled: true,
+                    canceled: true,
                     context: CreateXboxMappingContext());
                 throw;
             }

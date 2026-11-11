@@ -2,7 +2,7 @@
    Prefill Services, Appearance & Display). Rows use the shared .mgmt-row/.mgmt-list
    family from managementSectionContent.css (imported by GuestConfiguration.tsx);
    the rules below cover only the settings-specific composition that family doesn't
-   already provide: a labelled column wrapper, the field-label + control pairing,
+   already provide: a labeled column wrapper, the field-label + control pairing,
    and the inline-spinner position over a dropdown. */
 
 .user-settings-group {

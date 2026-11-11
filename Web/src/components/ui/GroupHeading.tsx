@@ -4,7 +4,7 @@ type GroupAccent = 'accent' | 'steam' | 'epic' | 'blizzard' | 'riot' | 'xbox';
 
 interface GroupHeadingProps {
   label: string;
-  /** Bar colour token suffix. Defaults to the accent; only IntegrationsSection passes a brand. */
+  /** Bar color token suffix. Defaults to the accent; only IntegrationsSection passes a brand. */
   accent?: GroupAccent;
   /** Trailing controls, e.g. AccordionGroupToggle. 10 of the 23 sites pass one. */
   actions?: React.ReactNode;

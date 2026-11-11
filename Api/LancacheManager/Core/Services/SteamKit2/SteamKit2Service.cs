@@ -66,7 +66,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
 
     // The in-flight sign-in's tracked operation, so closing the login modal can stop its credentials
     // poll. Held apart from _currentMappingReporter because a PICS rebuild writes that field, and
-    // cancelling a sign-in must never stop a crawl. Volatile because the poll task clears it in its
+    // canceling a sign-in must never stop a crawl. Volatile because the poll task clears it in its
     // finally while a request thread reads it.
     private volatile MappingOperationReporter? _loginReporter;
     private bool _disposed;
@@ -309,7 +309,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
             }
             catch (OperationCanceledException)
             {
-                _logger.LogInformation("Steam depot crawl cancelled during shutdown");
+                _logger.LogInformation("Steam depot crawl canceled during shutdown");
             }
             catch (Exception ex)
             {
@@ -537,8 +537,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
                 if (IsRebuildRunning && !sessionChanged)
                 {
                     await SendDepotMappingProgressAsync(
-                        "Reconnecting to Steam...",
-                        $"Connection lost. Reconnecting (attempt {attempt}/{MaxBatchConnectionRetries})...",
                         isReconnecting: true,
                         reconnectAttempt: attempt);
                 }
@@ -576,7 +574,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     /// <summary>
     /// The measured figures behind an abandoned scheduled scan, or null while incremental is viable.
     /// The schedules list reads this so the Steam Game Mapping card can offer the "Full Scan Required"
-    /// prompt again after the user cancelled it, without inventing a change gap of its own.
+    /// prompt again after the user canceled it, without inventing a change gap of its own.
     /// </summary>
     public FullScanRequirement? PendingFullScan => _automaticScanSkipped
         ? new FullScanRequirement

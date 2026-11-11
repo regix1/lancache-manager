@@ -66,7 +66,7 @@ export function PersistentLoginHost({
   // active (diagnostic §3 fix direction) - a single transient container-list refresh reporting
   // isRunning=false must never itself unmount the login children, since that remount is exactly
   // what re-triggers diagnostic §2's automatic login wedge. The grace timer alone decides whether
-  // a stop is real; it is cancelled below the moment isRunning flips back to true.
+  // a stop is real; it is canceled below the moment isRunning flips back to true.
   useEffect(() => {
     if (isRunning) {
       setStableRunning(true);

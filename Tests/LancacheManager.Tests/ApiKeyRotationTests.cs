@@ -108,7 +108,7 @@ public sealed class ApiKeyRotationTests : IDisposable
     /// Two other accounts go and the owner's row stays, with the username and the password hash it
     /// already had. Reading the hash is the point of the assertion: the owner signs back in with what
     /// they already know plus the new key, so a rotation that reset the password would be the wrong
-    /// behaviour even though the row survived.
+    /// behavior even though the row survived.
     /// </summary>
     [Fact]
     public async Task RotationRemovesEveryAccountExceptTheOneThatOwnsTheInstallation()

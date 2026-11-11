@@ -1,6 +1,6 @@
 @layer base {
   /* Tells the browser which palette to paint the parts of the page it owns rather than we do:
-     number-input spinners, date and colour pickers, the <select> popup list, and the default
+     number-input spinners, date and color pickers, the <select> popup list, and the default
      scrollbar on any surface our own scrollbar rules do not reach. Left unset, all of those
      render light on top of a dark theme.
 
@@ -20,7 +20,7 @@
   /* Selected text. The 0.4-alpha step of the selected-surface family rather than its resting
      0.25: at 0.25 the highlight sits 1.23-1.55 against the page across the nine shipped themes,
      which does not read as a selection. At 0.4 it is 1.47-2.06 and the text over it still holds
-     5.00:1 in the worst theme. The text colour is the normal one on purpose - a primary-hued
+     5.00:1 in the worst theme. The text color is the normal one on purpose - a primary-hued
      text on a primary-tinted fill collapses into the fill wherever a theme's primary runs light. */
   ::selection {
     background-color: var(--theme-selected-bg-hover);
@@ -29,7 +29,7 @@
 
   /* A field the browser has filled in for you. Chrome paints those with its own pale yellow
      through a UA rule that background-color cannot override, so the fill has to be an inset
-     shadow large enough to cover the box and the glyphs have to be re-coloured through
+     shadow large enough to cover the box and the glyphs have to be re-colored through
      text-fill-color. All four states are listed because the UA rule is re-applied per state,
      so a focused autofilled field reverts to yellow if :focus is left out. Every sign-in and
      first-run form here carries autocomplete="username" and "current-password", so this is the
@@ -98,7 +98,7 @@
   /* Overlay shells take programmatic focus so Tab stays inside. Chrome treats
      element.focus() after a click as :focus-visible, so the rule above painted a 2px
      halo around the whole modal or setup card. Tailwind focus:outline-none only
-     matches :focus and leaves outline-offset: 2px, so it never cancelled this.
+     matches :focus and leaves outline-offset: 2px, so it never canceled this.
      Scoped to dialog roles because a bare [tabindex='-1'] also matched the
      NumberInput steppers and the nickname picker's roving rows, which do need a
      ring. A focus sink that wants none says so in its own sheet. */

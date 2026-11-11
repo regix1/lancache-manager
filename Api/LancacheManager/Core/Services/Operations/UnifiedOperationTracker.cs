@@ -117,7 +117,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             ScanThreshold = scanThreshold,
             ScanLookbackDays = scanLookbackDays,
             Status = initialStatus,
-            Message = DrawsCardFromRow(type) ? "signalr.unmappedRemove.running" : $"Starting {name}...",
+            Message = DrawsCardFromRow(type) ? "signalr.unmappedRemove.running" : "signalr.generic.starting",
             StartedAt = startedAt ?? DateTime.UtcNow,
             CancellationTokenSource = cts,
             Metadata = metadata,
@@ -175,7 +175,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             Name = name,
             DetectionScanType = detectionScanType,
             Status = OperationStatus.Running,
-            Message = $"Starting {name}...",
+            Message = "signalr.generic.starting",
             StartedAt = startedAt ?? DateTime.UtcNow,
             CancellationTokenSource = cts,
             Metadata = metadata,
@@ -214,7 +214,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
         // The tracker did NOT adopt this CTS (the ID was already in use). The tracker is the
         // single disposer ONLY for CTSs it adopts; an un-adopted CTS stays owned by the caller, which
-        // disposes it in its restore false-branch (see RestoreInterruptedOperations / IUnifiedOperationTracker docs).
+        // disposes it in its repair restore's false-branch (see IUnifiedOperationTracker docs).
         _logger.LogWarning("Failed to restore operation: {Name} (ID: {Id}) - ID already registered", name, operationId);
         return false;
     }
@@ -238,21 +238,21 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             || !_operations.TryGetValue(runId, out var run)
             || !_operations.TryGetValue(waitingId, out var waiting)) return false;
 
-        // Read under the run's lock, the lock a cancel marks it Cancelling under, and released before the
+        // Read under the run's lock, the lock a cancel marks it Canceling under, and released before the
         // card's lock is taken: no path holds two operation locks. A cancel of the run that lands after this
         // read ends both, the same as one that lands after the join.
         lock (run)
         {
-            if (run.CompletedFlag != 0 || run.Status.IsTerminal() || run.Status == OperationStatus.Cancelling)
+            if (run.CompletedFlag != 0 || run.Status.IsTerminal() || run.Status == OperationStatus.Canceling)
                 return false;
         }
 
         // The card's check and its link are one step under the card's lock. A cancel that lands first leaves
-        // the card Cancelling and the join refused; one that lands after finds the link (IsJoined) and
+        // the card Canceling and the join refused; one that lands after finds the link (IsJoined) and
         // answers that the card already finished, so it never reaches the run.
         lock (waiting)
         {
-            if (waiting.CompletedFlag != 0 || waiting.Status != OperationStatus.Waiting || waiting.Cancelled
+            if (waiting.CompletedFlag != 0 || waiting.Status != OperationStatus.Waiting || waiting.Canceled
                 || !_handoffs.TryAdd(waitingId, new Handoff(runId, CancelFollows: false)))
                 return false;
         }
@@ -268,7 +268,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     // completion lands a moment later.
     private bool IsJoined(Guid operationId) => _handoffs.TryGetValue(operationId, out var link) && !link.CancelFollows;
 
-    public bool BeginQueuedOperation(
+    public bool BeginWaitingOperation(
         Guid operationId,
         object? state,
         Action? onTerminalCleanup,
@@ -284,7 +284,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         {
             // A cancel already claimed this operation, so refusing here leaves the queue's
             // parked-cancel path to finish it rather than starting work that must stop at once.
-            if (operation.CompletedFlag != 0 || operation.Status != OperationStatus.Waiting || operation.Cancelled)
+            if (operation.CompletedFlag != 0 || operation.Status != OperationStatus.Waiting || operation.Canceled)
             {
                 return false;
             }
@@ -296,7 +296,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.BlockedByTarget = null;
             operation.BlockedByFullRepair = false;
             operation.WaitingForDownload = false;
-            operation.Message = $"Starting {operation.Name}...";
+            operation.Message = "signalr.generic.starting";
             operation.Metadata = state;
             operation.OnTerminalCleanup = onTerminalCleanup;
             operation.OnTerminalEmit = onTerminalEmit;
@@ -330,19 +330,19 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             }
         }
 
-        CompleteOperation(operationId, success: false, cancelled: true);
+        CompleteOperation(operationId, success: false, canceled: true);
         return true;
     }
 
     /// <summary>
     /// True while an operation is its parker's to finish: registered as waiting and never begun by a
-    /// worker. A cancel moves it to <see cref="OperationStatus.Cancelling"/> without giving it one,
-    /// so that state still counts as parked; once <see cref="BeginQueuedOperation"/> runs it, its
+    /// worker. A cancel moves it to <see cref="OperationStatus.Canceling"/> without giving it one,
+    /// so that state still counts as parked; once <see cref="BeginWaitingOperation"/> runs it, its
     /// worker reports the terminal.
     /// </summary>
     private static bool IsParked(OperationInfo operation) =>
         !operation.WorkerStarted &&
-        (operation.Status == OperationStatus.Waiting || operation.Status == OperationStatus.Cancelling);
+        (operation.Status == OperationStatus.Waiting || operation.Status == OperationStatus.Canceling);
 
     /// <summary>
     /// Follow any recorded handoff to the operation actually doing the work. Returns the id
@@ -363,7 +363,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         }
 
         _logger.LogWarning(
-            "Handoff chain from operation {Id} exceeded {MaxDepth} hops — cancelling the last one reached",
+            "Handoff chain from operation {Id} exceeded {MaxDepth} hops — canceling the last one reached",
             operationId, MaxHandoffDepth);
         return resolved;
     }
@@ -372,7 +372,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     {
         // The caller's card may still carry the id of an operation that has already handed its work
         // to another one (the wait-queue promoting a parked operation is the case that matters).
-        // Cancelling the id as given would stop nothing while reporting success.
+        // Canceling the id as given would stop nothing while reporting success.
         var operationId = followHandoff ? ResolveHandoff(requestedOperationId, throughJoins: false) : requestedOperationId;
         if (operationId != requestedOperationId)
         {
@@ -397,9 +397,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             }
             cts = operation.CancellationTokenSource;
             process = operation.AssociatedProcess;
-            operation.Status = OperationStatus.Cancelling;
-            operation.Cancelled = true;
-            operation.Message = "Cancellation requested...";
+            operation.Status = OperationStatus.Canceling;
+            operation.Canceled = true;
+            operation.Message = "signalr.generic.canceling";
             Publish(operation);
         }
 
@@ -421,7 +421,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         {
             // The operation completed concurrently and CompleteOperation disposed the CTS.
             // The op is already terminal — cancellation is a benign no-op.
-            // The operation reached a terminal state while we were cancelling, so the request
+            // The operation reached a terminal state while we were canceling, so the request
             // stopped nothing the caller could still see.
             _logger.LogDebug("Operation {Id} completed concurrently during cancel — CTS already disposed", operationId);
             return OperationCancelResult.AlreadyFinished;
@@ -481,9 +481,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             if (operation.CompletedFlag != 0 || operation.Status.IsTerminal() || IsJoined(operationId)) return true;
             cts = operation.CancellationTokenSource;
             process = operation.AssociatedProcess;
-            operation.Status = OperationStatus.Cancelling;
-            operation.Cancelled = true;
-            operation.Message = "Force killed by user";
+            operation.Status = OperationStatus.Canceling;
+            operation.Canceled = true;
+            operation.Message = "signalr.generic.canceling";
             Publish(operation);
         }
 
@@ -540,7 +540,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     public IEnumerable<OperationInfo> GetActiveOperations(OperationType? filterType = null)
     {
-        // Waiting ops are queued, not running: they must not block conflict checks and must
+        // Waiting ops have not started: they must not block conflict checks and must
         // stay invisible to the per-type status/recovery endpoints (see IUnifiedOperationTracker).
         var operations = _operations.Values.Where(op => !op.Status.IsTerminal() && !IsParked(op));
 
@@ -757,7 +757,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         Guid operationId,
         bool success,
         string? error = null,
-        bool cancelled = false,
+        bool canceled = false,
         bool skipped = false,
         Action<OperationInfo>? onCompleting = null,
         Action? commit = null)
@@ -802,10 +802,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             if (commit != null)
             {
                 if (operation.CompletedFlag != 0 || operation.Status.IsTerminal()) return;
-                if (!success || cancelled || skipped)
+                if (!success || canceled || skipped)
                     throw new InvalidOperationException("A checkpoint requires successful completed work");
-                if (operation.Cancelled || operation.CancellationTokenSource?.IsCancellationRequested == true)
-                    throw new OperationCanceledException("Operation cancelled before its checkpoint");
+                if (operation.Canceled || operation.CancellationTokenSource?.IsCancellationRequested == true)
+                    throw new OperationCanceledException("Operation canceled before its checkpoint");
                 commit();
             }
             if (Interlocked.CompareExchange(ref operation.CompletedFlag, 1, 0) != 0) return;
@@ -823,15 +823,15 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             // The owner says whether its run ended by a cancel. X marks the run (CancelOperation), but a
             // real failure the owner reports after X is a failure, and the card reads it red. A success
             // keeps the latch: the queue reads it after a promotion handoff completes the waiting run.
-            if (!success) operation.Cancelled = cancelled;
+            if (!success) operation.Canceled = canceled;
 
             // Skipped is successful but did no work.
             operation.Status = success
                 ? (skipped ? OperationStatus.Skipped : OperationStatus.Completed)
-                : (cancelled ? OperationStatus.Cancelled : OperationStatus.Failed);
+                : (canceled ? OperationStatus.Canceled : OperationStatus.Failed);
             operation.Message = success
-                ? (skipped ? (error ?? ScheduledRunReporter.NothingToDoStageKey) : (DrawsCardFromRow(operation.Type) ? operation.Message : "Operation completed successfully"))
-                : (error ?? (cancelled ? "Operation cancelled" : "Operation failed"));
+                ? (skipped ? (error ?? ScheduledRunReporter.NothingToDoStageKey) : (DrawsCardFromRow(operation.Type) ? operation.Message : "signalr.generic.complete"))
+                : (error ?? (canceled ? "signalr.generic.canceled" : "signalr.generic.failed"));
             operation.Success = success;
             operation.CompletedAt = DateTime.UtcNow;
 
@@ -850,12 +850,12 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.OnTerminalCleanup = null;
             // A successful ending reports no cancel even when X or a force stop set the latch: the card is green, so
             // the completion event must say what finished (a removed game leaves its list).
-            terminal = new OperationTerminalInfo(success, !success && operation.Cancelled, error, skipped);
+            terminal = new OperationTerminalInfo(success, !success && operation.Canceled, error, skipped);
             terminalSubscribers = OperationTerminal;
         }
 
         _ = DrainRunsAsync();
-        // Live log ingest keeps one failure card. This failure's row is already queued, so closing
+        // Live log ingest keeps one failure card. This failure's row is already waiting to be sent, so closing
         // the older ones after it lets the browser replace the older card in the same update.
         if (keep && operation.LiveIngest)
         {
@@ -1005,7 +1005,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     }
 
     // Same shape as ServiceScheduleRegistry.BroadcastSchedulesAsync: whichever caller wins the gate
-    // sends the whole queue in order, including rows other callers queued while it waited.
+    // sends the whole queue in order, including rows other callers added while it waited.
     private async Task DrainRunsAsync()
     {
         if (_notifications is null) return;
@@ -1025,14 +1025,14 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
                 }
 
                 // NotifyAdminAsync already swallows its own failures, so this only guards a future
-                // change that lets one through: it must not strand every row queued behind this one.
+                // change that lets one through: it must not strand every row waiting behind this one.
                 try
                 {
                     await _notifications.NotifyAdminAsync(SignalREvents.OperationUpdated, next);
                 }
                 catch
                 {
-                    // Non-fatal - move on to whatever else is queued rather than losing it too.
+                    // Non-fatal - move on to whatever else is waiting rather than losing it too.
                 }
             }
         }
@@ -1106,7 +1106,8 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             operation.ScanMode is null ? operation.ScanLookbackDays : null,
             operation.WaitingForDownload,
             operation.FailedDatasource,
-            operation.DatabaseError);
+            operation.DatabaseError,
+            operation.Status == OperationStatus.Failed ? operation.FailureReason : null);
     }
 
     /// <summary>
@@ -1132,7 +1133,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
             && operation.Status switch
             {
                 OperationStatus.Failed => true,
-                OperationStatus.Completed or OperationStatus.Cancelled => ReadWarnings(operation).Count > 0,
+                OperationStatus.Completed or OperationStatus.Canceled => ReadWarnings(operation).Count > 0,
                 OperationStatus.Skipped => ReadVisibility(operation) == RunVisibility.Card,
                 _ => false
             });
@@ -1140,7 +1141,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     /// <summary>
     /// True for an operation the browser gets no row for: the scheduled-prefill run-level container,
     /// whose platforms carry the cards, or a live-ingest pass that is not a kept ending. Running,
-    /// succeeded, and cancelled live-ingest passes are neither sent nor listed; a failed pass stays
+    /// succeeded, and canceled live-ingest passes are neither sent nor listed; a failed pass stays
     /// visible because it is a kept ending.
     /// </summary>
     private static bool HasNoRow(OperationInfo operation) =>

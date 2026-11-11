@@ -24,7 +24,8 @@ import {
 import {
   SCHEDULED_PREFILL_MAX_CONCURRENCY_BOUNDS,
   SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS,
-  SCHEDULED_PREFILL_SUPPORTED_PRESETS
+  SCHEDULED_PREFILL_SUPPORTED_PRESETS,
+  SCHEDULED_PREFILL_TOP_COUNT_MAX
 } from './constants';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
@@ -66,6 +67,17 @@ const validateServiceConfig = (
 
   if (schedule.preset === 'Top' && (!schedule.topCount || schedule.topCount < 1)) {
     return t(`${baseKey}.validation.topCount`, { service: serviceName });
+  }
+
+  if (
+    schedule.preset === 'Top' &&
+    schedule.topCount != null &&
+    schedule.topCount > SCHEDULED_PREFILL_TOP_COUNT_MAX[serviceKey]
+  ) {
+    return t(`${baseKey}.validation.topCountMax`, {
+      service: serviceName,
+      max: SCHEDULED_PREFILL_TOP_COUNT_MAX[serviceKey]
+    });
   }
 
   if (

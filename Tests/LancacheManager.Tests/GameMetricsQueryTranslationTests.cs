@@ -41,7 +41,7 @@ public class GameMetricsQueryTranslationTests
         var fiveMinutesAgo = DateTime.UtcNow.AddMinutes(-5);
 
         var sql = LancacheMetricsService.ExcludedClientsRemoved(context, NoHiddenClients, NoStatsExcludedClients)
-            .ApplyPrefillFilter(OnePrefillRule)
+            .ApplyClientFilters([], [], OnePrefillRule)
             .Where(d => d.EpicAppId != null && d.EpicAppId != "")
             .GroupBy(d => d.EpicAppId)
             .Select(g => new
@@ -69,7 +69,7 @@ public class GameMetricsQueryTranslationTests
         var fiveMinutesAgo = DateTime.UtcNow.AddMinutes(-5);
 
         var sql = LancacheMetricsService.ExcludedClientsRemoved(context, NoHiddenClients, NoStatsExcludedClients)
-            .ApplyPrefillFilter(OnePrefillRule)
+            .ApplyClientFilters([], [], OnePrefillRule)
             .Where(d => (d.EpicAppId == null || d.EpicAppId == "")
                 && d.GameAppId != null
                 && d.GameAppId != 0)
@@ -99,7 +99,7 @@ public class GameMetricsQueryTranslationTests
         var fiveMinutesAgo = DateTime.UtcNow.AddMinutes(-5);
 
         var sql = LancacheMetricsService.ExcludedClientsRemoved(context, NoHiddenClients, NoStatsExcludedClients)
-            .ApplyPrefillFilter(OnePrefillRule)
+            .ApplyClientFilters([], [], OnePrefillRule)
             .Where(d => (d.EpicAppId == null || d.EpicAppId == "")
                 && (d.GameAppId == null || d.GameAppId == 0)
                 && d.GameName != null
@@ -126,7 +126,7 @@ public class GameMetricsQueryTranslationTests
     }
 
     /// <summary>
-    /// Both exclusion lists have to reach SQL. Honouring only the hidden list passes every build and
+    /// Both exclusion lists have to reach SQL. Honoring only the hidden list passes every build and
     /// test gate while leaving stats-only clients in the endpoint, which is the half-finished state
     /// this asserts against.
     /// </summary>

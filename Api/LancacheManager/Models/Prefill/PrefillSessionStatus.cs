@@ -13,7 +13,7 @@ public enum PrefillSessionStatus
     Terminated,
     Orphaned,
     Cleaned,
-    Cancelled
+    Canceled
 }
 
 /// <summary>
@@ -27,6 +27,6 @@ public enum PrefillHistoryEntryStatus
     Completed,
     Cached,
     Failed,
-    Cancelled,
+    Canceled,
     Skipped
 }

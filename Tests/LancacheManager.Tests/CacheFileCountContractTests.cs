@@ -204,7 +204,7 @@ public sealed partial class CacheFileCountContractTests
         service.PublishCount(new CacheManagementService.CacheFileCountState(finished, null, 12, null, null));
 
         // A long count publishes a tick per percent. Only the first publish of an id may age
-        // anything out, or a single big walk would evict every answer queued behind it.
+        // anything out, or a single big walk would evict every answer waiting behind it.
         for (var percent = 1; percent <= 200; percent++)
         {
             service.PublishCount(new CacheManagementService.CacheFileCountState(
@@ -310,7 +310,7 @@ public sealed partial class CacheFileCountContractTests
     }
 
     [Fact]
-    public void AQueuedCountsAnswerReadByEitherId_DropsBothIds()
+    public void AWaitingCountsAnswerReadByEitherId_DropsBothIds()
     {
         var tracker = DispatchProxy.Create<IUnifiedOperationTracker, LookupHookTracker>();
         var service = NewServiceForCountState(tracker);
@@ -378,7 +378,7 @@ public sealed partial class CacheFileCountContractTests
     [Fact]
     public void ACountThatEndedWithoutAnAnswer_IsDroppedWhenTheNextCountStarts()
     {
-        // The null tracker knows no operation, which is how a cancelled or failed count looks once
+        // The null tracker knows no operation, which is how a canceled or failed count looks once
         // its operation is gone.
         var service = NewServiceForCountState();
         var stopped = Guid.NewGuid();
@@ -445,7 +445,7 @@ public sealed partial class CacheFileCountContractTests
     }
 
     [Fact]
-    public void CountStatus_AnswersAQueuedCountBeforeAndAfterItsRunIsReaped()
+    public void CountStatus_AnswersAWaitingCountBeforeAndAfterItsRunIsReaped()
     {
         using var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
@@ -559,7 +559,7 @@ public sealed partial class CacheFileCountContractTests
         await (Task)report.Invoke(service, [first, JsonSerializer.Deserialize(
             """{"stageKey":"signalr.cacheSizeScan.scanning","percentComplete":20,"totalFiles":2}""", progressType)])!;
         Assert.Equal(2L, service.CurrentCacheSizeScanProgressContext!["totalFiles"]);
-        tracker.CompleteOperation(first, false, cancelled: true);
+        tracker.CompleteOperation(first, false, canceled: true);
         var next = tracker.RegisterOperation(OperationType.CacheSizeScan, "next", new CancellationTokenSource());
         owner.SetValue(service, next);
         await (Task)report.Invoke(service, [next, JsonSerializer.Deserialize(

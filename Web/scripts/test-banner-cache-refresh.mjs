@@ -40,7 +40,7 @@ const compileComponent = (relativePath) => {
 const reactStubSource = `
 let slots = null;
 let cursor = 0;
-let queued = [];
+let pendingEffects = [];
 let dirty = false;
 
 export const useState = (initial) => {
@@ -81,7 +81,7 @@ export const useEffect = (run, deps) => {
   slot.ran = true;
   slot.deps = deps;
   if (changed) {
-    queued.push({ slot, run });
+    pendingEffects.push({ slot, run });
   }
 };
 
@@ -101,10 +101,10 @@ export const mount = (body) => {
       dirty = false;
       slots = componentSlots;
       cursor = 0;
-      queued = [];
+      pendingEffects = [];
       view.output = body();
-      const effects = queued;
-      queued = [];
+      const effects = pendingEffects;
+      pendingEffects = [];
       slots = null;
       for (const { slot, run } of effects) {
         if (slot.cleanup) slot.cleanup();

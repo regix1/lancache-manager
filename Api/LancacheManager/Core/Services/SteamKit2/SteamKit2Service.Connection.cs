@@ -298,7 +298,7 @@ public partial class SteamKit2Service
             // a connect's own (HasCurrentSteamSession).
             source.TrySetCanceled();
 
-            // The caller cancelled (request aborted / rebuild cancelled) - report that, not a timeout
+            // The caller canceled (request aborted / rebuild canceled) - report that, not a timeout
             ct.ThrowIfCancellationRequested();
 
             var errorMessage = $"{operationName} timed out after {timeout.TotalSeconds} seconds. This may indicate Steam servers are busy or your network connection is unstable.";

@@ -1,4 +1,5 @@
 import type { StatusCheckResult, StatusCheckDomainsSource } from '@services/api.service';
+import type { RunWarning } from '@contexts/SignalRContext/types';
 
 // SignalR payloads - keep in sync with the backend StatusCheck* events (camelCase on the wire)
 
@@ -10,12 +11,35 @@ export interface StatusCheckProgressEvent {
   currentService: string | null;
 }
 
-export interface StatusCheckCompleteEvent {
-  operationId: string;
-  success: boolean;
-  error: string | null;
-  result: StatusCheckResult | null;
-}
+export type StatusCheckCompleteEvent =
+  | {
+      operationId: string;
+      success: true;
+      error: null;
+      result: StatusCheckResult;
+      stageKey: null;
+      context: null;
+      canceled: false;
+    }
+  | {
+      operationId: string;
+      success: false;
+      /** English, for logs; the reader sees `stageKey`. */
+      error: string;
+      result: null;
+      stageKey: string;
+      context: { errorDetail: string } | null;
+      canceled: boolean;
+    };
+
+/**
+ * A failed sweep or resolver save, kept as its key and its values (or the caught error) so the
+ * box is translated when drawn and follows a language switch. A canceled sweep keeps only its key.
+ */
+export type StatusCheckRunError =
+  | RunWarning
+  | { stageKey: string; error: unknown }
+  | { stageKey: string; canceled: true };
 
 export interface CacheDomainsRefreshedEvent {
   domainsSource: StatusCheckDomainsSource;

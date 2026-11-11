@@ -232,6 +232,40 @@ test('the shared helper preserves real titles and lowercases recognized service 
   }
 });
 
+test('a live preview takes its resolved state and title from the tracker flag', () => {
+  const epicGame = (gameNameResolved) => ({
+    key: `epic|10.0.0.9|${gameNameResolved ? 'name:epic games' : 'service'}`,
+    depotId: 0,
+    gameName: 'Epic Games',
+    gameNameResolved,
+    gameAppId: null,
+    service: 'epic',
+    clientIp: '10.0.0.9',
+    bytesPerSecond: 1_000,
+    totalBytes: 2_000,
+    requestCount: 1,
+    cacheHitBytes: 0,
+    cacheMissBytes: 2_000,
+    cacheHitPercent: 0,
+    isEvicted: false,
+    firstSeenUtc: '2026-09-30T12:00:00.000Z',
+    lastSeenUtc: '2026-09-30T12:00:05.000Z',
+    activeUntilUtc: '2026-09-30T12:00:20.000Z',
+    sources: [{ datasources: ['primary'], depotIds: [] }]
+  });
+  const preview = (gameNameResolved) =>
+    liveNames.reconcileLivePreviews({
+      gameSpeeds: [epicGame(gameNameResolved)],
+      windowSeconds: 2,
+      downloads: []
+    })[0];
+
+  assert.equal(preview(true).displayName, 'Epic Games');
+  assert.equal(preview(true).hasResolvedGame, true);
+  assert.equal(preview(false).displayName, 'epic');
+  assert.equal(preview(false).hasResolvedGame, false);
+});
+
 test('single-download grouping changes only the visible title', () => {
   const source = {
     id: 71,
@@ -322,29 +356,58 @@ test('dashboard title expressions execute the shared decision for active, recent
     'src/components/features/downloads/ActiveDownloadsView.tsx',
     typescript.ScriptKind.TSX
   );
-  const activeTitle = runInitializer(activeSource, 'displayName', {
-    game: { gameName: 'Xbox Live', service: 'microsoft', depotId: 0 },
-    getGameDisplayName: liveNames.getGameDisplayName,
-    t: translate
-  });
-  assert.equal(activeTitle, 'xbox');
+  const activeTitle = (game) =>
+    runInitializer(activeSource, 'displayName', {
+      game,
+      getLiveGameDisplayName: liveNames.getLiveGameDisplayName,
+      t: translate
+    });
+  assert.equal(
+    activeTitle({
+      gameName: 'Xbox Live',
+      gameNameResolved: false,
+      service: 'microsoft',
+      depotId: 0
+    }),
+    'xbox'
+  );
 
   const recentSource = parseSource(
     'src/components/features/dashboard/RecentDownloadsPanel.tsx',
     typescript.ScriptKind.TSX
   );
-  const currentTitle = runInitializer(
-    recentSource,
-    'displayName',
-    {
-      game: { gameName: 'Windows Update', service: 'wsus', depotId: 0 },
-      getGameDisplayName: liveNames.getGameDisplayName,
-      getServiceDisplayName: serviceNames.getServiceDisplayName,
-      t: translate
-    },
-    'getGameDisplayName'
+  const currentTitle = (game) =>
+    runInitializer(
+      recentSource,
+      'displayName',
+      {
+        game,
+        getLiveGameDisplayName: liveNames.getLiveGameDisplayName,
+        getServiceDisplayName: serviceNames.getServiceDisplayName,
+        t: translate
+      },
+      'getLiveGameDisplayName'
+    );
+  assert.equal(
+    currentTitle({
+      gameName: 'Windows Update',
+      gameNameResolved: false,
+      service: 'wsus',
+      depotId: 0
+    }),
+    'wsus'
   );
-  assert.equal(currentTitle, 'wsus');
+
+  // A game whose title is its service's label keeps that title when the tracker resolved it.
+  const resolvedEpic = {
+    gameName: 'Epic Games',
+    gameNameResolved: true,
+    service: 'epic',
+    depotId: 0
+  };
+  assert.equal(activeTitle(resolvedEpic), 'Epic Games');
+  assert.equal(currentTitle(resolvedEpic), 'Epic Games');
+  assert.equal(activeTitle({ ...resolvedEpic, gameNameResolved: false }), 'epic');
 
   const singleItem = {
     service: 'wsus',
@@ -433,4 +496,35 @@ test('Retro rendered, alt, and measurement expressions produce the same title', 
   );
   const appName = bindLifted(`() => (${appNameNode.initializer.getText(viewSource)})`, bindings)();
   assert.equal(appName, title);
+
+  // Unidentified Steam content arrives named "Unknown/Other" in English. The row draws the
+  // reader's label from its flag instead, and a non-Steam title that reads the same is kept.
+  const zhTranslate = (key, values = {}) =>
+    key === 'downloads.tab.groups.unknownOther' ? '未知/其他' : translate(key, values);
+  const titlesFor = (row) => {
+    const rowBindings = { ...bindings, data: row, t: zhTranslate };
+    return [
+      runInitializer(rowSource, 'title', rowBindings, 'getGameDisplayName'),
+      runInitializer(rowSource, 'imageTitle', rowBindings, 'getGameDisplayName'),
+      bindLifted(`() => (${appNameNode.initializer.getText(viewSource)})`, rowBindings)()
+    ];
+  };
+  assert.deepEqual(
+    titlesFor({
+      gameName: 'Unknown/Other',
+      service: 'steam',
+      gameAppId: null,
+      hasRealGameName: false
+    }),
+    ['未知/其他', '未知/其他', '未知/其他']
+  );
+  assert.deepEqual(
+    titlesFor({
+      gameName: 'Unknown/Other',
+      service: 'wsus',
+      gameAppId: null,
+      hasRealGameName: true
+    }),
+    ['Unknown/Other', 'Unknown/Other', 'Unknown/Other']
+  );
 });

@@ -125,8 +125,8 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
         return t('management.prefillSessions.historyStatusBadges.failed');
       case 'error':
         return t('management.prefillSessions.historyStatusBadges.error');
-      case 'cancelled':
-        return t('management.prefillSessions.historyStatusBadges.cancelled');
+      case 'canceled':
+        return t('management.prefillSessions.historyStatusBadges.canceled');
       case 'skipped':
         return t('prefill.runs.skipped');
       case 'cached':
@@ -179,7 +179,7 @@ const STATUS_BADGE_KEY: Record<string, string> = {
   expired: 'expired',
   orphaned: 'orphaned',
   cleaned: 'cleaned',
-  cancelled: 'cancelled',
+  canceled: 'canceled',
   error: 'error'
 };
 

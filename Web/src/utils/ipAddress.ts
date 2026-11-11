@@ -5,7 +5,7 @@
  *
  * The checks are deliberately shape-only. They decide whether a string is worth sending, not
  * whether the address exists or belongs to this network; the server parses it properly and
- * normalises it, and its answer is what the screens go by.
+ * normalizes it, and its answer is what the screens go by.
  */
 
 const isValidIpv4 = (value: string): boolean => {

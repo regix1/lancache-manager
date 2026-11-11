@@ -134,7 +134,7 @@ public class PersistentEraseOnStopTests
     {
         // Older daemon image: its pre-login command gate rejects "logout" outright while the session
         // hasn't finished authenticating (erase-on-stop regression diagnosis) - this must be logged as
-        // "nothing to log out" rather than "daemon reported failure", so an admin cancelling a
+        // "nothing to log out" rather than "daemon reported failure", so an admin canceling a
         // mid-challenge login doesn't see what looks like a real daemon fault every time.
         var client = new PreLoginRejectionDaemonClient();
         var logger = new CapturingLogger();
@@ -783,7 +783,7 @@ public class PersistentEraseOnStopTests
             CommandsDir = Path.Combine(sessionDir, "commands"),
             Client = client
         };
-        // Simulate the winning teardown path having already cancelled + disposed the CTS.
+        // Simulate the winning teardown path having already canceled + disposed the CTS.
         session.CancellationTokenSource.Cancel();
         session.CancellationTokenSource.Dispose();
 

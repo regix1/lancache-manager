@@ -127,7 +127,7 @@ public static class OperationTypeExtensions
     /// Parses a wire / legacy string into an <see cref="OperationType"/>.
     /// Accepts camelCase ("logProcessing"), PascalCase ("LogProcessing"), and legacy
     /// snake_case ("log_processing") forms. Returns <c>null</c> for null / whitespace /
-    /// unrecognised values.
+    /// unrecognized values.
     /// </summary>
     public static OperationType? TryParseWire(string? value)
     {

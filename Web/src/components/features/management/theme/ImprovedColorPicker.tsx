@@ -234,7 +234,7 @@ export const ImprovedColorPicker: React.FC<ImprovedColorPickerProps> = ({
             createPortal(
               <div
                 ref={popupRef}
-                className={`absolute z-[100001] p-3 rounded-lg shadow-2xl overflow-hidden bg-themed-primary border border-themed-primary isolate motion-reduce:animate-none ${
+                className={`theme-color-popup absolute z-[100001] p-3 rounded-lg shadow-2xl overflow-hidden bg-themed-primary border border-themed-primary isolate motion-reduce:animate-none ${
                   closing
                     ? 'animate-[dropdownSlideOutDown_0.14s_ease-in_forwards]'
                     : 'animate-[dropdownSlideDown_0.15s_cubic-bezier(0.16,1,0.3,1)]'

@@ -8,7 +8,7 @@ import { getFocusable } from '@utils/focus';
 interface SetupGateProps {
   /** Card width. `4xl` is the multi-step wizards, `xl` is the sign-in card. */
   maxWidth: 'xl' | '4xl';
-  /** Header icon, already sized and coloured by the caller, e.g. `<Rocket className="w-5 h-5 text-primary" />`. */
+  /** Header icon, already sized and colored by the caller, e.g. `<Rocket className="w-5 h-5 text-primary" />`. */
   icon: ReactNode;
   title: string;
   /** Control placed before the icon in the header row, e.g. the depot wizard's back button. */

@@ -306,7 +306,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     {
         ValidateSessionAccess(sessionId, out _);
 
-        _logger.LogInformation("Cancelling login for {Hub} session {SessionId}", HubDisplayName, sessionId);
+        _logger.LogInformation("Canceling login for {Hub} session {SessionId}", HubDisplayName, sessionId);
         return await _daemonService.CancelLoginAsync(sessionId, loginAttempt: loginAttempt);
     }
 

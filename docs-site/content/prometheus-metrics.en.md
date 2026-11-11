@@ -98,7 +98,7 @@ These are Steam-only on purpose. WSUS and bare-metal traffic carries no game nam
 | `lancache_event_downloads` | Download session count for this event |
 | `lancache_event_cache_hit_ratio` | Hit ratio for this event (0-1) |
 
-All four carry `event` (the display name) and `event_id`. They count tagged downloads only, the same set the dashboard event filter uses, and they honour client exclusions like the rest of `/metrics`.
+All four carry `event` (the display name) and `event_id`. They count tagged downloads only, the same set the dashboard event filter uses, and they honor client exclusions like the rest of `/metrics`.
 
 Only the top 50 events by bytes are exported. An event with no tagged downloads is omitted rather than reporting zero. These are gauges: graph them directly. The dashboard's elapsed-from-start overlay is not exported here — Prometheus scrapes totals, not hour-by-hour from each party's start.
 
@@ -110,7 +110,7 @@ They are all gauges and they can legitimately go down. Old download rows are cle
 
 Graph them directly instead, or use `delta()` or `deriv()` if you want a rate of change. `avg_over_time()`, `max_over_time()`, `topk()` and `sum()` are all fine.
 
-This does make the new names inconsistent with `lancache_service_bytes_total` and its neighbours, which are also gauges but shipped with a `_total` suffix. Those keep their names, because renaming them would break every dashboard already using them. New names describe what they actually are rather than copying the older mistake.
+This does make the new names inconsistent with `lancache_service_bytes_total` and its neighbors, which are also gauges but shipped with a `_total` suffix. Those keep their names, because renaming them would break every dashboard already using them. New names describe what they actually are rather than copying the older mistake.
 
 ### Prometheus config
 

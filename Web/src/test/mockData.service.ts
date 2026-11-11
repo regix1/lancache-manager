@@ -559,7 +559,7 @@ function buildMockRetroRows(now: Date): MockRetroRow[] {
       isEvicted: evictedCount === requestCount,
       isPartiallyEvicted: evictedCount > 0 && evictedCount !== requestCount,
       primaryDownload: null,
-      hasRealGameName: false,
+      hasRealGameName: isRealMockGameName(source.appName, source.service),
       groupType: '',
       isActive,
       eventIds: eventSpecs
@@ -817,8 +817,15 @@ function sortMockRetroRows(rows: MockRetroRow[], params: RetroDownloadQueryParam
         return a.cacheHitPercent - b.cacheHitPercent;
       case 'sessions':
         return b.requestCount - a.requestCount;
-      case 'alphabetical':
+      case 'alphabetical': {
+        // Like the endpoint: an unnamed Steam game has no text of its own, so those rows follow
+        // the named ones in app id order.
+        const unnamedA = (a.steamAppId ?? 0) > 0 && !a.hasRealGameName;
+        const unnamedB = (b.steamAppId ?? 0) > 0 && !b.hasRealGameName;
+        if (unnamedA !== unnamedB) return unnamedA ? 1 : -1;
+        if (unnamedA) return (a.steamAppId ?? 0) - (b.steamAppId ?? 0);
         return a.appName.toLowerCase().localeCompare(b.appName.toLowerCase());
+      }
       case 'service':
         return (
           a.service.localeCompare(b.service) || chronological(b).localeCompare(chronological(a))
@@ -1213,6 +1220,7 @@ class MockDataService {
         depotId,
         gameName: game.name,
         gameAppId,
+        gameNameResolved: true,
         service: 'steam',
         clientIp,
         bytesPerSecond,
@@ -1465,7 +1473,7 @@ class MockDataService {
     });
 
     // Built from the games rather than hardcoded, so the per-service totals always agree with the
-    // rows they summarise.
+    // rows they summarize.
     const totalsByService = new Map<string, { files: number; bytes: number }>();
     for (const game of games) {
       const service = game.service ?? 'steam';

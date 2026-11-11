@@ -1,13 +1,34 @@
 import { createContext } from 'react';
+import type { OperationStatus } from '@/types/operations';
+import type { MappingStageContext } from '@contexts/SignalRContext/types';
+
+/** The scan phase `/api/depots/rebuild/progress` answers with (the server's `DepotScanPhase`). */
+type DepotScanPhase =
+  | 'idle'
+  | 'connecting'
+  | 'processing'
+  | 'saving'
+  | 'resolvingOrphans'
+  | 'importing'
+  | 'applyingMappings'
+  | 'authenticating'
+  | 'refreshingCatalog'
+  | 'completed'
+  | 'canceled'
+  | 'error'
+  | 'unknown';
 
 /**
  * PICS Progress Interface
  * Matches the structure returned by /api/depots/rebuild/progress
  */
 export interface PicsProgress {
-  // Core status
+  // Core status: the polled scan phase, or the run status a depot mapping event carried
   isProcessing: boolean;
-  status: string;
+  status: DepotScanPhase | OperationStatus;
+  // The step the last depot mapping event named, drawn through the translator
+  stageKey?: string;
+  context?: MappingStageContext | null;
 
   // Progress metrics
   totalApps: number;

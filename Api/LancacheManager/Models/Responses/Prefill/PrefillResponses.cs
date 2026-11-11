@@ -282,7 +282,7 @@ public class PrefillHistoryEntryDto
 
     /// <summary>
     /// Why the entry did not complete: a reason code such as <c>stalled</c>, or the translation key of the stop
-    /// that cancelled its run. Null when no reason was reported.
+    /// that canceled its run. Null when no reason was reported.
     /// </summary>
     public string? Reason { get; set; }
 }

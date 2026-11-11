@@ -117,4 +117,15 @@
   .alert-error .alert-icon {
     color: var(--theme-error);
   }
+
+  /* An outcome that is not a problem, such as a canceled run: gray, no status color. */
+  .alert-neutral {
+    background-color: var(--theme-bg-tertiary);
+    border-left-color: var(--theme-text-secondary);
+    color: var(--theme-text-primary);
+  }
+
+  .alert-neutral .alert-icon {
+    color: var(--theme-text-secondary);
+  }
 }

@@ -19,7 +19,7 @@ public sealed class DashboardBatchServiceCacheSnapshotTests
     /// <summary>
     /// Builds a DashboardBatchService whose only live dependency is a CacheSnapshotService
     /// pointed at an in-memory database, bypassing both constructors via reflection the same
-    /// way GamesControllerGameRemovalQueueTests builds a bare GameCacheDetectionService.
+    /// way GamesControllerGameRemovalWaitlistTests builds a bare GameCacheDetectionService.
     /// GetCacheSnapshotAsync only reads _cacheSnapshotService, so nothing else needs a value.
     /// </summary>
     private static DashboardBatchService BuildService(string dbName, DateTime? nextRunUtc)

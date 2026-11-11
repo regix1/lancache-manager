@@ -92,7 +92,7 @@ const { SIGNALR_SEED_EVENTS } = await import(
 const reactStubSource = `
 let slots = null;
 let slotIndex = 0;
-let queued = [];
+let pendingEffects = [];
 
 export const useRef = (initial) => {
   if (!slots[slotIndex]) slots[slotIndex] = { current: initial };
@@ -105,7 +105,7 @@ export const useEffect = (run, deps) => {
   const changed = !slot.ran || deps.some((value, index) => !Object.is(value, slot.deps[index]));
   slot.ran = true;
   slot.deps = deps;
-  if (changed) queued.push(run);
+  if (changed) pendingEffects.push(run);
 };
 
 export const createComponent = () => {
@@ -114,10 +114,10 @@ export const createComponent = () => {
     render(body) {
       slots = componentSlots;
       slotIndex = 0;
-      queued = [];
+      pendingEffects = [];
       body();
-      const effects = queued;
-      queued = [];
+      const effects = pendingEffects;
+      pendingEffects = [];
       slots = null;
       effects.forEach((run) => run());
     }
@@ -382,10 +382,10 @@ const WHOLE_ROW = {
  * The transport can hold a message and hand it to a handler the moment that handler subscribes,
  * which for this context is while the mount load is still on the wire. The load claims a generation
  * before it fetches and drops its answer if anything claimed one meanwhile, so a held message wins a
- * race it was never in: the answer is thrown away, and the queued default clock only the load ever
+ * race it was never in: the answer is thrown away, and the pending default clock only the load ever
  * applies goes out with it. Three costs in one run, and the reason the name below is not held.
  */
-test('a message replayed while the mount load is on the wire discards the answer and the queued clock', async () => {
+test('a message replayed while the mount load is on the wire discards the answer and the pending clock', async () => {
   atRest();
   let release;
   const gate = new Promise((resolve) => {
@@ -413,7 +413,7 @@ test('a message replayed while the mount load is on the wire discards the answer
   assert.deepEqual(
     context.clock(),
     { useLocal: false, useUtc: false, use24Hour: true },
-    'the queued clock change is applied by the load alone, and the load it cancelled was the only one coming'
+    'the pending clock change is applied by the load alone, and the load it canceled was the only one coming'
   );
   assert.ok(
     !context.refs.pendingDefaultClocks.current.has(SESSION),

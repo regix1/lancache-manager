@@ -5,6 +5,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -28,7 +29,7 @@ public sealed class ScheduleExecutionServiceTests
             {
                 OperationStatus.Completed,
                 OperationStatus.Failed,
-                OperationStatus.Cancelled,
+                OperationStatus.Canceled,
                 OperationStatus.Skipped
             })
             {
@@ -89,7 +90,7 @@ public sealed class ScheduleExecutionServiceTests
         tracker.SetWarning(id, new RunWarning(
             "signalr.scheduledPrefill.failedApps",
             new Dictionary<string, object?> { ["failed"] = 1, ["total"] = 3 }));
-        tracker.CompleteOperation(id, success: true, error: null, cancelled: false, skipped: false);
+        tracker.CompleteOperation(id, success: true, error: null, canceled: false, skipped: false);
 
         Assert.True(await service.InsertAsync(service.Capture(tracker.GetOperation(id)!, "scheduledPrefill")));
 
@@ -97,6 +98,73 @@ public sealed class ScheduleExecutionServiceTests
         Assert.Equal("signalr.scheduledPrefill.failedApps", item.Warning!.StageKey);
         Assert.Equal(1, ((JsonElement)item.Warning.Context["failed"]!).GetInt32());
         Assert.Equal(3, ((JsonElement)item.Warning.Context["total"]!).GetInt32());
+    }
+
+    [Fact]
+    public async Task AFailedRunWhoseErrorIsItsKeyKeepsItsReasonOnItsHistoryRowAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new ScheduleExecutionService(
+            database.Factory,
+            NullLogger<ScheduleExecutionService>.Instance);
+
+        var operation = await FailThroughReporterAsync(new Dictionary<string, object?>
+        {
+            ["errorDetail"] = "503",
+            ["isReconnecting"] = false,
+            ["reconnectAttempt"] = null,
+        });
+
+        Assert.True(await service.InsertAsync(service.Capture(operation, "depotMapping")));
+
+        var item = Assert.Single((await service.GetPageAsync(1, 10)).Items);
+        Assert.Equal("signalr.depotMapping.github.httpFailed", item.FailureReason!.StageKey);
+        Assert.Equal("503", ((JsonElement)item.FailureReason.Context["errorDetail"]!).GetString());
+        Assert.False(((JsonElement)item.FailureReason.Context["isReconnecting"]!).GetBoolean());
+        Assert.True(item.FailureReason.Context.ContainsKey("reconnectAttempt"));
+        Assert.Null(item.FailureReason.Context["reconnectAttempt"]);
+        Assert.Equal("signalr.depotMapping.github.httpFailed", item.Detail);
+    }
+
+    [Fact]
+    public async Task AFailureReasonLongerThanItsColumnIsCutToFitAndTheRowIsKeptAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = new ScheduleExecutionService(
+            database.Factory,
+            NullLogger<ScheduleExecutionService>.Instance);
+
+        var operation = await FailThroughReporterAsync(new Dictionary<string, object?>
+        {
+            ["errorDetail"] = new string('x', 5000),
+        });
+        var execution = service.Capture(operation, "depotMapping");
+
+        Assert.True(JsonSerializer.Serialize(execution.FailureReason).Length <= 4096);
+        Assert.True(await service.InsertAsync(execution));
+        var item = Assert.Single((await service.GetPageAsync(1, 10)).Items);
+        Assert.Equal("signalr.depotMapping.github.httpFailed", item.FailureReason!.StageKey);
+    }
+
+    private static async Task<OperationInfo> FailThroughReporterAsync(Dictionary<string, object?> context)
+    {
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        await using var reporter = new MappingOperationReporter(
+            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+            tracker,
+            MappingOperations.Steam,
+            new RunNotice(NotificationMode.All, RunTrigger.Scheduled),
+            CancellationToken.None,
+            NullLogger.Instance);
+        await reporter.StartAsync();
+        await reporter.CompleteAsync(
+            success: false,
+            error: "signalr.depotMapping.github.httpFailed",
+            stageKey: "signalr.depotMapping.github.httpFailed",
+            context: context);
+        return tracker.GetOperation(reporter.OperationId)!;
     }
 
     [Fact]
@@ -115,7 +183,7 @@ public sealed class ScheduleExecutionServiceTests
                 ["context"] = new Dictionary<string, object?> { ["detectionError"] = "Detection failed" }
             },
             notice: new RunNotice(NotificationMode.All, RunTrigger.Scheduled));
-        tracker.CompleteOperation(id, success: true, error: null, cancelled: false, skipped: false);
+        tracker.CompleteOperation(id, success: true, error: null, canceled: false, skipped: false);
 
         var execution = service.Capture(tracker.GetOperation(id)!, "evictionScan");
 
@@ -141,7 +209,7 @@ public sealed class ScheduleExecutionServiceTests
         tracker.SetWarning(id, new RunWarning(
             "common.notifications.warnings.logReopenPartlyFailed",
             new Dictionary<string, object?> { ["errors"] = new string('x', 5000) }));
-        tracker.CompleteOperation(id, success: true, error: null, cancelled: false, skipped: false);
+        tracker.CompleteOperation(id, success: true, error: null, canceled: false, skipped: false);
 
         var execution = service.Capture(tracker.GetOperation(id)!, "logRotation");
 
@@ -194,7 +262,7 @@ public sealed class ScheduleExecutionServiceTests
         {
             OperationStatus.Completed,
             OperationStatus.Failed,
-            OperationStatus.Cancelled,
+            OperationStatus.Canceled,
             OperationStatus.Skipped
         };
         var rows = Enumerable.Range(0, 123)
@@ -363,14 +431,14 @@ public sealed class ScheduleExecutionServiceTests
                 {
                     OperationId = Guid.Parse("44444444-4444-4444-4444-444444444444"),
                     ServiceKey = "scheduledPrefill",
-                    Status = OperationStatus.Cancelled,
+                    Status = OperationStatus.Canceled,
                     Trigger = RunTrigger.Manual,
                     ActorKind = ScheduleActorKind.Account,
                     AccountId = Guid.Parse("55555555-5555-5555-5555-555555555555"),
                     Username = "history-owner",
                     StartedAt = new DateTime(2026, 9, 27, 13, 3, 0, DateTimeKind.Utc),
                     CompletedAt = new DateTime(2026, 9, 27, 13, 3, 9, DateTimeKind.Utc),
-                    Detail = "Cancelled after the active download stopped.",
+                    Detail = "Canceled after the active download stopped.",
                     ScheduleId = Guid.Parse("66666666-6666-6666-6666-666666666666"),
                     ScheduleName = "Nightly",
                     Platform = PrefillPlatform.Steam,
@@ -396,14 +464,14 @@ public sealed class ScheduleExecutionServiceTests
 
             var prefill = items.Single(item =>
                 item.GetProperty("serviceKey").GetString() == "scheduledPrefill");
-            Assert.Equal("cancelled", prefill.GetProperty("status").GetString());
+            Assert.Equal("canceled", prefill.GetProperty("status").GetString());
             Assert.Equal("manual", prefill.GetProperty("trigger").GetString());
             Assert.Equal("account", prefill.GetProperty("actorKind").GetString());
             Assert.Equal("history-owner", prefill.GetProperty("username").GetString());
             Assert.Equal("Nightly", prefill.GetProperty("scheduleName").GetString());
             Assert.Equal("Steam", prefill.GetProperty("platform").GetString());
             Assert.Equal(
-                "Cancelled after the active download stopped.",
+                "Canceled after the active download stopped.",
                 prefill.GetProperty("detail").GetString());
 
             var ordinary = items.Single(item =>
@@ -427,7 +495,7 @@ public sealed class ScheduleExecutionServiceTests
                 unknown.GetProperty("detail").GetString());
 
             using var filtered = await client.GetAsync(
-                "/api/system/schedules/history?serviceKey=scheduledPrefill&status=cancelled&search=HISTORY-OWNER");
+                "/api/system/schedules/history?serviceKey=scheduledPrefill&status=canceled&search=HISTORY-OWNER");
             Assert.Equal(HttpStatusCode.OK, filtered.StatusCode);
             using var filteredDocument = JsonDocument.Parse(await filtered.Content.ReadAsStringAsync());
             Assert.Equal(
@@ -443,7 +511,7 @@ public sealed class ScheduleExecutionServiceTests
                 ["/api/system/schedules/history?pageSize=101"] =
                     "Page size must be between 1 and 100.",
                 ["/api/system/schedules/history?status=running"] =
-                    "Status must be completed, failed, cancelled, or skipped."
+                    "Status must be completed, failed, canceled, or skipped."
             };
             foreach (var (path, message) in invalidRequests)
             {
@@ -586,7 +654,7 @@ public sealed class ScheduleExecutionServiceTests
             id,
             success: status is OperationStatus.Completed or OperationStatus.Skipped,
             error: status == OperationStatus.Completed ? null : "terminal detail",
-            cancelled: status == OperationStatus.Cancelled,
+            canceled: status == OperationStatus.Canceled,
             skipped: status == OperationStatus.Skipped);
         return tracker.GetOperation(id)!;
     }

@@ -626,7 +626,7 @@ async fn main() -> Result<()> {
 
         // If cancellation arrived during cache removal, finish directory cleanup of dirs
         // already collected, then exit 0.  Report/DB work is skipped — C# re-runs detection.
-        if cancel::is_cancelled() {
+        if cancel::is_canceled() {
             eprintln!("Cancellation confirmed — cleaning up partial directories and exiting.");
             cache_utils::cleanup_empty_directories(&cache_dir, outcome.parent_dirs);
             return Ok(());
@@ -804,7 +804,7 @@ mod tests {
         );
     }
 
-    /// Licences the narrowed `get_shared_depot_ids` query. It used to read every depot belonging to
+    /// Licenses the narrowed `get_shared_depot_ids` query. It used to read every depot belonging to
     /// any other app; it now asks only about the depots this game claims. That is only sound because
     /// the caller subtracts the answer from those same depots, so a shared depot the game does not
     /// claim can never change the result. Restoring the whole-table read would pass this test too -
@@ -823,7 +823,7 @@ mod tests {
         );
     }
 
-    /// Licences replacing the two NOT IN subqueries in `get_game_urls_from_db` with a single
+    /// Licenses replacing the two NOT IN subqueries in `get_game_urls_from_db` with a single
     /// `DepotId = ANY(safe_depot_ids)`. A row only reaches that predicate if it passed the
     /// AppId join, so its depot is one this game claims; for those, being in the safe set is the
     /// same statement as passing both exclusions.

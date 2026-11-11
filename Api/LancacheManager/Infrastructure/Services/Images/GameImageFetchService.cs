@@ -138,7 +138,18 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// scheduled cadence leaves it off: Epic's own catalog refresh runs on its own interval, which
     /// the user sets in hours, and re-polling it every half hour would ignore that setting.
     /// </param>
-    public async Task<Guid?> StartFetchInBackgroundAsync(bool refreshEpicImageUrls, RunTrigger trigger)
+    /// <param name="notice">
+    /// The notice a waiting request was parked on. The run registers it, so the trigger and actor
+    /// that request carries reach the run's history row. Null builds one from <paramref name="trigger"/>.
+    /// </param>
+    public async Task<Guid?> StartFetchInBackgroundAsync(bool refreshEpicImageUrls, RunTrigger trigger, RunNotice? notice = null)
+        => (await StartPassAsync(refreshEpicImageUrls, trigger, notice)).OperationId;
+
+    /// <summary>
+    /// <see cref="StartFetchInBackgroundAsync"/> with the pass it started, so a schedule tick whose
+    /// parked start runs at once can end with that pass. Both are null when the lock was held.
+    /// </summary>
+    private async Task<(Guid? OperationId, Task? Pass)> StartPassAsync(bool refreshEpicImageUrls, RunTrigger trigger, RunNotice? notice)
     {
         // Announced before the attempt rather than after a refusal: a request announced after a
         // failed acquire can land in the moment a finishing pass is releasing the lock and reading
@@ -148,7 +159,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         if (!_executionLock.Wait(0))
         {
             _logger.LogDebug("[GameImageFetch] Not starting - another fetch is already running");
-            return null;
+            return (null, null);
         }
 
         // This pass reads its work list below, after this point, so it covers everything announced
@@ -164,12 +175,12 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             OperationType.GameImageFetch,
             _eventNames,
             $"{StageBase}.complete",
-            new RunNotice(EffectiveNotificationMode, trigger),
+            notice ?? new RunNotice(EffectiveNotificationMode, trigger),
             CancellationToken.None);
         await reporter.StartAsync($"{StageBase}.starting");
         var operationId = reporter.OperationId;
 
-        _ = Task.Run(async () =>
+        var pass = Task.Run(async () =>
         {
             string? error = null;
             var end = PassEnd.Stopped;
@@ -204,11 +215,13 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                     }
                 }
 
-                end = await FetchImagesAsync(scope.ServiceProvider, reporter, reporter.Token);
+                var totalDownloads = await scope.ServiceProvider.GetRequiredService<AppDbContext>()
+                    .Downloads.CountAsync(reporter.Token);
+                end = await FetchImagesAsync(scope.ServiceProvider, reporter, totalDownloads, reporter.Token);
             }
             catch (OperationCanceledException) when (reporter.Token.IsCancellationRequested)
             {
-                // DisposeAsync below completes the run as cancelled.
+                // DisposeAsync below completes the run as canceled.
             }
             catch (Exception ex)
             {
@@ -217,7 +230,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             }
             finally
             {
-                // Release the service-local gate before completing the operation, so a queued waiter
+                // Release the service-local gate before completing the operation, so a waiter
                 // promoted by the completion can acquire it.
                 _executionLock.Release();
                 if (error != null)
@@ -230,7 +243,43 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             }
         }, CancellationToken.None);
 
-        return operationId;
+        return (operationId, pass);
+    }
+
+    /// <summary>
+    /// Starts an automatic banner pass with its conflict check and its start under the operation
+    /// queue's lock. A pass blocked by another job waits on the queue's card; a pass already running
+    /// picks this request up through the follow-up flag, as a direct start does.
+    /// </summary>
+    public async Task StartFetchThroughQueueAsync()
+    {
+        var queue = _serviceProvider.GetRequiredService<IOperationWaitlist>();
+        // One notice for the waiting card and the run it starts: a Run Now that joins this card while
+        // it waits raises the notice's trigger and actor, and the run has to carry them.
+        var notice = new RunNotice(EffectiveNotificationMode, RunTrigger.Scheduled);
+        Task<Guid?> StartAsync() => StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled, notice);
+
+        // The key says what StartAsync asks for: a pass that reads the stored Epic URLs.
+        var requestKey = new GameImageFetchRequestKey(RefreshEpicImageUrls: false);
+        var conflict = await queue.StartUnlessBusyAsync(
+            OperationType.GameImageFetch, ConflictScope.Bulk(), StartAsync, CancellationToken.None, requestKey);
+        if (conflict == null)
+        {
+            return;
+        }
+
+        if (conflict.ActiveOperationType == nameof(OperationType.GameImageFetch))
+        {
+            // The queue would park this behind the running pass as a second card; the direct start
+            // announces the follow-up flag instead, so the running pass covers this request.
+            await StartAsync();
+            return;
+        }
+
+        // A pass blocked by another job waits on the queue's card and runs when that job ends.
+        await queue.EnqueueAsync(
+            OperationType.GameImageFetch, ConflictScope.Bulk(), "Game Image Fetch", StartAsync,
+            CancellationToken.None, requestKey, notice: notice);
     }
 
     /// <summary>
@@ -249,7 +298,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     {
         if (Interlocked.Exchange(ref _followUpPassWanted, 0) == 1)
         {
-            _ = StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled);
+            _ = StartFetchThroughQueueAsync();
         }
     }
 
@@ -317,7 +366,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
         if (anyNew)
         {
-            await StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled);
+            await StartFetchThroughQueueAsync();
         }
     }
 
@@ -325,51 +374,112 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
-        // Prevent concurrent execution - a programmatic trigger and a scheduled run can overlap. A run that
-        // loses this race did no work, so it returns before starting the reporter (no card).
-        if (!await _executionLock.WaitAsync(0, stoppingToken))
+        var queue = _serviceProvider.GetRequiredService<IOperationWaitlist>();
+        var cardDecided = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? pass = null;
+
+        // Counted before the queue's lock is taken below, so every other job's start through the queue
+        // never waits on this query.
+        var totalDownloads = await scopedServices.GetRequiredService<AppDbContext>().Downloads.CountAsync(stoppingToken);
+
+        async Task RunPassAsync()
         {
-            _logger.LogDebug("[GameImageFetch] Skipping - another fetch is already running");
-            return;
-        }
+            // Same as the background start: this pass reads its work list below, so it covers every
+            // request announced up to here.
+            Interlocked.Exchange(ref _followUpPassWanted, 0);
 
-        // Same as the background start: this pass reads its work list below, so it covers every
-        // request announced up to here.
-        Interlocked.Exchange(ref _followUpPassWanted, 0);
-
-        try
-        {
-            // Scheduled / startup / Run Now path: surface a progress card via a run reporter. The reporter
-            // only starts once real fetch work is confirmed (inside FetchImagesAsync), so an automatic run
-            // with no downloads yet never shows a card. A run that throws is ended by the reporter's
-            // dispose, which also comes after the release below.
-            await using var reporter = new ScheduledRunReporter(
-                _notifications,
-                _operationTracker,
-                ServiceKey,
-                OperationType.GameImageFetch,
-                _eventNames,
-                $"{StageBase}.complete",
-                CurrentRunNotice,
-                stoppingToken);
-
-            var end = PassEnd.Stopped;
             try
             {
-                end = await FetchImagesAsync(scopedServices, reporter, stoppingToken);
+                // Scheduled / startup / Run Now path: surface a progress card via a run reporter. The reporter
+                // only starts once real fetch work is confirmed (inside FetchImagesAsync), so an automatic run
+                // with no downloads yet never shows a card. A run that throws is ended by the reporter's
+                // dispose, which also comes after the release below.
+                await using var reporter = new ScheduledRunReporter(
+                    _notifications,
+                    _operationTracker,
+                    ServiceKey,
+                    OperationType.GameImageFetch,
+                    _eventNames,
+                    $"{StageBase}.complete",
+                    CurrentRunNotice,
+                    stoppingToken);
+
+                var end = PassEnd.Stopped;
+                try
+                {
+                    end = await FetchImagesAsync(scopedServices, reporter, totalDownloads, stoppingToken, cardDecided);
+                }
+                finally
+                {
+                    // Same order as the background path: release the gate before the run ends, so a
+                    // waiter promoted by the ending can acquire it.
+                    _executionLock.Release();
+                }
+
+                await CompletePassAsync(reporter, end);
             }
             finally
             {
-                // Same order as the background path: release the gate before the run ends, so a
-                // queued waiter promoted by the ending can acquire it.
-                _executionLock.Release();
+                StartFollowUpPass();
+            }
+        }
+
+        var conflict = await queue.StartUnlessBusyAsync(
+            OperationType.GameImageFetch, ConflictScope.Bulk(),
+            async () =>
+            {
+                // Prevent concurrent execution - a programmatic trigger and a scheduled run can overlap. A run that
+                // loses this race did no work, so it returns before starting the reporter (no card).
+                if (!await _executionLock.WaitAsync(0, stoppingToken))
+                {
+                    _logger.LogDebug("[GameImageFetch] Skipping - another fetch is already running");
+                    return null;
+                }
+
+                pass = RunPassAsync();
+                await Task.WhenAny(cardDecided.Task, pass);
+                return null;
+            },
+            stoppingToken,
+            new GameImageFetchRequestKey(RefreshEpicImageUrls: false));
+        if (conflict != null)
+        {
+            // A pass already running covers this tick, so it shows no card, as a tick that finds the
+            // execution lock held does.
+            if (conflict.ActiveOperationType == nameof(OperationType.GameImageFetch))
+            {
+                return;
             }
 
-            await CompletePassAsync(reporter, end);
+            // A tick blocked by another job waits on the queue's card and runs when that job ends. Its own
+            // notice carries any waiting card the schedule already shows for this run.
+            var notice = CurrentRunNotice;
+            Task? parkedPass = null;
+            async Task<Guid?> StartParkedAsync()
+            {
+                var started = await StartPassAsync(refreshEpicImageUrls: false, notice.Trigger, notice);
+                parkedPass = started.Pass;
+                return started.OperationId;
+            }
+
+            var parked = await queue.EnqueueAsync(
+                OperationType.GameImageFetch, ConflictScope.Bulk(), "Game Image Fetch", StartParkedAsync,
+                stoppingToken, new GameImageFetchRequestKey(RefreshEpicImageUrls: false), notice: notice);
+
+            // A blocker gone by the queue's re-check starts the pass inside that call, and this tick's
+            // run ends with it, as an unblocked tick's does. The answer decides, not parkedPass: a card
+            // promoted later sets parkedPass after this tick has returned. A started answer carries the
+            // id StartParkedAsync returned, which it has only with its pass.
+            if (parked.Status == OperationStartStatus.Started)
+            {
+                await parkedPass!;
+            }
+            return;
         }
-        finally
+
+        if (pass != null)
         {
-            StartFollowUpPass();
+            await pass;
         }
     }
 
@@ -461,13 +571,14 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     private async Task<PassEnd> FetchImagesAsync(
         IServiceProvider scopedServices,
         ScheduledRunReporter? reporter,
-        CancellationToken stoppingToken)
+        int totalDownloads,
+        CancellationToken stoppingToken,
+        TaskCompletionSource? cardDecided = null)
     {
         var db = scopedServices.GetRequiredService<AppDbContext>();
         var httpClientFactory = scopedServices.GetRequiredService<IHttpClientFactory>();
         var client = httpClientFactory.CreateClient("SteamImages");
 
-        var totalDownloads = await db.Downloads.CountAsync(stoppingToken);
         if (totalDownloads == 0)
         {
             _logger.LogInformation("[GameImageFetch] Downloads table is empty - log processing hasn't completed yet, will retry next cycle");
@@ -478,6 +589,9 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             }
             // The background-trigger path starts its reporter eagerly, so this run must still reach a
             // terminal instead of being disposed as a failure.
+            // Lets the scheduled tick hold the queue lock until this pass has started its card or found
+            // nothing, and no longer.
+            cardDecided?.TrySetResult();
             return PassEnd.NothingToDo;
         }
 
@@ -487,6 +601,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         {
             await reporter.StartAsync($"{StageBase}.starting");
         }
+        cardDecided?.TrySetResult();
 
         ReportPhaseProgress InBand(int band) =>
             (fraction, processed, total) => ReportBandAsync(reporter, band, fraction, processed, total);
@@ -753,7 +868,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// or DisplayCatalog banner.
     /// </summary>
     /// <returns>
-    /// How many images the phase set out to fetch and how many it stored, or null when cancelled.
+    /// How many images the phase set out to fetch and how many it stored, or null when canceled.
     /// </returns>
     private async Task<(int Attempted, int Stored)?> FetchMissingNameKeyedImagesAsync(
         IServiceProvider scopedServices,

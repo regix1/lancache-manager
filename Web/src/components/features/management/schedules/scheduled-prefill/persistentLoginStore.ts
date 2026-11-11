@@ -26,7 +26,7 @@ interface PersistentLoginStoreState {
   authenticated: boolean;
   pendingChallenge: CredentialChallenge | null;
   /**
-   * True once the user has hidden the auth modal without cancelling. The daemon login flow (and
+   * True once the user has hidden the auth modal without canceling. The daemon login flow (and
    * the cached challenge) stays alive; the modal reopens showing the same challenge next time
    * instead of restarting the login.
    */
@@ -54,6 +54,12 @@ interface PersistentLoginStoreState {
    * account keeps its real status. Cleared by a reset and when a new attempt starts.
    */
   endReason: 'timedOut' | 'cancelFailed' | null;
+  /**
+   * The challenge whose failed device-confirmation send wrote `error`, so a later send of that
+   * challenge that succeeds clears only that error. A sign-in failure written over it, and every
+   * reset, set it back to null.
+   */
+  confirmationErrorChallengeId: string | null;
   /** What the server says this Log in waits for before it starts; null when it waits for nothing. */
   loginWaitKey: PersistentLoginWaitKey | null;
 }
@@ -107,6 +113,7 @@ const INITIAL_PERSISTENT_LOGIN_STATE: PersistentLoginStoreState = {
   loginDeadline: null,
   step: null,
   endReason: null,
+  confirmationErrorChallengeId: null,
   loginWaitKey: null
 };
 
@@ -652,7 +659,7 @@ export async function endPersistentLogin(
  * True while a cancel round trip for this service is still in flight. The store is already at
  * rest by then, but the server is still ending the old attempt: its cancel takes no login lock,
  * and its late answer settles whichever attempt is current. A login started in that window would
- * be reported cancelled while its prompt is open, so login controls wait for this to clear.
+ * be reported canceled while its prompt is open, so login controls wait for this to clear.
  */
 export function usePersistentLoginCanceling(service: PersistentPrefillServiceId): boolean {
   return useSyncExternalStore(
@@ -877,7 +884,7 @@ export function hasPersistentLoginIntent(service: PersistentPrefillServiceId): b
 
 /**
  * Plain (non-hook) read of whether the user explicitly hid this service's auth modal
- * (`dismissModal`) without cancelling the login. Used by the reconcile effect so it never
+ * (`dismissModal`) without canceling the login. Used by the reconcile effect so it never
  * re-surfaces a challenge the user just closed - reconcile is for restoring state lost to a
  * reload/unmount, not for undoing an explicit dismiss.
  */
@@ -1007,19 +1014,19 @@ export function hasUnconsumedLoginAttempt(
   return nonce > consumed;
 }
 
-export function isPersistentLoginCancelled(service: PersistentPrefillServiceId): boolean {
+export function isPersistentLoginCanceled(service: PersistentPrefillServiceId): boolean {
   return cancelFlags.get(service)?.current ?? false;
 }
 
-export function setPersistentLoginCancelled(
+export function setPersistentLoginCanceled(
   service: PersistentPrefillServiceId,
-  cancelled: boolean
+  canceled: boolean
 ): void {
   const flag = cancelFlags.get(service);
   if (flag) {
-    flag.current = cancelled;
+    flag.current = canceled;
   } else {
-    cancelFlags.set(service, { current: cancelled });
+    cancelFlags.set(service, { current: canceled });
   }
 }
 

@@ -162,7 +162,7 @@ public sealed class ContentPathCheckService : IContentPathCheckService
 
     /// <summary>The one shared resolve-and-probe pipeline: DoH edges, bounded selection, pinned
     /// probes with fail-soft typed placeholders. Both the sweep lane and the ad hoc host probe
-    /// run through here so their behaviour can never drift apart.</summary>
+    /// run through here so their behavior can never drift apart.</summary>
     private async Task<(DohResolutionResult Resolution, List<ContentPathEdgeResult> Edges)> ResolveAndProbeEdgesAsync(
         ContentPathSample sample,
         CancellationToken cancellationToken)

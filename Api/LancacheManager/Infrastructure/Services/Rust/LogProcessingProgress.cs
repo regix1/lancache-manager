@@ -47,7 +47,7 @@ public class LogProcessingProgress : RustProgressBase
 
     /// <summary>
     /// Empty while running; on the final write one of completed | completed_with_warnings |
-    /// partial | failed | cancelled. This polled file is the single authority: exit code 0
+    /// partial | failed | canceled. This polled file is the single authority: exit code 0
     /// without a valid terminal checkpoint is treated as a failure.
     /// </summary>
     [JsonPropertyName("terminal_status")]

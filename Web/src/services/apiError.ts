@@ -193,7 +193,7 @@ export async function buildApiError(response: Response): Promise<ApiError> {
 export async function assertOk(response: Response): Promise<Response> {
   // Cancellation stays the AbortError path, never an ApiError.
   if (response.status === 499) {
-    const error = new Error('Request cancelled');
+    const error = new Error('Request canceled');
     error.name = 'AbortError';
     throw error;
   }

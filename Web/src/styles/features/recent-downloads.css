@@ -132,7 +132,7 @@
   }
 
   /* Fixed rather than content-sized, matching the Games picker on the chart panel beside this one,
-     so a trigger that resized with its label cannot shift its neighbours every time the selection
+     so a trigger that resized with its label cannot shift its neighbors every time the selection
      changes. 12rem fits the longest label with its prefix. */
   .rdl-filters > .rdl-filter-select {
     width: 12rem;
@@ -344,13 +344,13 @@
   flex-shrink: 0;
 }
 
-/* Cache hit rate bands, shared by every view that colours a percentage: this list, the clients
-   table, the top clients table and the retro row. One rate is one colour wherever it appears, so
+/* Cache hit rate bands, shared by every view that colors a percentage: this list, the clients
+   table, the top clients table and the retro row. One rate is one color wherever it appears, so
    a number can be compared across two screens without re-reading its scale. Green degrades
    through amber and orange to red; kept as tinted text, never a per-row pill, so lists stay
    calm. Paired with `efficiencyTier` in `utils/efficiencyTier.ts`.
 
-   Each selector is doubled so one class out-ranks the base colour of whatever cell it lands in
+   Each selector is doubled so one class out-ranks the base color of whatever cell it lands in
    (`.clients-cell` and `.dash-readout-value` both set one) without depending on which stylesheet
    the bundler happens to emit first. */
 .hit-tier-success.hit-tier-success {

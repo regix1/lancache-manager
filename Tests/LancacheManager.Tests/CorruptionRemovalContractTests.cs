@@ -510,10 +510,10 @@ public sealed class CorruptionRemovalContractTests
     [Theory]
     [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Completed)]
     [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Failed)]
-    [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Cancelled)]
+    [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Canceled)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Completed)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Failed)]
-    [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Cancelled)]
+    [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Canceled)]
     public async Task Core_AwaitsTheWinningContributionAndRejectsItsLaterFailure(
         CorruptionDetectionMethod method, OperationStatus outcome)
     {
@@ -537,10 +537,10 @@ public sealed class CorruptionRemovalContractTests
                 await release.Task;
                 await emit(terminal);
             };
-            if (outcome == OperationStatus.Cancelled) fixture.Tracker.ForceKillOperation(id);
+            if (outcome == OperationStatus.Canceled) fixture.Tracker.ForceKillOperation(id);
             fixture.Tracker.CompleteOperation(id, outcome == OperationStatus.Completed,
                 error: outcome == OperationStatus.Failed ? "external failure" : null,
-                cancelled: outcome == OperationStatus.Cancelled);
+                canceled: outcome == OperationStatus.Canceled);
         };
         var core = typeof(CacheController).GetMethod("RunCorruptionRemovalCoreAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var run = (Task<bool>)core.Invoke(fixture.Controller, [selection, fixture.Datasources, registered, bulk])!;
@@ -549,7 +549,7 @@ public sealed class CorruptionRemovalContractTests
         Assert.Equal(0, bulkType.GetField("SucceededServices")!.GetValue(bulk));
         Assert.Equal(0, bulkType.GetField("FailedServices")!.GetValue(bulk));
         release.TrySetResult();
-        if (outcome == OperationStatus.Cancelled)
+        if (outcome == OperationStatus.Canceled)
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
         else
             Assert.Equal(outcome == OperationStatus.Completed, await run.WaitAsync(TimeSpan.FromSeconds(10)));
@@ -558,7 +558,7 @@ public sealed class CorruptionRemovalContractTests
         Assert.Equal(outcome, fixture.Tracker.GetOperation(operationId)!.Status);
         Assert.Equal(outcome == OperationStatus.Completed ? 1 : 0, bulkType.GetField("SucceededServices")!.GetValue(bulk));
         Assert.Equal(outcome == OperationStatus.Failed ? 1 : 0, bulkType.GetField("FailedServices")!.GetValue(bulk));
-        Assert.Equal(outcome == OperationStatus.Cancelled, bulkType.GetField("Cancelled")!.GetValue(bulk));
+        Assert.Equal(outcome == OperationStatus.Canceled, bulkType.GetField("Canceled")!.GetValue(bulk));
         Assert.Equal(operationId, bulkType.GetField("LastOperationId")!.GetValue(bulk));
         Assert.Empty(fixture.Messages.Completions);
     }
@@ -566,20 +566,20 @@ public sealed class CorruptionRemovalContractTests
     [Theory]
     [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Completed)]
     [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Failed)]
-    [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Cancelled)]
+    [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Canceled)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Completed)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Failed)]
-    [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Cancelled)]
+    [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Canceled)]
     public async Task AllServices_EmitsOneCapturedAggregateFromWinningOutcomes(
         CorruptionDetectionMethod method, OperationStatus outcome)
     {
         using var fixture = new RemovalRun(method);
         fixture.Messages.OnStarted = id =>
         {
-            if (outcome == OperationStatus.Cancelled) fixture.Tracker.ForceKillOperation(id);
+            if (outcome == OperationStatus.Canceled) fixture.Tracker.ForceKillOperation(id);
             fixture.Tracker.CompleteOperation(id, outcome == OperationStatus.Completed,
                 error: outcome == OperationStatus.Failed ? "external failure" : null,
-                cancelled: outcome == OperationStatus.Cancelled);
+                canceled: outcome == OperationStatus.Canceled);
         };
         var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
         var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -587,9 +587,9 @@ public sealed class CorruptionRemovalContractTests
         Assert.Equal("all", aggregate.Service);
         Assert.Equal(method.ToWireString(), aggregate.DetectionMethod);
         Assert.Equal(outcome == OperationStatus.Completed, aggregate.Success);
-        Assert.Equal(outcome == OperationStatus.Cancelled, aggregate.Cancelled);
+        Assert.Equal(outcome == OperationStatus.Canceled, aggregate.Canceled);
         Assert.Equal(fixture.Messages.Started.Last(), aggregate.OperationId);
-        Assert.Equal(outcome == OperationStatus.Cancelled ? 1 : 2, fixture.Messages.Started.Count);
+        Assert.Equal(outcome == OperationStatus.Canceled ? 1 : 2, fixture.Messages.Started.Count);
         Assert.Single(fixture.Messages.Completions);
         var savedContext = JsonSerializer.Serialize(aggregate.Context);
         var next = fixture.Tracker.RegisterOperation(OperationType.CorruptionRemoval, "next", new CancellationTokenSource());
@@ -597,7 +597,7 @@ public sealed class CorruptionRemovalContractTests
         Assert.Equal(savedContext, JsonSerializer.Serialize(aggregate.Context));
         Assert.NotEqual(next, aggregate.OperationId);
         Assert.False(fixture.Tracker.GetOperation(next)!.Status.IsTerminal());
-        fixture.Tracker.CompleteOperation(next, false, cancelled: true);
+        fixture.Tracker.CompleteOperation(next, false, canceled: true);
     }
 
     [Theory]
@@ -617,7 +617,7 @@ public sealed class CorruptionRemovalContractTests
         };
         var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
         var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.True(aggregate.Cancelled);
+        Assert.True(aggregate.Canceled);
         Assert.Equal(startedId, Assert.Single(fixture.Messages.Started));
         fixture.Messages.Resume.TrySetResult();
     }
@@ -634,13 +634,13 @@ public sealed class CorruptionRemovalContractTests
             if (fixture.Messages.Started.Count == 1)
             {
                 fixture.Tracker.CancelOperation(id);
-                fixture.Tracker.CompleteOperation(id, success: false, error: "Could not reopen nginx", cancelled: false);
+                fixture.Tracker.CompleteOperation(id, success: false, error: "Could not reopen nginx", canceled: false);
             }
         };
         var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
         var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(startedId, Assert.Single(fixture.Messages.Started));
-        Assert.False(aggregate.Cancelled);
+        Assert.False(aggregate.Canceled);
         Assert.False(aggregate.Success);
         Assert.Equal(method == CorruptionDetectionMethod.Structural
             ? "signalr.corruptionRemove.allStoppedWithFailuresStructural"
@@ -700,17 +700,17 @@ public sealed class CorruptionRemovalContractTests
 
     [Theory]
     [InlineData(OperationStatus.Failed, false)]
-    [InlineData(OperationStatus.Cancelled, false)]
+    [InlineData(OperationStatus.Canceled, false)]
     [InlineData(OperationStatus.Completed, true)]
     public async Task AllServices_ReleaseTheHoldWhenTheRunFailsStopsOrThrowsAsync(OperationStatus outcome, bool summaryThrows)
     {
         using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
         fixture.Messages.OnStarted = id =>
         {
-            if (outcome == OperationStatus.Cancelled) fixture.Tracker.ForceKillOperation(id);
+            if (outcome == OperationStatus.Canceled) fixture.Tracker.ForceKillOperation(id);
             fixture.Tracker.CompleteOperation(id, outcome == OperationStatus.Completed,
                 error: outcome == OperationStatus.Failed ? "external failure" : null,
-                cancelled: outcome == OperationStatus.Cancelled);
+                canceled: outcome == OperationStatus.Canceled);
         };
         var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
         await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -750,7 +750,7 @@ public sealed class CorruptionRemovalContractTests
             fixture.Tracker.CompleteOperation(id, success: true);
         };
 
-        var response = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        var response = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId)).Value!;
         var waitingId = response.OperationId;
         var firstBlocked = blockers.Single(blocker =>
@@ -785,7 +785,7 @@ public sealed class CorruptionRemovalContractTests
             finishSteps.Wait();
             fixture.Tracker.CompleteOperation(id, success: true);
         };
-        var removeAll = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        var removeAll = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId)).Value!;
         var unmapped = await EnqueueUnmappedRemovalAsync(fixture);
         await OperationConflictCheckerTests.WaitForBlockerAsync(fixture.Tracker, unmapped, "Service removal: steam");
@@ -804,7 +804,7 @@ public sealed class CorruptionRemovalContractTests
         fixture.Tracker.CancelOperation(unmapped);
         await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
-        Assert.True(removeAll.Queued);
+        Assert.Equal(OperationStartStatus.Waiting, removeAll.Status);
         Assert.Equal(OperationStatus.Waiting, statusWhenNamed);
     }
 
@@ -859,7 +859,7 @@ public sealed class CorruptionRemovalContractTests
         var registrationGate = CorruptionSnapshotGate();
         var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
         fixture.Messages.OnStarted = id => fixture.Tracker.CompleteOperation(id, success: true);
-        var removeAll = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        var removeAll = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId)).Value!;
 
         await registrationGate.WaitAsync();
@@ -871,8 +871,8 @@ public sealed class CorruptionRemovalContractTests
         var aggregate = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
         fixture.Messages.Resume.TrySetResult();
 
-        Assert.True(removeAll.Queued);
-        Assert.True(aggregate.Cancelled);
+        Assert.Equal(OperationStartStatus.Waiting, removeAll.Status);
+        Assert.True(aggregate.Canceled);
         Assert.True(fixture.Messages.Started.Count <= 1);
         Assert.True(await HoldReleasedAsync(fixture.Checker));
         Assert.False(RunKeepsScan(fixture.ScanId));
@@ -885,7 +885,7 @@ public sealed class CorruptionRemovalContractTests
         var blockers = new[] { "steam", "epicgames" }.ToDictionary(
             service => service,
             service => OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, service));
-        var first = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        var first = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId)).Value!;
         var firstBlocked = blockers.Single(blocker =>
             fixture.Tracker.GetOperation(first.OperationId)!.BlockedByName == $"Service removal: {blocker.Key}");
@@ -895,25 +895,25 @@ public sealed class CorruptionRemovalContractTests
 
         // The service the first request left is busy again, so the next request parks on it.
         OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, firstBlocked.Key);
-        var second = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        var second = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId)).Value!;
-        var oneService = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        var oneService = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId, firstBlocked.Key)).Value!;
         // With the first request gone, a request for every service parks on the service the one-service request
         // waits on, and must not join it.
         fixture.Tracker.CancelOperation(first.OperationId);
-        await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, first.OperationId, OperationStatus.Cancelled);
-        var everyService = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, first.OperationId, OperationStatus.Canceled);
+        var everyService = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId)).Value!;
         fixture.Tracker.CancelOperation(oneService.OperationId);
         fixture.Tracker.CancelOperation(everyService.OperationId);
 
         Assert.Equal(first.OperationId, second.OperationId);
-        Assert.True(second.AlreadyRunning);
-        Assert.True(oneService.Queued);
+        Assert.Equal(OperationStartStatus.Waiting, second.Status);
+        Assert.Equal(OperationStartStatus.Waiting, oneService.Status);
         Assert.NotEqual(first.OperationId, oneService.OperationId);
-        Assert.True(everyService.Queued);
-        Assert.False(everyService.AlreadyRunning);
+        Assert.Equal(OperationStartStatus.Waiting, everyService.Status);
+        Assert.NotEqual(OperationStartStatus.AlreadyRunning, everyService.Status);
         Assert.NotEqual(oneService.OperationId, everyService.OperationId);
     }
 
@@ -935,7 +935,7 @@ public sealed class CorruptionRemovalContractTests
         var step = await firstRunStep.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(startedId, step);
         // The first run holds steam until its summary is sent, so this request parks behind it.
-        var second = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        var second = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId)).Value!;
         finishFirstRun.Set();
         await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -959,7 +959,368 @@ public sealed class CorruptionRemovalContractTests
             Assert.Equal(1, fixture.Messages.Completions.Last().Context!["serviceCount"]);
             Assert.Equal("Corruption removal: epicgames", fixture.Tracker.GetOperation(fixture.Messages.Started.Last())!.Name);
         }
-        Assert.True(second.Queued);
+        Assert.Equal(OperationStartStatus.Waiting, second.Status);
+    }
+
+    // Two tabs remove one service's corruption at the same moment. One removal runs and the other waits
+    // behind it, so the same chunks are not deleted twice.
+    [Fact]
+    public async Task TwoRemovalsForOneServiceSentTogetherStartOnce()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, secondCallerBarrier: true);
+        var runStarted = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishRun = new ManualResetEventSlim();
+        fixture.Messages.OnStarted = id =>
+        {
+            runStarted.TrySetResult(id);
+            finishRun.Wait();
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        try
+        {
+            var answers = await Task.WhenAll(
+                fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId),
+                fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId));
+            var started = await runStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            fixture.Tracker.CancelOperation(AssertStartedOnce(fixture.Tracker, answers, OperationType.CorruptionRemoval));
+            // The run goes on writing after its operation ends, so it finishes before the fixture deletes the folder.
+            finishRun.Set();
+            await fixture.WaitForCompletedRepairAsync(started);
+        }
+        finally
+        {
+            finishRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+        }
+    }
+
+    // A one-service removal and Remove all for that service land together. Whichever is first runs; the
+    // other waits instead of deleting the same chunks beside it.
+    [Fact]
+    public async Task OneServiceAndRemoveAllSentTogetherStartOnce()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, secondCallerBarrier: true);
+        var runStarted = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishRun = new ManualResetEventSlim();
+        fixture.Messages.OnStarted = id =>
+        {
+            runStarted.TrySetResult(id);
+            finishRun.Wait();
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        try
+        {
+            var answers = await Task.WhenAll(
+                fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId),
+                fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId, "steam"));
+            var started = await runStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            fixture.Tracker.CancelOperation(AssertStartedOnce(fixture.Tracker, answers, OperationType.CorruptionRemoval));
+            // The run goes on writing after its operation ends, so it finishes before the fixture deletes the folder.
+            finishRun.Set();
+            await fixture.WaitForCompletedRepairAsync(started);
+        }
+        finally
+        {
+            finishRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+        }
+    }
+
+    // Counted by status: a first run that already ended beside a promoted second one is also two rows
+    // that are not waiting.
+    internal static Guid AssertStartedOnce(UnifiedOperationTracker tracker, IActionResult[] answers, OperationType type)
+    {
+        Assert.Single(tracker.GetActiveOperations(type),
+            operation => operation.Status == OperationStatus.Running);
+        var waiting = Assert.Single(tracker.GetWaitingOperations(),
+            operation => operation.Type == type);
+        var parked = Assert.Single(answers
+            .Select(answer => Assert.IsType<AcceptedResult>(answer).Value)
+            .OfType<OperationStartResponse>());
+        Assert.Equal(OperationStartStatus.Waiting, parked.Status);
+        Assert.Equal(waiting.Id, parked.OperationId);
+        return waiting.Id;
+    }
+
+    // A removal that waited behind a run which removed every candidate has nothing left to do: its card
+    // ends skipped, as Remove all's does, not failed.
+    [Fact]
+    public async Task ParkedRemovalEndsSkippedWhenTheFirstRemovedEverything()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var runStarted = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishRun = new ManualResetEventSlim();
+        fixture.Messages.OnStarted = id =>
+        {
+            runStarted.TrySetResult(id);
+            finishRun.Wait();
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        try
+        {
+            var first = Assert.IsType<CacheOperationResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId)).Value);
+            Assert.Equal(first.OperationId, await runStarted.Task.WaitAsync(TimeSpan.FromSeconds(10)));
+            var second = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId)).Value);
+            Assert.Equal(OperationStartStatus.Waiting, second.Status);
+            // What the first run removed: every steam candidate.
+            await fixture.Detection.ApplyRemovalSuccessAsync(fixture.ScanId, ["default:steam"]);
+            finishRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+
+            await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, second.OperationId, OperationStatus.Skipped);
+            Assert.Equal(ScheduledRunReporter.NothingToDoStageKey, fixture.Tracker.GetOperation(second.OperationId)!.Message);
+            Assert.Single(fixture.Messages.Started);
+        }
+        finally
+        {
+            finishRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+        }
+    }
+
+    // A request for a service whose removal already waits joins that waiting card, and the card removes every
+    // candidate the scan found for the service.
+    [Fact]
+    public async Task ARequestJoinedToAParkedRemovalHasItsCandidatesRemoved()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, datasourceCount: 2);
+        var finishRun = new ManualResetEventSlim();
+        var secondStarted = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+        fixture.Messages.OnStarted = id =>
+        {
+            if (Interlocked.Increment(ref starts) == 2) secondStarted.TrySetResult(id);
+            finishRun.Wait();
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        try
+        {
+            var first = Assert.IsType<CacheOperationResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId)).Value);
+            var parked = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId)).Value);
+            Assert.Equal(OperationStartStatus.Waiting, parked.Status);
+            var joined = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId)).Value);
+            Assert.Equal(OperationStartStatus.Waiting, joined.Status);
+            Assert.Equal(parked.OperationId, joined.OperationId);
+            finishRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+
+            var promoted = await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var repair = Assert.Single(fixture.State.LoadOperationRepairs(), stored => stored.Id == promoted);
+            Assert.Equal(["default", "secondary"], repair.Sources.Select(source => source.Datasource).Order(StringComparer.Ordinal));
+            Assert.Equal(2, fixture.Messages.Started.Count);
+            await fixture.WaitForCompletedRepairAsync(first.OperationId!.Value);
+            await fixture.WaitForCompletedRepairAsync(promoted);
+        }
+        finally
+        {
+            finishRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+        }
+    }
+
+    // A request on a newer scan that joins a removal parked on the older scan moves the card to the newer scan, so
+    // the card does not fail on the scan the newer one replaced.
+    [Fact]
+    public async Task ARequestOnANewerScanJoinedToAParkedRemovalMovesItToTheNewerScan()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, datasourceCount: 2);
+        var finishRun = new ManualResetEventSlim();
+        var secondStarted = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+        fixture.Messages.OnStarted = id =>
+        {
+            if (Interlocked.Increment(ref starts) == 2) secondStarted.TrySetResult(id);
+            finishRun.Wait();
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        try
+        {
+            var first = Assert.IsType<CacheOperationResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId)).Value);
+            var parked = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId)).Value);
+            Assert.Equal(OperationStartStatus.Waiting, parked.Status);
+
+            // A newer scan finishes while the card waits and lists the same files.
+            var newerScanId = Guid.NewGuid();
+            fixture.RetireScan(fixture.ScanId);
+            fixture.AddScan(newerScanId, CorruptionDetectionMethod.Structural, LaterScanStartUtc);
+
+            var joined = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, newerScanId)).Value);
+            Assert.Equal(parked.OperationId, joined.OperationId);
+            finishRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+
+            var promoted = await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var repair = Assert.Single(fixture.State.LoadOperationRepairs(), stored => stored.Id == promoted);
+            Assert.Equal(newerScanId, repair.Corruption!.ScanId);
+            Assert.Equal(["default", "secondary"], repair.Sources.Select(source => source.Datasource).Order(StringComparer.Ordinal));
+            Assert.Equal(2, fixture.Messages.Started.Count);
+            await fixture.WaitForCompletedRepairAsync(first.OperationId!.Value);
+            await fixture.WaitForCompletedRepairAsync(promoted);
+        }
+        finally
+        {
+            finishRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+        }
+    }
+
+    // A request validated on a scan that a newer one replaced before it reached the waiting card joins that card
+    // but leaves it on the newer scan: the card removes the newer scan's files and does not end stale.
+    [Fact]
+    public async Task AnOlderScanJoiningAParkedRemovalKeepsTheNewerScan()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var finishRun = new ManualResetEventSlim();
+        var secondStarted = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+        fixture.Messages.OnStarted = id =>
+        {
+            if (Interlocked.Increment(ref starts) == 2) secondStarted.TrySetResult(id);
+            finishRun.Wait();
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        try
+        {
+            var first = Assert.IsType<CacheOperationResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId)).Value);
+            // The newer scan is stored while the older one still reads as current: the moment the older
+            // request passed its own check.
+            var newerScanId = Guid.NewGuid();
+            fixture.AddScan(newerScanId, CorruptionDetectionMethod.Structural, LaterScanStartUtc);
+            var parked = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, newerScanId)).Value);
+            Assert.Equal(OperationStartStatus.Waiting, parked.Status);
+            var joined = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId)).Value);
+            Assert.Equal(parked.OperationId, joined.OperationId);
+            fixture.RetireScan(fixture.ScanId);
+            finishRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+
+            await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, parked.OperationId, OperationStatus.Completed);
+            var promoted = await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var repair = Assert.Single(fixture.State.LoadOperationRepairs(), stored => stored.Id == promoted);
+            Assert.Equal(newerScanId, repair.Corruption!.ScanId);
+            await fixture.WaitForCompletedRepairAsync(first.OperationId!.Value);
+            await fixture.WaitForCompletedRepairAsync(promoted);
+        }
+        finally
+        {
+            finishRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+        }
+    }
+
+    // Each detection method keeps its own current scan. A request on the other method's scan does not join the
+    // waiting card, so that card still removes its own scan's files and the request waits on a card of its own.
+    [Fact]
+    public async Task ARemovalOnTheOtherDetectionMethodWaitsOnItsOwnCard()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        var repeatedMissScanId = Guid.NewGuid();
+        fixture.AddScan(repeatedMissScanId, CorruptionDetectionMethod.RepeatedMiss, LaterScanStartUtc);
+        var finishRun = new ManualResetEventSlim();
+        var secondStarted = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = 0;
+        fixture.Messages.OnStarted = id =>
+        {
+            if (Interlocked.Increment(ref starts) == 2) secondStarted.TrySetResult(id);
+            finishRun.Wait();
+            fixture.Tracker.CompleteOperation(id, success: true);
+        };
+        try
+        {
+            var first = Assert.IsType<CacheOperationResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId)).Value);
+            var parked = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId)).Value);
+            Assert.Equal(OperationStartStatus.Waiting, parked.Status);
+            var other = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>(
+                await fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, repeatedMissScanId)).Value);
+            Assert.Equal(OperationStartStatus.Waiting, other.Status);
+            Assert.NotEqual(parked.OperationId, other.OperationId);
+            // Only the structural card runs here; the other one is stopped while it waits.
+            fixture.Tracker.CancelOperation(other.OperationId);
+            await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, other.OperationId, OperationStatus.Canceled);
+            finishRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+
+            await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, parked.OperationId, OperationStatus.Completed);
+            var promoted = await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var repair = Assert.Single(fixture.State.LoadOperationRepairs(), stored => stored.Id == promoted);
+            Assert.Equal(fixture.ScanId, repair.Corruption!.ScanId);
+            Assert.Equal(CorruptionDetectionMethod.Structural, repair.Corruption.DetectionMethod);
+            await fixture.WaitForCompletedRepairAsync(first.OperationId!.Value);
+            await fixture.WaitForCompletedRepairAsync(promoted);
+        }
+        finally
+        {
+            finishRun.Set();
+            fixture.Messages.Resume.TrySetResult();
+        }
+    }
+
+    // The route removes every candidate of the scan. A request still naming candidates is refused, never widened
+    // to every candidate.
+    [Fact]
+    public async Task ARemovalStillNamingCandidateIdsIsRefused()
+    {
+        using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
+        fixture.Controller.HttpContext.Request.QueryString =
+            new Microsoft.AspNetCore.Http.QueryString($"?scanId={fixture.ScanId}&candidateIds=default:steam");
+
+        var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ValidationException>(() =>
+            fixture.Controller.RemoveCorruptedChunksAsync("steam", CancellationToken.None, fixture.ScanId));
+
+        Assert.Equal("errors.http.invalidParameters", refusal.StageKey);
+        Assert.Empty(fixture.Messages.Started);
+        Assert.Empty(fixture.Tracker.GetActiveOperations(OperationType.CorruptionRemoval));
+    }
+
+    private static readonly DateTime LaterScanStartUtc =
+        DateTime.Parse("2026-07-12T00:01:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal);
+
+    // Two scans with different settings sent together: the second waits for the first, never a 409.
+    [Fact]
+    public async Task TwoDifferentScansSentTogetherParkTheSecond()
+    {
+        // The test child process waits on its pipe, so the first scan stays running while the second checks.
+        // Teardown cancels both scans and waits for them to end.
+        await using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, transport: true, secondCallerBarrier: true);
+        var answers = await Task.WhenAll(
+            fixture.Controller.StartCorruptionDetectionAsync(threshold: 3),
+            fixture.Controller.StartCorruptionDetectionAsync(threshold: 5));
+
+        var parked = Assert.Single(answers
+            .Select(answer => Assert.IsType<AcceptedResult>(answer).Value)
+            .OfType<OperationStartResponse>());
+        Assert.Equal(OperationStartStatus.Waiting, parked.Status);
+        Assert.NotEqual(OperationStartStatus.AlreadyRunning, parked.Status);
+    }
+
+    [Fact]
+    public void RemoveAllCorruptionDeclaresBothAcceptedBodies()
+    {
+        var declared = typeof(CacheController)
+            .GetMethod(nameof(CacheController.RemoveAllCorruptedChunksAsync))!
+            .GetCustomAttributes<ProducesResponseTypeAttribute>()
+            .ToList();
+
+        Assert.Equal([typeof(MessageOnlyResponse)],
+            declared.Where(attribute => attribute.StatusCode == 200).Select(attribute => attribute.Type));
+        Assert.Equal(
+            new[] { typeof(CacheOperationResponse), typeof(OperationStartResponse) }.OrderBy(type => type.Name),
+            declared.Where(attribute => attribute.StatusCode == 202).Select(attribute => attribute.Type).OrderBy(type => type.Name));
     }
 
     [Fact]
@@ -986,12 +1347,12 @@ public sealed class CorruptionRemovalContractTests
     }
 
     [Fact]
-    public async Task AllServices_AQueuedRunWhoseServicesAllRefuseEndsItsWaitingCardAsync()
+    public async Task AllServices_AWaitingRunWhoseServicesAllRefuseEndsItsWaitingCardAsync()
     {
         using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, schemeOverride: DatasourceSchemeOverrideValues.Auto);
         fixture.Messages.Resume.TrySetResult();
         var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
-        var removeAll = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        var removeAll = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId)).Value!;
         // The datasource loses the log that showed its key scheme while the request waits.
         File.Delete(Path.Combine(fixture.Datasources[0].LogPath, "access.log"));
@@ -1005,22 +1366,22 @@ public sealed class CorruptionRemovalContractTests
         Assert.Single(fixture.Messages.Completions);
         Assert.Equal("all", ended.Service);
         Assert.False(ended.Success);
-        Assert.False(ended.Cancelled);
+        Assert.False(ended.Canceled);
         Assert.Equal("errors.corruption.keySchemeUnavailable", ended.StageKey);
         Assert.Equal(removeAll.OperationId, ended.OperationId);
         Assert.Equal(removeAll.OperationId.ToString("D"), ended.Context!["bulkOperationId"]);
         Assert.True(await HoldReleasedAsync(fixture.Checker));
         Assert.False(RunKeepsScan(fixture.ScanId));
-        await WaitUntilAsync(() => !QueuedRemoveAllKeepsScan(fixture.ScanId));
+        await WaitUntilAsync(() => !WaitingRemoveAllKeepsScan(fixture.ScanId));
     }
 
     [Fact]
-    public async Task AllServices_AQueuedRunWhoseStartThrowsEndsOnALocaleKeyAsync()
+    public async Task AllServices_AWaitingRunWhoseStartThrowsEndsOnALocaleKeyAsync()
     {
         using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
         fixture.Messages.Resume.TrySetResult();
         var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
-        var removeAll = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        var removeAll = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId)).Value!;
         // A stored scan that lost its projection row fails the start with an exception that carries no key.
         using (var db = fixture.Contexts.CreateDbContext())
@@ -1077,9 +1438,7 @@ public sealed class CorruptionRemovalContractTests
             {
                 // A newer scan replaces this one after the first service registered, so the next
                 // service's registration throws instead of refusing.
-                using var db = fixture.Contexts.CreateDbContext();
-                db.CachedCorruptionScans.Single(scan => scan.ScanId == fixture.ScanId).IsCurrent = false;
-                db.SaveChanges();
+                fixture.RetireScan(fixture.ScanId);
             }
             fixture.Tracker.CompleteOperation(id, success: true);
         };
@@ -1117,9 +1476,7 @@ public sealed class CorruptionRemovalContractTests
         {
             if (fixture.Messages.Started.Count == 1)
             {
-                using var db = fixture.Contexts.CreateDbContext();
-                db.CachedCorruptionScans.Single(scan => scan.ScanId == fixture.ScanId).IsCurrent = false;
-                db.SaveChanges();
+                fixture.RetireScan(fixture.ScanId);
             }
             fixture.Tracker.CompleteOperation(id, success: false, error: "the disk went away");
         };
@@ -1146,11 +1503,7 @@ public sealed class CorruptionRemovalContractTests
         using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural, services: ["steam", "epicgames", "wsus"]);
         fixture.Messages.OnStarted = id =>
         {
-            using (var db = fixture.Contexts.CreateDbContext())
-            {
-                db.CachedCorruptionScans.Single(scan => scan.ScanId == fixture.ScanId).IsCurrent = false;
-                db.SaveChanges();
-            }
+            fixture.RetireScan(fixture.ScanId);
             fixture.Tracker.CompleteOperation(id, success: true);
         };
 
@@ -1177,7 +1530,7 @@ public sealed class CorruptionRemovalContractTests
         fixture.Messages.OnStarted = id =>
         {
             fixture.Tracker.CancelOperation(id);
-            fixture.Tracker.CompleteOperation(id, success: false, cancelled: true);
+            fixture.Tracker.CompleteOperation(id, success: false, canceled: true);
         };
 
         // The first service waits to register behind this gate, so the scan goes stale for it alone.
@@ -1191,7 +1544,7 @@ public sealed class CorruptionRemovalContractTests
         Assert.NotNull(asyncWaiters.GetValue(registrationGate));
         SetScanCurrent(fixture, current: false);
         registrationGate.Release();
-        // Queued ahead of the second service, which reaches the gate only after the first one gave up.
+        // Waiting ahead of the second service, which reaches the gate only after the first one gave up.
         await registrationGate.WaitAsync();
         SetScanCurrent(fixture, current: true);
         registrationGate.Release();
@@ -1201,9 +1554,9 @@ public sealed class CorruptionRemovalContractTests
         fixture.Messages.Resume.TrySetResult();
         Assert.True(await HoldReleasedAsync(fixture.Checker));
 
-        Assert.True(aggregate.Cancelled);
+        Assert.True(aggregate.Canceled);
         var row = Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationId == startedId);
-        Assert.Equal("cancelled", row.Status);
+        Assert.Equal("canceled", row.Status);
         Assert.Equal(
             ["common.notifications.warnings.serviceNotStarted", "errors.corruption.scanStale"],
             row.Warnings.Select(warning => warning.StageKey).ToArray());
@@ -1224,7 +1577,7 @@ public sealed class CorruptionRemovalContractTests
         using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
         fixture.Messages.OnStarted = id => fixture.Tracker.CompleteOperation(id, success: true);
         var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
-        var removeAll = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        var removeAll = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId)).Value!;
 
         var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() =>
@@ -1234,10 +1587,10 @@ public sealed class CorruptionRemovalContractTests
         fixture.Messages.Resume.TrySetResult();
 
         Assert.Equal("errors.corruption.deleteBlockedByRemoval", refusal.StageKey);
-        Assert.True(removeAll.Queued);
+        Assert.Equal(OperationStartStatus.Waiting, removeAll.Status);
         Assert.True(aggregate.Success);
         Assert.Equal(2, fixture.Messages.Started.Count);
-        await WaitUntilAsync(() => !QueuedRemoveAllKeepsScan(fixture.ScanId));
+        await WaitUntilAsync(() => !WaitingRemoveAllKeepsScan(fixture.ScanId));
     }
 
     [Fact]
@@ -1276,7 +1629,7 @@ public sealed class CorruptionRemovalContractTests
         var request = fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
         // The request passed its own checks and waits to enqueue; the queue then finds steam free and starts it at once.
         var requestGate = (SemaphoreSlim)typeof(CacheController)
-            .GetField("_queuedRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+            .GetField("_waitingRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         await WaitUntilAsync(() => requestGate.CurrentCount == 0);
         File.Delete(Path.Combine(fixture.Datasources[0].LogPath, "access.log"));
         fixture.Tracker.CompleteOperation(blocker, success: true);
@@ -1306,7 +1659,7 @@ public sealed class CorruptionRemovalContractTests
     {
         using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
         var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
-        var removeAll = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        var removeAll = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId)).Value!;
         // The cache mount turns read-only while the request waits.
         fixture.Datasources[0].CacheWritable = false;
@@ -1317,8 +1670,9 @@ public sealed class CorruptionRemovalContractTests
         Assert.Empty(fixture.Messages.Started);
     }
 
+    // The card words the key in the reader's language, with the values the run's failure reason carries.
     [Fact]
-    public async Task AQueuedStartRefusedWithValuesKeepsItsSentenceAsync()
+    public async Task AWaitingStartRefusedWithValuesEndsOnItsKeyAsync()
     {
         using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
         var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
@@ -1331,11 +1685,14 @@ public sealed class CorruptionRemovalContractTests
                 StageKey = "errors.corruption.datasourceNotWritable",
                 Context = new Dictionary<string, object?> { ["datasource"] = "default" }
             }),
-            CancellationToken.None);
+            CancellationToken.None, new CorruptionRemovalRequestKey(CorruptionDetectionMethod.RepeatedMiss));
         fixture.Tracker.CompleteOperation(blocker, success: true);
 
         await OperationConflictCheckerTests.WaitForStatusAsync(fixture.Tracker, parked.OperationId, OperationStatus.Failed);
-        Assert.Equal("The filled-in sentence", fixture.Tracker.GetOperation(parked.OperationId)!.Message);
+        var ended = fixture.Tracker.GetOperation(parked.OperationId)!;
+        Assert.Equal("errors.corruption.datasourceNotWritable", ended.Message);
+        Assert.Equal("errors.corruption.datasourceNotWritable", ended.FailureReason!.StageKey);
+        Assert.Equal("default", ended.FailureReason.Context["datasource"]);
     }
 
     [Fact]
@@ -1351,13 +1708,13 @@ public sealed class CorruptionRemovalContractTests
         await Task.Delay(300);
         queueGate.Release();
         var responses = (await Task.WhenAll(first, second))
-            .Select(result => (QueuedOperationResponse)((AcceptedResult)result).Value!)
+            .Select(result => (OperationStartResponse)((AcceptedResult)result).Value!)
             .ToList();
         foreach (var response in responses) fixture.Tracker.CancelOperation(response.OperationId);
         fixture.Tracker.CancelOperation(blocker);
 
         Assert.Equal(responses[0].OperationId, responses[1].OperationId);
-        Assert.Single(responses, response => response.AlreadyRunning);
+        Assert.All(responses, response => Assert.Equal(OperationStartStatus.Waiting, response.Status));
     }
 
     [Fact]
@@ -1366,7 +1723,7 @@ public sealed class CorruptionRemovalContractTests
         using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
         var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
         var requestGate = (SemaphoreSlim)typeof(CacheController)
-            .GetField("_queuedRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+            .GetField("_waitingRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         await requestGate.WaitAsync();
         using var dropped = new CancellationTokenSource();
         var request = fixture.Controller.RemoveAllCorruptedChunksAsync(dropped.Token, fixture.ScanId);
@@ -1387,8 +1744,16 @@ public sealed class CorruptionRemovalContractTests
     {
         using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
         var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
+        // A start that parks on the busy service publishes its claim before the waiter is recorded.
+        // Canceling that waiting card must leave nothing for the delete below to refuse.
+        var parked = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+            CancellationToken.None, fixture.ScanId)).Value!;
+        Assert.Equal(OperationStartStatus.Waiting, parked.Status);
+        fixture.Tracker.CancelOperation(parked.OperationId);
+        await WaitUntilAsync(() => !WaitingRemoveAllKeepsScan(fixture.ScanId));
+
         var requestGate = (SemaphoreSlim)typeof(CacheController)
-            .GetField("_queuedRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+            .GetField("_waitingRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         await requestGate.WaitAsync();
         var released = false;
         try
@@ -1396,12 +1761,12 @@ public sealed class CorruptionRemovalContractTests
             using var dropped = new CancellationTokenSource();
             var request = fixture.Controller.RemoveAllCorruptedChunksAsync(dropped.Token, fixture.ScanId);
             var waiters = typeof(SemaphoreSlim).GetField("m_asyncHead", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            await WaitUntilAsync(() => RunKeepsScan(fixture.ScanId) && waiters.GetValue(requestGate) != null);
+            await WaitUntilAsync(() => waiters.GetValue(requestGate) != null);
             dropped.Cancel();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => request);
 
             Assert.False(RunKeepsScan(fixture.ScanId));
-            Assert.False(QueuedRemoveAllKeepsScan(fixture.ScanId));
+            Assert.False(WaitingRemoveAllKeepsScan(fixture.ScanId));
             requestGate.Release();
             released = true;
 
@@ -1424,34 +1789,33 @@ public sealed class CorruptionRemovalContractTests
         using var fixture = new RemovalRun(CorruptionDetectionMethod.Structural);
         fixture.Messages.OnStarted = id => fixture.Tracker.CompleteOperation(id, success: true);
         var blocker = OperationConflictCheckerTests.RegisterServiceRemoval(fixture.Tracker, "steam");
-        var first = (QueuedOperationResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
+        var first = (OperationStartResponse)((AcceptedResult)await fixture.Controller.RemoveAllCorruptedChunksAsync(
             CancellationToken.None, fixture.ScanId)).Value!;
-        Assert.True(first.Queued);
+        Assert.Equal(OperationStartStatus.Waiting, first.Status);
         Assert.False(RunKeepsScan(fixture.ScanId));
 
         var requestGate = (SemaphoreSlim)typeof(CacheController)
-            .GetField("_queuedRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+            .GetField("_waitingRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         await requestGate.WaitAsync();
         var released = false;
         try
         {
             var second = fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
             var waiters = typeof(SemaphoreSlim).GetField("m_asyncHead", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            await WaitUntilAsync(() => RunKeepsScan(fixture.ScanId) && waiters.GetValue(requestGate) != null);
+            await WaitUntilAsync(() => waiters.GetValue(requestGate) != null);
             fixture.Tracker.CancelOperation(first.OperationId);
-            await WaitUntilAsync(() => !QueuedRemoveAllKeepsScan(fixture.ScanId));
-            Assert.True(RunKeepsScan(fixture.ScanId));
+            await WaitUntilAsync(() => !WaitingRemoveAllKeepsScan(fixture.ScanId));
 
             var delete = fixture.Controller.DeleteCorruptionHistoryAsync(fixture.ScanId);
             requestGate.Release();
             released = true;
             var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() => delete);
-            var secondResult = (QueuedOperationResponse)((AcceptedResult)await second).Value!;
+            var secondResult = (OperationStartResponse)((AcceptedResult)await second).Value!;
 
             Assert.Equal("errors.corruption.deleteBlockedByRemoval", refusal.StageKey);
-            Assert.True(secondResult.Queued);
+            Assert.Equal(OperationStartStatus.Waiting, secondResult.Status);
             fixture.Tracker.CancelOperation(secondResult.OperationId);
-            await WaitUntilAsync(() => !QueuedRemoveAllKeepsScan(fixture.ScanId));
+            await WaitUntilAsync(() => !WaitingRemoveAllKeepsScan(fixture.ScanId));
             Assert.False(RunKeepsScan(fixture.ScanId));
         }
         finally
@@ -1499,9 +1863,9 @@ public sealed class CorruptionRemovalContractTests
             await read.AtRead.Task.WaitAsync(TimeSpan.FromSeconds(10));
             fixture.Tracker.CompleteOperation(blocker, success: true);
             await held.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            var result = (QueuedOperationResponse)((AcceptedResult)await request.WaitAsync(TimeSpan.FromSeconds(10))).Value!;
+            var result = (OperationStartResponse)((AcceptedResult)await request.WaitAsync(TimeSpan.FromSeconds(10))).Value!;
 
-            Assert.True(result.Queued);
+            Assert.Equal(OperationStartStatus.Waiting, result.Status);
             Assert.True(RunKeepsScan(fixture.ScanId));
             releaseRun.Set();
             await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -1550,9 +1914,9 @@ public sealed class CorruptionRemovalContractTests
             selection.Arm();
             fixture.Tracker.CompleteOperation(blocker, success: true);
             await selection.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            var result = (QueuedOperationResponse)((AcceptedResult)await request.WaitAsync(TimeSpan.FromSeconds(10))).Value!;
+            var result = (OperationStartResponse)((AcceptedResult)await request.WaitAsync(TimeSpan.FromSeconds(10))).Value!;
 
-            Assert.True(result.Queued);
+            Assert.Equal(OperationStartStatus.Waiting, result.Status);
             Assert.True(RunKeepsScan(fixture.ScanId));
             var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ConflictException>(() =>
                 fixture.Controller.DeleteCorruptionHistoryAsync(fixture.ScanId));
@@ -1595,8 +1959,8 @@ public sealed class CorruptionRemovalContractTests
         gate.Inner = fixture.Checker;
         typeof(CacheController).GetField("_conflictChecker", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(fixture.Controller, pausing);
-        var publication = (SemaphoreSlim)typeof(CacheController)
-            .GetField("_removeAllRunPublication", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        var requestGate = (SemaphoreSlim)typeof(CacheController)
+            .GetField("_waitingRemoveAllGate", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         Task<IActionResult>? first = null;
         Task<IActionResult>? second = null;
         try
@@ -1605,21 +1969,21 @@ public sealed class CorruptionRemovalContractTests
             await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
             second = fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId);
             var waiters = typeof(SemaphoreSlim).GetField("m_asyncHead", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            await WaitUntilAsync(() => waiters.GetValue(publication) != null);
+            await WaitUntilAsync(() => waiters.GetValue(requestGate) != null);
             Assert.Equal(1, gate.CheckCount);
             Assert.Empty(fixture.Messages.Started);
 
             gate.Release.TrySetResult(true);
-            var secondResult = (QueuedOperationResponse)((AcceptedResult)await second.WaitAsync(TimeSpan.FromSeconds(10))).Value!;
+            var secondResult = (OperationStartResponse)((AcceptedResult)await second.WaitAsync(TimeSpan.FromSeconds(10))).Value!;
             await WaitUntilAsync(() => fixture.Messages.Started.Count >= 1);
             Assert.Single(fixture.Messages.Started);
-            Assert.True(secondResult.Queued || secondResult.AlreadyRunning);
-            if (secondResult.Queued)
+            Assert.True(secondResult.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning);
+            if (secondResult.Status == OperationStartStatus.Waiting)
             {
                 fixture.Tracker.CancelOperation(secondResult.OperationId);
                 // The canceled waiting card ran nothing, so its own "all" completion releases the click that stored its id.
                 await WaitUntilAsync(() => fixture.Messages.Completions.Any(complete =>
-                    complete is { Service: "all", Cancelled: true }
+                    complete is { Service: "all", Canceled: true }
                     && complete.OperationId == secondResult.OperationId
                     && Equals(complete.Context?.GetValueOrDefault("bulkOperationId"), secondResult.OperationId.ToString("D"))));
             }
@@ -1668,7 +2032,7 @@ public sealed class CorruptionRemovalContractTests
         var startedId = RequireImmediateRemoval(await fixture.Controller.RemoveAllCorruptedChunksAsync(CancellationToken.None, fixture.ScanId));
         var firstStep = await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(startedId, firstStep);
-        // Queued on the gate ahead of the next service, so it is checked while no step is registered.
+        // Waiting on the gate ahead of the next service, so it is checked while no step is registered.
         var delete = fixture.Controller.DeleteCorruptionHistoryAsync(fixture.ScanId);
         finishFirst.Set();
         await fixture.WaitForCompletedRepairAsync(firstStep);
@@ -1699,10 +2063,10 @@ public sealed class CorruptionRemovalContractTests
         .GetField("_removeAllRunScans", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!)
         .Values.Cast<Guid>().Contains(scanId);
 
-    private static bool QueuedRemoveAllKeepsScan(Guid scanId)
+    private static bool WaitingRemoveAllKeepsScan(Guid scanId)
     {
         var requests = (System.Collections.IDictionary)typeof(CacheController)
-            .GetField("_queuedRemoveAllRequests", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+            .GetField("_waitingRemoveAllRequests", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         var prefix = $"{scanId}:";
         foreach (System.Collections.DictionaryEntry entry in requests)
         {
@@ -1713,7 +2077,7 @@ public sealed class CorruptionRemovalContractTests
         return false;
     }
 
-    private static SemaphoreSlim QueueGate(OperationQueueService queue) => (SemaphoreSlim)typeof(OperationQueueService)
+    private static SemaphoreSlim QueueGate(OperationWaitlistService queue) => (SemaphoreSlim)typeof(OperationWaitlistService)
         .GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(queue)!;
 
     private static SemaphoreSlim CorruptionSnapshotGate() => (SemaphoreSlim)typeof(CacheController)
@@ -1728,8 +2092,8 @@ public sealed class CorruptionRemovalContractTests
             "Unmapped File Removal",
             () => Task.FromResult<Guid?>(fixture.Tracker.RegisterOperation(
                 OperationType.UnmappedFileRemoval, "Unmapped File Removal", new CancellationTokenSource())),
-            CancellationToken.None);
-        Assert.True(parked.Queued);
+            CancellationToken.None, new UnmappedFileRemovalRequestKey(new UnmappedFilesLimits(MaxFiles: 1000, MaxBytes: 0)));
+        Assert.Equal(OperationStartStatus.Waiting, parked.Status);
         return parked.OperationId;
     }
 
@@ -1852,16 +2216,16 @@ public sealed class CorruptionRemovalContractTests
     [Theory]
     [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Completed, false)]
     [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Failed, false)]
-    [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Cancelled, false)]
+    [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Canceled, false)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Completed, false)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Failed, false)]
-    [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Cancelled, false)]
+    [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Canceled, false)]
     [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Completed, true)]
     [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Failed, true)]
-    [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Cancelled, true)]
+    [InlineData(CorruptionDetectionMethod.Structural, OperationStatus.Canceled, true)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Completed, true)]
     [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Failed, true)]
-    [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Cancelled, true)]
+    [InlineData(CorruptionDetectionMethod.RepeatedMiss, OperationStatus.Canceled, true)]
     public async Task ExternalWinner_FreezesNonzeroContributionBeforeLateProcessOutput(
         CorruptionDetectionMethod method, OperationStatus outcome, bool completedCheckpoint)
     {
@@ -1882,7 +2246,7 @@ public sealed class CorruptionRemovalContractTests
         var metrics = Assert.IsType<RemovalMetrics>(operation.Metadata);
         fixture.Tracker.CompleteOperation(operation.Id, outcome == OperationStatus.Completed,
             error: outcome == OperationStatus.Failed ? "external failure" : null,
-            cancelled: outcome == OperationStatus.Cancelled);
+            canceled: outcome == OperationStatus.Canceled);
         var completedAt = operation.CompletedAt;
         var message = operation.Message;
         bulkType.GetField("ServiceIndex")!.SetValue(bulk, 2);
@@ -1890,7 +2254,7 @@ public sealed class CorruptionRemovalContractTests
             await CompleteDatasourceAsync(fixture.Pipe, method, second: true);
         else
             await fixture.Pipe.SendAsync(Live("late", 90, 99, 100), 0);
-        if (outcome == OperationStatus.Cancelled)
+        if (outcome == OperationStatus.Canceled)
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
         else
             Assert.Equal(outcome == OperationStatus.Completed, await run.WaitAsync(TimeSpan.FromSeconds(10)));
@@ -1913,7 +2277,7 @@ public sealed class CorruptionRemovalContractTests
         }
         Assert.Equal(outcome == OperationStatus.Completed ? 1 : 0, bulkType.GetField("SucceededServices")!.GetValue(bulk));
         Assert.Equal(outcome == OperationStatus.Failed ? 1 : 0, bulkType.GetField("FailedServices")!.GetValue(bulk));
-        Assert.Equal(outcome == OperationStatus.Cancelled, bulkType.GetField("Cancelled")!.GetValue(bulk));
+        Assert.Equal(outcome == OperationStatus.Canceled, bulkType.GetField("Canceled")!.GetValue(bulk));
         Assert.Empty(fixture.Messages.Completions);
     }
 
@@ -1972,7 +2336,7 @@ public sealed class CorruptionRemovalContractTests
         fixture.Messages.Resume.TrySetResult();
         Assert.Equal(captured, JsonSerializer.Serialize(aggregate));
         Assert.False(fixture.Tracker.GetOperation(next)!.Status.IsTerminal());
-        fixture.Tracker.CompleteOperation(next, false, cancelled: true);
+        fixture.Tracker.CompleteOperation(next, false, canceled: true);
     }
 
     [Theory]
@@ -2066,7 +2430,7 @@ public sealed class CorruptionRemovalContractTests
             var repairs = JsonSerializer.Deserialize<List<OperationRepair>>(contents)!;
             if (!repairs.Any(repair => repair.Id == operationId && repair.Outcome == OperationStatus.Completed)) return;
             stop = Task.Run(() => cancellation.ForceKillAsync(operationId));
-            SpinWait.SpinUntil(() => fixture.Tracker.GetOperation(operationId)!.Cancelled, TimeSpan.FromSeconds(10));
+            SpinWait.SpinUntil(() => fixture.Tracker.GetOperation(operationId)!.Canceled, TimeSpan.FromSeconds(10));
         };
         var run = fixture.RunAsync();
         await fixture.Pipe!.ConnectAsync();
@@ -2079,7 +2443,7 @@ public sealed class CorruptionRemovalContractTests
         Assert.True(await stop!.WaitAsync(TimeSpan.FromSeconds(10)));
         var complete = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.True(complete.Success);
-        Assert.False(complete.Cancelled);
+        Assert.False(complete.Canceled);
         Assert.Equal(1L, complete.Context!["count"]);
         Assert.Equal(1L, complete.Context["files"]);
         Assert.Equal(1024L, complete.Context["bytesFreed"]);
@@ -2123,11 +2487,11 @@ public sealed class CorruptionRemovalContractTests
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
             var operation = fixture.Tracker.GetOperation(operationId)!;
-            Assert.Equal(OperationStatus.Cancelled, operation.Status);
-            Assert.True(operation.Cancelled);
+            Assert.Equal(OperationStatus.Canceled, operation.Status);
+            Assert.True(operation.Canceled);
             if (removeAll)
             {
-                Assert.True((bool)bulkType.GetField("Cancelled")!.GetValue(bulk)!);
+                Assert.True((bool)bulkType.GetField("Canceled")!.GetValue(bulk)!);
                 Assert.Equal(operationId, bulkType.GetField("LastOperationId")!.GetValue(bulk));
             }
         }
@@ -2155,13 +2519,13 @@ public sealed class CorruptionRemovalContractTests
         fixture.Tracker.CancelOperation(progress.OperationId);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
         var complete = Assert.Single(fixture.Messages.Completions);
-        Assert.True(complete.Cancelled);
+        Assert.True(complete.Canceled);
         Assert.Null(complete.Error);
         Assert.Equal(progress.OperationId, complete.OperationId);
         Assert.Single(fixture.Messages.Progress);
         await fixture.Pipe.WaitForExitAsync();
         var repair = await fixture.WaitForCompletedRepairAsync(progress.OperationId);
-        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        Assert.Equal(OperationStatus.Canceled, repair.Outcome);
         var source = Assert.Single(repair.Sources);
         Assert.False(source.LogRewriteStarted);
         Assert.False(source.LogPositionsKept);
@@ -2301,7 +2665,7 @@ public sealed class CorruptionRemovalContractTests
         // The stopped child publishes no result for the log it was rewriting.
         fixture.Tracker.CancelOperation(operationId);
         var complete = await fixture.Messages.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.True(complete.Cancelled, complete.Error);
+        Assert.True(complete.Canceled, complete.Error);
         Assert.Null(complete.Error);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(10)));
 
@@ -2310,7 +2674,7 @@ public sealed class CorruptionRemovalContractTests
         Assert.Equal("remove-logs", fixture.Pipe.Command);
         await fixture.Pipe.SendAsync(LogCompletion(second: false), 0);
         var repair = await fixture.WaitForCompletedRepairAsync(operationId);
-        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        Assert.Equal(OperationStatus.Canceled, repair.Outcome);
         var source = Assert.Single(repair.Sources);
         Assert.True(source.LogRewriteStarted);
         Assert.True(source.LogPositionsKept);
@@ -2358,8 +2722,14 @@ public sealed class CorruptionRemovalContractTests
         Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
         var complete = Assert.Single(fixture.Messages.Completions);
         Assert.False(complete.Success);
-        Assert.False(complete.Cancelled);
-        Assert.Contains("Commanded corruption process failure", complete.Error);
+        Assert.False(complete.Canceled);
+        // The ending is a key; the process's own text travels as its value.
+        Assert.Equal("signalr.corruptionRemove.error.fatal", complete.StageKey);
+        Assert.Contains("Commanded corruption process failure", Assert.IsType<string>(complete.Context!["errorDetail"]));
+        // The saved record is what a restart redraws the card from: the same key, with the text as its value.
+        var repair = await fixture.WaitForCompletedRepairAsync(complete.OperationId!.Value);
+        Assert.Equal("signalr.corruptionRemove.error.fatal", repair.Error);
+        Assert.Contains("Commanded corruption process failure", repair.FailureReason?.Context["errorDetail"]?.ToString());
         await fixture.Pipe.WaitForExitAsync();
     }
 
@@ -2408,7 +2778,7 @@ public sealed class CorruptionRemovalContractTests
         public CorruptionDetectionService Detection { get; }
         public CacheController Controller { get; }
         public OperationConflictChecker Checker { get; }
-        public OperationQueueService Queue { get; }
+        public OperationWaitlistService Queue { get; }
         public TestDbContextFactory Contexts { get; }
         public RemovalMessages Messages { get; }
         public OperationStateService States => _operationStateService;
@@ -2420,9 +2790,11 @@ public sealed class CorruptionRemovalContractTests
         private readonly ServiceProvider _services;
         private readonly OperationStateService _operationStateService;
         private readonly HostLifetime _lifetime = new();
+        private readonly string[] _scanServices;
 
         public RemovalRun(CorruptionDetectionMethod method, bool transport = false, int datasourceCount = 1,
-            string schemeOverride = DatasourceSchemeOverrideValues.Monolithic, string[]? services = null)
+            string schemeOverride = DatasourceSchemeOverrideValues.Monolithic, string[]? services = null,
+            bool secondCallerBarrier = false)
         {
             Directory.CreateDirectory(_root);
             Directory.CreateDirectory(Path.Combine(_root, "cache"));
@@ -2465,61 +2837,8 @@ public sealed class CorruptionRemovalContractTests
                 .ConfigureWarnings(warnings => warnings.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
                 .Options);
             Contexts = contexts;
-            using (var db = contexts.CreateDbContext())
-            {
-                var time = DateTime.Parse("2026-07-12T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal);
-                db.CachedCorruptionScans.Add(new CachedCorruptionScan
-                {
-                    ScanId = ScanId, ContractVersion = 4, IsCurrent = true,
-                    DetectionMode = method == CorruptionDetectionMethod.Structural ? CorruptionDetectionMode.Structural : CorruptionDetectionMode.RepeatedMiss,
-                    Threshold = 3, LookbackDays = 30, StartedAtUtc = time, CompletedAtUtc = time
-                });
-                services ??= ["steam", "epicgames"];
-                var projection = new CachedCorruptionProjection
-                {
-                    Settings = method == CorruptionDetectionMethod.Structural
-                        ? new CorruptionScanSettings { MinimumStableAgeSeconds = 600, MaximumPrefixBytes = 65_535 }
-                        : new CorruptionScanSettings { Threshold = 3, LookbackDays = 30 },
-                    Coverage = method == CorruptionDetectionMethod.Structural ? new CorruptionScanCoverage { FilesSeen = services.Length * datasourceCount, FilesChecked = services.Length * datasourceCount } : null,
-                    DetectionCounts = new Dictionary<string, long> { [method.ToWireString()] = services.Length * datasourceCount }
-                };
-                db.CachedCorruptionDetections.Add(new CachedCorruptionDetection
-                {
-                    ScanId = ScanId, ServiceName = "__scan_projection__", DatasourceName = "__aggregate__",
-                    CandidatesJson = JsonSerializer.Serialize(projection, new JsonSerializerOptions(JsonSerializerDefaults.Web))
-                });
-                foreach (var service in services)
-                foreach (var datasource in Datasources)
-                {
-                    CorruptionEvidence evidence = method == CorruptionDetectionMethod.Structural
-                        ? new StructuralCorruptionEvidence
-                        {
-                            Issues = [StructuralCorruptionIssue.EmptyCacheFile], CacheKeyEncoding = "hex",
-                            CacheKeyMd5 = "d41d8cd98f00b204e9800998ecf8427e", CacheVersion = 5,
-                            DetectedAtUtc = "2026-07-12T00:00:00Z"
-                        }
-                        : new RepeatedMissCorruptionEvidence
-                        {
-                            RawUrl = "/chunk", NormalizedUri = "/chunk", EvidenceCount = 3,
-                            FirstSeen = "2026-07-12T00:00:00Z", LastSeen = "2026-07-12T00:00:00Z",
-                            Observations = Enumerable.Range(0, 3).Select(_ => new CandidateObservation
-                            {
-                                RawUrl = "/chunk", Timestamp = "2026-07-12T00:00:00Z", ClientIp = "127.0.0.1",
-                                Method = "GET", HttpStatus = 200, CacheStatus = "MISS"
-                            }).ToList()
-                        };
-                    db.CachedCorruptionDetections.Add(new CachedCorruptionDetection
-                    {
-                        ScanId = ScanId, ServiceName = service, DatasourceName = datasource.Name, CorruptedChunkCount = 1, RemovalAllowed = true,
-                        CandidatesJson = CorruptionDetectionService.SerializeCandidates([new CorruptionCandidate
-                        {
-                            CandidateId = datasource.Name + ":" + service, Datasource = datasource.Name, Service = service,
-                            ExactPaths = [Path.Combine(datasource.CachePath, service)], Evidence = evidence
-                        }])
-                    });
-                }
-                db.SaveChanges();
-            }
+            _scanServices = services ?? ["steam", "epicgames"];
+            AddScan(ScanId, method, DateTime.Parse("2026-07-12T00:00:00Z", null, System.Globalization.DateTimeStyles.AdjustToUniversal));
             var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
             Tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
             var notifications = DispatchProxy.Create<ISignalRNotificationService, RemovalMessages>();
@@ -2550,10 +2869,79 @@ public sealed class CorruptionRemovalContractTests
                 DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(), capability, CacheScanGateHarness.Idle(),
                 _operationStateService, null!);
             Checker = new OperationConflictChecker(Tracker, _operationStateService, NullLogger<OperationConflictChecker>.Instance);
-            Queue = new OperationQueueService(Tracker, Checker, NullLogger<OperationQueueService>.Instance);
+            // The queue and the controller share the barrier, so every check either of them makes meets the other.
+            IOperationConflictChecker conflicts = secondCallerBarrier ? new SecondCallerBarrier(Checker) : Checker;
+            Queue = new OperationWaitlistService(Tracker, conflicts, NullLogger<OperationWaitlistService>.Instance);
             Controller = new CacheController(cache, null!, Detection, NullLogger<CacheController>.Instance,
                 paths, notifications, rust, nginx, Tracker, sources, contexts, null!,
-                Checker, Queue, capability, CacheScanGateHarness.Idle(), null!, _operationStateService, State);
+                conflicts, Queue, capability, CacheScanGateHarness.Idle(), null!, _operationStateService, State);
+            // The removal route reads its query, as a request over HTTP does.
+            Controller.ControllerContext = new ControllerContext { HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext() };
+        }
+
+        // Stores a scan holding one candidate per service and datasource, with the evidence its method records.
+        public void AddScan(Guid scanId, CorruptionDetectionMethod method, DateTime startedAtUtc)
+        {
+            var services = _scanServices;
+            var datasourceCount = Datasources.Count;
+            using var db = Contexts.CreateDbContext();
+            db.CachedCorruptionScans.Add(new CachedCorruptionScan
+            {
+                ScanId = scanId, ContractVersion = 4, IsCurrent = true,
+                DetectionMode = method == CorruptionDetectionMethod.Structural ? CorruptionDetectionMode.Structural : CorruptionDetectionMode.RepeatedMiss,
+                Threshold = 3, LookbackDays = 30, StartedAtUtc = startedAtUtc, CompletedAtUtc = startedAtUtc
+            });
+            var projection = new CachedCorruptionProjection
+            {
+                Settings = method == CorruptionDetectionMethod.Structural
+                    ? new CorruptionScanSettings { MinimumStableAgeSeconds = 600, MaximumPrefixBytes = 65_535 }
+                    : new CorruptionScanSettings { Threshold = 3, LookbackDays = 30 },
+                Coverage = method == CorruptionDetectionMethod.Structural ? new CorruptionScanCoverage { FilesSeen = services.Length * datasourceCount, FilesChecked = services.Length * datasourceCount } : null,
+                DetectionCounts = new Dictionary<string, long> { [method.ToWireString()] = services.Length * datasourceCount }
+            };
+            db.CachedCorruptionDetections.Add(new CachedCorruptionDetection
+            {
+                ScanId = scanId, ServiceName = "__scan_projection__", DatasourceName = "__aggregate__",
+                CandidatesJson = JsonSerializer.Serialize(projection, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            });
+            foreach (var service in services)
+            foreach (var datasource in Datasources)
+            {
+                CorruptionEvidence evidence = method == CorruptionDetectionMethod.Structural
+                    ? new StructuralCorruptionEvidence
+                    {
+                        Issues = [StructuralCorruptionIssue.EmptyCacheFile], CacheKeyEncoding = "hex",
+                        CacheKeyMd5 = "d41d8cd98f00b204e9800998ecf8427e", CacheVersion = 5,
+                        DetectedAtUtc = "2026-07-12T00:00:00Z"
+                    }
+                    : new RepeatedMissCorruptionEvidence
+                    {
+                        RawUrl = "/chunk", NormalizedUri = "/chunk", EvidenceCount = 3,
+                        FirstSeen = "2026-07-12T00:00:00Z", LastSeen = "2026-07-12T00:00:00Z",
+                        Observations = Enumerable.Range(0, 3).Select(_ => new CandidateObservation
+                        {
+                            RawUrl = "/chunk", Timestamp = "2026-07-12T00:00:00Z", ClientIp = "127.0.0.1",
+                            Method = "GET", HttpStatus = 200, CacheStatus = "MISS"
+                        }).ToList()
+                    };
+                db.CachedCorruptionDetections.Add(new CachedCorruptionDetection
+                {
+                    ScanId = scanId, ServiceName = service, DatasourceName = datasource.Name, CorruptedChunkCount = 1, RemovalAllowed = true,
+                    CandidatesJson = CorruptionDetectionService.SerializeCandidates([new CorruptionCandidate
+                    {
+                        CandidateId = datasource.Name + ":" + service, Datasource = datasource.Name, Service = service,
+                        ExactPaths = [Path.Combine(datasource.CachePath, service)], Evidence = evidence
+                    }])
+                });
+            }
+            db.SaveChanges();
+        }
+
+        public void RetireScan(Guid scanId)
+        {
+            using var db = Contexts.CreateDbContext();
+            db.CachedCorruptionScans.Single(scan => scan.ScanId == scanId).IsCurrent = false;
+            db.SaveChanges();
         }
 
         public async Task<bool> RunAsync(string service = "steam", object? bulk = null)
@@ -2579,6 +2967,26 @@ public sealed class CorruptionRemovalContractTests
             throw new TimeoutException($"Corruption removal repair {operationId} did not complete.");
         }
 
+        // A scan's worker writes into the operations folder until it records its own ending, which comes after a
+        // cancel returns. A waiting request canceled here can still be promoted by the scan's ending, so each pass
+        // cancels again until no request waits and no scan runs.
+        private async Task StopScansAsync()
+        {
+            for (var attempt = 0; attempt < 400; attempt++)
+            {
+                var waiting = Tracker.GetWaitingOperations().ToList();
+                var scans = Tracker.GetActiveOperations(OperationType.CorruptionDetection).ToList();
+                if (waiting.Count == 0 && scans.Count == 0)
+                {
+                    return;
+                }
+                foreach (var operation in waiting.Concat(scans))
+                    Tracker.CancelOperation(operation.Id);
+                await Task.Delay(25);
+            }
+            throw new TimeoutException("A corruption scan or waiting request did not end before teardown.");
+        }
+
         public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
         public async ValueTask DisposeAsync()
@@ -2592,6 +3000,7 @@ public sealed class CorruptionRemovalContractTests
                 try { await run.WaitAsync(TimeSpan.FromSeconds(10)); }
                 catch (Exception) when (run.IsCompleted) { /* The test observes the operation outcome; teardown still drains it. */ }
             }
+            await StopScansAsync();
             _lifetime.StopApplication();
             await _operationStateService.StopAsync(CancellationToken.None);
             await OperationRepairTests.WaitForRepairTasksAsync(_operationStateService);

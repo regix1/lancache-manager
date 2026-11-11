@@ -79,7 +79,7 @@ public class PicsDataService
                 }
 
                 var appNamesList = appIdsList.Select(appId =>
-                    appNames.TryGetValue(appId, out var name) ? name : $"App {appId}"
+                    appNames.TryGetValue(appId, out var name) ? name : null
                 ).ToList();
 
                 // Get depot name if available
@@ -197,7 +197,7 @@ public class PicsDataService
             }
 
             var appNamesList = appIdsList.Select(appId =>
-                appNames.TryGetValue(appId, out var name) ? name : $"App {appId}"
+                appNames.TryGetValue(appId, out var name) ? name : null
             ).ToList();
 
             // Get depot name if available
@@ -419,28 +419,28 @@ public class PicsDataService
     /// Import PICS data from JSON file to database with cancellation support and progress reporting
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <param name="progressCallback">Optional callback for progress updates (phase, percentComplete within phase)</param>
-    public async Task ImportToDatabaseAsync(CancellationToken cancellationToken, Func<string, int, Task>? progressCallback)
+    /// <param name="progressCallback">Optional callback for progress updates (percent complete)</param>
+    public async Task ImportToDatabaseAsync(CancellationToken cancellationToken, Func<int, Task>? progressCallback)
     {
         var picsData = await LoadFromJsonAsync()
             ?? throw new InvalidOperationException("No PICS JSON available to import");
-        await ImportToDatabaseAsync(picsData, false, cancellationToken, progressCallback);
+        await ImportToDatabaseAsync(picsData, cancellationToken, progressCallback);
     }
 
-    // beforeCommit runs inside the import's transaction after every mapping write, so its rows commit
-    // with the import and no reader sees the import without them.
-    public async Task ImportToDatabaseAsync(PicsJsonData picsData, bool replace, CancellationToken cancellationToken, Func<string, int, Task>? progressCallback = null, Func<AppDbContext, Task>? beforeCommit = null)
+    // Every source adds to the table and none removes what another found. beforeCommit runs inside the
+    // import's transaction after every mapping write, so its rows commit with the import and no reader
+    // sees the import without them.
+    public async Task ImportToDatabaseAsync(PicsJsonData picsData, CancellationToken cancellationToken, Func<int, Task>? progressCallback = null, Func<AppDbContext, Task>? beforeCommit = null)
     {
         try
         {
             // Phase 1: Load PICS data from JSON (0-5%)
-            if (progressCallback != null) await progressCallback("Loading depot data...", 0);
+            if (progressCallback != null) await progressCallback(0);
 
-            if (replace) ValidateSnapshot(picsData, cancellationToken);
             if (picsData.DepotMappings == null)
                 throw new InvalidOperationException("No depot mappings available to import");
 
-            if (progressCallback != null) await progressCallback("Processing depot mappings...", 5);
+            if (progressCallback != null) await progressCallback(5);
 
             using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
@@ -463,7 +463,15 @@ public class PicsDataService
                     for (int i = 0; i < mapping.AppIds.Count; i++)
                     {
                         var appId = mapping.AppIds[i];
-                        var appName = mapping.AppNames?.ElementAtOrDefault(i) ?? $"App {appId}";
+                        var appName = mapping.AppNames?.ElementAtOrDefault(i);
+                        // The published depot file is built by lancache-pics
+                        // (PicsDataCollector/Services/DataPersistenceService.cs:144), which still writes
+                        // "App {id}" for an app it has no name for, as did the files older versions of this
+                        // app wrote; that placeholder is stored as no name.
+                        if (appName == $"App {appId}")
+                        {
+                            appName = null;
+                        }
 
                         allMappings.Add(new SteamDepotMapping
                         {
@@ -489,11 +497,11 @@ public class PicsDataService
                 if (progressCallback != null && depotIndex % (totalDepots / 10 + 1) == 0)
                 {
                     var phaseProgress = 5 + (int)(15.0 * depotIndex / totalDepots);
-                    await progressCallback($"Processing depot mappings... ({depotIndex:N0}/{totalDepots:N0})", phaseProgress);
+                    await progressCallback(phaseProgress);
                 }
             }
 
-            if (progressCallback != null) await progressCallback($"Inserting {allMappings.Count:N0} mappings...", 20);
+            if (progressCallback != null) await progressCallback(20);
 
             // Phase 3: UNNEST bulk upsert (20-95%)
             var db = scopedDb.DbContext;
@@ -515,13 +523,7 @@ public class PicsDataService
                         $"SELECT pg_advisory_xact_lock({PrefillCacheService.DepotOwnerLockKey})", cancellationToken);
                     // Read under the key so a prefill row committed before it is seen by the branch choice.
                     // An empty table takes the first-run plain INSERT (skips ON CONFLICT overhead).
-                    var tableIsEmpty = !replace && !await db.SteamDepotMappings.AnyAsync(cancellationToken);
-
-                    if (replace)
-                    {
-                        await db.SteamDepotMappings.Where(m => m.Source != "orphan-resolved")
-                            .ExecuteDeleteAsync(cancellationToken);
-                    }
+                    var tableIsEmpty = !await db.SteamDepotMappings.AnyAsync(cancellationToken);
 
                     foreach (var batch in allMappings.Chunk(batchSize))
                     {
@@ -554,13 +556,14 @@ public class PicsDataService
                         }
                         else
                         {
-                            // Upsert: ON CONFLICT on unique (DepotId, AppId) index - dedup server-side
+                            // Upsert: ON CONFLICT on unique (DepotId, AppId) index - dedup server-side.
+                            // A source with no name for a pair keeps the name another source stored.
                             await db.Database.ExecuteSqlRawAsync(@"
                             INSERT INTO ""SteamDepotMappings"" (""DepotId"", ""DepotName"", ""AppId"", ""AppName"", ""IsOwner"", ""DiscoveredAt"", ""Source"")
                             SELECT * FROM UNNEST(@p0::bigint[], @p1::text[], @p2::bigint[], @p3::text[], @p4::boolean[], @p5::timestamptz[], @p6::text[])
                             ON CONFLICT (""DepotId"", ""AppId"") DO UPDATE SET
-                                ""DepotName""    = EXCLUDED.""DepotName"",
-                                ""AppName""      = EXCLUDED.""AppName"",
+                                ""DepotName""    = COALESCE(EXCLUDED.""DepotName"", ""SteamDepotMappings"".""DepotName""),
+                                ""AppName""      = COALESCE(EXCLUDED.""AppName"", ""SteamDepotMappings"".""AppName""),
                                 ""IsOwner""      = EXCLUDED.""IsOwner"",
                                 ""DiscoveredAt"" = EXCLUDED.""DiscoveredAt"",
                                 ""Source""       = EXCLUDED.""Source""",
@@ -571,12 +574,24 @@ public class PicsDataService
                         if (progressCallback != null)
                         {
                             var insertProgress = 20 + (int)(75.0 * batchIndex / Math.Max(1, totalBatches));
-                            var insertedCount = Math.Min(batchIndex * batchSize, allMappings.Count);
-                            await progressCallback($"Inserting mappings... ({insertedCount:N0}/{allMappings.Count:N0})", insertProgress);
+                            await progressCallback(insertProgress);
                         }
 
                         await Task.Yield();
                     }
+
+                    // A depot has one owner. The owner this import names is the newest word on it, so
+                    // an owner row another source wrote for the same depot steps down to a reference.
+                    var owners = allMappings.Where(m => m.IsOwner).ToList();
+                    await db.Database.ExecuteSqlRawAsync(@"
+                    UPDATE ""SteamDepotMappings"" AS m SET ""IsOwner"" = false
+                    FROM UNNEST(@p0::bigint[], @p1::bigint[]) AS incoming(""DepotId"", ""AppId"")
+                    WHERE m.""DepotId"" = incoming.""DepotId"" AND m.""IsOwner"" AND m.""AppId"" <> incoming.""AppId""",
+                        new object[]
+                        {
+                            new NpgsqlParameter("p0", NpgsqlDbType.Array | NpgsqlDbType.Bigint) { Value = owners.Select(m => m.DepotId).ToArray() },
+                            new NpgsqlParameter("p1", NpgsqlDbType.Array | NpgsqlDbType.Bigint) { Value = owners.Select(m => m.AppId).ToArray() }
+                        }, cancellationToken);
 
                     // A prefill row only records which app downloaded the depot; once PICS names an
                     // owner, the prefill row must not stay a second one.
@@ -605,11 +620,11 @@ public class PicsDataService
                 db.ChangeTracker.AutoDetectChangesEnabled = true;
             }
 
-            if (progressCallback != null) await progressCallback("Import complete.", 95);
+            if (progressCallback != null) await progressCallback(95);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("PICS data import cancelled");
+            _logger.LogInformation("PICS data import canceled");
             throw;
         }
     }

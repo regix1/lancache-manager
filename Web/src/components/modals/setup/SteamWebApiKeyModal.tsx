@@ -48,7 +48,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
   });
 
   // Unmount with a Test/Save still live (e.g. tab switched away mid-request): settle the card
-  // as cancelled so it doesn't spin forever.
+  // as canceled so it doesn't spin forever.
   useEffect(() => {
     return () => {
       cancelWebApiCard();

@@ -177,7 +177,7 @@ fn default_stage_key_for_status(status: &str) -> &'static str {
         "deleting" => "signalr.logService.delete.deleting",
         "removing" => "signalr.logRemoval.removing",
         "completed" => "signalr.logService.complete",
-        "cancelled" => "signalr.logService.cancelled",
+        "canceled" => "signalr.logService.canceled",
         "failed" | "error" => "signalr.logService.error.fatal",
         _ => "signalr.logService.progress",
     }
@@ -215,7 +215,7 @@ fn write_progress(
 
     match progress.status.as_str() {
         "completed" => reporter.emit_complete(stage_key, context),
-        "cancelled" => reporter.emit_cancelled(stage_key, context),
+        "canceled" => reporter.emit_canceled(stage_key, context),
         "failed" | "error" => {
             reporter.emit_failed(stage_key, context, Some(progress.message.clone()))
         }
@@ -234,7 +234,7 @@ fn extract_service_from_line(line: &str) -> Option<String> {
 struct LineCountOutcome {
     lines_processed: u64,
     files_processed: usize,
-    cancelled: bool,
+    canceled: bool,
     /// Count of members with a reportable problem; when greater than zero the returned complete
     /// record count is the best available total rather than an authoritative total.
     files_with_errors: u64,
@@ -245,14 +245,14 @@ struct LineCountOutcome {
 #[derive(Debug, PartialEq, Eq)]
 struct DeleteFileOutcome {
     bytes_deleted: u64,
-    cancelled: bool,
+    canceled: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 struct CompleteRecordCount {
     lines: u64,
     ended_incomplete: bool,
-    cancelled: bool,
+    canceled: bool,
     read_error: Option<String>,
 }
 
@@ -272,22 +272,22 @@ struct MemberCount {
     lines: u64,
     problem: Option<String>,
     stop_source: bool,
-    cancelled: bool,
+    canceled: bool,
 }
 
 fn member_count(rotated: bool, result: Result<CompleteRecordCount>) -> MemberCount {
     match result {
-        Ok(outcome) if outcome.cancelled => MemberCount {
+        Ok(outcome) if outcome.canceled => MemberCount {
             lines: outcome.lines,
             problem: None,
             stop_source: false,
-            cancelled: true,
+            canceled: true,
         },
         Ok(outcome) if outcome.read_error.is_some() => MemberCount {
             lines: if rotated { outcome.lines } else { 0 },
             problem: outcome.read_error,
             stop_source: !rotated,
-            cancelled: false,
+            canceled: false,
         },
         Ok(outcome) if outcome.ended_incomplete => MemberCount {
             lines: outcome.lines,
@@ -297,19 +297,19 @@ fn member_count(rotated: bool, result: Result<CompleteRecordCount>) -> MemberCou
                 None
             },
             stop_source: !rotated,
-            cancelled: false,
+            canceled: false,
         },
         Ok(outcome) => MemberCount {
             lines: outcome.lines,
             problem: None,
             stop_source: false,
-            cancelled: false,
+            canceled: false,
         },
         Err(error) => MemberCount {
             lines: 0,
             problem: Some(format!("{error:#}")),
             stop_source: !rotated,
-            cancelled: false,
+            canceled: false,
         },
     }
 }
@@ -350,7 +350,7 @@ fn resolve_sources(log_path: &str) -> Result<Vec<LogSource>> {
 /// count on cancellation and reports whether an unterminated record stopped the file.
 fn count_complete_records<R>(
     bytes_processed: &mut u64,
-    is_cancelled: &dyn Fn() -> bool,
+    is_canceled: &dyn Fn() -> bool,
     tick: &mut dyn FnMut(u64, u64) -> Result<()>,
     mut read_until_newline: R,
 ) -> Result<CompleteRecordCount>
@@ -361,11 +361,11 @@ where
     let mut file_lines = 0u64;
     let mut ended_incomplete = false;
     loop {
-        if is_cancelled() {
+        if is_canceled() {
             return Ok(CompleteRecordCount {
                 lines: file_lines,
                 ended_incomplete,
-                cancelled: true,
+                canceled: true,
                 read_error: None,
             });
         }
@@ -376,7 +376,7 @@ where
                 return Ok(CompleteRecordCount {
                     lines: file_lines,
                     ended_incomplete: false,
-                    cancelled: false,
+                    canceled: false,
                     read_error: Some(format!("{error:#}")),
                 });
             }
@@ -395,7 +395,7 @@ where
     Ok(CompleteRecordCount {
         lines: file_lines,
         ended_incomplete,
-        cancelled: false,
+        canceled: false,
         read_error: None,
     })
 }
@@ -403,16 +403,16 @@ where
 fn count_complete_records_in_file(
     path: &Path,
     bytes_processed: &mut u64,
-    is_cancelled: &dyn Fn() -> bool,
+    is_canceled: &dyn Fn() -> bool,
     tick: &mut dyn FnMut(u64, u64) -> Result<()>,
 ) -> Result<CompleteRecordCount> {
     let mut reader = LogFileReader::open(path)?;
-    count_complete_records(bytes_processed, is_cancelled, tick, |line| {
+    count_complete_records(bytes_processed, is_canceled, tick, |line| {
         reader.read_until_newline(line)
     })
 }
 
-fn finish_cancelled_line_count(
+fn finish_canceled_line_count(
     progress_path: &Path,
     reporter: &ProgressReporter,
     datasource_name: Option<&str>,
@@ -424,8 +424,8 @@ fn finish_cancelled_line_count(
     let progress = ProgressData::new(
         false,
         0.0,
-        "cancelled".to_string(),
-        "Line counting cancelled".to_string(),
+        "canceled".to_string(),
+        "Line counting canceled".to_string(),
         lines_processed,
         0,
         files_processed,
@@ -434,13 +434,13 @@ fn finish_cancelled_line_count(
     )
     .with_source_line_counts(source_line_counts.clone())
     .with_files_with_errors(files_with_errors)
-    .with_stage_key("signalr.logService.cancelled");
+    .with_stage_key("signalr.logService.canceled");
     write_progress(progress_path, reporter, &progress)?;
 
     Ok(LineCountOutcome {
         lines_processed,
         files_processed,
-        cancelled: true,
+        canceled: true,
         files_with_errors,
         source_line_counts,
     })
@@ -462,7 +462,7 @@ fn count_log_lines<F>(
     progress_path: &Path,
     reporter: &ProgressReporter,
     datasource_name: Option<&str>,
-    is_cancelled: F,
+    is_canceled: F,
 ) -> Result<LineCountOutcome>
 where
     F: Fn() -> bool,
@@ -472,7 +472,7 @@ where
         progress_path,
         reporter,
         datasource_name,
-        is_cancelled,
+        is_canceled,
         count_complete_records_in_file,
         None,
     )
@@ -483,7 +483,7 @@ fn count_log_lines_with<F, C>(
     progress_path: &Path,
     reporter: &ProgressReporter,
     datasource_name: Option<&str>,
-    is_cancelled: F,
+    is_canceled: F,
     count_file: C,
     resume_path: Option<&Path>,
 ) -> Result<LineCountOutcome>
@@ -496,8 +496,8 @@ where
         &mut dyn FnMut(u64, u64) -> Result<()>,
     ) -> Result<CompleteRecordCount>,
 {
-    if is_cancelled() {
-        return finish_cancelled_line_count(
+    if is_canceled() {
+        return finish_canceled_line_count(
             progress_path,
             reporter,
             datasource_name,
@@ -531,7 +531,7 @@ where
         return Ok(LineCountOutcome {
             lines_processed: 0,
             files_processed: 0,
-            cancelled: false,
+            canceled: false,
             files_with_errors: 0,
             source_line_counts: HashMap::new(),
         });
@@ -575,8 +575,8 @@ where
         let mut source_lines = 0u64;
 
         for log_file in &source.files {
-            if is_cancelled() {
-                return finish_cancelled_line_count(
+            if is_canceled() {
+                return finish_canceled_line_count(
                     progress_path,
                     reporter,
                     datasource_name,
@@ -624,12 +624,12 @@ where
                 count_file(
                     &log_file.path,
                     &mut bytes_processed,
-                    &is_cancelled,
+                    &is_canceled,
                     &mut tick,
                 ),
             );
-            if count.cancelled {
-                return finish_cancelled_line_count(
+            if count.canceled {
+                return finish_canceled_line_count(
                     progress_path,
                     reporter,
                     datasource_name,
@@ -692,7 +692,7 @@ where
     Ok(LineCountOutcome {
         lines_processed,
         files_processed,
-        cancelled: false,
+        canceled: false,
         files_with_errors,
         source_line_counts,
     })
@@ -703,28 +703,28 @@ fn delete_log_file<F>(
     progress_path: &Path,
     reporter: &ProgressReporter,
     datasource_name: Option<&str>,
-    is_cancelled: F,
+    is_canceled: F,
 ) -> Result<DeleteFileOutcome>
 where
     F: Fn() -> bool,
 {
-    if is_cancelled() {
+    if is_canceled() {
         let progress = ProgressData::new(
             false,
             0.0,
-            "cancelled".to_string(),
-            "Log file deletion cancelled".to_string(),
+            "canceled".to_string(),
+            "Log file deletion canceled".to_string(),
             0,
             0,
             0,
             None,
             datasource_name.map(str::to_string),
         )
-        .with_stage_key("signalr.logService.cancelled");
+        .with_stage_key("signalr.logService.canceled");
         write_progress(progress_path, reporter, &progress)?;
         return Ok(DeleteFileOutcome {
             bytes_deleted: 0,
-            cancelled: true,
+            canceled: true,
         });
     }
 
@@ -738,13 +738,13 @@ where
         // Newest file of each series first, so a delete that stops partway leaves only older files
         // of a series, and the host can count the read lines still in them.
         for log_file in sources.iter().flat_map(|s| s.files.iter().rev()) {
-            if is_cancelled() {
+            if is_canceled() {
                 let progress = ProgressData::new(
                     false,
                     0.0,
-                    "cancelled".to_string(),
+                    "canceled".to_string(),
                     format!(
-                        "Log file deletion cancelled after {} file(s)",
+                        "Log file deletion canceled after {} file(s)",
                         files_deleted
                     ),
                     0,
@@ -754,11 +754,11 @@ where
                     datasource_name.map(str::to_string),
                 )
                 .with_bytes_deleted(bytes_deleted)
-                .with_stage_key("signalr.logService.cancelled");
+                .with_stage_key("signalr.logService.canceled");
                 write_progress(progress_path, reporter, &progress)?;
                 return Ok(DeleteFileOutcome {
                     bytes_deleted,
-                    cancelled: true,
+                    canceled: true,
                 });
             }
 
@@ -813,7 +813,7 @@ where
 
         return Ok(DeleteFileOutcome {
             bytes_deleted,
-            cancelled: false,
+            canceled: false,
         });
     }
 
@@ -821,23 +821,23 @@ where
         .with_context(|| format!("Failed to inspect log file: {}", file_path.display()))?
         .len();
 
-    if is_cancelled() {
+    if is_canceled() {
         let progress = ProgressData::new(
             false,
             0.0,
-            "cancelled".to_string(),
-            "Log file deletion cancelled".to_string(),
+            "canceled".to_string(),
+            "Log file deletion canceled".to_string(),
             0,
             0,
             0,
             None,
             datasource_name.map(str::to_string),
         )
-        .with_stage_key("signalr.logService.cancelled");
+        .with_stage_key("signalr.logService.canceled");
         write_progress(progress_path, reporter, &progress)?;
         return Ok(DeleteFileOutcome {
             bytes_deleted: 0,
-            cancelled: true,
+            canceled: true,
         });
     }
 
@@ -861,7 +861,7 @@ where
 
     Ok(DeleteFileOutcome {
         bytes_deleted,
-        cancelled: false,
+        canceled: false,
     })
 }
 
@@ -1206,13 +1206,13 @@ fn remove_service_from_logs(
 
     for source in &delete_sources {
         for log_file in &source.files {
-            if cancel::is_cancelled() {
+            if cancel::is_canceled() {
                 let progress = ProgressData::new(
                     false,
                     0.0,
-                    "cancelled".to_string(),
+                    "canceled".to_string(),
                     format!(
-                        "Cancelled after deleting {} file(s). {} lines removed.",
+                        "Canceled after deleting {} file(s). {} lines removed.",
                         deleted_files, total_lines_removed
                     ),
                     total_lines_processed,
@@ -1651,7 +1651,7 @@ fn run(
                 progress_path,
                 reporter,
                 datasource_name,
-                cancel::is_cancelled,
+                cancel::is_canceled,
                 count_complete_records_in_file,
                 resume_path,
             ) {
@@ -1748,7 +1748,7 @@ fn run(
                 progress_path,
                 reporter,
                 datasource_name,
-                cancel::is_cancelled,
+                cancel::is_canceled,
             ) {
                 let error = error.context("Log file deletion failed");
                 write_error_progress(progress_path, format!("{error:#}"), datasource_name);
@@ -1913,13 +1913,13 @@ mod tests {
     fn count_with_read_failure(
         path: &Path,
         bytes_processed: &mut u64,
-        is_cancelled: &dyn Fn() -> bool,
+        is_canceled: &dyn Fn() -> bool,
         tick: &mut dyn FnMut(u64, u64) -> Result<()>,
         after_lines: u64,
     ) -> Result<CompleteRecordCount> {
         let mut reader = LogFileReader::open(path)?;
         let mut lines_read = 0u64;
-        count_complete_records(bytes_processed, is_cancelled, tick, |line| {
+        count_complete_records(bytes_processed, is_canceled, tick, |line| {
             if lines_read == after_lines {
                 anyhow::bail!("injected read failure");
             }
@@ -1990,7 +1990,7 @@ mod tests {
 
         assert_eq!(result.lines_processed, 5);
         assert_eq!(result.files_processed, 4);
-        assert!(!result.cancelled);
+        assert!(!result.canceled);
         assert_eq!(result.source_line_counts.get("access.log"), Some(&5));
         let progress = read_progress(&progress_path);
         assert_eq!(progress["status"], "completed");
@@ -2123,7 +2123,7 @@ mod tests {
         let complete = |lines| CompleteRecordCount {
             lines,
             ended_incomplete: false,
-            cancelled: false,
+            canceled: false,
             read_error: None,
         };
         assert_eq!(
@@ -2132,23 +2132,23 @@ mod tests {
                 lines: 3,
                 problem: None,
                 stop_source: false,
-                cancelled: false,
+                canceled: false,
             }
         );
 
-        let cancelled = CompleteRecordCount {
+        let canceled = CompleteRecordCount {
             lines: 4,
             ended_incomplete: false,
-            cancelled: true,
+            canceled: true,
             read_error: None,
         };
         assert_eq!(
-            member_count(false, Ok(cancelled)),
+            member_count(false, Ok(canceled)),
             MemberCount {
                 lines: 4,
                 problem: None,
                 stop_source: false,
-                cancelled: true,
+                canceled: true,
             }
         );
 
@@ -2163,7 +2163,7 @@ mod tests {
                 Ok(CompleteRecordCount {
                     lines: 7,
                     ended_incomplete: false,
-                    cancelled: false,
+                    canceled: false,
                     read_error: Some("read failed".to_string()),
                 }),
             );
@@ -2176,7 +2176,7 @@ mod tests {
                 Ok(CompleteRecordCount {
                     lines: 2,
                     ended_incomplete: true,
-                    cancelled: false,
+                    canceled: false,
                     read_error: None,
                 }),
             );
@@ -2249,11 +2249,11 @@ mod tests {
             &ProgressReporter::new(false),
             None,
             || false,
-            |path, bytes_processed, is_cancelled, tick| {
+            |path, bytes_processed, is_canceled, tick| {
                 if path == rotated {
-                    count_with_read_failure(path, bytes_processed, is_cancelled, tick, 0)
+                    count_with_read_failure(path, bytes_processed, is_canceled, tick, 0)
                 } else {
-                    count_complete_records_in_file(path, bytes_processed, is_cancelled, tick)
+                    count_complete_records_in_file(path, bytes_processed, is_canceled, tick)
                 }
             },
             None,
@@ -2279,11 +2279,11 @@ mod tests {
             &ProgressReporter::new(false),
             None,
             || false,
-            |path, bytes_processed, is_cancelled, tick| {
+            |path, bytes_processed, is_canceled, tick| {
                 if path == current {
-                    count_with_read_failure(path, bytes_processed, is_cancelled, tick, 1)
+                    count_with_read_failure(path, bytes_processed, is_canceled, tick, 1)
                 } else {
-                    count_complete_records_in_file(path, bytes_processed, is_cancelled, tick)
+                    count_complete_records_in_file(path, bytes_processed, is_canceled, tick)
                 }
             },
             None,
@@ -2981,7 +2981,7 @@ mod tests {
         let result = delete_log_file(directory.path(), &progress_path, &reporter, None, || false)
             .expect("delete all log files");
 
-        assert!(!result.cancelled);
+        assert!(!result.canceled);
         assert_eq!(result.bytes_deleted, 4 + 5 + 2);
         assert!(!directory.path().join("access.log").exists());
         assert!(!directory.path().join("steam-access.log").exists());
@@ -3006,7 +3006,7 @@ mod tests {
         })
         .expect("stop after one file");
 
-        assert!(result.cancelled);
+        assert!(result.canceled);
         assert!(!directory.path().join("steam-access.log").exists());
         assert!(directory.path().join("steam-access.log.1").exists());
     }
@@ -3027,7 +3027,7 @@ mod tests {
         let result = delete_log_file(directory.path(), &progress_path, &reporter, None, || false)
             .expect("delete all log files");
 
-        assert!(!result.cancelled);
+        assert!(!result.canceled);
         assert!(!directory.path().join("steam-access.log").exists());
         assert!(!directory.path().join("steam-access.log.1").exists());
         assert!(!directory.path().join("steam-access.log.1.gz").exists());
@@ -3158,7 +3158,7 @@ mod tests {
         );
         assert_eq!(result.lines_processed, 3);
         assert_eq!(result.files_processed, 3);
-        assert!(!result.cancelled);
+        assert!(!result.canceled);
         // Exactly one source hit an unreadable member, so the total is partial.
         assert_eq!(result.files_with_errors, 1);
 
@@ -3184,12 +3184,12 @@ mod tests {
         )
         .expect("cancel line count");
 
-        assert!(result.cancelled);
-        assert_eq!(read_progress(&progress_path)["status"], "cancelled");
+        assert!(result.canceled);
+        assert_eq!(read_progress(&progress_path)["status"], "canceled");
     }
 
     #[test]
-    fn cancelled_line_count_keeps_finished_stem_counts() {
+    fn canceled_line_count_keeps_finished_stem_counts() {
         let directory = tempfile::tempdir().expect("create fixture directory");
         std::fs::write(directory.path().join("access.log"), b"one\n").expect("write first source");
         std::fs::write(directory.path().join("steam-access.log"), b"two\n")
@@ -3212,7 +3212,7 @@ mod tests {
         )
         .expect("cancel after first source");
 
-        assert!(result.cancelled);
+        assert!(result.canceled);
         assert_eq!(result.lines_processed, 1);
         assert_eq!(result.source_line_counts.get("access.log"), Some(&1));
         let progress = read_progress(&progress_path);
@@ -3242,7 +3242,7 @@ mod tests {
         )
         .expect("cancel line count after one record");
 
-        assert!(result.cancelled);
+        assert!(result.canceled);
         assert_eq!(result.lines_processed, 1);
         assert_eq!(result.source_line_counts.get("access.log"), Some(&1));
         assert_eq!(read_progress(&progress_path)["lines_processed"], 1);
@@ -3267,7 +3267,7 @@ mod tests {
             result,
             DeleteFileOutcome {
                 bytes_deleted: 6,
-                cancelled: false,
+                canceled: false,
             }
         );
         assert!(!log_path.exists());
@@ -3277,7 +3277,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_log_file_missing_or_cancelled_never_claims_success() {
+    fn delete_log_file_missing_or_canceled_never_claims_success() {
         let directory = tempfile::tempdir().expect("create fixture directory");
         let reporter = ProgressReporter::new(false);
         let missing_path = directory.path().join("missing.log");
@@ -3290,12 +3290,12 @@ mod tests {
 
         let active_path = directory.path().join("access.log");
         fs::write(&active_path, b"keep").expect("write active log");
-        let cancelled_progress = directory.path().join("cancelled-progress.json");
-        let cancelled =
-            delete_log_file(&active_path, &cancelled_progress, &reporter, None, || true)
+        let canceled_progress = directory.path().join("canceled-progress.json");
+        let canceled =
+            delete_log_file(&active_path, &canceled_progress, &reporter, None, || true)
                 .expect("cancel deletion");
-        assert!(cancelled.cancelled);
+        assert!(canceled.canceled);
         assert!(active_path.exists());
-        assert_eq!(read_progress(&cancelled_progress)["status"], "cancelled");
+        assert_eq!(read_progress(&canceled_progress)["status"], "canceled");
     }
 }

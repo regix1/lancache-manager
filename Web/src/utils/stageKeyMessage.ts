@@ -13,7 +13,7 @@ export function hasUnresolvedInterpolation(value: string): boolean {
  * unfilled. Translating with every string value blanked leaves a token only where the context
  * supplied no value for it. Numbers keep their value because they pick the plural form.
  */
-export function blankStringValues(context: StageInterpolation | undefined): StageInterpolation {
+function blankStringValues(context: StageInterpolation | undefined): StageInterpolation {
   return Object.fromEntries(
     Object.entries(context ?? {}).map(
       ([name, value]): [string, string | number | boolean | null] => [
@@ -59,25 +59,30 @@ export function translateRecoveryStage(
 }
 
 /**
+ * The namespaces the API sends keys from. `signalr.` names a progress stage and `errors.` a refusal;
+ * a sign-in ends on a `prefill.` key, a refusal can carry a `management.` key, and a stopped sign-in
+ * a `common.` one, and each of them can become a run's message or error.
+ */
+const API_KEY_PREFIXES = ['signalr.', 'errors.', 'prefill.', 'management.', 'common.'];
+
+/**
  * Translate a backend stage key, or pass through plain-text status messages.
  *
- * `signalr.` names a progress stage and `errors.` names a refusal; both are keys the API sends for
- * the browser to render, and both reach this function because an operation's status message carries
- * whichever one the producer had. Anything else is a sentence the backend composed at runtime, such
- * as a count or a path it filled in itself. There is no key to look up for those, so passing them
- * through is the only thing left to do, and it is what the reader gets today.
+ * Every key the API sends reaches this function because an operation's status message carries
+ * whichever one the producer had. No current producer composes English into a run message. Anything
+ * else is a run row or schedule history entry an older version stored with its English sentence in
+ * it; there is no key to look up for those, so they pass through as they were stored.
  */
 export function translateStageKeyMessage(
   stageKeyOrMessage: string | undefined | null,
   context?: StageInterpolation,
   fallbackKey?: string
 ): string {
-  if (stageKeyOrMessage?.startsWith('signalr.') || stageKeyOrMessage?.startsWith('errors.')) {
-    return i18n.t(stageKeyOrMessage, context ?? {});
-  }
-
   if (stageKeyOrMessage) {
-    return stageKeyOrMessage;
+    const message = stageKeyOrMessage;
+    return API_KEY_PREFIXES.some((prefix: string): boolean => message.startsWith(prefix))
+      ? i18n.t(message, context ?? {})
+      : message;
   }
 
   return fallbackKey ? i18n.t(fallbackKey, context ?? {}) : '';

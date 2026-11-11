@@ -25,6 +25,8 @@ export interface ExpandableItemStat {
 interface ExpandableItemCardProps {
   id: number | string;
   title: string;
+  /** True when the item is a Steam depot no game could be matched to. */
+  isUnresolvedDepot?: boolean;
   titleClassName?: string;
   subtitle?: React.ReactNode;
   gameAppId?: string | number;
@@ -53,6 +55,7 @@ interface ExpandableItemCardProps {
 const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   id,
   title,
+  isUnresolvedDepot,
   titleClassName,
   subtitle,
   gameAppId,
@@ -77,7 +80,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   children
 }) => {
   const { t } = useTranslation();
-  // Any running/queued removal in the game-cache domain disables every per-item
+  // Any running/waiting removal in the game-cache domain disables every per-item
   // Remove button - single removes and Remove All gate together.
   const isCacheRemovalActive = useCacheRemovalActive();
   // Disk-level object removal needs one resolved cache-key scheme for every enabled datasource
@@ -102,7 +105,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   const nameKeyed = nameKeyedImageKey(service, title);
   const imageId = nameKeyed ? nameKeyed.slug : isEpic ? epicAppId : String(gameAppId ?? '');
   const showImage = !!imageId && availableImages.has(imageId) && !imageError;
-  const isUnknownGame = title.startsWith('Unknown Game');
+  const isUnknownGame = isUnresolvedDepot === true;
   const actionTooltip = !diskObjectsAvailable
     ? (diskObjectDenialReason ?? t('management.capability.diskObjectsUnavailable'))
     : diskActionBlocked

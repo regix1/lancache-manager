@@ -3,7 +3,6 @@ using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
-using Npgsql;
 using DetectionOperationResponse = LancacheManager.Core.Services.GameCacheDetectionService.DetectionOperationResponse;
 
 namespace LancacheManager.Core.Services;
@@ -13,6 +12,12 @@ public sealed partial class GameCacheDetectionDataService
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly ILogger<GameCacheDetectionDataService> _logger;
     private readonly SemaphoreSlim _summaryRefreshLock = new(1, 1);
+
+    // The writers of detection rows each look for a game's row and insert one when none exists. The
+    // unique index cannot stop a second (appId, NULL) row, because PostgreSQL treats the NULLs as
+    // distinct, so those look-then-write passes run one at a time. The service writers take it too:
+    // a second insert of one service name fails the unique index and with it the whole save.
+    internal static readonly SemaphoreSlim DetectionRowWriteLock = new(1, 1);
 
     public GameCacheDetectionDataService(
         IDbContextFactory<AppDbContext> dbContextFactory,
@@ -171,7 +176,7 @@ public sealed partial class GameCacheDetectionDataService
         // identity (0 is the named-game sentinel on the detection side), so pooling those rows under
         // key 0 would hand one detection row the evicted counts, byte sums, URLs and depot ids of
         // every unrelated App 0 download - and would let AppendMissingPartialEvictedProjectionsAsync
-        // synthesise a whole game out of that pooled figure.
+        // synthesize a whole game out of that pooled figure.
         var steamEvictedMap = await dbContext.Downloads
             .Where(d => d.IsEvicted && d.GameAppId != null && d.GameAppId > 0 && d.EpicAppId == null)
             .GroupBy(d => d.GameAppId!.Value)
@@ -620,6 +625,8 @@ public sealed partial class GameCacheDetectionDataService
                 {
                     GameAppId = row.GameAppId,
                     GameName = row.GameName ?? "Unknown",
+                    // Downloads.GameAppId is only ever an owning app from a depot mapping.
+                    IsUnresolvedDepot = false,
                     Service = row.Service ?? "steam",
                     CacheFilesFound = 0,
                     TotalSizeBytes = 0,
@@ -659,6 +666,7 @@ public sealed partial class GameCacheDetectionDataService
                     GameAppId = 0,
                     EpicAppId = row.EpicAppId,
                     GameName = row.GameName ?? "Unknown",
+                    IsUnresolvedDepot = false,
                     Service = row.Service ?? "epicgames",
                     CacheFilesFound = 0,
                     TotalSizeBytes = 0,
@@ -710,6 +718,7 @@ public sealed partial class GameCacheDetectionDataService
                 {
                     GameAppId = 0,
                     GameName = row.GameName,
+                    IsUnresolvedDepot = false,
                     Service = row.DisplayService ?? row.Service,
                     CacheFilesFound = 0,
                     TotalSizeBytes = 0,
@@ -1048,10 +1057,49 @@ public sealed partial class GameCacheDetectionDataService
             "[GameDetection] Cache invalidated - all cached games and services deleted from database");
     }
 
+    /// <summary>
+    /// Keys loaded detection rows by game, keeping a live row first and then the lowest Id, and marking every
+    /// other row of that key for deletion in the caller's next save. A pair stored before the writers
+    /// were serialized would otherwise fail every lookup of that game.
+    /// </summary>
+    internal static Dictionary<TKey, CachedGameDetection> KeepOneRowPerKey<TKey>(
+        AppDbContext dbContext,
+        List<CachedGameDetection> rows,
+        Func<CachedGameDetection, TKey> keyOf)
+        where TKey : notnull
+    {
+        var kept = new Dictionary<TKey, CachedGameDetection>();
+        foreach (var row in rows.OrderBy(r => r.IsEvicted).ThenBy(r => r.Id))
+        {
+            if (!kept.TryAdd(keyOf(row), row))
+            {
+                dbContext.CachedGameDetections.Remove(row);
+            }
+        }
+
+        return kept;
+    }
+
     public async Task SaveGamesAsync(
         List<GameCacheInfo> games,
         bool incremental,
         CancellationToken cancellationToken = default)
+    {
+        await DetectionRowWriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            await SaveGamesCoreAsync(games, incremental, cancellationToken);
+        }
+        finally
+        {
+            DetectionRowWriteLock.Release();
+        }
+    }
+
+    private async Task SaveGamesCoreAsync(
+        List<GameCacheInfo> games,
+        bool incremental,
+        CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -1106,12 +1154,14 @@ public sealed partial class GameCacheDetectionDataService
         static string MakeNamedKey(string service, string gameName) =>
             service.ToLower() + "" + gameName;
 
+        // An unknown depot carries its depot number in GameAppId, so a Steam row is keyed on
+        // (GameAppId, IsUnresolvedDepot) to keep it apart from an app with the same number.
         if (!incremental)
         {
-            var incomingSteamIds = games
+            var incomingSteamKeys = games
                 .Where(g => g.EpicAppId == null && !IsNamed(g))
-                .Select(g => g.GameAppId)
-                .ToList();
+                .Select(g => (g.GameAppId, g.IsUnresolvedDepot))
+                .ToHashSet();
             var incomingEpicIds = games.Where(g => g.EpicAppId != null).Select(g => g.EpicAppId!).ToList();
             // Named keys present in this scan, so the non-incremental delete below preserves them.
             var incomingNamedKeys = games
@@ -1119,23 +1169,20 @@ public sealed partial class GameCacheDetectionDataService
                 .Select(g => MakeNamedKey(g.Service!, g.GameName))
                 .ToHashSet();
 
-            // Materialize candidate-for-deletion rows, then filter named rows in memory (EF can't
-            // translate the composite (Service,GameName) HashSet membership) so incoming named games
-            // are preserved exactly like Steam/Epic.
+            // Materialize candidate-for-deletion rows, then filter named and Steam rows in memory (EF
+            // can't translate the composite (Service,GameName) or (GameAppId, unknown) HashSet
+            // membership) so incoming named and Steam games are preserved exactly like Epic.
             var deletionCandidates = await dbContext.CachedGameDetections
                 .Where(g => !g.IsEvicted
-                    && (g.EpicAppId == null
-                            ? (g.GameAppId == 0 && g.Service != null && g.GameName != ""
-                                // Named row: keep only if NOT in the incoming named set (handled in memory).
-                                ? true
-                                : !incomingSteamIds.Contains(g.GameAppId))
-                            : !incomingEpicIds.Contains(g.EpicAppId!)))
-                .Select(g => new { g.Id, g.GameAppId, g.EpicAppId, g.Service, g.GameName })
+                    && (g.EpicAppId == null || !incomingEpicIds.Contains(g.EpicAppId!)))
+                .Select(g => new { g.Id, g.GameAppId, g.EpicAppId, g.Service, g.GameName, g.IsUnresolvedDepot })
                 .ToListAsync(cancellationToken);
 
             var idsToDelete = deletionCandidates
-                .Where(g => !(g.EpicAppId == null && g.GameAppId == 0 && g.Service != null && g.GameName != ""
-                              && incomingNamedKeys.Contains(MakeNamedKey(g.Service!, g.GameName))))
+                .Where(g => g.EpicAppId != null
+                    || (g.GameAppId == 0 && g.Service != null && g.GameName != ""
+                        ? !incomingNamedKeys.Contains(MakeNamedKey(g.Service!, g.GameName))
+                        : !incomingSteamKeys.Contains((g.GameAppId, g.IsUnresolvedDepot))))
                 .Select(g => g.Id)
                 .ToList();
 
@@ -1152,7 +1199,7 @@ public sealed partial class GameCacheDetectionDataService
         var namedGames = games.Where(IsNamed).ToList();
 
         var uniqueSteamGames = steamGames
-            .GroupBy(g => g.GameAppId)
+            .GroupBy(g => (g.GameAppId, IsUnknown: g.IsUnresolvedDepot))
             .Select(group => group.Last())
             .ToList();
 
@@ -1184,41 +1231,42 @@ public sealed partial class GameCacheDetectionDataService
         var now = DateTime.UtcNow;
         var incomingSteamAppIds = uniqueSteamGames.Select(g => g.GameAppId).ToList();
         var existingSteamDict = incomingSteamAppIds.Count == 0
-            ? new Dictionary<long, CachedGameDetection>()
-            : await dbContext.CachedGameDetections
-                .Where(g => g.EpicAppId == null
-                    && !(g.GameAppId == 0 && g.Service != null && g.GameName != "")
-                    && incomingSteamAppIds.Contains(g.GameAppId))
-                .ToDictionaryAsync(g => g.GameAppId, cancellationToken);
+            ? new Dictionary<(long GameAppId, bool IsUnknown), CachedGameDetection>()
+            : KeepOneRowPerKey(
+                dbContext,
+                await dbContext.CachedGameDetections
+                    .Where(g => g.EpicAppId == null
+                        && !(g.GameAppId == 0 && g.Service != null && g.GameName != "")
+                        && incomingSteamAppIds.Contains(g.GameAppId))
+                    .ToListAsync(cancellationToken),
+                g => (g.GameAppId, IsUnknown: g.IsUnresolvedDepot));
 
         var incomingEpicAppIds = uniqueEpicGames.Select(g => g.EpicAppId!).ToList();
         var existingEpicDict = incomingEpicAppIds.Count == 0
             ? new Dictionary<string, CachedGameDetection>()
-            : await dbContext.CachedGameDetections
-                .Where(g => g.EpicAppId != null && incomingEpicAppIds.Contains(g.EpicAppId!))
-                .ToDictionaryAsync(g => g.EpicAppId!, cancellationToken);
+            : KeepOneRowPerKey(
+                dbContext,
+                await dbContext.CachedGameDetections
+                    .Where(g => g.EpicAppId != null && incomingEpicAppIds.Contains(g.EpicAppId!))
+                    .ToListAsync(cancellationToken),
+                g => g.EpicAppId!);
 
         // Existing named rows keyed by (Service.ToLower(), GameName). EF can't key a dictionary on a
         // tuple from SQL, so we pull the candidate rows (services in the incoming set) and build the
         // dict in memory.
         var incomingNamedServices = uniqueNamedGames.Select(g => g.Service!.ToLower()).Distinct().ToList();
-        var existingNamedDict = new Dictionary<(string Service, string GameName), CachedGameDetection>();
-        if (incomingNamedServices.Count > 0)
-        {
-            var existingNamedRows = await dbContext.CachedGameDetections
-                .Where(g => g.EpicAppId == null
-                    && g.GameAppId == 0
-                    && g.Service != null
-                    && g.GameName != ""
-                    && incomingNamedServices.Contains(g.Service!.ToLower()))
-                .ToListAsync(cancellationToken);
-
-            foreach (var row in existingNamedRows)
-            {
-                var key = (row.Service!.ToLower(), row.GameName);
-                existingNamedDict[key] = row;
-            }
-        }
+        var existingNamedDict = incomingNamedServices.Count == 0
+            ? new Dictionary<(string Service, string GameName), CachedGameDetection>()
+            : KeepOneRowPerKey(
+                dbContext,
+                await dbContext.CachedGameDetections
+                    .Where(g => g.EpicAppId == null
+                        && g.GameAppId == 0
+                        && g.Service != null
+                        && g.GameName != ""
+                        && incomingNamedServices.Contains(g.Service!.ToLower()))
+                    .ToListAsync(cancellationToken),
+                g => (Service: g.Service!.ToLower(), g.GameName));
 
         foreach (var game in uniqueGames)
         {
@@ -1226,6 +1274,7 @@ public sealed partial class GameCacheDetectionDataService
             {
                 GameAppId = game.GameAppId,
                 GameName = game.GameName,
+                IsUnresolvedDepot = game.IsUnresolvedDepot,
                 CacheFilesFound = game.CacheFilesFound,
                 TotalSizeBytes = game.TotalSizeBytes,
                 DepotIdsJson = JsonSerializer.Serialize(game.DepotIds),
@@ -1250,12 +1299,15 @@ public sealed partial class GameCacheDetectionDataService
             }
             else
             {
-                existingSteamDict.TryGetValue(cachedGame.GameAppId, out existing);
+                existingSteamDict.TryGetValue(
+                    (cachedGame.GameAppId, cachedGame.IsUnresolvedDepot),
+                    out existing);
             }
 
             if (existing != null)
             {
                 existing.GameName = cachedGame.GameName;
+                existing.IsUnresolvedDepot = cachedGame.IsUnresolvedDepot;
                 existing.CacheFilesFound = cachedGame.CacheFilesFound;
                 existing.TotalSizeBytes = cachedGame.TotalSizeBytes;
                 existing.DepotIdsJson = cachedGame.DepotIdsJson;
@@ -1304,18 +1356,23 @@ public sealed partial class GameCacheDetectionDataService
                     "[GameDetection] {Count} detected game row(s) were deleted before the save; saving the rest",
                     ex.Entries.Count);
             }
-            catch (DbUpdateException ex)
-                when (ex.InnerException is NpgsqlException pgEx && pgEx.SqlState == "23505")
-            {
-                _logger.LogWarning(
-                    ex,
-                    "[GameDetection] UNIQUE constraint error when saving games - some records may already exist. Continuing...");
-                return;
-            }
         }
     }
 
     public async Task<int> RecoverEvictedGamesAsync(CancellationToken cancellationToken = default)
+    {
+        await DetectionRowWriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await RecoverEvictedGamesCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            DetectionRowWriteLock.Release();
+        }
+    }
+
+    private async Task<int> RecoverEvictedGamesCoreAsync(CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -1355,6 +1412,8 @@ public sealed partial class GameCacheDetectionDataService
                 {
                     GameAppId = game.GameAppId,
                     GameName = game.GameName ?? "Unknown",
+                    // Downloads.GameAppId is only ever an owning app from a depot mapping.
+                    IsUnresolvedDepot = false,
                     CacheFilesFound = 0,
                     TotalSizeBytes = 0,
                     Service = game.Service ?? "steam",
@@ -1395,6 +1454,7 @@ public sealed partial class GameCacheDetectionDataService
                 {
                     GameAppId = 0,
                     GameName = game.GameName ?? "Unknown",
+                    IsUnresolvedDepot = false,
                     CacheFilesFound = 0,
                     TotalSizeBytes = 0,
                     Service = game.Service ?? "epicgames",
@@ -1441,9 +1501,10 @@ public sealed partial class GameCacheDetectionDataService
                 {
                     GameAppId = 0,                     // detection-side named sentinel (Downloads col is NULL; detection row is 0)
                     GameName = game.GameName ?? "Unknown",
+                    IsUnresolvedDepot = false,
                     CacheFilesFound = 0,
                     TotalSizeBytes = 0,
-                    Service = game.Service!,           // 'xbox' | 'blizzard' | 'riot'
+                    Service = game.Service!,          // 'xbox' | 'blizzard' | 'riot'
                     EpicAppId = null,
                     IsEvicted = true,
                     LastDetectedUtc = now,
@@ -1463,6 +1524,19 @@ public sealed partial class GameCacheDetectionDataService
     }
 
     public async Task<int> RecoverEvictedServicesAsync(CancellationToken cancellationToken = default)
+    {
+        await DetectionRowWriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            return await RecoverEvictedServicesCoreAsync(cancellationToken);
+        }
+        finally
+        {
+            DetectionRowWriteLock.Release();
+        }
+    }
+
+    private async Task<int> RecoverEvictedServicesCoreAsync(CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -1523,6 +1597,22 @@ public sealed partial class GameCacheDetectionDataService
         List<ServiceCacheInfo> services,
         bool incremental = false,
         CancellationToken cancellationToken = default)
+    {
+        await DetectionRowWriteLock.WaitAsync(cancellationToken);
+        try
+        {
+            await SaveServicesCoreAsync(services, incremental, cancellationToken);
+        }
+        finally
+        {
+            DetectionRowWriteLock.Release();
+        }
+    }
+
+    private async Task SaveServicesCoreAsync(
+        List<ServiceCacheInfo> services,
+        bool incremental,
+        CancellationToken cancellationToken)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -1605,7 +1695,7 @@ public sealed partial class GameCacheDetectionDataService
             }
         }
 
-        // An incremental save carries only the services the run actually reached - a cancelled
+        // An incremental save carries only the services the run actually reached - a canceled
         // scan stops mid-way and hands over whatever it had. Absence from a list that was never
         // finished is not evidence of anything, so the whole absence pass below is skipped and the
         // rows the run never looked at keep the counts and the badge they already had. Only a full
@@ -1696,6 +1786,7 @@ public sealed partial class GameCacheDetectionDataService
         {
             GameAppId = cached.GameAppId,
             GameName = cached.GameName,
+            IsUnresolvedDepot = cached.IsUnresolvedDepot,
             CacheFilesFound = cached.CacheFilesFound,
             TotalSizeBytes = cached.TotalSizeBytes,
             DepotIds = JsonSerializer.Deserialize<List<uint>>(cached.DepotIdsJson) ?? new List<uint>(),

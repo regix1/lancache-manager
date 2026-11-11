@@ -17,7 +17,7 @@ import {
 } from './transpile-module.mjs';
 
 const componentPath = 'src/components/features/management/schedules/ScheduleHistory.tsx';
-const historyWireText = String.raw`{"items":[{"id":4,"operationId":"44444444-4444-4444-4444-444444444444","serviceKey":"scheduledPrefill","status":"cancelled","trigger":"manual","actorKind":"account","accountId":"55555555-5555-5555-5555-555555555555","username":"history-owner","startedAt":"2026-09-27T13:03:00Z","completedAt":"2026-09-27T13:03:09Z","detail":"Cancelled after the active download stopped.","scheduleId":"66666666-6666-6666-6666-666666666666","scheduleName":"Nightly","platform":"Steam","workerStarted":true},{"id":3,"operationId":"33333333-3333-3333-3333-333333333333","serviceKey":"databaseBackup","status":"failed","actorKind":"unknown","startedAt":"2026-09-27T13:02:00Z","completedAt":"2026-09-27T13:02:08Z","detail":"The database did not answer before the backup deadline.","workerStarted":true},{"id":2,"operationId":"22222222-2222-2222-2222-222222222222","serviceKey":"cacheSizeScan","status":"skipped","trigger":"startup","actorKind":"server","startedAt":"2026-09-27T13:01:00Z","completedAt":"2026-09-27T13:01:01Z","workerStarted":false},{"id":1,"operationId":"11111111-1111-1111-1111-111111111111","serviceKey":"logRotation","status":"completed","trigger":"scheduled","actorKind":"server","startedAt":"2026-09-27T13:00:00Z","completedAt":"2026-09-27T13:00:05Z","workerStarted":true}],"page":1,"pageSize":100,"totalCount":4,"totalPages":1}`;
+const historyWireText = String.raw`{"items":[{"id":4,"operationId":"44444444-4444-4444-4444-444444444444","serviceKey":"scheduledPrefill","status":"canceled","trigger":"manual","actorKind":"account","accountId":"55555555-5555-5555-5555-555555555555","username":"history-owner","startedAt":"2026-09-27T13:03:00Z","completedAt":"2026-09-27T13:03:09Z","detail":"Canceled after the active download stopped.","scheduleId":"66666666-6666-6666-6666-666666666666","scheduleName":"Nightly","platform":"Steam","workerStarted":true},{"id":3,"operationId":"33333333-3333-3333-3333-333333333333","serviceKey":"databaseBackup","status":"failed","actorKind":"unknown","startedAt":"2026-09-27T13:02:00Z","completedAt":"2026-09-27T13:02:08Z","detail":"The database did not answer before the backup deadline.","workerStarted":true},{"id":2,"operationId":"22222222-2222-2222-2222-222222222222","serviceKey":"cacheSizeScan","status":"skipped","trigger":"startup","actorKind":"server","startedAt":"2026-09-27T13:01:00Z","completedAt":"2026-09-27T13:01:01Z","workerStarted":false},{"id":1,"operationId":"11111111-1111-1111-1111-111111111111","serviceKey":"logRotation","status":"completed","trigger":"scheduled","actorKind":"server","startedAt":"2026-09-27T13:00:00Z","completedAt":"2026-09-27T13:00:05Z","workerStarted":true}],"page":1,"pageSize":100,"totalCount":4,"totalPages":1}`;
 const historyWire = JSON.parse(historyWireText);
 const fetchSource = liftHookCallback(componentPath, 'useCallback', 'ApiService.getScheduleHistory');
 const changeQuerySource = liftHookCallback(
@@ -308,7 +308,7 @@ const makeComponent = (capture, language = 'en') => {
     VARIANT_BY_STATUS: {
       completed: 'success',
       failed: 'danger',
-      cancelled: 'neutral',
+      canceled: 'neutral',
       skipped: 'neutral'
     },
     SCHEDULED_PREFILL_PLATFORM_TO_SERVICE_KEY:
@@ -583,7 +583,7 @@ test('wire omissions render fallback titles without raw keys or blank detail sur
       id: 3,
       operationId: 'space',
       serviceKey: 'gameDetection',
-      status: 'cancelled',
+      status: 'canceled',
       startedAt,
       completedAt,
       workerStarted: true,
@@ -673,8 +673,77 @@ test('a row whose detail is a locale key prints its sentence', () => {
   const { html } = renderHistory(response, query(), new Set([1]));
   assert.match(
     html,
-    /schedule-history-terminal-detail">Depot mapping did not run: could not reach Steam</
+    /schedule-history-terminal-detail">Steam game mapping did not run: could not reach Steam</
   );
+});
+
+test('a failed row with its reason prints the sentence with its value in the reader language', () => {
+  const items = [
+    {
+      id: 1,
+      operationId: 'github-failed',
+      serviceKey: 'depotMapping',
+      status: 'failed',
+      startedAt: '2026-09-27T10:00:00Z',
+      completedAt: '2026-09-27T10:00:05Z',
+      workerStarted: true,
+      actorKind: 'server',
+      detail: 'signalr.depotMapping.github.httpFailed',
+      failureReason: {
+        stageKey: 'signalr.depotMapping.github.httpFailed',
+        context: { errorDetail: '503', isReconnecting: false, reconnectAttempt: null }
+      }
+    }
+  ];
+  const response = { items, page: 1, pageSize: 20, totalCount: 1, totalPages: 1 };
+  const { html } = renderHistory(response, query(), new Set([1]), 'zh');
+  assert.match(
+    html,
+    /schedule-history-terminal-detail">GitHub 对 Steam 游戏映射下载返回了 HTTP 503</
+  );
+  assert.doesNotMatch(html, /\{\{/);
+});
+
+test('a failed row stored before reasons were kept still prints its stored detail', () => {
+  const items = [
+    {
+      id: 1,
+      operationId: 'github-failed-old',
+      serviceKey: 'depotMapping',
+      status: 'failed',
+      startedAt: '2026-09-27T10:00:00Z',
+      completedAt: '2026-09-27T10:00:05Z',
+      workerStarted: true,
+      actorKind: 'server',
+      detail: 'Depot mapping download failed with HTTP 503'
+    }
+  ];
+  const response = { items, page: 1, pageSize: 20, totalCount: 1, totalPages: 1 };
+  const { html } = renderHistory(response, query(), new Set([1]), 'zh');
+  assert.match(
+    html,
+    /schedule-history-terminal-detail">Depot mapping download failed with HTTP 503</
+  );
+  assert.doesNotMatch(html, /\{\{/);
+});
+
+test('a canceled row prints the canceled sentence', () => {
+  const items = [
+    {
+      id: 1,
+      operationId: 'log-processing-canceled',
+      serviceKey: 'logProcessing',
+      status: 'canceled',
+      startedAt: '2026-09-27T10:00:00Z',
+      completedAt: '2026-09-27T10:00:05Z',
+      workerStarted: true,
+      actorKind: 'server',
+      detail: 'signalr.generic.canceled'
+    }
+  ];
+  const response = { items, page: 1, pageSize: 20, totalCount: 1, totalPages: 1 };
+  const { html } = renderHistory(response, query(), new Set([1]));
+  assert.match(html, /schedule-history-terminal-detail">Operation canceled</);
 });
 
 test('a history warning prints its counts with thousands separators', () => {
@@ -702,7 +771,7 @@ test('a history warning prints its counts with thousands separators', () => {
 test('the exact endpoint response renders all raw items without sanitizing omitted fields', () => {
   assert.equal(
     createHash('sha256').update(historyWireText).digest('hex').toUpperCase(),
-    '97F13E4CA9DF9432C078ADD24BC79F8CFB0FFB303ADF1BE3CB2F471A14AB3EF7'
+    '89BD77C65D5EBE40875EEA8CE23AE3BE2149B9C122E89DF9E6267E3388B26430'
   );
   const expanded = new Set(historyWire.items.map((item) => item.id));
   const { html } = renderHistory(historyWire, query({ pageSize: 100 }), expanded);
@@ -713,7 +782,7 @@ test('the exact endpoint response renders all raw items without sanitizing omitt
   assert.match(html, /DatabaseBackup/);
   assert.match(html, /Cache File Scan/);
   assert.match(html, /Log Rotation/);
-  assert.match(html, /Cancelled after the active download stopped\./);
+  assert.match(html, /Canceled after the active download stopped\./);
   assert.match(html, /The database did not answer before the backup deadline\./);
   assert.doesNotMatch(html, /schedule-history-name"><\/span>|\.undefined/);
   assert.equal((html.match(/schedule-history-terminal-detail/g) ?? []).length, 2);

@@ -507,7 +507,7 @@ test('silent mapping refreshes stay inside the compact strip under the Compact d
 });
 
 test('background controls follow their schedule style, then the global default', () => {
-  for (const status of ['waiting', 'running', 'cancelling']) {
+  for (const status of ['waiting', 'running', 'canceling']) {
     for (const mode of [undefined, 'condensed', 'full']) {
       for (const defaultMode of ['full', 'condensed']) {
         const card = { ...notice(), controlOnly: true, status };
@@ -948,7 +948,7 @@ test('a card with nothing kept on the server closes here without a request', asy
   }
 });
 
-const makeStrip = (canHover = false) => {
+const makeStrip = (canHover = false, bindings = {}) => {
   const preference = { reduced: false };
   const constants = Object.fromEntries(
     ['PANEL_EXIT_MS', 'LINE_EXIT_MS', 'SEG_EXIT_MS', 'HOVER_OPEN_DELAY_MS'].map((name) => [
@@ -961,7 +961,8 @@ const makeStrip = (canHover = false) => {
     ...constants,
     useTranslation: () => ({ t }),
     useMediaQuery: () => preference.reduced,
-    StripSegment: 'StripSegment'
+    StripSegment: 'StripSegment',
+    ...bindings
   });
   const props = {
     segments: [segment()],
@@ -1142,7 +1143,7 @@ test('compact reopen immediately clears closing semantics and cancels old expiry
   }
 });
 
-test('reduced motion closes immediately and cannot revive cancelled closing presence', () => {
+test('reduced motion closes immediately and cannot revive canceled closing presence', () => {
   const runner = makeStrip();
   try {
     runner.start();
@@ -2113,11 +2114,11 @@ test('every status holds the same 16 px icon slot, so the text starts at the sam
   const statuses = [
     'pending',
     'running',
-    'cancelling',
+    'canceling',
     'waiting',
     'completed',
     'failed',
-    'cancelled',
+    'canceled',
     'skipped'
   ];
   const layouts = statuses.map((status) => {
@@ -2146,6 +2147,68 @@ test('every status holds the same 16 px icon slot, so the text starts at the sam
       `${statuses[index]}: icon, live region, text column`
     );
   assert.match(itemComponent, /motion-reduce:animate-none/, 'the spinner stops for reduced motion');
+});
+
+test('the card title, the silent row and the strip name every run type from its one title key', () => {
+  const statuses = [
+    'pending',
+    'running',
+    'canceling',
+    'waiting',
+    'alreadyRunning',
+    'repairing',
+    'completed',
+    'failed',
+    'canceled',
+    'skipped'
+  ];
+  const t = (key, values) => (values ? `${key}:${JSON.stringify(values)}` : key);
+  for (const [type, titleKey] of Object.entries(NOTIFICATION_TITLE_KEYS)) {
+    const title = titleKey ? t(titleKey) : '';
+    for (const status of statuses) {
+      const label = `${type} ${status}`;
+      const notification = { ...notice(type), type, status, details: { operationId: type } };
+
+      const heading = elements(renderItem(notification)).find((node) =>
+        node.props?.className?.startsWith('mb-1.5 font-mono')
+      );
+      assert.equal(heading ? textOf(heading) : '', title, `${label}: card title`);
+
+      // A silent row draws only while its run is live; an ended one draws the full card.
+      if (!isTerminalNotificationStatus(status)) {
+        const name = elements(renderItem({ ...notification, controlOnly: true })).find((node) =>
+          node.props?.className?.startsWith('background-task-control-row__name')
+        );
+        assert.equal(textOf(name), title, `${label}: silent row`);
+      }
+
+      // The strip speaks only when a segment's status changes while it is closed.
+      const strip = makeStrip(false, {
+        NOTIFICATION_TITLE_KEYS,
+        useTranslation: () => ({ t })
+      });
+      const before = status === 'running' ? 'pending' : 'running';
+      strip.props.segments = [
+        { key: type, notification: { ...notification, status: before }, variant: 'info' }
+      ];
+      strip.start();
+      strip.render({
+        ...strip.props,
+        segments: [{ key: type, notification, variant: 'info' }]
+      });
+      strip.flushPassive();
+      const live = elements(strip.tree).find((node) => node.props?.className === 'sr-only');
+      const statusLabel = t(`common.notifications.condensedStatus.${status}`);
+      assert.equal(
+        textOf(live),
+        titleKey
+          ? t('common.notifications.condensedLive', { title, status: statusLabel })
+          : statusLabel,
+        `${label}: strip`
+      );
+      strip.dispose();
+    }
+  }
 });
 
 test('a card leaving fades through the Tailwind opacity utility', () => {
@@ -2484,7 +2547,7 @@ test('a repairing card the user hid keeps only its compact strip segment', () =>
 });
 
 test('a press that would force stop asks first, and only Confirm sends it, for the card as it is now', () => {
-  const cancelled = [];
+  const canceled = [];
   const card = {
     ...notice('job'),
     details: { operationId: 'op', operationIds: ['op'], cancelRequested: true, cancelSent: true }
@@ -2495,7 +2558,7 @@ test('a press that would force stop asks first, and only Confirm sends it, for t
     {},
     {
       cancelConfig: SERVER_CANCEL,
-      cancel: (notification) => cancelled.push(notification)
+      cancel: (notification) => canceled.push(notification)
     }
   );
   bar.render();
@@ -2506,27 +2569,27 @@ test('a press that would force stop asks first, and only Confirm sends it, for t
   assert.equal(modals()[0].props.opened, false);
 
   press();
-  assert.deepEqual(cancelled, [], 'the press only opens the dialog');
+  assert.deepEqual(canceled, [], 'the press only opens the dialog');
   assert.equal(modals()[0].props.opened, true);
   assert.equal(modals()[0].props.confirmLabel, 'common.notifications.forceStop');
   assert.equal(modals()[0].props.title, 'common.notifications.forceStopConfirm.title');
   bar.event(() => modals()[0].props.onClose());
   assert.equal(modals()[0].props.opened, false);
-  assert.deepEqual(cancelled, [], 'Cancel sends nothing');
+  assert.deepEqual(canceled, [], 'Cancel sends nothing');
 
   press();
   const current = { ...card, message: 'Still detecting' };
   bar.setNotifications([current]);
   bar.event(() => modals()[0].props.onConfirm());
-  assert.deepEqual(cancelled, [current], 'Confirm stops the card as it is now');
+  assert.deepEqual(canceled, [current], 'Confirm stops the card as it is now');
   assert.equal(modals()[0].props.opened, false);
 
   press();
   bar.setNotifications([
-    { ...card, status: 'cancelled', details: { operationId: 'op', operationIds: ['op'] } }
+    { ...card, status: 'canceled', details: { operationId: 'op', operationIds: ['op'] } }
   ]);
   assert.equal(modals()[0].props.opened, false, 'a job that ends on its own closes the dialog');
-  assert.equal(cancelled.length, 1);
+  assert.equal(canceled.length, 1);
   bar.dispose();
 
   // A first press cancels at once, with no dialog.

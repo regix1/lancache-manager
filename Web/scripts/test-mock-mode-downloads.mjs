@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import ts from 'typescript';
 import {
   bindLifted,
   compileToUrl,
+  findSoleNode,
   liftConstArrow,
   liftHookCallback,
-  moduleUrl
+  moduleUrl,
+  parseSource
 } from './transpile-module.mjs';
 
 /**
@@ -122,7 +125,7 @@ const runFetchEffect = ({ mockMode, apiService, options = {} }) => {
       hasInitialDataRef: { current: false },
       requestInFlightRef: { current: false },
       reloadPendingRef: { current: false },
-      followUpQueuedRef: { current: false },
+      followUpWantedRef: { current: false },
       setRefreshVersion: () => undefined,
       setData: (value) => calls.setData.push(value),
       setError: (value) => calls.setError.push(value),
@@ -307,6 +310,21 @@ test('the generated page carries the fields the retro row renders from', () => {
   // The two fields the generator filters on are its own, and must not reach the row.
   assert.equal('isActive' in row, false);
   assert.equal('eventIds' in row, false);
+});
+
+// The retro rows hide a title the row reports as unresolved, so an ungrouped mock row has to say
+// whether its game has a name, as the server's row does.
+test('an ungrouped generated row says whether its game has a name', () => {
+  const generated = rows();
+  const named = (row) =>
+    row.appName.trim().length > 0 &&
+    row.appName !== 'Unknown/Other' &&
+    row.appName.toLowerCase() !== row.service.toLowerCase();
+  for (const row of generated) {
+    assert.equal(row.hasRealGameName, named(row), `${row.id} (${row.appName})`);
+  }
+  assert.ok(generated.some((row) => row.hasRealGameName && row.steamAppId !== null));
+  assert.ok(generated.some((row) => !row.hasRealGameName));
 });
 
 test('hiding localhost, small files, evicted rows and unknown games each removes rows', () => {
@@ -534,4 +552,34 @@ test('the download count behind the rows survives grouping', () => {
     'merging rows must not change how many downloads they stand for'
   );
   assert.ok(grouped.totalItems < ungrouped.totalItems);
+});
+
+test('alphabetical puts unnamed Steam groups after the named ones, in app id order', () => {
+  const source = parseSource('src/test/mockData.service.ts');
+  const declaration = findSoleNode(
+    source,
+    'sortMockRetroRows declaration',
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'sortMockRetroRows'
+  );
+  const sortMockRetroRows = bindLifted(declaration.getText(source), {});
+  const row = (appName, steamAppId, hasRealGameName) => ({
+    appName,
+    steamAppId,
+    hasRealGameName,
+    requestCount: 2
+  });
+  const sorted = sortMockRetroRows(
+    [
+      row('Steam App 20', 20, false),
+      row('Zeta', 30, true),
+      row('Steam App 10', 10, false),
+      row('Alpha', null, true),
+      row('Unknown', 0, false)
+    ],
+    { sort: 'alphabetical' }
+  );
+  assert.deepEqual(
+    sorted.map((entry) => entry.appName),
+    ['Alpha', 'Unknown', 'Zeta', 'Steam App 10', 'Steam App 20']
+  );
 });

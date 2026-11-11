@@ -5,7 +5,7 @@ import ts from 'typescript';
 import { transpile } from './transpile-module.mjs';
 
 /**
- * A guest whose administrator allows three of the five clock faces sees the other two greyed out.
+ * A guest whose administrator allows three of the five clock faces sees the other two grayed out.
  * The row says which clock it is and nothing about why it cannot be chosen, so the reader is left
  * to guess between a permission and a broken control. The row that refuses has to say so.
  *

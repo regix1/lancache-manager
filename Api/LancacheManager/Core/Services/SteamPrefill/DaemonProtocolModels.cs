@@ -5,11 +5,11 @@ namespace LancacheManager.Core.Services.SteamPrefill;
 
 /// <summary>
 /// Per-transport wording used in a daemon client's connection diagnostics: <c>Connection</c> names the
-/// live link ("socket", "TCP connection") and <c>Endpoint</c> names what it was dialled against
+/// live link ("socket", "TCP connection") and <c>Endpoint</c> names what it was dialed against
 /// ("socket", "TCP endpoint").
 /// </summary>
 /// <param name="Connection">Name of the live link, used in disconnect messages.</param>
-/// <param name="Endpoint">Name of the dialled endpoint, used in connect messages.</param>
+/// <param name="Endpoint">Name of the dialed endpoint, used in connect messages.</param>
 public sealed record DaemonTransportLabels(string Connection, string Endpoint);
 
 /// <summary>

@@ -25,16 +25,18 @@ internal sealed record RemovalOperationConfig<TReport>(
     string FinalizingStageKey,
     Func<Guid, TReport, object> BuildFinalizingProgress,
     Func<Guid, TReport, object> BuildSuccess,
-    Func<Guid, object> BuildCancelled,
+    Func<Guid, object> BuildCanceled,
     Func<Guid, Exception, object> BuildErrorProgress,
     Func<Guid, Exception, IOperationComplete> BuildErrorComplete,
     Func<Guid, CancellationToken, Func<RemovalProgressUpdate, Task>, Task<TReport>> ExecuteAsync,
     Func<Guid, OperationRepair> BuildRepair,
     Func<OperationRepair, CancellationToken, Task> PrepareRepairAsync,
-    Func<Guid, bool, bool, string?, Task> FinishRepairAsync,
+    // The last argument is the failure's key and values, saved with the outcome so the ending, live or
+    // restored, words the failure with them.
+    Func<Guid, bool, bool, string?, RunWarning?, Task> FinishRepairAsync,
     Action<RemovalMetrics, RemovalProgressUpdate>? ApplyProgressMetrics = null,
     Action<RemovalMetrics, TReport>? ApplyFinalMetrics = null,
     Func<TReport, Task>? OnSuccessAsync = null,
     Action<Guid, TReport>? LogSuccess = null,
-    Action<Guid>? LogCancelled = null,
+    Action<Guid>? LogCanceled = null,
     Action<Guid, Exception>? LogFailure = null);

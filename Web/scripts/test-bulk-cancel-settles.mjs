@@ -12,13 +12,13 @@ import {
 /**
  * Exercises the real useBatchQueue compiled from product source.
  *
- * The behavior under test: cancelling a batch must not settle the in-flight item's wait
+ * The behavior under test: canceling a batch must not settle the in-flight item's wait
  * early. The batch card has to stay 'running' until that item's own terminal event has
  * arrived, because findBulkCardOwningType only suppresses a per-item card while the batch
  * card is running or waiting - a batch finalized before the event lands puts a second card
- * ("<game> removal cancelled") next to "Bulk removal cancelled after N items". The click
+ * ("<game> removal canceled") next to "Bulk removal canceled after N items". The click
  * still has to act immediately: the server-side cancel fires at once (or as soon as the
- * operation id exists), and the card message flips to the cancelling line.
+ * operation id exists), and the card message flips to the canceling line.
  *
  * The batch card also keeps every item operation id it owned, so an item's kept failure stays
  * folded inside the batch card after the batch has moved on or ended, canceled or not.
@@ -102,7 +102,7 @@ const startRun = (hook, notifications, items) => {
         id: 'bulk',
         type: 'bulk_removal',
         status: 'running',
-        details: { itemTypes: ['game_removal'], cancelling: false }
+        details: { itemTypes: ['game_removal'], canceling: false }
       });
       return 'bulk';
     },
@@ -125,7 +125,7 @@ const startRun = (hook, notifications, items) => {
 };
 
 const clickCancel = (notifications, effects) => {
-  notifications.find((n) => n.id === 'bulk').details.cancelling = true;
+  notifications.find((n) => n.id === 'bulk').details.canceling = true;
   effects.forEach((effect) => effect());
 };
 
@@ -145,7 +145,7 @@ test('cancel keeps the batch card live until the in-flight item settles', async 
   assert.deepEqual(api.cancelCalls, ['op-1'], 'the click must cancel the in-flight item at once');
   assert.equal(
     notifications.find((n) => n.id === 'bulk').message,
-    'common.notifications.cancelling',
+    'common.notifications.canceling',
     'the click must be visible on the card while the item settles'
   );
   await Promise.resolve();
@@ -159,7 +159,7 @@ test('cancel keeps the batch card live until the in-flight item settles', async 
   await runPromise;
 
   assert.deepEqual(finalizeCalls, [
-    { id: 'bulk', succeeded: 0, failed: 0, cancelled: true, failedAfterCancel: false, total: 2 }
+    { id: 'bulk', succeeded: 0, failed: 0, canceled: true, failedAfterCancel: false, total: 2 }
   ]);
   assert.equal(itemContexts.length, 1, 'the second item must never start after a cancel');
 });
@@ -175,7 +175,7 @@ test('a cancel that lands before the operation id fires the cancel when the id a
   );
 
   clickCancel(notifications, react.__effects);
-  assert.deepEqual(api.cancelCalls, [], 'no id exists yet, so nothing can be cancelled');
+  assert.deepEqual(api.cancelCalls, [], 'no id exists yet, so nothing can be canceled');
 
   itemContexts[0].setOperationId('op-9');
   assert.deepEqual(
@@ -186,10 +186,10 @@ test('a cancel that lands before the operation id fires the cancel when the id a
 
   settleCurrentItem();
   await runPromise;
-  assert.equal(finalizeCalls[0].cancelled, true);
+  assert.equal(finalizeCalls[0].canceled, true);
 });
 
-test('an uncancelled run still finalizes with its full tally', async () => {
+test('an uncanceled run still finalizes with its full tally', async () => {
   const { hook, api, notificationsModule } = await loadQueueHook('complete');
   const { notifications } = notificationsModule;
   const { run } = hook.useBatchQueue();
@@ -202,7 +202,7 @@ test('an uncancelled run still finalizes with its full tally', async () => {
         id: 'bulk',
         type: 'bulk_removal',
         status: 'running',
-        details: { itemTypes: ['game_removal'], cancelling: false }
+        details: { itemTypes: ['game_removal'], canceling: false }
       });
       return 'bulk';
     },
@@ -213,7 +213,7 @@ test('an uncancelled run still finalizes with its full tally', async () => {
   });
 
   assert.deepEqual(finalizeCalls, [
-    { id: 'bulk', succeeded: 2, failed: 0, cancelled: false, failedAfterCancel: false, total: 2 }
+    { id: 'bulk', succeeded: 2, failed: 0, canceled: false, failedAfterCancel: false, total: 2 }
   ]);
   assert.deepEqual(api.cancelCalls, []);
 });
@@ -231,10 +231,10 @@ const FINALIZE_TEXT = {
   completeDefaultValue: '',
   partialFailureKey: 'partial',
   partialFailureDefaultValue: '',
-  cancelledKey: 'cancelled',
-  cancelledDefaultValue: '',
-  cancelledWithFailuresKey: 'cancelledWithFailures',
-  cancelledWithFailuresDefaultValue: ''
+  canceledKey: 'canceled',
+  canceledDefaultValue: '',
+  canceledWithFailuresKey: 'canceledWithFailures',
+  canceledWithFailuresDefaultValue: ''
 };
 
 const openBatchCard = (notifications) => () => {
@@ -250,13 +250,13 @@ const openBatchCard = (notifications) => () => {
 
 const finalizeWith =
   (updateNotification) =>
-  ({ id, succeeded, failed, cancelled, failedAfterCancel, total }) =>
+  ({ id, succeeded, failed, canceled, failedAfterCancel, total }) =>
     finalizeBulkRemovalNotification({
       id,
       succeeded,
       failed,
       total,
-      cancelled,
+      canceled,
       failedAfterCancel,
       t: (key) => key,
       updateNotification,
@@ -264,7 +264,7 @@ const finalizeWith =
     });
 
 test('a kept failure stays folded inside a batch that is then canceled', async () => {
-  const { hook, react, notificationsModule } = await loadQueueHook('cancelled-keeps');
+  const { hook, react, notificationsModule } = await loadQueueHook('canceled-keeps');
   const { notifications, updateNotification } = notificationsModule;
   const { run } = hook.useBatchQueue();
   let settleSecond;
@@ -288,8 +288,8 @@ test('a kept failure stays folded inside a batch that is then canceled', async (
   await runPromise;
 
   const card = notifications.find((n) => n.id === 'bulk');
-  assert.equal(card.status, 'cancelled', 'a canceled batch ends as canceled');
-  assert.equal(card.details.cancelled, true);
+  assert.equal(card.status, 'canceled', 'a canceled batch ends as canceled');
+  assert.equal(card.details.canceled, true);
   assert.deepEqual(card.details.itemOperationIds, ['op-a', 'op-b'], 'no owned id is dropped');
   assert.deepEqual(card.details.itemTypes, ['game_removal']);
   assert.equal(card.details.currentOperationId, undefined);
@@ -340,8 +340,8 @@ test('an item that fails after X ends the batch red and counts it', async () => 
 
   const card = notifications.find((n) => n.id === 'bulk');
   assert.equal(card.status, 'failed', 'a failure after X keeps the batch card red');
-  assert.equal(card.details.cancelled, false);
-  assert.equal(card.message, 'cancelledWithFailures', 'the failure is counted in the message');
+  assert.equal(card.details.canceled, false);
+  assert.equal(card.message, 'canceledWithFailures', 'the failure is counted in the message');
 });
 
 test('a warned item of a bulk removal draws its own amber card', () => {
@@ -380,7 +380,7 @@ test('an item canceled with a warning draws its own card', () => {
     {
       id: 'bulk',
       type: 'bulk_removal',
-      status: 'cancelled',
+      status: 'canceled',
       message: '',
       details: { itemTypes: ['game_removal'], itemOperationIds: ['op-a'] }
     }
@@ -391,7 +391,7 @@ test('an item canceled with a warning draws its own card', () => {
     operationRunRow('op-a', {
       operationType: 'gameRemoval',
       name: 'Game Removal',
-      status: 'cancelled',
+      status: 'canceled',
       retained: true,
       warnings: [{ stageKey: 'datasourcesFailed', context: { datasources: 'beta' } }]
     }),
@@ -401,7 +401,7 @@ test('an item canceled with a warning draws its own card', () => {
   const drawn = deriveNotifications(state, notifications);
   const itemCard = drawn.find((n) => n.id === 'op-a');
   assert.ok(itemCard, 'the item canceled with a warning draws a card of its own');
-  assert.equal(itemCard.details.cancelled, true);
+  assert.equal(itemCard.details.canceled, true);
   const batchCard = drawn.find((n) => n.id === 'bulk');
   assert.equal(batchCard.details.closeOperationIds, undefined, 'the batch card does not own it');
 });
@@ -491,7 +491,7 @@ test('a bulk removal whose item completed with a warning ends amber', () => {
     succeeded: 2,
     failed: 0,
     total: 2,
-    cancelled: false,
+    canceled: false,
     failedAfterCancel: false,
     warned: 1,
     t: (key) => key,

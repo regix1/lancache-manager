@@ -18,13 +18,14 @@ import ContentPathSummary from './ContentPathSummary';
 import { splitExamples } from './helpers';
 import { formatServiceLabel } from '@utils/serviceDisplayName';
 import { translateStageKeyMessage } from '@utils/stageKeyMessage';
-import type { RibbonSegment, StatusCheckProgressEvent } from './types';
+import { getErrorMessage } from '@utils/error';
+import type { RibbonSegment, StatusCheckProgressEvent, StatusCheckRunError } from './types';
 
 interface VerdictCardProps {
   lastResult: StatusCheckResult | null;
   isRunning: boolean;
   progress: StatusCheckProgressEvent | null;
-  runError: string | null;
+  runError: StatusCheckRunError | null;
   ribbonSegments: RibbonSegment[];
   ribbonInteractive: boolean;
   onRibbonSegmentClick: (service: string) => void;
@@ -84,6 +85,16 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   const { t } = useTranslation();
   const keys = 'management.sections.statusCheck';
   const lastCheckedTime = useFormattedDateTime(lastResult?.completedAtUtc);
+  const runErrorText = runError
+    ? 'canceled' in runError
+      ? t(runError.stageKey)
+      : t(
+          runError.stageKey,
+          'error' in runError ? { error: getErrorMessage(runError.error) } : runError.context
+        )
+    : null;
+  // A canceled sweep is not an error, so its sentence sits in the gray box.
+  const runErrorColor = runError && 'canceled' in runError ? 'neutral' : 'red';
 
   const summary = lastResult?.summary ?? null;
   // Disabled services are intentionally not cached - excluded from verdict math entirely.
@@ -137,9 +148,9 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
           <Button variant="filled" color="run" size="md" onClick={onRun}>
             {t(`${keys}.runCheck`)}
           </Button>
-          {runError && (
-            <Alert color="red" className="w-full text-left">
-              {t(`${keys}.sweepFailed`, { error: runError })}
+          {runErrorText && (
+            <Alert color={runErrorColor} className="w-full text-left">
+              {runErrorText}
             </Alert>
           )}
         </div>
@@ -511,9 +522,9 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         </div>
       )}
 
-      {runError && (
-        <Alert color="red" className="mt-3">
-          {t(`${keys}.sweepFailed`, { error: runError })}
+      {runErrorText && (
+        <Alert color={runErrorColor} className="mt-3">
+          {runErrorText}
         </Alert>
       )}
     </Card>

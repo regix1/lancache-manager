@@ -19,7 +19,7 @@ namespace LancacheManager.Tests;
 /// diagnostic.md §5 - a second <c>StartLoginAsync</c> call arriving while a challenge is still pending
 /// (e.g. the frontend closed/reopened the login modal) now resumes the SAME challenge instead of
 /// issuing a second daemon <c>login</c> command, which the daemon answers "already in progress" without
-/// re-emitting a challenge while the client destroys its own queued copy - the exact "No challenge
+/// re-emitting a challenge while the client destroys its own pending copy - the exact "No challenge
 /// received" / 400 chain the diagnostic reproduced.
 ///
 /// PRE-FIX BEHAVIOR (verified by temporarily reverting the resume check in
@@ -35,10 +35,10 @@ public class PersistentLoginChallengeResumeTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task StartLoginAsync_CancelAfterChallengeLog_DoesNotRestoreChallenge(bool queued)
+    public async Task StartLoginAsync_CancelAfterChallengeLog_DoesNotRestoreChallenge(bool waitingChallenge)
     {
-        using var logger = new HeldChallengeLogger(queued);
-        var client = queued ? (IDaemonClient)new QueuedChallengeDaemonClient() : new SingleChallengeDaemonClient();
+        using var logger = new HeldChallengeLogger(waitingChallenge);
+        var client = waitingChallenge ? (IDaemonClient)new WaitingChallengeDaemonClient() : new SingleChallengeDaemonClient();
         var (daemon, session) = CreateSessionWithClient(client, logger);
 
         var login = Task.Run(() => daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None));
@@ -274,7 +274,7 @@ public class PersistentLoginChallengeResumeTests
         Assert.Equal(1, client.StartLoginCallCount);
     }
 
-    // An earlier sign-in whose cleanup cancel went unconfirmed is cancelled again before a Log in; when that
+    // An earlier sign-in whose cleanup cancel went unconfirmed is canceled again before a Log in; when that
     // cancel also goes unanswered, the session is marked for replacement instead of refusing every Log in.
     [Fact]
     public async Task StartLoginAsync_UnansweredRepeatCancelMarksSessionForReplacement()
@@ -717,7 +717,7 @@ public class PersistentLoginChallengeResumeTests
 
         await daemon.ProvideCredentialAsync(session.Id, challenge, "123456", CancellationToken.None);
 
-        // Last step consumed with no further challenge queued: the cache must be empty (not the
+        // Last step consumed with no further challenge pending: the cache must be empty (not the
         // stale 2fa challenge), matching the daemon having moved on to logged-in.
         Assert.Null(session.PendingLoginChallenge);
         Assert.True(client.LoggedIn);
@@ -868,8 +868,9 @@ public class PersistentLoginChallengeResumeTests
 
         public Task ConnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+        // A status the daemon did not answer, as the real client returns it: a Log in reads it before it signs in.
         public virtual Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("Unexpected GetStatusAsync in this scenario.");
+            => Task.FromResult<DaemonStatus?>(null);
 
         public Task<CommandResponse> SendCommandAsync(
             string type, Dictionary<string, string>? parameters = null, TimeSpan? timeout = null,
@@ -936,9 +937,9 @@ public class PersistentLoginChallengeResumeTests
     /// <see cref="NextStartLoginReturnsNull"/> lets a later call simulate the daemon confirming
     /// already-authenticated (returns null) instead of throwing, for the stale-challenge edge case.
     /// </summary>
-    private sealed class HeldChallengeLogger(bool queued) : ILogger<SteamDaemonService>, IDisposable
+    private sealed class HeldChallengeLogger(bool waitingChallenge) : ILogger<SteamDaemonService>, IDisposable
     {
-        private readonly string _prefix = queued ? "Received queued challenge" : "Received challenge";
+        private readonly string _prefix = waitingChallenge ? "Received waiting challenge" : "Received challenge";
         private int _held;
 
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -995,14 +996,14 @@ public class PersistentLoginChallengeResumeTests
         }
     }
 
-    private sealed class QueuedChallengeDaemonClient : TestDaemonClientBase
+    private sealed class WaitingChallengeDaemonClient : TestDaemonClientBase
     {
         public override Task<CredentialChallenge?> StartLoginAsync(TimeSpan? timeout = null,
             CancellationToken cancellationToken = default) => Task.FromResult<CredentialChallenge?>(null);
 
         public override Task<CredentialChallenge?> WaitForChallengeAsync(TimeSpan? timeout = null,
             CancellationToken cancellationToken = default) => Task.FromResult<CredentialChallenge?>(
-                new CredentialChallenge { ChallengeId = "queued-challenge", CredentialType = "username" });
+                new CredentialChallenge { ChallengeId = "waiting-challenge", CredentialType = "username" });
     }
 
     private sealed class SingleChallengeDaemonClient : TestDaemonClientBase

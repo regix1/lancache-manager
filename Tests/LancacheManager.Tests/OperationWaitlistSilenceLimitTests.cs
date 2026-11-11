@@ -7,10 +7,10 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// A repair attempt sets a silence limit for its own children. The tracker raises the terminal that
-/// promotes queued jobs on a task that copies the caller's context, so a job promoted by a terminal
+/// promotes waiting jobs on a task that copies the caller's context, so a job promoted by a terminal
 /// the repair's flow raised must still start without that limit.
 /// </summary>
-public sealed class OperationQueueSilenceLimitTests
+public sealed class OperationWaitlistSilenceLimitTests
 {
     [Fact]
     public async Task AJobPromotedByATerminalFromALimitedFlowStartsWithNoLimitAsync()
@@ -18,10 +18,10 @@ public sealed class OperationQueueSilenceLimitTests
         var tracker = new UnifiedOperationTracker(
             new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker,
             OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var blockerId = tracker.RegisterOperation(
             OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var limitAtStart = new TaskCompletionSource<TimeSpan?>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -33,13 +33,13 @@ public sealed class OperationQueueSilenceLimitTests
                 OperationType.GameDetection, "Game Detection", new CancellationTokenSource()));
         }
 
-        var queued = await queue.EnqueueAsync(
+        var waitingRun = await queue.EnqueueAsync(
             OperationType.GameDetection,
             ConflictScope.Bulk(),
             "Game Detection",
             StartAsync,
-            CancellationToken.None);
-        Assert.True(queued.Queued);
+            CancellationToken.None, new GameDetectionRequestKey(DetectionScanType.Full));
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
 
         // The blocker ends inside a flow that holds the limit, as a repair's log pass does.
         await Task.Run(() =>

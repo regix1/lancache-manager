@@ -5,7 +5,17 @@ interface AlertProps {
   children: React.ReactNode;
   // Severity, not palette. The palette names are kept as aliases so call sites can migrate one
   // file at a time; yellow and orange were always the same rendered class.
-  color?: 'info' | 'success' | 'warning' | 'error' | 'blue' | 'green' | 'yellow' | 'red' | 'orange';
+  color?:
+    | 'info'
+    | 'success'
+    | 'warning'
+    | 'error'
+    | 'neutral'
+    | 'blue'
+    | 'green'
+    | 'yellow'
+    | 'red'
+    | 'orange';
   icon?: React.ReactNode;
   withCloseButton?: boolean;
   onClose?: () => void;
@@ -25,6 +35,7 @@ const COLOR_TO_CLASS: Record<NonNullable<AlertProps['color']>, string> = {
   success: 'alert-success',
   warning: 'alert-warning',
   error: 'alert-error',
+  neutral: 'alert-neutral',
   blue: 'alert-info',
   green: 'alert-success',
   yellow: 'alert-warning',
@@ -37,6 +48,7 @@ const DEFAULT_ICONS: Record<NonNullable<AlertProps['color']>, React.ReactNode> =
   success: <CheckCircle className="w-4 h-4" />,
   warning: <AlertTriangle className="w-4 h-4" />,
   error: <AlertCircle className="w-4 h-4" />,
+  neutral: <Info className="w-4 h-4" />,
   blue: <Info className="w-4 h-4" />,
   green: <CheckCircle className="w-4 h-4" />,
   yellow: <AlertTriangle className="w-4 h-4" />,

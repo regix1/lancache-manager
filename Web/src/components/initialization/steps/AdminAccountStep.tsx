@@ -29,23 +29,16 @@ interface FormErrors {
   apiKey: string | null;
 }
 
-interface ValidationFieldError {
-  field: string;
-  message: string;
-}
-
 /**
- * Every shape POST /api/account-setup/first-admin can answer with. `success` comes from
- * MessageResponse on the way through, `error` from AccountSetupRefusalResponse and ErrorResponse,
- * and `errors` only from the password rules failing in ValidationFilter, whose own `error` is the
- * unhelpful "Validation failed". `stageKey` rides beside `error` on every refusal the endpoint
- * decides itself, naming the reason as an i18n key so it can be read in the operator's language.
+ * The fields this screen reads from POST /api/account-setup/first-admin and recover-main-admin.
+ * `success` comes from MessageResponse. Every refusal either endpoint decides, and the
+ * ValidationFilter refusal, names its reason in `stageKey` (with `context` for its values), so it
+ * is read in the operator's language; the English `error` beside it is for logs only.
  */
 interface CreateAccountResponse {
   success?: boolean;
-  error?: string;
   stageKey?: string;
-  errors?: ValidationFieldError[];
+  context?: Record<string, unknown>;
 }
 
 export const AdminAccountStep: React.FC = () => {
@@ -136,22 +129,19 @@ export const AdminAccountStep: React.FC = () => {
           void refreshSetupStatus();
         }, 1500);
       } else {
-        // The endpoint's own refusals travel as an i18n key beside the English sentence, so the
-        // reason is read in the operator's language. The sentence is what a key this build has no
-        // translation for falls back to. A broken password rule is the exception: it comes back as
-        // a per-field message under a key that only ever says "Validation failed", so the field
-        // message wins and names the rule that was actually broken.
-        const sentence =
-          data.errors?.[0]?.message ||
-          data.error ||
-          t(
-            recovering
-              ? 'initialization.adminAccount.errors.recoverFailed'
-              : 'initialization.adminAccount.errors.createFailed'
-          );
+        // Only the key is shown, never the English beside it. The form checks every rule the
+        // server's validator holds before it sends (utils/accountCredentials.ts), so a per-field
+        // refusal follows only a request built by hand and reads as the "Validation failed"
+        // sentence. A body with no key (a framework exception in Development) gets this screen's
+        // own sentence.
         setSubmitError(
-          data.errors?.[0]?.message ||
-            (data.stageKey ? t(data.stageKey, { defaultValue: sentence }) : sentence)
+          data.stageKey
+            ? t(data.stageKey, data.context ?? undefined)
+            : t(
+                recovering
+                  ? 'initialization.adminAccount.errors.recoverFailed'
+                  : 'initialization.adminAccount.errors.createFailed'
+              )
         );
       }
     } catch (error: unknown) {

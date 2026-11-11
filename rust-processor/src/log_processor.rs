@@ -259,7 +259,7 @@ struct Progress {
     /// process it actually launched.
     run_id: String,
     /// Empty while running. On the final write: completed | completed_with_warnings |
-    /// partial | failed | cancelled. This polled file is the single authority — process
+    /// partial | failed | canceled. This polled file is the single authority — process
     /// exit 0 without a valid terminal checkpoint is treated as failure by the host.
     terminal_status: String,
     /// Presentation-only source layout: monolithic | bare_metal | mixed ("" until known).
@@ -445,7 +445,7 @@ struct Processor {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProcessingOutcome {
     Completed,
-    Cancelled,
+    Canceled,
 }
 
 /// A file result is deliberately typed so cooperative cancellation can never be folded
@@ -456,7 +456,7 @@ enum FileProcessingOutcome {
     SourceBlockedByIncompleteRecord,
     RotatedMemberUnreadable(RotatedMemberProblem),
     ResumeTargetChanged,
-    Cancelled,
+    Canceled,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -656,14 +656,14 @@ impl Processor {
         progress_utils::write_progress_with_retry(&self.progress_path, &progress, 5)
     }
 
-    fn write_cancelled_terminal(&self) -> Result<()> {
+    fn write_canceled_terminal(&self) -> Result<()> {
         let parsed = self.lines_parsed.load(Ordering::Relaxed);
         let saved = self.entries_saved.load(Ordering::Relaxed);
         self.write_terminal(
-            "cancelled",
-            "cancelled",
+            "canceled",
+            "canceled",
             &format!(
-                "Cancelled: {} lines parsed, {} entries saved",
+                "Canceled: {} lines parsed, {} entries saved",
                 parsed, saved
             ),
         )
@@ -936,13 +936,13 @@ impl Processor {
                         .unwrap_or(records_consumed);
                     self.source_positions.insert(source.stem.clone(), published);
 
-                    if matches!(&file_result, Ok(FileProcessingOutcome::Cancelled))
-                        || cancel::is_cancelled()
+                    if matches!(&file_result, Ok(FileProcessingOutcome::Canceled))
+                        || cancel::is_canceled()
                     {
-                        self.write_cancelled_terminal()?;
+                        self.write_canceled_terminal()?;
                         self.current_file_bytes.store(0, Ordering::Relaxed);
                         self.current_file_size.store(0, Ordering::Relaxed);
-                        return Ok(ProcessingOutcome::Cancelled);
+                        return Ok(ProcessingOutcome::Canceled);
                     }
 
                     let file_records = resumed_file_records
@@ -1054,7 +1054,7 @@ impl Processor {
                         Ok(FileProcessingOutcome::ResumeTargetChanged) => {
                             unreachable!("resume replacement restarts before state is published")
                         }
-                        Ok(FileProcessingOutcome::Cancelled) => {
+                        Ok(FileProcessingOutcome::Canceled) => {
                             unreachable!("cancellation is handled before completed-byte folding")
                         }
                         Err(error) => {
@@ -1194,10 +1194,10 @@ impl Processor {
         }
 
         // Close the final-file race: a CANCEL arriving after the last file result but before
-        // terminal resolution must still produce an authoritative cancelled checkpoint.
-        if cancel::is_cancelled() {
-            self.write_cancelled_terminal()?;
-            return Ok(ProcessingOutcome::Cancelled);
+        // terminal resolution must still produce an authoritative canceled checkpoint.
+        if cancel::is_canceled() {
+            self.write_canceled_terminal()?;
+            return Ok(ProcessingOutcome::Canceled);
         }
 
         let entries_saved = self.entries_saved.load(Ordering::Relaxed);
@@ -1300,7 +1300,7 @@ impl Processor {
             kind,
             records_consumed,
             resume,
-            cancel::is_cancelled,
+            cancel::is_canceled,
         )
         .await
     }
@@ -1314,7 +1314,7 @@ impl Processor {
         kind: &SourceKind,
         records_consumed: &mut u64,
         resume: &mut FileResume,
-        is_cancelled: F,
+        is_canceled: F,
     ) -> Result<FileProcessingOutcome>
     where
         F: Fn() -> bool,
@@ -1412,8 +1412,8 @@ impl Processor {
                 lines_to_skip
             );
             while *lines_to_skip > 0 {
-                if is_cancelled() {
-                    return Ok(FileProcessingOutcome::Cancelled);
+                if is_canceled() {
+                    return Ok(FileProcessingOutcome::Canceled);
                 }
                 record_buf.clear();
                 let bytes_read = match resume.read_until_newline(&mut reader, &mut record_buf) {
@@ -1478,13 +1478,13 @@ impl Processor {
         loop {
             // Poll independently of parse outcomes. Bare-metal fallback files and stretches
             // of ignored/unrecognized records may never fill a DB batch, but must remain
-            // cooperatively cancellable. Flush parsed work before publishing cancellation.
-            if is_cancelled() {
+            // cooperatively cancelable. Flush parsed work before publishing cancellation.
+            if is_canceled() {
                 if !batch.is_empty() {
                     self.process_batch(&batch).await?;
                     batch.clear();
                 }
-                return Ok(FileProcessingOutcome::Cancelled);
+                return Ok(FileProcessingOutcome::Canceled);
             }
 
             record_buf.clear();
@@ -1593,9 +1593,9 @@ impl Processor {
                         )?;
 
                         // Cooperative cancel: check after each flushed batch (clean DB-transaction boundary)
-                        if is_cancelled() {
+                        if is_canceled() {
                             eprintln!("Cancel requested — stopping after batch flush ({} lines, {} entries saved)", parsed, saved);
-                            return Ok(FileProcessingOutcome::Cancelled);
+                            return Ok(FileProcessingOutcome::Canceled);
                         }
                     }
                 }
@@ -1659,7 +1659,7 @@ impl Processor {
                     {
                         self.lock_retries += 1;
                     }
-                    if cancel::is_cancelled() {
+                    if cancel::is_canceled() {
                         anyhow::bail!("Stopped while waiting for a Downloads lock");
                     }
                 }
@@ -2668,8 +2668,8 @@ async fn main() -> Result<()> {
             reporter.emit_complete("signalr.logProcessor.complete", serde_json::json!({}));
             Ok(())
         }
-        Ok(ProcessingOutcome::Cancelled) => {
-            reporter.emit_cancelled("signalr.logProcessor.cancelled", serde_json::json!({}));
+        Ok(ProcessingOutcome::Canceled) => {
+            reporter.emit_canceled("signalr.logProcessor.canceled", serde_json::json!({}));
             Ok(())
         }
         Err(e) => {
@@ -4285,7 +4285,7 @@ mod classification_tests {
             .await
             .expect("return cancellation outcome");
 
-        assert_eq!(outcome, FileProcessingOutcome::Cancelled);
+        assert_eq!(outcome, FileProcessingOutcome::Canceled);
         assert_eq!(records_consumed, 0);
     }
 

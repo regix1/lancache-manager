@@ -128,7 +128,7 @@ const createSignalR = () => {
  */
 const createBatchHarness = (queueName = 'runCacheQueue') => {
   const signalR = createSignalR();
-  const cancelledOperations = [];
+  const canceledOperations = [];
   const reportedFailures = [];
   const capturedOperationIds = [];
   const awaitedOperationIds = [];
@@ -162,7 +162,7 @@ const createBatchHarness = (queueName = 'runCacheQueue') => {
   };
 
   const cancelItemOperation = (opId) => {
-    cancelledOperations.push(opId);
+    canceledOperations.push(opId);
   };
 
   const setCardOperationId = bindLifted(liftCallbackArrow(BATCH_QUEUE, 'setCardOperationId'), {
@@ -204,7 +204,7 @@ const createBatchHarness = (queueName = 'runCacheQueue') => {
       cancelRun();
     },
     // As useBatchQueue.ts reads its cancel latch.
-    wasCancelled: () => cancelRequestedRef.current
+    wasCanceled: () => cancelRequestedRef.current
   };
 
   // The real run loop, so a click landing between `setOperationId` calls is exercised through the
@@ -256,7 +256,7 @@ const createBatchHarness = (queueName = 'runCacheQueue') => {
     runQueue,
     runsRef,
     notificationsRef,
-    cancelledOperations,
+    canceledOperations,
     reportedFailures,
     capturedOperationIds,
     awaitedOperationIds,
@@ -275,14 +275,12 @@ const createBatchHarness = (queueName = 'runCacheQueue') => {
 
 const SERVICE_ENTRY = { kind: 'service', service: { service_name: 'steam' } };
 
-test('a service item parked behind another operation is cancellable while it waits', async () => {
+test('a service item parked behind another operation is cancelable while it waits', async () => {
   const harness = createBatchHarness();
-  // The queue answers alreadyRunning when it deduplicates the request onto a waiter that is
-  // already parked. That waiter IS this item, and its id is the only thing the X can cancel.
+  // The queue answers waiting with the waiter's id when it deduplicates the request onto a waiter
+  // that is already parked. That waiter IS this item, and its id is the only thing the X can cancel.
   const settled = harness.start(SERVICE_ENTRY, {
     operationId: 'wait-dup',
-    queued: true,
-    alreadyRunning: true,
     status: 'waiting'
   });
   await flush();
@@ -291,30 +289,30 @@ test('a service item parked behind another operation is cancellable while it wai
   assert.deepEqual(harness.awaitedOperationIds, ['wait-dup']);
 
   harness.triggerCancel();
-  assert.deepEqual(harness.cancelledOperations, ['wait-dup'], 'the X must cancel that operation');
+  assert.deepEqual(harness.canceledOperations, ['wait-dup'], 'the X must cancel that operation');
   assert.deepEqual(harness.reportedFailures, [], 'a cancel that was sent is not a failure');
 
   // The removal never ran, so its end is the waiter's own canceled end.
-  harness.end({ operationId: 'wait-dup', status: 'cancelled' });
+  harness.end({ operationId: 'wait-dup', status: 'canceled' });
   await settled;
 
-  assert.equal(harness.cancelRunCount(), 1, 'a cancelled queued item ends the run as cancelled');
+  assert.equal(harness.cancelRunCount(), 1, 'a canceled waiting item ends the run as canceled');
 });
 
-test('a game item parked behind another operation is cancellable while it waits', async () => {
+test('a game item parked behind another operation is cancelable while it waits', async () => {
   const harness = createBatchHarness();
   const settled = harness.start(
     { kind: 'game', game: GAME_FIXTURES[0].game },
-    { operationId: 'wait-game', queued: true, alreadyRunning: true, status: 'waiting' }
+    { operationId: 'wait-game', status: 'waiting' }
   );
   await flush();
 
   assert.deepEqual(harness.capturedOperationIds, ['wait-game']);
 
   harness.triggerCancel();
-  assert.deepEqual(harness.cancelledOperations, ['wait-game']);
+  assert.deepEqual(harness.canceledOperations, ['wait-game']);
 
-  harness.end({ operationId: 'wait-game', status: 'cancelled' });
+  harness.end({ operationId: 'wait-game', status: 'canceled' });
   await settled;
 
   assert.equal(harness.cancelRunCount(), 1);
@@ -324,8 +322,6 @@ test('the id of a removal this batch did not start stays out of reach of the X',
   const harness = createBatchHarness();
   const settled = harness.start(SERVICE_ENTRY, {
     operationId: 'other-op',
-    queued: false,
-    alreadyRunning: true,
     status: 'alreadyRunning'
   });
   await flush();
@@ -339,7 +335,7 @@ test('the id of a removal this batch did not start stays out of reach of the X',
   assert.deepEqual(harness.notificationsRef.current[0].details.itemOperationIds, []);
 
   harness.triggerCancel();
-  assert.deepEqual(harness.cancelledOperations, [], 'the X must not reach across and end it');
+  assert.deepEqual(harness.canceledOperations, [], 'the X must not reach across and end it');
 
   harness.end({ operationId: 'other-op', status: 'completed' });
   await settled;
@@ -347,11 +343,8 @@ test('the id of a removal this batch did not start stays out of reach of the X',
 
 test('a fresh park and an immediate start both keep the id and wait on it', async () => {
   for (const [response, id] of [
-    [
-      { operationId: 'wait-fresh', queued: true, alreadyRunning: false, status: 'waiting' },
-      'wait-fresh'
-    ],
-    [{ operationId: 'run-now', queued: false, alreadyRunning: false, status: 'running' }, 'run-now']
+    [{ operationId: 'wait-fresh', status: 'waiting' }, 'wait-fresh'],
+    [{ operationId: 'run-now', status: 'running' }, 'run-now']
   ]) {
     const harness = createBatchHarness();
     const settled = harness.start(SERVICE_ENTRY, response);
@@ -365,13 +358,13 @@ test('a fresh park and an immediate start both keep the id and wait on it', asyn
   }
 });
 
-test('queued items of every platform settle on the end of the run they were promoted to', async () => {
+test('waiting items of every platform settle on the end of the run they were promoted to', async () => {
   for (const fixture of GAME_FIXTURES) {
     const harness = createBatchHarness();
     const waitingId = `wait-${fixture.label}`;
     const settled = harness.start(
       { kind: 'game', game: fixture.game },
-      { operationId: waitingId, queued: true, alreadyRunning: false, status: 'waiting' }
+      { operationId: waitingId, status: 'waiting' }
     );
     await flush();
 
@@ -389,7 +382,7 @@ test('progress follows the item through its promotion to the operation doing the
   const harness = createBatchHarness();
   const settled = harness.start(
     { kind: 'game', game: GAME_FIXTURES[0].game },
-    { operationId: 'wait-1111', queued: true, alreadyRunning: false, status: 'waiting' }
+    { operationId: 'wait-1111', status: 'waiting' }
   );
   await flush();
   assert.equal(harness.signalR.listenerCount('GameRemovalProgress'), 1);
@@ -422,8 +415,6 @@ test('progress sent before the request is answered is not claimed', async () => 
   const harness = createBatchHarness();
   const settled = harness.start(SERVICE_ENTRY, {
     operationId: 'run-a',
-    queued: false,
-    alreadyRunning: false,
     status: 'running'
   });
   assert.equal(harness.signalR.listenerCount('ServiceRemovalProgress'), 1, 'listening first');
@@ -438,16 +429,14 @@ test('progress sent before the request is answered is not claimed', async () => 
 test('each way a run ends settles the item the way the batch counts it', async () => {
   const outcomes = [
     [{ status: 'failed', error: 'disk full' }, 'disk full'],
-    [{ status: 'failed' }, 'Service removal failed for steam'],
-    [{ status: 'skipped' }, 'Service removal never started for steam'],
+    [{ status: 'failed' }, ''],
+    [{ status: 'skipped' }, ''],
     [{ status: 'skipped', error: 'nothing to remove' }, 'nothing to remove']
   ];
   for (const [terminal, message] of outcomes) {
     const harness = createBatchHarness();
     const settled = harness.start(SERVICE_ENTRY, {
       operationId: 'run-x',
-      queued: false,
-      alreadyRunning: false,
       status: 'running'
     });
     await flush();
@@ -461,8 +450,6 @@ test('an item whose run the browser lost after X ends canceled, not failed', asy
   const harness = createBatchHarness();
   const settled = harness.start(SERVICE_ENTRY, {
     operationId: 'run-x',
-    queued: false,
-    alreadyRunning: false,
     status: 'running'
   });
   await flush();
@@ -476,8 +463,6 @@ test('an item whose run the browser lost without X counts as done', async () => 
   const harness = createBatchHarness();
   const settled = harness.start(SERVICE_ENTRY, {
     operationId: 'run-x',
-    queued: false,
-    alreadyRunning: false,
     status: 'running'
   });
   await flush();
@@ -511,10 +496,10 @@ test('a cancel with no operation id yet ends the run cleanly and reports nothing
   releaseItem();
   await settled;
 
-  assert.deepEqual(harness.cancelledOperations, [], 'there is no operation to cancel yet');
+  assert.deepEqual(harness.canceledOperations, [], 'there is no operation to cancel yet');
   assert.deepEqual(harness.reportedFailures, [], 'a cancel that stopped the run is not a failure');
   assert.equal(finalized.length, 1, 'the run settles exactly once');
-  assert.equal(finalized[0].cancelled, true, 'and it settles as cancelled');
+  assert.equal(finalized[0].canceled, true, 'and it settles as canceled');
   assert.equal(finalized[0].succeeded, 0, 'with the item that was in flight counted as neither');
   assert.equal(finalized[0].failed, 0);
 });
@@ -571,6 +556,8 @@ const createReconnectHarness = (answers) => {
   class ApiError extends Error {}
   const storeRef = { current: modules.createRunStoreState() };
   const waitersRef = { current: new Set() };
+  // One ref for the probe and the unmount effect, so running the effect flips what the probe reads.
+  const mountedRef = { current: true };
   const timers = new Map();
   const cleared = [];
   let nextTimer = 0;
@@ -587,6 +574,8 @@ const createReconnectHarness = (answers) => {
   const asked = [];
   const followWaiter = bindLifted(liftHookCallback(CONTEXT_PATH, 'useMemo', 'probeRun'), {
     storeRef,
+    waitersRef,
+    mountedRef,
     locateRun: modules.locateRun,
     ApiService: {
       getTrackedOperation: async (operationId) => {
@@ -619,11 +608,12 @@ const createReconnectHarness = (answers) => {
     clearTimeout
   });
   const unmount = bindLifted(
-    liftHookCallback(CONTEXT_PATH, 'useEffect', 'autoDismissTimersRef.current.clear()'),
+    liftHookCallback(CONTEXT_PATH, 'useEffect', 'mountedRef.current = false'),
     {
       autoDismissTimersRef: { current: new Map() },
       snapshotRetryRef: { current: undefined },
       waitersRef,
+      mountedRef,
       clearTimeout
     }
   );
@@ -674,19 +664,17 @@ const settleItem = (end) => {
       cancelRun: () => {
         cancelCalls += 1;
       },
-      wasCancelled: () => false
-    },
-    failedMessage: 'failed',
-    neverStartedMessage: 'never started'
+      wasCanceled: () => false
+    }
   });
   return cancelCalls;
 };
 
 test('a run a reconnect snapshot drops is asked about once and its kept ending cancels the batch', async () => {
-  const harness = createReconnectHarness([{ status: 'cancelled' }]);
+  const harness = createReconnectHarness([{ status: 'canceled' }]);
   const end = await harness.waitThenMissIt();
   assert.deepEqual(harness.asked, ['run-x']);
-  assert.equal(end.status, 'cancelled');
+  assert.equal(end.status, 'canceled');
   assert.equal(settleItem(end), 1);
 });
 
@@ -737,4 +725,30 @@ test('a waiter that ends while its retry waits, or a provider that unmounts, lea
   unmounted.unmount()();
   assert.ok(unmounted.cleared.includes(held), 'unmounting clears every waiter retry');
   assert.equal(unmounted.timers.size, 0);
+});
+
+test('a question that fails after the provider unmounted schedules no retry', async () => {
+  const answer = Promise.withResolvers();
+  const harness = createReconnectHarness([answer.promise]);
+  void harness.waitThenMissIt();
+  await flush();
+  assert.deepEqual(harness.asked, ['run-x'], 'the question is on the wire');
+  harness.unmount()();
+  answer.reject(new TypeError('Failed to fetch'));
+  await flush();
+  assert.equal(harness.timers.size, 0, 'no retry outlives the provider');
+});
+
+test('a question that fails after its waiter was aborted schedules no retry', async () => {
+  const answer = Promise.withResolvers();
+  const harness = createReconnectHarness([answer.promise]);
+  const controller = new AbortController();
+  const waiting = harness.waitThenMissIt(controller.signal);
+  await flush();
+  assert.deepEqual(harness.asked, ['run-x'], 'the question is on the wire');
+  controller.abort();
+  assert.equal((await waiting).status, 'gone');
+  answer.reject(new TypeError('Failed to fetch'));
+  await flush();
+  assert.equal(harness.timers.size, 0, 'no retry for a waiter that already ended');
 });

@@ -24,10 +24,10 @@ internal static class TrackedRemovalOperationRunner
             config.OperationLabel,
             cancellationTokenSource,
             config.Metrics,
-            onTerminalEmit: info => info.Cancelled
+            onTerminalEmit: info => info.Canceled
                 ? notifications.NotifyAllAsync(
                     config.CompleteEventName,
-                    config.BuildCancelled(operationId))
+                    config.BuildCanceled(operationId))
                 : info.Success
                     ? notifications.NotifyAllAsync(
                         config.CompleteEventName,
@@ -116,8 +116,9 @@ internal static class TrackedRemovalOperationRunner
                     await config.FinishRepairAsync(
                         operationId,
                         current.Status == OperationStatus.Completed,
-                        current.Status == OperationStatus.Cancelled,
-                        current.Status == OperationStatus.Failed ? current.Message : null);
+                        current.Status == OperationStatus.Canceled,
+                        current.Status == OperationStatus.Failed ? current.Message : null,
+                        current.Status == OperationStatus.Failed ? current.FailureReason : null);
                     finishingRepair = false;
                     return;
                 }
@@ -127,6 +128,7 @@ internal static class TrackedRemovalOperationRunner
                     operationId,
                     true,
                     false,
+                    null,
                     null);
                 finishingRepair = false;
 
@@ -156,6 +158,7 @@ internal static class TrackedRemovalOperationRunner
                             operationId,
                             false,
                             true,
+                            null,
                             null);
                         finishingRepair = false;
                     }
@@ -170,9 +173,9 @@ internal static class TrackedRemovalOperationRunner
                     }
                 }
 
-                config.LogCancelled?.Invoke(operationId);
-                // onTerminalEmit sends the cancelled Complete event (info.Cancelled) — no direct emit here.
-                operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
+                config.LogCanceled?.Invoke(operationId);
+                // onTerminalEmit sends the canceled Complete event (info.Canceled) — no direct emit here.
+                operationTracker.CompleteOperation(operationId, success: false, canceled: true);
             }
             catch (Exception ex) when (finishingRepair)
             {
@@ -180,6 +183,19 @@ internal static class TrackedRemovalOperationRunner
             }
             catch (Exception ex)
             {
+                // A refusal names its reason by key, so a card drawn from the run after a reload
+                // shows that reason in the reader's language. Any other error ends on the generic key
+                // whose sentence names the text, and keeps the text as the run's error detail. The run
+                // and its repair keep the key with its values (the refusal's own, or the text as
+                // errorDetail), so the ending, live or restored, words the failure with them.
+                var keyed = ex is ApiException { StageKey: not null };
+                var reason = ex is ApiException { StageKey: { } refusalKey } ? refusalKey : "signalr.generic.failedWithDetail";
+                var failureReason = ex switch
+                {
+                    ApiException { StageKey: { } key, Context: { } context } => new RunWarning(key, context),
+                    ApiException { StageKey: not null } => null,
+                    _ => new RunWarning(reason, new Dictionary<string, object?> { ["errorDetail"] = ex.Message })
+                };
                 if (repairPrepared)
                 {
                     try
@@ -189,7 +205,8 @@ internal static class TrackedRemovalOperationRunner
                             operationId,
                             false,
                             false,
-                            ex.Message);
+                            reason,
+                            failureReason);
                         finishingRepair = false;
                     }
                     catch (OperationCanceledException)
@@ -205,9 +222,6 @@ internal static class TrackedRemovalOperationRunner
 
                 config.LogFailure?.Invoke(operationId, ex);
 
-                // A refusal names its reason by key, so a card drawn from the run after a reload
-                // shows that reason in the reader's language.
-                var reason = ex is ApiException { StageKey: { } refusalKey } ? refusalKey : ex.Message;
                 var errorAccepted = false;
                 operationTracker.UpdateProgress(operationId,
                     operationTracker.GetOperation(operationId)?.PercentComplete ?? 0, reason,
@@ -221,7 +235,12 @@ internal static class TrackedRemovalOperationRunner
 
                 // Capture the exception so the onTerminalEmit closure can build the error Complete payload.
                 operationTracker.CompleteOperation(operationId, success: false, error: reason,
-                    onCompleting: _ => capturedException = ex);
+                    onCompleting: operation =>
+                    {
+                        capturedException = ex;
+                        if (!keyed) operation.ErrorDetail = ex.Message;
+                        if (failureReason is not null) operation.FailureReason = failureReason;
+                    });
             }
             // The tracker owns cancellation-source disposal.
         }, CancellationToken.None);

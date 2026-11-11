@@ -99,6 +99,11 @@ public sealed class LancacheEnvironmentSource : ILancacheEnvironmentSource
                     await MergeContainerEnvAsync(merged, dnsContainer.ID, ct);
                 }
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // A canceled read is not the containers' env: leave the cache as it was.
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Status Check: failed to read Docker container env for tiered env lookup");
@@ -135,6 +140,10 @@ public sealed class LancacheEnvironmentSource : ILancacheEnvironmentSource
 
                 merged[entry[..separatorIndex]] = entry[(separatorIndex + 1)..];
             }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

@@ -33,7 +33,7 @@ const WRONG_SPELLING_PATTERN = /(?<![A-Za-z0-9_])(Lancache|LanCache|LANcache)(?!
 
 /**
  * Spellings that are an identifier on a wire or in configuration rather than prose.
- * Rewriting any of these changes behaviour: the header is what the upstream nginx
+ * Rewriting any of these changes behavior: the header is what the upstream nginx
  * actually sends, the configuration keys are what appsettings and the LanCache__
  * environment variables bind to, and the last one is the upstream project's own name.
  */

@@ -81,6 +81,19 @@ export const SCHEDULED_PREFILL_SUPPORTED_PRESETS: Record<
   riot: ['All']
 };
 
+/**
+ * Highest Top count each service's daemon runs. Mirrors `XboxTopCountLimit` in
+ * `Api/LancacheManager/Models/Scheduling/ScheduledPrefillConfig.cs`: the Xbox daemon refuses a
+ * count above 100, the others take any count up to the editor's own ceiling.
+ */
+export const SCHEDULED_PREFILL_TOP_COUNT_MAX: Record<ScheduledPrefillServiceKey, number> = {
+  steam: 99999,
+  epic: 99999,
+  xbox: 100,
+  battleNet: 99999,
+  riot: 99999
+};
+
 export const SCHEDULED_PREFILL_OS_OPTIONS = [
   {
     value: 'Windows',

@@ -145,10 +145,10 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
     [InlineData(false)]
     [InlineData(true)]
     public async Task RemovalRunner_GameFailureOrCancellationRetainsConfirmedCountersAsync(
-        bool cancelled)
+        bool canceled)
     {
         await using var harness = await RemovalRepairHarness.CreateAsync(
-            Path.Combine(_root, "game-counter-" + cancelled));
+            Path.Combine(_root, "game-counter-" + canceled));
         var metrics = new RemovalMetrics
         {
             EntityKey = GameAppId.ToString(),
@@ -174,7 +174,7 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
                     "beta-progress",
                     FilesDeleted: 9,
                     BytesFreed: 200));
-                if (cancelled)
+                if (canceled)
                 {
                     throw new OperationCanceledException(cancellationToken);
                 }
@@ -188,7 +188,7 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
         var terminal = await harness.WaitForTerminalAsync(operationId);
 
         Assert.Equal(
-            cancelled ? OperationStatus.Cancelled : OperationStatus.Failed,
+            canceled ? OperationStatus.Canceled : OperationStatus.Failed,
             terminal.Status);
         Assert.Equal(9, metrics.FilesDeleted);
         Assert.Equal(200L, metrics.BytesFreed);
@@ -202,7 +202,7 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
                 message => message.Event == "complete").Value);
         Assert.Equal(9, complete.FilesDeleted);
         Assert.Equal(200L, complete.BytesFreed);
-        Assert.Equal(cancelled, complete.Cancelled);
+        Assert.Equal(canceled, complete.Canceled);
         await harness.CompleteAnotherAsync(OperationType.GameRemoval);
     }
 
@@ -233,9 +233,9 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
         Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(operationId));
         var terminal = await harness.WaitForTerminalAsync(operationId).WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        Assert.Equal(OperationStatus.Canceled, terminal.Status);
         Assert.True(Assert.IsType<SignalRNotifications.GameRemovalComplete>(
-            await harness.WaitForCompleteMessageAsync()).Cancelled);
+            await harness.WaitForCompleteMessageAsync()).Canceled);
         Assert.Equal(OperationRepairPhase.Repairing, harness.ReadRepair(operationId).Phase);
         Assert.True(harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == operationId).Repairing);
 
@@ -289,21 +289,21 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
 
         Assert.True(await cancellation.ForceKillAsync(operationId));
         var terminal = await harness.WaitForTerminalAsync(operationId).WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        Assert.Equal(OperationStatus.Canceled, terminal.Status);
         var stored = await outcomeAtTerminal.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(OperationStatus.Cancelled, stored.Outcome);
+        Assert.Equal(OperationStatus.Canceled, stored.Outcome);
         Assert.Equal(OperationRepairPhase.Repairing, harness.ReadRepair(operationId).Phase);
 
         // A conflicting job queues behind the repair the stopped job owes.
-        var queued = await harness.PrepareAnotherAsync(OperationType.GameRemoval);
-        var queuedStart = harness.Owner.StartWorkAsync(queued, "alpha", CancellationToken.None);
-        Assert.False(queuedStart.IsCompleted);
+        var waitingRun = await harness.PrepareAnotherAsync(OperationType.GameRemoval);
+        var waitingRunStart = harness.Owner.StartWorkAsync(waitingRun, "alpha", CancellationToken.None);
+        Assert.False(waitingRunStart.IsCompleted);
 
         ownerRelease.TrySetResult();
         await harness.Owner.FinishRepairAsync(blocker, true, false, null);
         var repair = await harness.WaitForCompletedRepairAsync(operationId);
-        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
-        await queuedStart.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(OperationStatus.Canceled, repair.Outcome);
+        await waitingRunStart.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     [Fact]
@@ -332,10 +332,10 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
         harness.Tracker.CancelOperation(operationId);
         var terminal = await harness.WaitForTerminalAsync(operationId).WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        Assert.Equal(OperationStatus.Canceled, terminal.Status);
         var repair = harness.ReadRepair(operationId);
         Assert.Equal(OperationRepairPhase.Completed, repair.Phase);
-        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        Assert.Equal(OperationStatus.Canceled, repair.Outcome);
         Assert.False(harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == operationId).Repairing);
         Assert.Equal(OperationRepairPhase.Running, harness.ReadRepair(blocker).Phase);
         await harness.Owner.FinishRepairAsync(blocker, true, false, null);
@@ -345,10 +345,10 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
     [InlineData(false)]
     [InlineData(true)]
     public async Task RemovalRunner_ExternalTerminalKeepsPresentationAndFinishesRepairAsync(
-        bool cancelled)
+        bool canceled)
     {
         await using var harness = await RemovalRepairHarness.CreateAsync(
-            Path.Combine(_root, "external-terminal-" + cancelled));
+            Path.Combine(_root, "external-terminal-" + canceled));
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var metrics = new RemovalMetrics
@@ -387,15 +387,15 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
         harness.Tracker.CompleteOperation(
             operationId,
             success: false,
-            error: cancelled ? null : "disk failure",
-            cancelled: cancelled);
+            error: canceled ? null : "disk failure",
+            canceled: canceled);
         var completedAt = harness.Tracker.GetOperation(operationId)!.CompletedAt;
         release.TrySetResult();
         var repair = await harness.WaitForCompletedRepairAsync(operationId);
 
         var terminal = harness.Tracker.GetOperation(operationId)!;
         Assert.Equal(
-            cancelled ? OperationStatus.Cancelled : OperationStatus.Failed,
+            canceled ? OperationStatus.Canceled : OperationStatus.Failed,
             terminal.Status);
         Assert.Equal(completedAt, terminal.CompletedAt);
         Assert.Equal(9, metrics.FilesDeleted);
@@ -414,10 +414,10 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
     [InlineData(false)]
     [InlineData(true)]
     public async Task RemovalRunner_GameProducerKeepsConfirmedCountersDuringBetaProgressAsync(
-        bool cancelled)
+        bool canceled)
     {
         await using var harness = await RemovalRepairHarness.CreateProducerAsync(
-            Path.Combine(_root, "game-producer-" + cancelled),
+            Path.Combine(_root, "game-producer-" + canceled),
             OperationType.GameRemoval);
         var metrics = new RemovalMetrics
         {
@@ -477,7 +477,7 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
                 Assert.True(update.BytesFreed >= 200);
             });
 
-            if (cancelled)
+            if (canceled)
             {
                 Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(operationId));
             }
@@ -494,14 +494,14 @@ public sealed class SteamGameRemovalCacheSweepTests : IDisposable
             // Alpha finished and beta failed, so the run completes with a warning naming beta; a cancel
             // stays a cancel.
             Assert.Equal(
-                cancelled ? OperationStatus.Cancelled : OperationStatus.Completed,
+                canceled ? OperationStatus.Canceled : OperationStatus.Completed,
                 terminal.Status);
             Assert.Equal(
-                !cancelled,
+                !canceled,
                 terminal.Warnings.Any(warning => warning.StageKey == "common.notifications.warnings.datasourcesFailed"));
             Assert.Equal(9, complete.FilesDeleted);
             Assert.Equal(200L, complete.BytesFreed);
-            Assert.Equal(cancelled, complete.Cancelled);
+            Assert.Equal(canceled, complete.Canceled);
             Assert.Equal(9, repair.Removal!.FilesDeleted);
             Assert.Equal(200L, repair.Removal.BytesFreed);
             Assert.True(repair.Sources.Single(source => source.Datasource == "alpha")

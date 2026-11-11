@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Behaviour of the unified activity/presence registry: reports only broadcast on a real change,
+/// Behavior of the unified activity/presence registry: reports only broadcast on a real change,
 /// ReplaceAsync clears stale keys, the revision counter is monotonic, and the snapshot reflects state.
 /// </summary>
 public class ActivityRegistryTests

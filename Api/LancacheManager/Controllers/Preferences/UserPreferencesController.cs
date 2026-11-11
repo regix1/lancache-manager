@@ -68,7 +68,7 @@ public class UserPreferencesController : ControllerBase
     /// </summary>
     /// <remarks>
     /// The stored/broadcast values are not always exactly what was sent: clock fields are settled
-    /// against each other and an unrecognised refresh rate is dropped, and admin-only columns are
+    /// against each other and an unrecognized refresh rate is dropped, and admin-only columns are
     /// redacted before a guest's own save is announced to everyone.
     /// </remarks>
     [HttpPut]
@@ -84,7 +84,7 @@ public class UserPreferencesController : ControllerBase
         var sessionId = session.Id;
 
         // What the server stored is not always what arrived: the clock columns are settled against each
-        // other and an unrecognised refresh rate is dropped. Sending the request body on would tell every
+        // other and an unrecognized refresh rate is dropped. Sending the request body on would tell every
         // client the values were taken as written.
         var stored = await _preferencesService.SavePreferencesAsync(
             sessionId,

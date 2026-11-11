@@ -42,10 +42,21 @@ const UserTab: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState<SessionFilter>('all');
 
   const guestDefaultsRequestRef = useRef(0);
+  // Pushes received per setting. The server announces a save before it answers it, so a save's reply
+  // applies only when no push for its setting arrived while it was open.
+  const guestDefaultPushesRef = useRef({
+    duration: 0,
+    guestLock: 0,
+    theme: 0,
+    refreshRate: 0,
+    refreshRateLock: 0
+  });
 
   const loadGuestDefaults = useCallback(async () => {
     // Mount, reconnect and Retry can overlap; only the newest request writes values or the error.
     const request = ++guestDefaultsRequestRef.current;
+    // A push received while the reads are out is newer than what they read.
+    const pushesBefore = { ...guestDefaultPushesRef.current };
     setGuestDefaultsError(null);
     try {
       const [guestConfig, guestTheme, guestRefreshRate, themeResult] = await Promise.all([
@@ -55,11 +66,16 @@ const UserTab: React.FC = () => {
         themeService.loadThemes()
       ]);
       if (request !== guestDefaultsRequestRef.current) return;
-      setGuestDurationHours(guestConfig.durationHours || 6);
-      setGuestModeLocked(guestConfig.isLocked);
-      setDefaultGuestTheme(guestTheme.themeId || 'dark-default');
-      setDefaultGuestRefreshRate(guestRefreshRate.refreshRate || 'STANDARD');
-      setGuestRefreshRateLocked(guestRefreshRate.locked);
+      const pushes = guestDefaultPushesRef.current;
+      if (pushes.duration === pushesBefore.duration)
+        setGuestDurationHours(guestConfig.durationHours || 6);
+      if (pushes.guestLock === pushesBefore.guestLock) setGuestModeLocked(guestConfig.isLocked);
+      if (pushes.theme === pushesBefore.theme)
+        setDefaultGuestTheme(guestTheme.themeId || 'dark-default');
+      if (pushes.refreshRate === pushesBefore.refreshRate)
+        setDefaultGuestRefreshRate(guestRefreshRate.refreshRate || 'STANDARD');
+      if (pushes.refreshRateLock === pushesBefore.refreshRateLock)
+        setGuestRefreshRateLocked(guestRefreshRate.locked);
       setAvailableThemes(
         themeResult.themes.map((theme) => ({ id: theme.meta.id, name: theme.meta.name }))
       );
@@ -74,8 +90,10 @@ const UserTab: React.FC = () => {
   const handleUpdateDuration = async (newDuration: number) => {
     try {
       setUpdatingDuration(true);
+      const pushesBefore = guestDefaultPushesRef.current.duration;
       const response = await ApiService.setGuestSessionDuration(newDuration);
-      setGuestDurationHours(response.durationHours);
+      if (guestDefaultPushesRef.current.duration === pushesBefore)
+        setGuestDurationHours(response.durationHours);
     } catch (err: unknown) {
       notifyError(t('user.errors.updateGuestDuration'), err, {
         logLabel: 'Failed to update guest duration'
@@ -89,8 +107,10 @@ const UserTab: React.FC = () => {
     try {
       setUpdatingGuestLock(true);
       const newLockState = value ? value === 'locked' : !guestModeLocked;
+      const pushesBefore = guestDefaultPushesRef.current.guestLock;
       await ApiService.setGuestConfigLock(newLockState);
-      setGuestModeLocked(newLockState);
+      if (guestDefaultPushesRef.current.guestLock === pushesBefore)
+        setGuestModeLocked(newLockState);
       showToast('success', newLockState ? t('user.locked') : t('user.unlocked'));
     } catch (err: unknown) {
       notifyError(t('user.errors.updateGuestLock'), err, {
@@ -104,8 +124,9 @@ const UserTab: React.FC = () => {
   const handleUpdateGuestTheme = async (newThemeId: string) => {
     try {
       setUpdatingGuestTheme(true);
+      const pushesBefore = guestDefaultPushesRef.current.theme;
       await ApiService.setGuestThemePreference(newThemeId);
-      setDefaultGuestTheme(newThemeId);
+      if (guestDefaultPushesRef.current.theme === pushesBefore) setDefaultGuestTheme(newThemeId);
     } catch (err: unknown) {
       notifyError(t('user.errors.updateGuestTheme'), err, {
         logLabel: 'Failed to update guest theme'
@@ -118,8 +139,10 @@ const UserTab: React.FC = () => {
   const handleUpdateGuestRefreshRate = async (newRate: string) => {
     try {
       setUpdatingGuestRefreshRate(true);
+      const pushesBefore = guestDefaultPushesRef.current.refreshRate;
       await ApiService.setDefaultGuestRefreshRate(newRate);
-      setDefaultGuestRefreshRate(newRate);
+      if (guestDefaultPushesRef.current.refreshRate === pushesBefore)
+        setDefaultGuestRefreshRate(newRate);
       showToast('success', t('user.refreshRateUpdated'));
     } catch (err: unknown) {
       notifyError(t('user.errors.updateGuestRefreshRate'), err, {
@@ -133,8 +156,10 @@ const UserTab: React.FC = () => {
   const handleUpdateGuestRefreshRateLock = async (locked: boolean) => {
     try {
       setUpdatingGuestRefreshRateLock(true);
+      const pushesBefore = guestDefaultPushesRef.current.refreshRateLock;
       await ApiService.setGuestRefreshRateLock(locked);
-      setGuestRefreshRateLocked(locked);
+      if (guestDefaultPushesRef.current.refreshRateLock === pushesBefore)
+        setGuestRefreshRateLocked(locked);
     } catch (err: unknown) {
       notifyError(t('user.errors.updateGuestRefreshRateLock'), err, {
         logLabel: 'Failed to update guest refresh rate lock'
@@ -152,22 +177,27 @@ const UserTab: React.FC = () => {
   const { on, off, isConnected } = useSignalR();
 
   const handleGuestModeLockChanged = useCallback((data: { isLocked: boolean }) => {
+    guestDefaultPushesRef.current.guestLock += 1;
     setGuestModeLocked(data.isLocked);
   }, []);
 
   const handleGuestDurationUpdated = useCallback((data: { durationHours: number }) => {
+    guestDefaultPushesRef.current.duration += 1;
     setGuestDurationHours(data.durationHours);
   }, []);
 
   const handleDefaultGuestThemeChanged = useCallback((data: { newThemeId: string }) => {
+    guestDefaultPushesRef.current.theme += 1;
     setDefaultGuestTheme(data.newThemeId);
   }, []);
 
   const handleDefaultGuestRefreshRateChanged = useCallback((data: { refreshRate: string }) => {
+    guestDefaultPushesRef.current.refreshRate += 1;
     setDefaultGuestRefreshRate(data.refreshRate);
   }, []);
 
   const handleGuestRefreshRateLockChanged = useCallback((data: { locked: boolean }) => {
+    guestDefaultPushesRef.current.refreshRateLock += 1;
     setGuestRefreshRateLocked(data.locked);
   }, []);
 

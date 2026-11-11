@@ -389,7 +389,7 @@ test('an End Session the server answers with a failure key reaches an admin as o
 test('Cancel Login logs a cancel only when the sign-in was canceled', async () => {
   for (const [answer, expected] of [
     [false, []],
-    [true, [['info', 'prefill.log.loginCancelled']]]
+    [true, [['info', 'prefill.log.loginCanceled']]]
   ]) {
     const logged = [];
     await bindLifted(liftHookCallback(panelPath, 'useCallback', "'CancelLoginAsync'"), {
@@ -1105,10 +1105,10 @@ test('a hub connect that finishes after the page left stops its socket and is ne
     setPrefillProgress: () => undefined,
     endSession: () => undefined,
     sessionRef: { current: null },
-    isCancelling: { current: false },
+    isCanceling: { current: false },
     serviceId: 'steam',
     rehydratePrefillProgress: async () => undefined,
-    setIsCancellingState: () => undefined,
+    setIsCancelingState: () => undefined,
     setIsConnecting: () => undefined,
     setIsConnected: () => undefined,
     setHubConnectFailed: () => undefined,

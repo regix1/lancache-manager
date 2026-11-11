@@ -95,7 +95,7 @@ public static class SetupStepExtensions
 
     /// <summary>
     /// Parses a wire string into a <see cref="SetupStep"/>. Case-insensitive.
-    /// Returns <c>null</c> if the value is null, whitespace, or unrecognised.
+    /// Returns <c>null</c> if the value is null, whitespace, or unrecognized.
     /// </summary>
     public static SetupStep? TryParseWire(string? value)
     {

@@ -700,8 +700,8 @@ where
 
     for (index, candidate) in paths.iter().enumerate() {
         let path = &candidate.path;
-        if cancel::is_cancelled() {
-            bail!("corruption removal cancelled before all exact paths were processed");
+        if cancel::is_canceled() {
+            bail!("corruption removal canceled before all exact paths were processed");
         }
         let percent = 10.0 + (index as f64 / paths.len().max(1) as f64) * 40.0;
         write_progress(
@@ -1050,8 +1050,8 @@ fn run_structural_remove(
     let mut preflight = Vec::with_capacity(evidence.candidates.len());
     let mut outcome = StructuralRemovalOutcome::default();
     for candidate in &evidence.candidates {
-        if cancel::is_cancelled() {
-            reporter.emit_cancelled(
+        if cancel::is_canceled() {
+            reporter.emit_canceled(
                 "signalr.corruptionRemove.complete",
                 json!({
                     "detectionMethod": "structural",
@@ -1069,8 +1069,8 @@ fn run_structural_remove(
                 outcome.already_missing += 1;
             }
             cache_structural_scanner::RemovalDisposition::Healed => outcome.healed += 1,
-            cache_structural_scanner::RemovalDisposition::Cancelled => {
-                reporter.emit_cancelled(
+            cache_structural_scanner::RemovalDisposition::Canceled => {
+                reporter.emit_canceled(
                     "signalr.corruptionRemove.complete",
                     json!({
                         "detectionMethod": "structural",
@@ -1095,8 +1095,8 @@ fn run_structural_remove(
 
     let mut parent_dirs = HashSet::new();
     for (index, (candidate, _)) in preflight.iter().enumerate() {
-        if cancel::is_cancelled() {
-            reporter.emit_cancelled(
+        if cancel::is_canceled() {
+            reporter.emit_canceled(
                 "signalr.corruptionRemove.complete",
                 json!({
                     "detectionMethod": "structural",
@@ -1132,8 +1132,8 @@ fn run_structural_remove(
                 outcome.already_missing += 1;
             }
             cache_structural_scanner::RemovalDisposition::Healed => outcome.healed += 1,
-            cache_structural_scanner::RemovalDisposition::Cancelled => {
-                reporter.emit_cancelled(
+            cache_structural_scanner::RemovalDisposition::Canceled => {
+                reporter.emit_canceled(
                     "signalr.corruptionRemove.complete",
                     json!({
                         "detectionMethod": "structural",
@@ -1565,8 +1565,8 @@ async fn main() -> Result<()> {
                 })
                 .await
                 .context("structural scanner blocking task failed")??;
-                if result.cancelled {
-                    reporter.emit_cancelled(
+                if result.canceled {
+                    reporter.emit_canceled(
                         "signalr.corruptionDetect.complete",
                         json!({
                             "detectionMethod": "structural",

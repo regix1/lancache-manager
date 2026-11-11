@@ -79,7 +79,7 @@ public class ScheduledPrefillRunGatesTests
     {
         // Both prerequisite failures reach the same needs-login stage, but the outward message
         // must say WHICH prerequisite failed: a stopped container versus a running container whose
-        // account was logged out (e.g. after a cancelled interactive login). The old shared
+        // account was logged out (e.g. after a canceled interactive login). The old shared
         // "No logged-in persistent container" wording made the two indistinguishable in plain logs.
         var stopped = ScheduledPrefillRunGates.BuildNeedsLoginMessage(PrefillPlatform.Steam, containerRunning: false);
         var loggedOut = ScheduledPrefillRunGates.BuildNeedsLoginMessage(PrefillPlatform.Steam, containerRunning: true);
@@ -116,7 +116,7 @@ public class ScheduledPrefillRunGatesTests
     public void EvaluateRunOutcome_AnonymousSkipDoesNotReportNeedingLogin()
     {
         // An anonymous platform routes its prerequisite failure to Skipped, not NeedsLogin, so a run
-        // where only Battle.net was due cannot summarise itself as "All due services need login".
+        // where only Battle.net was due cannot summarize itself as "All due services need login".
         var outcome = ScheduledPrefillRunGates.EvaluateRunOutcome(
             servicesRan: 0, servicesNeedingLogin: 0, servicesSkipped: 1, servicesFailed: 0);
 
@@ -129,17 +129,17 @@ public class ScheduledPrefillRunGatesTests
     // as stopped, burying the siblings that prefilled to completion.
 
     [Fact]
-    public void TallyRunResults_ARanRanCancelledRun_DoesNotReportTheRunStopped()
+    public void TallyRunResults_ARanRanCanceledRun_DoesNotReportTheRunStopped()
     {
         var tally = ScheduledPrefillRunGates.TallyRunResults([
             ScheduledPrefillServiceRunResult.Ran,
             ScheduledPrefillServiceRunResult.Ran,
-            ScheduledPrefillServiceRunResult.Cancelled
+            ScheduledPrefillServiceRunResult.Canceled
         ]);
 
         Assert.Equal(2, tally.Ran);
-        Assert.Equal(1, tally.Cancelled);
-        Assert.False(tally.ReportsCancelled);
+        Assert.Equal(1, tally.Canceled);
+        Assert.False(tally.ReportsCanceled);
 
         // A stopped service must not count as skipped or failed either, or the run summary would
         // claim a failure the user caused on purpose.
@@ -154,10 +154,10 @@ public class ScheduledPrefillRunGatesTests
     {
         var nothingRan = ScheduledPrefillRunGates.TallyRunResults([
             ScheduledPrefillServiceRunResult.Skipped,
-            ScheduledPrefillServiceRunResult.Cancelled
+            ScheduledPrefillServiceRunResult.Canceled
         ]);
 
-        Assert.True(nothingRan.ReportsCancelled);
+        Assert.True(nothingRan.ReportsCanceled);
     }
 
     [Fact]
@@ -168,7 +168,7 @@ public class ScheduledPrefillRunGatesTests
             ScheduledPrefillServiceRunResult.NeedsLogin,
             ScheduledPrefillServiceRunResult.Skipped,
             ScheduledPrefillServiceRunResult.Failed,
-            ScheduledPrefillServiceRunResult.Cancelled
+            ScheduledPrefillServiceRunResult.Canceled
         ]);
 
         Assert.Equal(new ScheduledPrefillRunTally(1, 1, 1, 1, 1), tally);
@@ -180,7 +180,7 @@ public class ScheduledPrefillRunGatesTests
         var tally = ScheduledPrefillRunGates.TallyRunResults([]);
 
         Assert.Equal(default, tally);
-        Assert.False(tally.ReportsCancelled);
+        Assert.False(tally.ReportsCanceled);
     }
 
     [Fact]

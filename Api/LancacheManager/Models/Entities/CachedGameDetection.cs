@@ -63,6 +63,11 @@ public class CachedGameDetection
     public bool IsEvicted { get; set; } = false;
 
     /// <summary>
+    /// True when this row stands for a Steam depot no game could be matched to.
+    /// </summary>
+    public bool IsUnresolvedDepot { get; set; }
+
+    /// <summary>
     /// Cache slice sizes detected for this game, in bytes, comma-separated ascending
     /// (for example "1048576" or "1048576,8388608").
     /// </summary>

@@ -47,10 +47,22 @@ public class OperationCancellationService
     {
         var operation = _operationTracker.GetOperation(operationId, followHandoff: true);
         if (operation is null) return OperationCancelResult.NotFound;
+        OperationCancelResult result;
         lock (operation)
         {
             ValidateCaller(operation, caller);
-            return _operationTracker.CancelOperation(operation.Id, followHandoff: false);
+            result = _operationTracker.CancelOperation(operation.Id, followHandoff: false);
+        }
+        if (result != OperationCancelResult.AlreadyFinished) return result;
+
+        // The queue may have promoted the waiting card between the lookup and the lock: it records the handoff
+        // before it completes the card, so a card that reads finished here names the run now doing its work.
+        var successor = _operationTracker.GetOperation(operation.Id, followHandoff: true);
+        if (successor is null || successor.Id == operation.Id) return result;
+        lock (successor)
+        {
+            ValidateCaller(successor, caller);
+            return _operationTracker.CancelOperation(successor.Id, followHandoff: false);
         }
     }
 
@@ -75,21 +87,33 @@ public class OperationCancellationService
         }
 
         operationId = operation.Id;
-        System.Diagnostics.Process? process;
+        System.Diagnostics.Process? process = null;
+        bool finished;
         lock (operation)
         {
             if (caller is not null) ValidateCaller(operation, caller);
-            if (operation.CompletedFlag != 0 || operation.Status.IsTerminal()) return true;
-            process = operation.AssociatedProcess;
+            finished = operation.CompletedFlag != 0 || operation.Status.IsTerminal();
+            if (!finished)
+            {
+                process = operation.AssociatedProcess;
+                _logger.LogWarning(
+                    "Force killing operation {Id} ({Type}: {Name})",
+                    operationId, operation.Type, operation.Name);
+
+                // Cancel the run and its token before the child is stopped, in the order CancelOperation uses:
+                // a child stopped while the token is live reads as a failed exit, and the run would end red.
+                // The card is marked canceled under the same lock that read it as live, so a promotion that
+                // completes it afterwards reads the cancel and stops the run it started. The id was resolved
+                // through its handoff above, and following it again here would hold two operation locks.
+                _operationTracker.ForceKillOperation(operationId, followHandoff: false);
+            }
         }
-
-        _logger.LogWarning(
-            "Force killing operation {Id} ({Type}: {Name})",
-            operationId, operation.Type, operation.Name);
-
-        // Cancel the run and its token before the child is stopped, in the order CancelOperation uses:
-        // a child stopped while the token is live reads as a failed exit, and the run would end red.
-        _operationTracker.ForceKillOperation(operationId, followHandoff: caller is null);
+        if (finished)
+        {
+            // A promotion between the lookup and the lock completed the waiting card after recording its handoff.
+            var successor = _operationTracker.GetOperation(operationId, followHandoff: true);
+            return successor is null || successor.Id == operationId || await ForceKillAsync(successor.Id, caller);
+        }
 
         try
         {
@@ -111,10 +135,10 @@ public class OperationCancellationService
         }
 
         var current = _operationTracker.GetOperation(operationId);
-        // ForceKillOperation marks every operation it stops Cancelling. One it left alone, a card that has
+        // ForceKillOperation marks every operation it stops Canceling. One it left alone, a card that has
         // joined a running job, or one that already ended (the worker observed the cancellation and completed
         // it) is not this force stop's to complete, and completing it again would send a second completion.
-        if (current is not { Status: OperationStatus.Cancelling })
+        if (current is not { Status: OperationStatus.Canceling })
         {
             return true;
         }
@@ -127,7 +151,7 @@ public class OperationCancellationService
         {
             return true;
         }
-        _operationTracker.CompleteOperation(operationId, success: false, error: "Force killed by user", cancelled: true);
+        _operationTracker.CompleteOperation(operationId, success: false, canceled: true);
         return true;
     }
 }

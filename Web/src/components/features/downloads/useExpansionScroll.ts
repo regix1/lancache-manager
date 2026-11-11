@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { glideScroll } from '@utils/scrollGlide';
 
 interface ExpansionScrollOptions {
   contentRoot: RefObject<HTMLElement | null>;
@@ -13,12 +14,11 @@ interface ScrollIntent {
   cancelWait: Promise<void>;
   frame: number | null;
   groupId: string;
-  movementStarted: boolean;
-  owner: HTMLElement | null;
   removeInputListeners: (() => void) | null;
   resolveCancel: () => void;
   resolveFrame: (() => void) | null;
   sequence: number;
+  stopGlide: (() => void) | null;
 }
 
 const EDGE_GAP = 16;
@@ -38,14 +38,6 @@ const clearFrame = (intent: ScrollIntent): void => {
 const documentOwner = (): HTMLElement | null => document.scrollingElement as HTMLElement | null;
 
 const ownerTop = (owner: HTMLElement): number => owner.scrollTop;
-
-const moveOwner = (owner: HTMLElement, top: number, behavior: ScrollBehavior): void => {
-  if (owner === documentOwner()) {
-    window.scrollTo({ top, behavior });
-    return;
-  }
-  owner.scrollTo({ top, behavior });
-};
 
 const findGroup = (root: HTMLElement, groupId: string): HTMLElement | null =>
   Array.from(root.querySelectorAll<HTMLElement>('[data-download-group-id]')).find(
@@ -111,9 +103,8 @@ export const useExpansionScroll = ({
     intent.resolveCancel();
     intent.removeInputListeners?.();
     intent.removeInputListeners = null;
-    if (intent.movementStarted && intent.owner) {
-      moveOwner(intent.owner, ownerTop(intent.owner), 'auto');
-    }
+    intent.stopGlide?.();
+    intent.stopGlide = null;
     intentRef.current = null;
   }, []);
 
@@ -130,12 +121,11 @@ export const useExpansionScroll = ({
         cancelWait,
         frame: null,
         groupId,
-        movementStarted: false,
-        owner: null,
         removeInputListeners: null,
         resolveCancel,
         resolveFrame: null,
-        sequence: ++sequenceRef.current
+        sequence: ++sequenceRef.current,
+        stopGlide: null
       };
 
       const interrupt = (): void => cancelScroll();
@@ -220,27 +210,6 @@ export const useExpansionScroll = ({
       return false;
     };
 
-    const watchMovement = (owner: HTMLElement, targetTop: number, startTop: number): void => {
-      let lastTop = startTop;
-      let moved = false;
-      let stableFrames = 0;
-      const check = (): void => {
-        if (!current()) return;
-        const top = ownerTop(owner);
-        const changed = Math.abs(top - lastTop) > MOVEMENT_EPSILON;
-        if (changed) moved = true;
-        const settled = Math.abs(top - targetTop) <= MOVEMENT_EPSILON || (moved && !changed);
-        stableFrames = settled ? stableFrames + 1 : 0;
-        if (stableFrames >= 2) {
-          finishIntent(intent);
-          return;
-        }
-        lastTop = top;
-        intent.frame = requestAnimationFrame(check);
-      };
-      intent.frame = requestAnimationFrame(check);
-    };
-
     const fulfill = async (): Promise<void> => {
       const target = await waitForGroup();
       if (!target || !current()) return;
@@ -280,11 +249,7 @@ export const useExpansionScroll = ({
         return;
       }
 
-      intent.owner = owner;
-      intent.movementStarted = true;
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      moveOwner(owner, targetTop, reduceMotion ? 'auto' : 'smooth');
-      watchMovement(owner, targetTop, startTop);
+      intent.stopGlide = glideScroll(owner, targetTop, () => finishIntent(intent));
     };
 
     void fulfill();

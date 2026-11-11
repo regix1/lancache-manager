@@ -172,7 +172,7 @@ test('switching the fetch off clears the busy flags it left behind', () => {
   const calls = { setIsFetching: [], setIsLoading: [] };
   const requestInFlightRef = { current: true };
   const reloadPendingRef = { current: true };
-  const followUpQueuedRef = { current: true };
+  const followUpWantedRef = { current: true };
   const cleanup = bindLifted(
     liftHookCallback(RETRO_HOOK, 'useEffect', 'ApiService.getRetroDownloads'),
     {
@@ -181,7 +181,7 @@ test('switching the fetch off clears the busy flags it left behind', () => {
       enabled: false,
       requestInFlightRef,
       reloadPendingRef,
-      followUpQueuedRef,
+      followUpWantedRef,
       setIsFetching: (value) => calls.setIsFetching.push(value),
       setIsLoading: (value) => calls.setIsLoading.push(value)
     }
@@ -194,7 +194,7 @@ test('switching the fetch off clears the busy flags it left behind', () => {
   assert.deepEqual(calls.setIsLoading, [false]);
   assert.equal(requestInFlightRef.current, false);
   assert.equal(reloadPendingRef.current, false);
-  assert.equal(followUpQueuedRef.current, false);
+  assert.equal(followUpWantedRef.current, false);
   assert.equal(cleanup, undefined, 'no request started, so there is nothing to abort');
 });
 
@@ -270,7 +270,7 @@ test('the hook stores the empty answer it was given rather than dropping it', as
     hasInitialDataRef: { current: false },
     requestInFlightRef: { current: false },
     reloadPendingRef: { current: false },
-    followUpQueuedRef: { current: false },
+    followUpWantedRef: { current: false },
     setRefreshVersion: () => undefined,
     setData: (value) => calls.setData.push(value),
     setError: (value) => calls.setError.push(value),

@@ -20,7 +20,7 @@ public partial class OperationStateService
     // A repair program that prints no progress and uses no CPU time is blocked on one call. Every
     // database statement the app runs is bounded at 30 minutes (CacheManagementService.Removal.cs)
     // except the download history upgrade's index rebuild (DownloadHistoryUpgradeService.cs), which
-    // cannot overlap a repair: a pending repair keeps the upgrade queued, and a retried repair waits
+    // cannot overlap a repair: a pending repair keeps the upgrade waiting, and a retried repair waits
     // for a running one. Log rewrites and cache walks use CPU, so they never look silent.
     private readonly TimeSpan _repairSilenceLimit = TimeSpan.FromMinutes(30);
 
@@ -241,28 +241,28 @@ public partial class OperationStateService
     public Task FinishRepairAsync(
         Guid operationId,
         bool success,
-        bool cancelled,
+        bool canceled,
         string? error)
     {
-        return FinishRepairAsync(operationId, success, cancelled, error, update: null);
+        return FinishRepairAsync(operationId, success, canceled, error, update: null);
     }
 
     internal async Task FinishRepairAsync(
         Guid operationId,
         bool success,
-        bool cancelled,
+        bool canceled,
         string? error,
         Action<OperationRepair>? update)
     {
         var stoppingToken = _applicationLifetime.ApplicationStopping;
         await WaitForRecoveryOwnershipAsync(stoppingToken);
-        await RecordOutcomeAsync(operationId, success, cancelled, error, update, forceStop: false, stoppingToken);
+        await RecordOutcomeAsync(operationId, success, canceled, error, update, forceStop: false, stoppingToken);
         // A stop that saved its cancel first owns the ending, live as after a restart: a force stop's saved outcome, or
         // X or a force stop while the job's run went on after its outcome save. The run ends canceled before this
         // job's own completion can show another one.
-        if (!cancelled &&
+        if (!canceled &&
             _repairs.TryGetValue(operationId, out var saved) &&
-            (saved.Outcome == OperationStatus.Cancelled || saved.RunCancelled) &&
+            (saved.Outcome == OperationStatus.Canceled || saved.RunCanceled) &&
             _operationTracker.GetOperation(operationId) is { CompletedFlag: 0 })
         {
             CompleteRunFromRecord(saved);
@@ -287,7 +287,7 @@ public partial class OperationStateService
         return await RecordOutcomeAsync(
             operationId,
             success: false,
-            cancelled: true,
+            canceled: true,
             error: null,
             update: null,
             forceStop: true,
@@ -311,7 +311,7 @@ public partial class OperationStateService
         {
             if (_repairs.TryGetValue(operationId, out var current) && current.RunContinues)
             {
-                await SaveRunEndingAsync(current, next => next.RunCancelled = true, stoppingToken);
+                await SaveRunEndingAsync(current, next => next.RunCanceled = true, stoppingToken);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !stoppingToken.IsCancellationRequested)
@@ -327,7 +327,7 @@ public partial class OperationStateService
     private async Task<bool> RecordOutcomeAsync(
         Guid operationId,
         bool success,
-        bool cancelled,
+        bool canceled,
         string? error,
         Action<OperationRepair>? update,
         bool forceStop,
@@ -366,12 +366,14 @@ public partial class OperationStateService
                                     // A force stop ends the run here, so the job's last save finds no run going on and
                                     // keeps this stop, even when it lands before the force stop completes the card.
                                     next.RunContinues = false;
-                                    next.RunCancelled = true;
+                                    next.RunCanceled = true;
                                     return;
                                 }
                                 next.RunContinues = false;
-                                next.RunCancelled = cancelled || next.RunCancelled && (success || runEnded);
-                                next.RunError = success || cancelled ? null : error;
+                                next.RunCanceled = canceled || next.RunCanceled && (success || runEnded);
+                                next.RunError = success || canceled ? null : error;
+                                // A failure's values are saved beside its key here as they are beside Error below.
+                                if (!success && !canceled) update?.Invoke(next);
                             },
                             stoppingToken);
                     }
@@ -421,10 +423,10 @@ public partial class OperationStateService
             // A force stop whose own save failed has already ended the run canceled; the job's later save keeps that
             // ending, so a restart restores the canceled card the session showed.
             if (!forceStop &&
-                _operationTracker.GetOperation(operationId) is { CompletedFlag: not 0, Status: OperationStatus.Cancelled })
+                _operationTracker.GetOperation(operationId) is { CompletedFlag: not 0, Status: OperationStatus.Canceled })
             {
                 success = false;
-                cancelled = true;
+                canceled = true;
                 error = null;
             }
             if (phase == OperationRepairPhase.Prepared || IsDownloadsRefreshOnly(current))
@@ -443,14 +445,14 @@ public partial class OperationStateService
                             (kept + update)?.Invoke(next);
                             // A person's stop that landed before this save found no run going on to record; a run that goes
                             // on after this save keeps it, so an app stop before the job's last save restores the canceled card.
-                            if (next.RunContinues && _operationTracker.GetOperation(operationId) is { Cancelled: true })
+                            if (next.RunContinues && _operationTracker.GetOperation(operationId) is { Canceled: true })
                             {
-                                next.RunCancelled = true;
+                                next.RunCanceled = true;
                             }
                             next.Outcome = success
                                 ? OperationStatus.Completed
-                                : cancelled
-                                    ? OperationStatus.Cancelled
+                                : canceled
+                                    ? OperationStatus.Canceled
                                     : OperationStatus.Failed;
                             next.Error = error;
                         }
@@ -482,7 +484,7 @@ public partial class OperationStateService
                 Func<Task> retry = () => RecordOutcomeAsync(
                     operationId,
                     success,
-                    cancelled,
+                    canceled,
                     error,
                     update,
                     forceStop,
@@ -759,7 +761,7 @@ public partial class OperationStateService
                                 Name = "Full cache repair",
                                 StartedAt = UtcNow,
                                 Phase = OperationRepairPhase.Repairing,
-                                Outcome = OperationStatus.Cancelled,
+                                Outcome = OperationStatus.Canceled,
                                 Sources =
                                 [
                                     new OperationRepairSource
@@ -1081,7 +1083,7 @@ public partial class OperationStateService
             await _admissionGate.WaitAsync(stoppingToken);
             try
             {
-                // A retried repair skips job admission, and a failed-out repair let queued jobs start,
+                // A retried repair skips job admission, and a failed-out repair let waiting jobs start,
                 // so it waits here, the way a new job would, for a running job that has no repair record
                 // to order it: a history upgrade, a database reset, or a corruption or cache size scan
                 // (a scan that read the cache before this repair's deletes would save stale results).
@@ -1975,7 +1977,7 @@ public partial class OperationStateService
     {
         // Only this attempt's own steps see the limit; children of other jobs keep running
         // unbounded. It is set inside this async method because the caller ends the repair, and
-        // ending it starts queued jobs on tasks that would copy the value. A job that this
+        // ending it starts waiting jobs on tasks that would copy the value. A job that this
         // attempt's steps let the queue start runs unbounded too: the queue clears the value
         // before it promotes.
         RustProcessHelper.ChildSilenceLimit.Value = _repairSilenceLimit;
@@ -2239,7 +2241,7 @@ public partial class OperationStateService
         LogStepUnfinished(source)
         || source.NativeCompletionAccepted
             && !source.LogRewriteStarted
-            && repair.Outcome != OperationStatus.Cancelled;
+            && repair.Outcome != OperationStatus.Canceled;
 
     private static bool IsDownloadsRefreshOnly(OperationRepair repair)
     {
@@ -2285,28 +2287,33 @@ public partial class OperationStateService
 
         // A force stop the person asked for stays canceled even when the owner's later save marked the job's
         // own work as done.
-        var cancelled = repair.Outcome == OperationStatus.Cancelled || repair.RunCancelled;
+        var canceled = repair.Outcome == OperationStatus.Canceled || repair.RunCanceled;
         // A run that went on after its job saved its outcome ends failed when that later work failed, or when a restart
         // stopped it before its last save: the app stopped it, so it is not the saved success.
         var runError = repair.RunContinues ? InterruptedByRestartError : repair.RunError;
-        var success = !cancelled && runError is null
+        var success = !canceled && runError is null
             && (repair.Outcome == OperationStatus.Completed || repair.RunCompleted);
         string? error = null;
         if (!success)
         {
             // A canceled run keeps the record's own error, as before; only a failed run shows the run's error.
-            error = cancelled || runError is null ? repair.Error : runError;
+            error = canceled || runError is null ? repair.Error : runError;
         }
         _operationTracker.CompleteOperation(
             repair.Id,
             success,
             error,
-            cancelled,
-            // A log processing run that failed for one datasource keeps the values its error key's text names.
+            canceled,
+            // A log processing run that failed for one datasource keeps the values its error key's text names, and any
+            // failure keeps the values its saved key names, so the restored card words it as the live one did.
             onCompleting: operation =>
             {
                 operation.FailedDatasource = repair.LogProcessing?.Datasource;
                 operation.DatabaseError = repair.LogProcessing?.DatabaseError;
+                if (!success && !canceled && repair.FailureReason is { } reason && reason.StageKey == error)
+                {
+                    operation.FailureReason = reason;
+                }
             });
     }
 }

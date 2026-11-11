@@ -5,7 +5,7 @@ interface AppleIconProps {
   className?: string;
 }
 
-/** The Apple mark, drawn in the current text colour so the button decides black or white. */
+/** The Apple mark, drawn in the current text color so the button decides black or white. */
 export const AppleIcon: React.FC<AppleIconProps> = ({ size = 24, className = '' }) => (
   <svg
     viewBox="0 10.5 14 18"

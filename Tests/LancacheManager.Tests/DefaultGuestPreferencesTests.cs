@@ -40,7 +40,7 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
     public async Task ClockRequest_StoresAllThreeFields()
     {
         var stateService = CreateStateService(_root);
-        var (controller, _) = CreateController(stateService);
+        var (controller, _) = CreateController<RecordingNotifications>(stateService);
 
         var result = await controller.SetDefaultGuestClockAsync(new ClockPreferences
         {
@@ -69,7 +69,7 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
             state.DefaultGuestUse24HourFormat = false;
         });
 
-        var (controller, _) = CreateController(stateService);
+        var (controller, _) = CreateController<RecordingNotifications>(stateService);
 
         await controller.SetDefaultGuestClockAsync(new ClockPreferences
         {
@@ -98,7 +98,7 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
             state.DefaultGuestUse24HourFormat = false;
         });
 
-        var (controller, notifications) = CreateController(stateService);
+        var (controller, notifications) = CreateController<RecordingNotifications>(stateService);
 
         await controller.SetDefaultGuestClockAsync(new ClockPreferences { UseUtcTimezone = true });
 
@@ -126,7 +126,7 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
     [InlineData("use24HourFormat")]
     public async Task SingleFieldRoute_NoLongerAcceptsAClockField(string key)
     {
-        var (controller, _) = CreateController(CreateStateService(_root));
+        var (controller, _) = CreateController<RecordingNotifications>(CreateStateService(_root));
 
         var result = await controller.SetDefaultGuestPreferenceAsync(
             key, new SetBoolPreferenceRequest { Value = true });
@@ -141,7 +141,7 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
     [InlineData("showDatasourceLabels")]
     public async Task SingleFieldRoute_StillAcceptsTheStandaloneFields(string key)
     {
-        var (controller, notifications) = CreateController(CreateStateService(_root));
+        var (controller, notifications) = CreateController<RecordingNotifications>(CreateStateService(_root));
 
         var result = await controller.SetDefaultGuestPreferenceAsync(
             key, new SetBoolPreferenceRequest { Value = true });
@@ -151,7 +151,45 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
         Assert.Equal(key, ReadPayload<string>(announced.Payload, "key"));
     }
 
-    private static T ReadPayload<T>(object? payload, string name)
+    // Two admins saving the same field together: the second save's announcement may not overtake the
+    // first's, or every screen ends on the value the server no longer holds.
+    [Fact]
+    public async Task TwoPreferenceSavesTogether_AnnounceInTheOrderTheyWereStored()
+    {
+        var stateService = CreateStateService(_root);
+        var (controller, notifications) = CreateController<HeldNotifications>(stateService);
+
+        var first = controller.SetDefaultGuestPreferenceAsync(
+            "sharpCorners", new SetBoolPreferenceRequest { Value = true });
+        await notifications.FirstEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var second = controller.SetDefaultGuestPreferenceAsync(
+            "sharpCorners", new SetBoolPreferenceRequest { Value = false });
+        notifications.ReleaseFirst.SetResult();
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(10));
+
+        var delivered = notifications.Delivered.Select(e => ReadPayload<bool>(e.Payload, "value")).ToList();
+        Assert.Equal(new[] { true, false }, delivered);
+        Assert.Equal(stateService.GetState().DefaultGuestSharpCorners, delivered[^1]);
+    }
+
+    [Fact]
+    public async Task TwoGuestRefreshRateSavesTogether_AnnounceInTheOrderTheyWereStored()
+    {
+        var stateService = CreateStateService(_root);
+        var (controller, notifications) = CreateController<HeldNotifications>(stateService);
+
+        var first = controller.SetDefaultGuestRefreshRateAsync(new SetRefreshRateRequest { RefreshRate = "LIVE" });
+        await notifications.FirstEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var second = controller.SetDefaultGuestRefreshRateAsync(new SetRefreshRateRequest { RefreshRate = "SLOW" });
+        notifications.ReleaseFirst.SetResult();
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(10));
+
+        var delivered = notifications.Delivered.Select(e => ReadPayload<string>(e.Payload, "refreshRate")).ToList();
+        Assert.Equal(new[] { "LIVE", "SLOW" }, delivered);
+        Assert.Equal(stateService.GetDefaultGuestRefreshRate(), delivered[^1]);
+    }
+
+    internal static T ReadPayload<T>(object? payload, string name)
     {
         Assert.NotNull(payload);
         var property = payload!.GetType().GetProperty(name)
@@ -159,10 +197,10 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
         return Assert.IsType<T>(property.GetValue(payload));
     }
 
-    private static (SystemController Controller, RecordingNotifications Notifications) CreateController(
-        StateService stateService)
+    private static (SystemController Controller, TNotifications Notifications) CreateController<TNotifications>(
+        StateService stateService) where TNotifications : DispatchProxy
     {
-        var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, TNotifications>();
         var controller = new SystemController(
             stateService,
             new ConfigurationBuilder().Build(),
@@ -179,11 +217,58 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
             dbContextFactory: null!,
             claimWindow: null!);
 
-        return (controller, (RecordingNotifications)(object)notifications);
+        return (controller, (TNotifications)(object)notifications);
     }
 
     /// <summary>
     /// Records the broadcasts the controller sends. Built as a proxy rather than an implementation because
     /// the notification interface carries a member per hub and none of the rest is exercised here.
     /// </summary>
+}
+
+/// <summary>
+/// Holds the first broadcast on the wire until the test releases it, and records each broadcast when it
+/// finishes sending, so the recorded order is the order clients receive them in.
+/// </summary>
+internal class HeldNotifications : DispatchProxy
+{
+    private readonly List<CapturedEvent> _delivered = new();
+    private int _sends;
+
+    public TaskCompletionSource FirstEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public TaskCompletionSource ReleaseFirst { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public IReadOnlyList<CapturedEvent> Delivered
+    {
+        get
+        {
+            lock (_delivered) return _delivered.ToList();
+        }
+    }
+
+    protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+    {
+        Assert.Equal(nameof(ISignalRNotificationService.NotifyAllAsync), targetMethod?.Name);
+        var sent = new CapturedEvent(Assert.IsType<string>(args![0]), args[1]);
+        if (Interlocked.Increment(ref _sends) == 1)
+        {
+            FirstEntered.SetResult();
+            return DeliverWhenReleasedAsync(sent);
+        }
+
+        Deliver(sent);
+        return Task.CompletedTask;
+    }
+
+    private async Task DeliverWhenReleasedAsync(CapturedEvent sent)
+    {
+        await ReleaseFirst.Task;
+        Deliver(sent);
+    }
+
+    private void Deliver(CapturedEvent sent)
+    {
+        lock (_delivered) _delivered.Add(sent);
+    }
 }

@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -58,7 +60,7 @@ public class DatabaseResetProgressContractTests
 
         Assert.Equal(operationId, terminal.OperationId);
         Assert.False(terminal.Success);
-        Assert.Contains("context creation failed", terminal.Error);
+        Assert.Equal("signalr.dbReset.failed", terminal.Error);
         Assert.False(service.IsResetOperationRunning);
         Assert.Null(DatabaseService.CurrentResetOperationId);
         Assert.Null(DatabaseService.CurrentResetProgress);
@@ -68,6 +70,85 @@ public class DatabaseResetProgressContractTests
             [operationId, true, 99d, OperationStatus.Running, "signalr.dbReset.clearedTable",
                 new Dictionary<string, object?> { ["tableName"] = "late" }, "late", null, null, null])!;
         Assert.Null(DatabaseService.CurrentResetProgress);
+    }
+
+    /// <summary>
+    /// The finished card is drawn from the completion event's key and values, so a thrown failure
+    /// has to arrive as the failed key carrying the exception text, not the key standing in for it.
+    /// </summary>
+    [Fact]
+    public async Task AThrownResetFailureEndsOnTheFailedKeyWithItsErrorTextAsync()
+    {
+        var notifications = new ScheduledRunReporterTests.CapturingNotificationService();
+        var service = new DatabaseService(
+            context: null!,
+            notifications,
+            NullLogger<DatabaseService>.Instance,
+            pathResolver: null!,
+            new ThrowingDbContextFactory(),
+            steamKit2Service: null!,
+            xboxCatalogMappingService: null!,
+            epicMappingService: null!,
+            serviceProvider: new ServiceCollection().BuildServiceProvider(),
+            cacheManagementService: null!,
+            stateRepository: null!,
+            datasourceService: null!,
+            new UnifiedOperationTracker(
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                NullLogger<UnifiedOperationTracker>.Instance));
+
+        var operationId = service.StartResetAsync(["Downloads"]);
+        var captured = await notifications.WhenEventAsync(SignalREvents.DatabaseResetComplete)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        var complete = Assert.IsType<SignalRNotifications.DatabaseResetComplete>(captured.Payload);
+        Assert.Equal(operationId, complete.OperationId);
+        Assert.False(complete.Success);
+        Assert.Equal(OperationStatus.Failed, complete.Status);
+        Assert.Equal("signalr.dbReset.failed", complete.StageKey);
+        Assert.NotNull(complete.Context);
+        Assert.Equal("context creation failed", complete.Context!["errorDetail"]);
+    }
+
+    /// <summary>
+    /// A request naming no table the reset knows ends on its own sentence, which has no slot for an
+    /// error text, instead of "Database reset failed:" followed by that sentence's key.
+    /// </summary>
+    [Fact]
+    public async Task AResetWithNoValidTablesEndsOnTheNoTablesKeyAsync()
+    {
+        var notifications = new ScheduledRunReporterTests.CapturingNotificationService();
+        // Creating the context opens no connection, and this reset stops before its first query.
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql("Host=127.0.0.1;Database=unused;Username=unused;Password=unused")
+            .Options;
+        var service = new DatabaseService(
+            context: null!,
+            notifications,
+            NullLogger<DatabaseService>.Instance,
+            pathResolver: null!,
+            new TestDbContextFactory(options),
+            steamKit2Service: null!,
+            xboxCatalogMappingService: null!,
+            epicMappingService: null!,
+            serviceProvider: new ServiceCollection().BuildServiceProvider(),
+            cacheManagementService: null!,
+            stateRepository: null!,
+            datasourceService: null!,
+            new UnifiedOperationTracker(
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                NullLogger<UnifiedOperationTracker>.Instance));
+
+        var operationId = service.StartResetAsync(["NotATable"]);
+        var captured = await notifications.WhenEventAsync(SignalREvents.DatabaseResetComplete)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        var complete = Assert.IsType<SignalRNotifications.DatabaseResetComplete>(captured.Payload);
+        Assert.Equal(operationId, complete.OperationId);
+        Assert.False(complete.Success);
+        Assert.Equal(OperationStatus.Failed, complete.Status);
+        Assert.Equal("signalr.dbReset.noTablesSelected", complete.StageKey);
+        Assert.Null(complete.Context);
     }
 
     /// <summary>

@@ -797,7 +797,7 @@ where
             // On cancel the worker closures skip remaining dirs without advancing
             // `processed`, so without this check the monitor would loop forever and
             // `monitor_handle.join()` below would deadlock instead of exiting 0.
-            if done_for_monitor.load(Ordering::Relaxed) || cancel::is_cancelled() {
+            if done_for_monitor.load(Ordering::Relaxed) || cancel::is_canceled() {
                 break; // All done, or cancellation requested
             }
 
@@ -861,7 +861,7 @@ where
         hex_dirs.par_iter().for_each(|dir| {
             // Cooperative cancellation: skip new hex-dirs if cancel was requested.
             // An in-flight filesystem call finishes; no new directory starts.
-            if cancel::is_cancelled() {
+            if cancel::is_canceled() {
                 return;
             }
 
@@ -943,7 +943,7 @@ where
 
     // If cancellation was requested: flush a partial progress event and exit 0.
     // An in-flight filesystem call may have finished; no new dirs were started after the flag.
-    if cancel::is_cancelled() {
+    if cancel::is_canceled() {
         let processed = dirs_processed.load(Ordering::Relaxed);
         let percent = if total_dirs > 0 {
             (processed as f64 / total_dirs as f64) * 100.0

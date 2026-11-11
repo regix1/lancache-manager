@@ -50,7 +50,7 @@ public class SetupOnlyHostedServiceGateTests
 
     /// <summary>
     /// Registering with the gate open must produce exactly what the ungated helper produces, or the
-    /// 24 call sites that moved onto it would have changed behaviour for every normal boot.
+    /// 24 call sites that moved onto it would have changed behavior for every normal boot.
     /// </summary>
     [Fact]
     public void WithADatabase_TheRegistrationMatchesTheUngatedHelper()

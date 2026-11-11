@@ -164,6 +164,7 @@ test('preserves named Xbox alias matching without matching generic traffic', () 
     key: 'xboxlive|10.0.0.1|name:halo',
     service: 'xboxlive',
     gameName: 'Halo',
+    gameNameResolved: true,
     gameAppId: undefined,
     depotId: 0,
     sources: [source({ datasources: ['primary'], depotIds: [] })]
@@ -184,7 +185,12 @@ test('preserves named Xbox alias matching without matching generic traffic', () 
     0
   );
 
-  const generic = { ...named, key: 'xboxlive|10.0.0.1|service', gameName: 'Xbox Live' };
+  const generic = {
+    ...named,
+    key: 'xboxlive|10.0.0.1|service',
+    gameName: 'Xbox Live',
+    gameNameResolved: false
+  };
   assert.equal(
     run({
       gameSpeeds: [generic],
@@ -200,6 +206,35 @@ test('preserves named Xbox alias matching without matching generic traffic', () 
     }).length,
     1
   );
+});
+
+const riotGame = game({
+  key: 'riot|10.0.0.1|name:riot games',
+  service: 'riot',
+  gameName: 'Riot Games',
+  gameNameResolved: true,
+  gameAppId: undefined,
+  depotId: 0,
+  sources: [source({ depotIds: [] })]
+});
+
+const riotRow = (gameName) =>
+  download({
+    service: 'riot',
+    gameName,
+    gameAppId: undefined,
+    depotId: undefined,
+    startTimeUtc: FIRST_SEEN
+  });
+
+test('a recorded row titled like its service takes over the resolved preview of that title', () => {
+  assert.equal(run({ gameSpeeds: [riotGame], downloads: [riotRow('Riot Games')] }).length, 0);
+  assert.equal(run({ gameSpeeds: [riotGame], downloads: [riotRow(undefined)] }).length, 1);
+});
+
+test('an unnamed recorded row takes over the service-only preview', () => {
+  const riotService = { ...riotGame, key: 'riot|10.0.0.1|service', gameNameResolved: false };
+  assert.equal(run({ gameSpeeds: [riotService], downloads: [riotRow(undefined)] }).length, 0);
 });
 
 test('keeps service labels and preview filters', () => {

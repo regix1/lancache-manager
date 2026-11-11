@@ -21,6 +21,12 @@ public class GameSpeedInfo
     public string? GameName { get; set; }
 
     /// <summary>
+    /// True when GameName is a title the lookup found; false when it is the service's own label
+    /// standing in for a failed lookup
+    /// </summary>
+    public bool GameNameResolved { get; set; }
+
+    /// <summary>
     /// Game app ID (if resolved from depot mapping)
     /// </summary>
     public long? GameAppId { get; set; }

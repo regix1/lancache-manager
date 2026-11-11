@@ -55,7 +55,7 @@ interface DefaultGuestPreferencesResponse {
 
 // A prefill change held while its service's read or save is open; `field` names the control that
 // shows busy once it is sent.
-interface QueuedPrefillEdit {
+interface PendingPrefillEdit {
   field: GuestPrefillConfigField;
   edits: Partial<GuestPrefillConfig>;
 }
@@ -108,6 +108,12 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const [defaultPrefsError, setDefaultPrefsError] = useState<string | null>(null);
   const [prefillConfigError, setPrefillConfigError] = useState<string | null>(null);
   const defaultPrefsRequestRef = useRef(0);
+  const defaultPrefsLoadedRef = useRef(false);
+  // Fields written or pushed since the newest reload started keep their screen value when it answers.
+  const defaultPrefsChangedRef = useRef(new Set<keyof DefaultGuestPreferences>());
+  // Pushes received per field. The server announces a save before it answers it, so a save's reply
+  // applies only to fields no push touched while the save was open.
+  const defaultPrefsPushesRef = useRef(new Map<keyof DefaultGuestPreferences, number>());
   const prefillConfigRequestRef = useRef(0);
   const [updatingDefaultPref, setUpdatingDefaultPref] = useState<string | null>(null);
   const [updatingAllowedFormats, setUpdatingAllowedFormats] = useState(false);
@@ -133,9 +139,9 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const [sendingPrefillEdits, setSendingPrefillEdits] = useState<
     Record<GameServiceId, Partial<GuestPrefillConfig> | null>
   >(() => prefillServiceRecord<Partial<GuestPrefillConfig> | null>(() => null));
-  const [queuedPrefillEdits, setQueuedPrefillEdits] = useState<
-    Record<GameServiceId, QueuedPrefillEdit | null>
-  >(() => prefillServiceRecord<QueuedPrefillEdit | null>(() => null));
+  const [pendingPrefillEdits, setPendingPrefillEdits] = useState<
+    Record<GameServiceId, PendingPrefillEdit | null>
+  >(() => prefillServiceRecord<PendingPrefillEdit | null>(() => null));
 
   const [prefillSectionExpanded, setPrefillSectionExpanded] = useState(false);
   useAccordionGroupItem('guest-prefill-services', prefillSectionExpanded, () =>
@@ -169,12 +175,42 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     setPrefillServiceExpanded(prefillServiceRecord<boolean>(() => next));
   };
 
+  const applyDefaultPrefsChange = useCallback((patch: Partial<DefaultGuestPreferences>) => {
+    for (const key of Object.keys(patch) as (keyof DefaultGuestPreferences)[])
+      defaultPrefsChangedRef.current.add(key);
+    setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({ ...prev, ...patch }));
+  }, []);
+
+  const applyDefaultPrefsPush = useCallback(
+    (patch: Partial<DefaultGuestPreferences>) => {
+      for (const key of Object.keys(patch) as (keyof DefaultGuestPreferences)[])
+        defaultPrefsPushesRef.current.set(key, (defaultPrefsPushesRef.current.get(key) ?? 0) + 1);
+      applyDefaultPrefsChange(patch);
+    },
+    [applyDefaultPrefsChange]
+  );
+
+  const applyDefaultPrefsReply = useCallback(
+    (
+      patch: Partial<DefaultGuestPreferences>,
+      pushesBefore: ReadonlyMap<keyof DefaultGuestPreferences, number>
+    ) => {
+      const unpushed: Partial<DefaultGuestPreferences> = {};
+      for (const key of Object.keys(patch) as (keyof DefaultGuestPreferences)[])
+        if (defaultPrefsPushesRef.current.get(key) === pushesBefore.get(key))
+          Object.assign(unpushed, { [key]: patch[key] });
+      applyDefaultPrefsChange(unpushed);
+    },
+    [applyDefaultPrefsChange]
+  );
+
   // Helper to update default time format based on a format value.
   //
   // One request, because the three flags are one clock. Sent as three they commit separately: a
   // sibling that fails, or an admin on another tab writing between two of them, leaves the stored
   // default naming a clock nobody picked, and the next guest session seeds from it.
   const updateDefaultTimeFormat = async (format: TimeSettingValue) => {
+    const pushesBefore = new Map(defaultPrefsPushesRef.current);
     const response = await fetch(
       '/api/system/default-guest-preferences/clock',
       ApiService.getJsonFetchOptions(clockFromTimeSetting(format), { method: 'PATCH' })
@@ -184,7 +220,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     // The server normalizes before storing, so the stored clock is read back off the reply rather
     // than assumed from what was sent.
     const { clock } = (await response.json()) as { clock: ClockPreferences };
-    setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({ ...prev, ...clock }));
+    applyDefaultPrefsReply(clock, pushesBefore);
   };
 
   // Get current default time format from the boolean settings behind it.
@@ -218,8 +254,9 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const loadDefaultGuestPreferences = async () => {
     // Mount, reconnect and Retry can overlap; only the newest request writes values or the error.
     const request = ++defaultPrefsRequestRef.current;
+    defaultPrefsChangedRef.current.clear();
     try {
-      setLoadingDefaultPrefs(true);
+      if (!defaultPrefsLoadedRef.current) setLoadingDefaultPrefs(true);
       const response = await fetch(
         '/api/system/default-guest-preferences',
         ApiService.getFetchOptions()
@@ -227,7 +264,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       await assertOk(response);
       const preferences = (await response.json()) as DefaultGuestPreferencesResponse;
       if (request !== defaultPrefsRequestRef.current) return;
-      setDefaultGuestPreferences({
+      const loaded: DefaultGuestPreferences = {
         useLocalTimezone: preferences.useLocalTimezone,
         useUtcTimezone: preferences.useUtcTimezone ?? false,
         use24HourFormat: preferences.use24HourFormat,
@@ -235,11 +272,25 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         disableTooltips: preferences.disableTooltips,
         showDatasourceLabels: preferences.showDatasourceLabels,
         allowedTimeFormats: preferences.allowedTimeFormats ?? [...TIME_SETTING_VALUES]
+      };
+      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => {
+        const next: DefaultGuestPreferences = { ...loaded };
+        for (const key of defaultPrefsChangedRef.current) Object.assign(next, { [key]: prev[key] });
+        return next;
       });
+      defaultPrefsLoadedRef.current = true;
       setDefaultPrefsError(null);
     } catch (err) {
       if (request !== defaultPrefsRequestRef.current) return;
-      setDefaultPrefsError(getErrorMessage(err));
+      if (!defaultPrefsLoadedRef.current) {
+        setDefaultPrefsError(getErrorMessage(err));
+      } else {
+        // The card keeps the values it loaded; the next reconnect asks again.
+        console.error(
+          '[GuestConfiguration] Failed to reload guest defaults:',
+          getErrorMessage(err)
+        );
+      }
     } finally {
       if (request === defaultPrefsRequestRef.current) {
         setLoadingDefaultPrefs(false);
@@ -251,16 +302,14 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     if (authMode !== 'authenticated') return;
     try {
       setUpdatingDefaultPref(key);
+      const pushesBefore = new Map(defaultPrefsPushesRef.current);
       const response = await fetch(
         `/api/system/default-guest-preferences/${key}`,
         ApiService.getJsonFetchOptions({ value }, { method: 'PATCH' })
       );
 
       await assertOk(response);
-      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
-        ...prev,
-        [key]: value
-      }));
+      applyDefaultPrefsReply({ [key]: value }, pushesBefore);
     } catch (err: unknown) {
       notifyError(
         t('user.guest.errors.updateDefault', { label: preferenceLabels[key] || key }),
@@ -274,19 +323,17 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
 
   const handleDefaultGuestPreferencesChanged = useCallback(
     (data: DefaultGuestPreferencesChangedEvent) => {
-      setDefaultGuestPreferences((prev: DefaultGuestPreferences) =>
-        data.key === 'clock' ? { ...prev, ...data.clock } : { ...prev, [data.key]: data.value }
-      );
+      applyDefaultPrefsPush(data.key === 'clock' ? data.clock : { [data.key]: data.value });
     },
-    []
+    [applyDefaultPrefsPush]
   );
 
-  const handleAllowedTimeFormatsChanged = useCallback((data: { formats: string[] }) => {
-    setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
-      ...prev,
-      allowedTimeFormats: data.formats
-    }));
-  }, []);
+  const handleAllowedTimeFormatsChanged = useCallback(
+    (data: { formats: string[] }) => {
+      applyDefaultPrefsPush({ allowedTimeFormats: data.formats });
+    },
+    [applyDefaultPrefsPush]
+  );
 
   // Each service announces its thread limit under its own field name, and the two
   // anonymous services send none at all, so the value is read through the service's
@@ -311,6 +358,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     if (authMode !== 'authenticated') return;
     try {
       setUpdatingAllowedFormats(true);
+      const pushesBefore = new Map(defaultPrefsPushesRef.current);
       const response = await fetch(
         '/api/system/default-guest-preferences/allowed-time-formats',
         ApiService.getJsonFetchOptions({ formats }, { method: 'PATCH' })
@@ -323,10 +371,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         await updateDefaultTimeFormat(formats[0] as TimeSettingValue);
       }
 
-      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
-        ...prev,
-        allowedTimeFormats: formats
-      }));
+      applyDefaultPrefsReply({ allowedTimeFormats: formats }, pushesBefore);
     } catch (err: unknown) {
       notifyError(t('user.guest.errors.updateAllowedTimeFormats'), err, {
         logLabel: 'Failed to update allowed time formats'
@@ -356,7 +401,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     } catch (err) {
       if (request !== prefillConfigRequestRef.current) return;
       // A change held during the read would be sent on top of the panel's starting values.
-      setQueuedPrefillEdits((prev: Record<GameServiceId, QueuedPrefillEdit | null>) => ({
+      setPendingPrefillEdits((prev: Record<GameServiceId, PendingPrefillEdit | null>) => ({
         ...prev,
         [service.id]: null
       }));
@@ -391,7 +436,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       // One request per service at a time: a change made while its read or save is open is
       // merged into the held change and sent when that request ends.
       if (loadingPrefillConfigs[service.id] || updatingPrefillConfigs[service.id] !== null) {
-        setQueuedPrefillEdits((prev: Record<GameServiceId, QueuedPrefillEdit | null>) => ({
+        setPendingPrefillEdits((prev: Record<GameServiceId, PendingPrefillEdit | null>) => ({
           ...prev,
           [service.id]: { field, edits: { ...prev[service.id]?.edits, ...change } }
         }));
@@ -433,7 +478,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       } catch (err: unknown) {
         // A held change was made on top of the one that failed; the panel falls back to the
         // stored values, so the error is not followed by a save of half the edit.
-        setQueuedPrefillEdits((prev: Record<GameServiceId, QueuedPrefillEdit | null>) => ({
+        setPendingPrefillEdits((prev: Record<GameServiceId, PendingPrefillEdit | null>) => ({
           ...prev,
           [service.id]: null
         }));
@@ -461,26 +506,26 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   // Sends each held change once its service's read or save has ended.
   useEffect(() => {
     for (const service of PREFILL_SERVICES) {
-      const queued = queuedPrefillEdits[service.id];
+      const pending = pendingPrefillEdits[service.id];
       if (
-        queued === null ||
+        pending === null ||
         loadingPrefillConfigs[service.id] ||
         updatingPrefillConfigs[service.id] !== null
       )
         continue;
-      setQueuedPrefillEdits((prev: Record<GameServiceId, QueuedPrefillEdit | null>) => ({
+      setPendingPrefillEdits((prev: Record<GameServiceId, PendingPrefillEdit | null>) => ({
         ...prev,
         [service.id]: null
       }));
-      void updatePrefillConfig(service, queued.field, queued.edits);
+      void updatePrefillConfig(service, pending.field, pending.edits);
     }
-  }, [queuedPrefillEdits, loadingPrefillConfigs, updatingPrefillConfigs, updatePrefillConfig]);
+  }, [pendingPrefillEdits, loadingPrefillConfigs, updatingPrefillConfigs, updatePrefillConfig]);
 
   // What the panel shows: the stored values with the change being sent and the held one on top.
   const shownPrefillConfig = (service: PrefillServiceConfig): GuestPrefillConfig => ({
     ...prefillConfigs[service.id],
     ...sendingPrefillEdits[service.id],
-    ...queuedPrefillEdits[service.id]?.edits
+    ...pendingPrefillEdits[service.id]?.edits
   });
 
   // Handler callbacks for PrefillServicePanel

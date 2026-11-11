@@ -45,6 +45,10 @@ public class SystemController : ControllerBase
     // the one it replaced rather than one field's new value.
     private const string DefaultGuestClockKey = "clock";
 
+    // Held across the store and its push, so pushes leave in the order the values were stored; otherwise
+    // two saves together can leave every screen on the value the server no longer holds.
+    private static readonly SemaphoreSlim _defaultGuestPreferencesWriteLock = new(1, 1);
+
     public SystemController(
         StateService stateService,
         IConfiguration configuration,
@@ -382,7 +386,7 @@ public class SystemController : ControllerBase
         var hasCompletedPlatforms = request.CompletedPlatforms != null;
 
         // Reject any SetupStep value that deserialized to Unknown - the converter maps
-        // unrecognised wire strings to SetupStep.Unknown rather than throwing, so we have
+        // unrecognized wire strings to SetupStep.Unknown rather than throwing, so we have
         // to guard here to match the pre-existing "invalid step" error shape.
         if (hasCurrentSetupStep && request.CurrentSetupStep == SetupStep.Unknown)
         {
@@ -647,14 +651,22 @@ public class SystemController : ControllerBase
             return BadRequest(ApiResponse.Error("Invalid refresh rate. Must be LIVE, ULTRA, REALTIME, STANDARD, RELAXED, or SLOW"));
         }
 
-        _stateService.SetDefaultGuestRefreshRate(normalizedRate);
-        _logger.LogInformation("Default guest refresh rate set to: {Rate}", normalizedRate);
-
-        // Broadcast to all clients so guest users pick up the new default
-        await _notifications.NotifyAllAsync(SignalREvents.DefaultGuestRefreshRateChanged, new
+        await _defaultGuestPreferencesWriteLock.WaitAsync();
+        try
         {
-            refreshRate = normalizedRate
-        });
+            _stateService.SetDefaultGuestRefreshRate(normalizedRate);
+            _logger.LogInformation("Default guest refresh rate set to: {Rate}", normalizedRate);
+
+            // Broadcast to all clients so guest users pick up the new default
+            await _notifications.NotifyAllAsync(SignalREvents.DefaultGuestRefreshRateChanged, new
+            {
+                refreshRate = normalizedRate
+            });
+        }
+        finally
+        {
+            _defaultGuestPreferencesWriteLock.Release();
+        }
 
         return Ok(new RefreshRateResponse
         {
@@ -679,13 +691,21 @@ public class SystemController : ControllerBase
             return BadRequest(ApiResponse.Error("Request body is required"));
         }
 
-        _stateService.SetGuestRefreshRateLocked(request.Locked);
-        _logger.LogInformation("Guest refresh rate lock set to: {Locked}", request.Locked);
-
-        await _notifications.NotifyAllAsync(SignalREvents.GuestRefreshRateLockChanged, new
+        await _defaultGuestPreferencesWriteLock.WaitAsync();
+        try
         {
-            locked = request.Locked
-        });
+            _stateService.SetGuestRefreshRateLocked(request.Locked);
+            _logger.LogInformation("Guest refresh rate lock set to: {Locked}", request.Locked);
+
+            await _notifications.NotifyAllAsync(SignalREvents.GuestRefreshRateLockChanged, new
+            {
+                locked = request.Locked
+            });
+        }
+        finally
+        {
+            _defaultGuestPreferencesWriteLock.Release();
+        }
 
         return Ok(new GuestRefreshRateLockResponse { Success = true, Locked = request.Locked });
     }
@@ -734,18 +754,26 @@ public class SystemController : ControllerBase
             }
         }
 
-        _stateService.UpdateState(state =>
+        await _defaultGuestPreferencesWriteLock.WaitAsync();
+        try
         {
-            state.AllowedTimeFormats = request.Formats.Distinct().ToList();
-        });
+            _stateService.UpdateState(state =>
+            {
+                state.AllowedTimeFormats = request.Formats.Distinct().ToList();
+            });
 
-        _logger.LogInformation("Allowed time formats set to: {Formats}", string.Join(", ", request.Formats));
+            _logger.LogInformation("Allowed time formats set to: {Formats}", string.Join(", ", request.Formats));
 
-        // Broadcast to all clients
-        await _notifications.NotifyAllAsync(SignalREvents.AllowedTimeFormatsChanged, new
+            // Broadcast to all clients
+            await _notifications.NotifyAllAsync(SignalREvents.AllowedTimeFormatsChanged, new
+            {
+                formats = request.Formats
+            });
+        }
+        finally
         {
-            formats = request.Formats
-        });
+            _defaultGuestPreferencesWriteLock.Release();
+        }
 
         return Ok(new AllowedTimeFormatsResponse { Message = "Allowed time formats updated", Formats = request.Formats });
     }
@@ -775,28 +803,36 @@ public class SystemController : ControllerBase
         UserPreferencesService.NormalizeClockPreferences(clock);
 
         var previousClock = new UserPreferencesService.ClockPreferences();
-        _stateService.UpdateState(state =>
+        await _defaultGuestPreferencesWriteLock.WaitAsync();
+        try
         {
-            previousClock.UseUtcTimezone = state.DefaultGuestUseUtcTimezone;
-            previousClock.UseLocalTimezone = state.DefaultGuestUseLocalTimezone;
-            previousClock.Use24HourFormat = state.DefaultGuestUse24HourFormat;
+            _stateService.UpdateState(state =>
+            {
+                previousClock.UseUtcTimezone = state.DefaultGuestUseUtcTimezone;
+                previousClock.UseLocalTimezone = state.DefaultGuestUseLocalTimezone;
+                previousClock.Use24HourFormat = state.DefaultGuestUse24HourFormat;
 
-            state.DefaultGuestUseUtcTimezone = clock.UseUtcTimezone;
-            state.DefaultGuestUseLocalTimezone = clock.UseLocalTimezone;
-            state.DefaultGuestUse24HourFormat = clock.Use24HourFormat;
-        });
+                state.DefaultGuestUseUtcTimezone = clock.UseUtcTimezone;
+                state.DefaultGuestUseLocalTimezone = clock.UseLocalTimezone;
+                state.DefaultGuestUse24HourFormat = clock.Use24HourFormat;
+            });
 
-        _logger.LogInformation(
-            "Default guest clock set to utc={UseUtc}, local={UseLocal}, 24h={Use24Hour}",
-            clock.UseUtcTimezone, clock.UseLocalTimezone, clock.Use24HourFormat);
+            _logger.LogInformation(
+                "Default guest clock set to utc={UseUtc}, local={UseLocal}, 24h={Use24Hour}",
+                clock.UseUtcTimezone, clock.UseLocalTimezone, clock.Use24HourFormat);
 
-        // Broadcast to all clients so other admins and guest users can update
-        await _notifications.NotifyAllAsync(SignalREvents.DefaultGuestPreferencesChanged, new
+            // Broadcast to all clients so other admins and guest users can update
+            await _notifications.NotifyAllAsync(SignalREvents.DefaultGuestPreferencesChanged, new
+            {
+                key = DefaultGuestClockKey,
+                clock,
+                previousClock
+            });
+        }
+        finally
         {
-            key = DefaultGuestClockKey,
-            clock,
-            previousClock
-        });
+            _defaultGuestPreferencesWriteLock.Release();
+        }
 
         return Ok(new DefaultGuestClockResponse { Message = "Default guest clock updated", Clock = clock });
     }
@@ -822,30 +858,38 @@ public class SystemController : ControllerBase
             return BadRequest(ApiResponse.Error($"Invalid preference key: {key}"));
         }
 
-        _stateService.UpdateState(state =>
+        await _defaultGuestPreferencesWriteLock.WaitAsync();
+        try
         {
-            switch (key)
+            _stateService.UpdateState(state =>
             {
-                case "sharpCorners":
-                    state.DefaultGuestSharpCorners = request.Value;
-                    break;
-                case "disableTooltips":
-                    state.DefaultGuestDisableTooltips = request.Value;
-                    break;
-                case "showDatasourceLabels":
-                    state.DefaultGuestShowDatasourceLabels = request.Value;
-                    break;
-            }
-        });
+                switch (key)
+                {
+                    case "sharpCorners":
+                        state.DefaultGuestSharpCorners = request.Value;
+                        break;
+                    case "disableTooltips":
+                        state.DefaultGuestDisableTooltips = request.Value;
+                        break;
+                    case "showDatasourceLabels":
+                        state.DefaultGuestShowDatasourceLabels = request.Value;
+                        break;
+                }
+            });
 
-        _logger.LogInformation("Default guest preference {Key} set to: {Value}", key, request.Value);
+            _logger.LogInformation("Default guest preference {Key} set to: {Value}", key, request.Value);
 
-        // Broadcast to all clients so other admins and guest users can update
-        await _notifications.NotifyAllAsync(SignalREvents.DefaultGuestPreferencesChanged, new
+            // Broadcast to all clients so other admins and guest users can update
+            await _notifications.NotifyAllAsync(SignalREvents.DefaultGuestPreferencesChanged, new
+            {
+                key,
+                value = request.Value
+            });
+        }
+        finally
         {
-            key,
-            value = request.Value
-        });
+            _defaultGuestPreferencesWriteLock.Release();
+        }
 
         return Ok(new DefaultGuestPreferenceResponse { Message = $"Default guest preference {key} updated", Key = key, Value = request.Value });
     }

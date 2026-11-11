@@ -116,13 +116,13 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
     }
   };
 
-  // status 'completed' + cancelled:true == GRAY (cancel); 'failed' == RED;
+  // status 'completed' + canceled:true == GRAY (cancel); 'failed' == RED;
   // plain 'completed' == green.
   const settleWebApiCard = (
     status: 'completed' | 'failed',
     message: string,
     variant: NotificationVariant,
-    cancelled = false,
+    canceled = false,
     error?: string
   ): void => {
     if (!statusNotifications) {
@@ -137,7 +137,7 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
       status,
       message,
       error,
-      details: { notificationType: variant, cancelled, serviceKey: 'depotMapping' }
+      details: { notificationType: variant, canceled, serviceKey: 'depotMapping' }
     });
     scheduleAutoDismiss(id);
   };
@@ -148,7 +148,7 @@ export function useSteamApiKey(options: UseSteamApiKeyOptions = {}): UseSteamApi
     busyRef.current = false;
     setTesting(false);
     setSaving(false);
-    settleWebApiCard('completed', t('signalr.steamWebApi.cancelled'), 'warning', true);
+    settleWebApiCard('completed', t('signalr.steamWebApi.canceled'), 'warning', true);
   };
 
   const handleTest = async (emptyKeyMessage: string) => {

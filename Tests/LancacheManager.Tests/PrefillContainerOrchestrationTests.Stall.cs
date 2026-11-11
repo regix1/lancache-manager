@@ -30,7 +30,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         Assert.Equal(0, result.StalledFailed);
         Assert.False(run.CancelRequested);
         Assert.Null(run.CancelReason);
-        Assert.Empty(fixture.Client.Cancelled);
+        Assert.Empty(fixture.Client.Canceled);
         var row = Assert.Single(await fixture.History.GetRunsAsync(fixture.Session.Id, CancellationToken.None), saved => saved.Id == run.PrefillRunId);
         Assert.False(row.CancelRequested);
     }

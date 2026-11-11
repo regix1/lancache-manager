@@ -74,7 +74,7 @@ function ScheduledPrefillRecentRun({ run, serviceKey }: ScheduledPrefillRecentRu
   // FinishRunAsync turns a completed run with failed games into `failed` and keeps the daemon's
   // (empty) reason, so a failed run without a reason finished with only some games failed.
   const result =
-    snapshot.state === 'cancelled'
+    snapshot.state === 'canceled'
       ? { label: t(`${baseKey}.activity.canceled`), tone: 'idle' as const }
       : snapshot.failedApps > 0 && !snapshot.reason
         ? {
@@ -386,7 +386,7 @@ export function ScheduledPrefillActivityModal({
                               )
                               .indexOf(run) + 1;
                           const canceling =
-                            run.cancelRequested || containers.cancellingRunIds.includes(run.runId);
+                            run.cancelRequested || containers.cancelingRunIds.includes(run.runId);
                           const downloading = !run.recovering && progress.state === 'downloading';
                           const appPercent = Math.min(100, Math.max(0, progress.percentComplete));
                           const processedApps =

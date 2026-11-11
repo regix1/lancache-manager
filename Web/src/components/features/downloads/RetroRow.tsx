@@ -207,16 +207,20 @@ const RetroRow: React.FC<RetroRowProps> = memo(
     const tier = efficiencyTier(hitPercent);
     // The phone layout keeps the title on one line by stepping its size down before it
     // would truncate; the desktop grid truncates inside its column instead.
-    const title = getGameDisplayName(
-      data.gameName,
-      data.service,
-      getServiceDisplayName(data.service)
-    );
-    const imageTitle = getGameDisplayName(
-      data.gameName,
-      data.service,
-      t('downloads.tab.retro.gameFallback')
-    );
+    // Steam content with no resolved name and no app id is unidentified; the wire name for it is
+    // not text to draw, so the label comes from the reader's locale.
+    const title =
+      data.gameAppId && !data.hasRealGameName
+        ? t('downloads.tab.groups.steamApp', { appId: data.gameAppId })
+        : data.service.toLowerCase() === 'steam' && !data.hasRealGameName
+          ? t('downloads.tab.groups.unknownOther')
+          : getGameDisplayName(data.gameName, data.service, getServiceDisplayName(data.service));
+    const imageTitle =
+      data.gameAppId && !data.hasRealGameName
+        ? t('downloads.tab.groups.steamApp', { appId: data.gameAppId })
+        : data.service.toLowerCase() === 'steam' && !data.hasRealGameName
+          ? t('downloads.tab.groups.unknownOther')
+          : getGameDisplayName(data.gameName, data.service, t('downloads.tab.retro.gameFallback'));
     const titleFit = useFitTextSize(title);
     const rowClasses = `${ROW_ACCENT_CLASS[tier]}${rowIndex % 2 === 1 ? ' retro-row-alt' : ''}${
       data.isEvicted ? ' retro-row-evicted' : ''

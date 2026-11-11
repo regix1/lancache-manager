@@ -916,7 +916,7 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
         WaitForChallengeCallCount++;
 
         // Nothing scripted, or the scripted challenge already went out: report no-challenge fast so
-        // the login flow's own queued-challenge check never stalls a test.
+        // the login flow's own pending-challenge check never stalls a test.
         if (_challengeOnLogin is null || _challengeDelivered)
         {
             return null;
@@ -967,7 +967,7 @@ internal sealed class ScriptedLoginDaemonClient : IDaemonClient
             await DaemonEventDispatch.InvokeAllAsync(OnStatusUpdate, new DaemonStatus
             {
                 Status = "awaiting-login",
-                Message = "Login cancelled - ready for new attempt",
+                Message = "Login canceled - ready for new attempt",
                 ErrorCode = CancelErrorCode,
                 Timestamp = DateTime.UtcNow
             }, null);

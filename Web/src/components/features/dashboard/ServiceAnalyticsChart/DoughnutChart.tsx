@@ -45,7 +45,13 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
     const options: ChartOptions<'doughnut'> = useMemo(() => {
       void themeRevision;
       // Resolve tooltip colors from CSS custom properties (re-resolves on theme change)
-      const tooltipBg = getThemeColor('--theme-card-bg');
+      // Same fill the `.tooltip-edge` dark rule gives the DOM tooltips: a lighter surface in
+      // dark themes, the card fill in light themes.
+      const tooltipBg = getThemeColor(
+        document.documentElement.getAttribute('data-theme') === 'dark'
+          ? '--theme-bg-surface'
+          : '--theme-card-bg'
+      );
       const tooltipTitle = getThemeColor('--theme-text-primary');
       const tooltipBody = getThemeColor('--theme-text-muted');
       // Same edge token the compare tab's DOM tooltip takes through `.tooltip-edge`,

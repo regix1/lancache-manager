@@ -122,7 +122,7 @@ public sealed class ProcessKillAfterDisposeTests
     }
 
     [Fact]
-    public async Task CancelledRun_WaitsForTheKilledChildBeforeReleasingItAsync()
+    public async Task CanceledRun_WaitsForTheKilledChildBeforeReleasingItAsync()
     {
         var manager = new KillWaitProcessManager();
         var helper = new RustProcessHelper(

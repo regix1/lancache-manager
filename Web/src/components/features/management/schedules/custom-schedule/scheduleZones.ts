@@ -70,7 +70,7 @@ export function listZoneRegions(): ZoneRegion[] {
 /**
  * The city half of a zone id, with underscores read as the spaces they stand for. Used to order
  * a region's zones: every id under one region carries the same prefix, so the part after it is
- * what a reader scans, and "New York" belongs beside its neighbours as two words rather than
+ * what a reader scans, and "New York" belongs beside its neighbors as two words rather than
  * wherever an underscore happens to sort. Not what the menu shows - a row spells the zone the
  * same way the trigger and the note beneath it do, which is the id itself.
  */

@@ -2,6 +2,7 @@ using System.Reflection;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -17,7 +18,7 @@ namespace LancacheManager.Tests;
 /// start delegate, so the cancel lands at an exact point rather than a hoped-for one. Nothing here
 /// depends on timing.
 /// </summary>
-public sealed class OperationQueueCancelDuringPromotionTests
+public sealed class OperationWaitlistCancelDuringPromotionTests
 {
     [Theory]
     [InlineData(false)]
@@ -31,17 +32,17 @@ public sealed class OperationQueueCancelDuringPromotionTests
         {
             if (background)
             {
-                Task.Run(() => tracker.CompleteOperation(id, false, cancelled: true))
+                Task.Run(() => tracker.CompleteOperation(id, false, canceled: true))
                     .WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
             }
             else
             {
-                tracker.CompleteOperation(id, false, cancelled: true);
+                tracker.CompleteOperation(id, false, canceled: true);
             }
         });
 
         Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(id));
-        Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(id)!.Status);
+        Assert.Equal(OperationStatus.Canceled, tracker.GetOperation(id)!.Status);
         Assert.Equal(OperationCancelResult.AlreadyFinished, tracker.CancelOperation(id));
     }
 
@@ -60,10 +61,10 @@ public sealed class OperationQueueCancelDuringPromotionTests
             Assert.True(release.Wait(TimeSpan.FromSeconds(5)));
         }));
         await claimed.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var cancelling = Task.Run(() => tracker.CancelOperation(id));
+        var canceling = Task.Run(() => tracker.CancelOperation(id));
         release.Set();
         await completion;
-        Assert.Equal(OperationCancelResult.AlreadyFinished, await cancelling);
+        Assert.Equal(OperationCancelResult.AlreadyFinished, await canceling);
         Assert.False(token.IsCancellationRequested);
         Assert.Equal(OperationStatus.Completed, tracker.GetOperation(id)!.Status);
     }
@@ -79,8 +80,8 @@ public sealed class OperationQueueCancelDuringPromotionTests
         Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(id));
         Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(id));
         Assert.Equal(1, callbacks);
-        Assert.Equal(OperationStatus.Cancelling, tracker.GetOperation(id)!.Status);
-        tracker.CompleteOperation(id, false, cancelled: true);
+        Assert.Equal(OperationStatus.Canceling, tracker.GetOperation(id)!.Status);
+        tracker.CompleteOperation(id, false, canceled: true);
     }
 
     [Fact]
@@ -88,18 +89,18 @@ public sealed class OperationQueueCancelDuringPromotionTests
     {
         var harness = new PromotionHarness();
 
-        var queued = await harness.EnqueueBehindBlockerAsync();
+        var waitingRun = await harness.EnqueueBehindBlockerAsync();
         harness.ReleaseBlocker();
         await harness.StartEntered.WaitAsync(TimeSpan.FromSeconds(5));
 
         // The waiter has already left the queue and the promoted operation does not exist yet.
         // This is the exact window the cancel used to fall into.
-        Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(queued.OperationId));
+        Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(waitingRun.OperationId));
 
         harness.ReleaseStart();
 
         // The intent must reach whatever the waiter turned into.
-        await harness.PromotedCancelled.WaitAsync(TimeSpan.FromSeconds(5));
+        await harness.PromotedCanceled.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -107,15 +108,15 @@ public sealed class OperationQueueCancelDuringPromotionTests
     {
         var harness = new PromotionHarness();
 
-        var queued = await harness.EnqueueBehindBlockerAsync();
+        var waitingRun = await harness.EnqueueBehindBlockerAsync();
         harness.ReleaseBlocker();
         await harness.StartEntered.WaitAsync(TimeSpan.FromSeconds(5));
         harness.ReleaseStart();
         await harness.WaitForPromotionPassAsync();
 
         // A card that had not yet swapped to the promoted operation's id still cancels the work.
-        Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(queued.OperationId));
-        await harness.PromotedCancelled.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(waitingRun.OperationId));
+        await harness.PromotedCanceled.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]
@@ -130,7 +131,7 @@ public sealed class OperationQueueCancelDuringPromotionTests
         await harness.WaitForPromotionPassAsync();
 
         // Carrying cancel intent across the handoff must not cancel an ordinary promotion.
-        Assert.False(harness.PromotedCancelled.IsCompleted);
+        Assert.False(harness.PromotedCanceled.IsCompleted);
         Assert.False(harness.PromotedToken.IsCancellationRequested);
     }
 
@@ -140,11 +141,11 @@ public sealed class OperationQueueCancelDuringPromotionTests
         var harness = new PromotionHarness();
         var canceling = await harness.EnqueueBehindBlockerAsync();
         // The status a cancel sets first, before the waiter leaves the queue on another thread.
-        harness.Tracker.GetOperation(canceling.OperationId)!.Status = OperationStatus.Cancelling;
+        harness.Tracker.GetOperation(canceling.OperationId)!.Status = OperationStatus.Canceling;
 
         var again = await harness.EnqueueBehindBlockerAsync();
 
-        Assert.True(again.Queued);
+        Assert.Equal(OperationStartStatus.Waiting, again.Status);
         Assert.NotEqual(canceling.OperationId, again.OperationId);
     }
 
@@ -156,24 +157,73 @@ public sealed class OperationQueueCancelDuringPromotionTests
         var harness = new PromotionHarness();
         var running = harness.Tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
         // The status a cancel sets first, before the run's worker ends it.
-        harness.Tracker.GetOperation(running)!.Status = OperationStatus.Cancelling;
+        harness.Tracker.GetOperation(running)!.Status = OperationStatus.Canceling;
 
-        var queued = await harness.EnqueueBehindBlockerAsync();
+        var waitingRun = await harness.EnqueueBehindBlockerAsync();
 
-        Assert.NotEqual(running, queued.OperationId);
+        Assert.NotEqual(running, waitingRun.OperationId);
+    }
+
+    // A parked start refused with a keyed reason that carries values ends Failed at once on that key, the
+    // values on its failure reason, so the card words it in the reader's language.
+    [Fact]
+    public async Task ARefusalWithValuesAtPromotionEndsFailedOnItsKeyAsync()
+    {
+        var harness = new PromotionHarness();
+        var waitingRun = await harness.EnqueueBehindCacheClearAsync(
+            OperationType.LogRemoval,
+            "Log Removal",
+            () => throw new ValidationException("Logs directory is read-only for datasource 'default'")
+            {
+                StageKey = "errors.logs.directoryReadOnly",
+                Context = new Dictionary<string, object?> { ["datasource"] = "default" }
+            });
+        var ended = harness.WaitForTerminal(waitingRun.OperationId);
+
+        harness.ReleaseBlocker();
+
+        var operation = await ended.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(OperationStatus.Failed, operation.Status);
+        Assert.Equal("errors.logs.directoryReadOnly", operation.Message);
+        Assert.Equal("errors.logs.directoryReadOnly", operation.FailureReason!.StageKey);
+        Assert.Equal("default", operation.FailureReason.Context["datasource"]);
+    }
+
+    // A parked log run whose start fails for a reason other than "busy" ends Failed at once with the
+    // datasource on its failure reason; it does not wait out the retry window and end skipped.
+    [Fact]
+    public async Task ALogRunThatFailsToStartAtPromotionEndsFailedOnItsKeyAsync()
+    {
+        var harness = new PromotionHarness();
+        var waitingRun = await harness.EnqueueBehindCacheClearAsync(
+            OperationType.LogProcessing,
+            "Log Processing (default)",
+            () => throw new ServiceUnavailableException("Failed to start log processing for 'default'")
+            {
+                StageKey = "errors.logs.startFailedForDatasource",
+                Context = new Dictionary<string, object?> { ["datasource"] = "default" }
+            });
+        var ended = harness.WaitForTerminal(waitingRun.OperationId);
+
+        harness.ReleaseBlocker();
+
+        var operation = await ended.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(OperationStatus.Failed, operation.Status);
+        Assert.Equal("errors.logs.startFailedForDatasource", operation.Message);
+        Assert.Equal("default", operation.FailureReason!.Context["datasource"]);
     }
 
     /// <summary>
     /// A real tracker, conflict checker and queue, with a start delegate the test can hold open at
-    /// will. The blocker keeps the enqueued operation parked until the test releases it.
+    /// will. The blocker keeps the operation it sends parked until the test releases it.
     /// </summary>
-    private sealed class PromotionHarness
+    internal sealed class PromotionHarness
     {
         private readonly TaskCompletionSource _startEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _releaseStart = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource _promotedCancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _promotedCanceled = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly CancellationTokenSource _promotedCts = new();
-        private readonly OperationQueueService _queue;
+        private readonly OperationWaitlistService _queue;
         private Guid _blockerId;
 
         public PromotionHarness()
@@ -181,34 +231,61 @@ public sealed class OperationQueueCancelDuringPromotionTests
             var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
             Tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
             var conflictChecker = OperationConflictTestServices.Create(Tracker, NullLogger<OperationConflictChecker>.Instance);
-            _queue = new OperationQueueService(
-                Tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
+            _queue = new OperationWaitlistService(
+                Tracker, conflictChecker, NullLogger<OperationWaitlistService>.Instance);
 
-            _promotedCts.Token.Register(() => _promotedCancelled.TrySetResult());
+            _promotedCts.Token.Register(() => _promotedCanceled.TrySetResult());
         }
 
         public UnifiedOperationTracker Tracker { get; }
 
         public Task StartEntered => _startEntered.Task;
 
-        public Task PromotedCancelled => _promotedCancelled.Task;
+        public Task PromotedCanceled => _promotedCanceled.Task;
 
         public CancellationToken PromotedToken => _promotedCts.Token;
 
-        public async Task<QueuedOperationResponse> EnqueueBehindBlockerAsync()
+        public async Task<OperationStartResponse> EnqueueBehindBlockerAsync()
         {
             _blockerId = Tracker.RegisterOperation(
                 OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
 
-            var queued = await _queue.EnqueueAsync(
+            var waitingRun = await _queue.EnqueueAsync(
                 OperationType.GameDetection,
                 ConflictScope.Bulk(),
                 "Game Detection",
                 StartAsync,
-                CancellationToken.None);
+                CancellationToken.None, new GameDetectionRequestKey(DetectionScanType.Full));
 
-            Assert.True(queued.Queued);
-            return queued;
+            Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
+            return waitingRun;
+        }
+
+        /// <summary>Parks <paramref name="start"/> behind a running cache clear, which every job waits for.</summary>
+        public async Task<OperationStartResponse> EnqueueBehindCacheClearAsync(
+            OperationType type,
+            string displayName,
+            Func<Task<Guid?>> start)
+        {
+            _blockerId = Tracker.RegisterOperation(
+                OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource());
+
+            var waiting = await _queue.EnqueueAsync(type, ConflictScope.Bulk(), displayName, start, CancellationToken.None,
+                OperationConflictTestServices.RequestKeyFor(type));
+
+            Assert.Equal(OperationStartStatus.Waiting, waiting.Status);
+            return waiting;
+        }
+
+        /// <summary>Completes with the operation as it ended.</summary>
+        public Task<OperationInfo> WaitForTerminal(Guid operationId)
+        {
+            var ended = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Tracker.OperationTerminal += operation =>
+            {
+                if (operation.Id == operationId) ended.TrySetResult(operation);
+            };
+            return ended.Task;
         }
 
         public void ReleaseBlocker() => Tracker.CompleteOperation(_blockerId, success: true);
@@ -221,12 +298,12 @@ public sealed class OperationQueueCancelDuringPromotionTests
         /// promotion holds it, so an enqueue cannot return until that pass is done. This is a real
         /// barrier rather than a delay, which keeps the negative test honest.
         /// </summary>
-        public Task<QueuedOperationResponse> WaitForPromotionPassAsync() => _queue.EnqueueAsync(
+        public Task<OperationStartResponse> WaitForPromotionPassAsync() => _queue.EnqueueAsync(
             OperationType.LogProcessing,
             ConflictScope.Bulk(),
             "Promotion barrier",
             () => Task.FromResult<Guid?>(Guid.NewGuid()),
-            CancellationToken.None);
+            CancellationToken.None, OperationRequestKey.Plain);
 
         private async Task<Guid?> StartAsync()
         {

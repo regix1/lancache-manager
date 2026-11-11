@@ -51,7 +51,7 @@ public static class DataSourceChoiceExtensions
 
     /// <summary>
     /// Parses a wire string into a <see cref="DataSourceChoice"/>. Case-insensitive.
-    /// Returns <c>null</c> if the value is null, whitespace, or unrecognised.
+    /// Returns <c>null</c> if the value is null, whitespace, or unrecognized.
     /// </summary>
     public static DataSourceChoice? TryParseWire(string? value)
     {

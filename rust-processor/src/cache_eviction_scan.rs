@@ -1114,7 +1114,7 @@ async fn run_scan(
 
         // Cooperative cancellation: between-batch check (after a full batch has committed).
         // Never leaves a half-written batch: the transaction above either committed or rolled back.
-        if cancel::is_cancelled() {
+        if cancel::is_canceled() {
             eprintln!(
                 "[EvictionScan] Cancellation requested after batch — processed {} downloads so far, exiting.",
                 total_processed

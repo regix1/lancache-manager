@@ -299,9 +299,14 @@ public class ScheduledServiceStartupTests
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"scheduled-service-{Guid.NewGuid():N}")
             .Options;
+        var tracker = CreateRealTracker();
         return new ServiceCollection()
             .AddScoped(_ => new AppDbContext(options))
             .AddSingleton(CreateDefaultProxy<IHttpClientFactory>())
+            .AddSingleton<IOperationWaitlist>(new OperationWaitlistService(
+                tracker,
+                OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+                NullLogger<OperationWaitlistService>.Instance))
             .BuildServiceProvider();
     }
 

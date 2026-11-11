@@ -24,8 +24,8 @@ namespace LancacheManager.Infrastructure.Data;
 ///     <c>DatabaseService.cs</c> - bulk clears <c>GameImageUrl</c> to <c>null</c> when purging depot mappings.
 ///   </item>
 ///   <item>
-///     <c>SteamKit2Service.Mapping.cs</c> - <c>ClearDownloadGameDataAsync</c>:
-///     bulk clears <c>GameImageUrl</c> to <c>null</c> before a fresh full PICS scan.
+///     <c>SteamKit2Service.Pics.cs</c> - a full PICS scan clears no <c>GameImageUrl</c> first; after the new
+///     mappings are saved it rewrites a download only when they name its owner, and every other download keeps its URL.
 ///   </item>
 /// </list>
 ///

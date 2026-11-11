@@ -1714,7 +1714,7 @@ public sealed class NginxLogRotationServiceTests
                 await run.WaitAsync(TimeSpan.FromSeconds(10));
 
                 Assert.Empty(service.Commands);
-                Assert.Equal(OperationStatus.Cancelled, harness.Tracker.GetOperation(operation.Id)!.Status);
+                Assert.Equal(OperationStatus.Canceled, harness.Tracker.GetOperation(operation.Id)!.Status);
             }
         }
         Directory.Delete(root, recursive: true);
@@ -1762,7 +1762,9 @@ public sealed class NginxLogRotationServiceTests
 
             var ended = harness.Tracker.GetOperation(operation.Id)!;
             Assert.Equal(OperationStatus.Failed, ended.Status);
-            Assert.Contains("30 seconds", ended.Message, StringComparison.Ordinal);
+            // The run ends on a key the card translates; the limit's sentence stays on it as the error detail.
+            Assert.Equal("signalr.generic.failed", ended.Message);
+            Assert.Contains("30 seconds", ended.ErrorDetail, StringComparison.Ordinal);
             await using (await harness.Owner.LockLogFilesAsync(
                 null,
                 OperationType.LogRemoval,
@@ -1821,7 +1823,7 @@ public sealed class NginxLogRotationServiceTests
             harness.Tracker.CancelOperation(operation.Id);
             await run.WaitAsync(TimeSpan.FromSeconds(5));
 
-            Assert.Equal(OperationStatus.Cancelled, harness.Tracker.GetOperation(operation.Id)!.Status);
+            Assert.Equal(OperationStatus.Canceled, harness.Tracker.GetOperation(operation.Id)!.Status);
             await using (await harness.Owner.LockLogFilesAsync(
                 null,
                 OperationType.LogRemoval,

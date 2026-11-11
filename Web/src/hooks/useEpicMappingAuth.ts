@@ -57,7 +57,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   const requestRef = useRef(0);
   const statusRequestRef = useRef(0);
   const attemptRef = useRef<string | null>(null);
-  const cancelledAttemptRef = useRef<string | null>(null);
+  const canceledAttemptRef = useRef<string | null>(null);
   const busyRef = useRef(false);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   const [loginDeadline, setLoginDeadline] = useState<number | null>(null);
@@ -116,7 +116,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   const resetAuthForm = useCallback(() => {
     requestRef.current += 1;
     busyRef.current = false;
-    if (attemptRef.current) cancelledAttemptRef.current = attemptRef.current;
+    if (attemptRef.current) canceledAttemptRef.current = attemptRef.current;
     attemptRef.current = null;
     setAttemptId(null);
     if (abortController) {
@@ -141,10 +141,10 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
 
   const cancelLogin = useCallback(() => {
     if (identityRef.current !== identity || !formCurrent) return;
-    const cancelled = attemptId;
-    if (cancelledAttemptRef.current === cancelled) cancelledAttemptRef.current = null;
-    if (!cancelled) return;
-    void ApiService.cancelEpicMappingLogin(cancelled)
+    const canceled = attemptId;
+    if (canceledAttemptRef.current === canceled) canceledAttemptRef.current = null;
+    if (!canceled) return;
+    void ApiService.cancelEpicMappingLogin(canceled)
       .catch((error: unknown) => {
         console.warn('Epic sign-in cancellation was not acknowledged:', getErrorMessage(error));
       })
@@ -156,7 +156,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
   useEffect(() => {
     formIdentityRef.current = identity;
     resetAuthForm();
-    cancelledAttemptRef.current = null;
+    canceledAttemptRef.current = null;
     setStatus(null);
     setStatusIdentity(null);
     setStatusLoading(hasAccess);
@@ -183,7 +183,7 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     }
     resetAuthForm();
     const submittedAttempt = createUuid();
-    cancelledAttemptRef.current = null;
+    canceledAttemptRef.current = null;
     attemptRef.current = submittedAttempt;
     setAttemptId(submittedAttempt);
     busyRef.current = true;

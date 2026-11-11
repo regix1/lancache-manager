@@ -346,8 +346,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
                 }
 
                 // Only another log processing run conflicts; other jobs' log steps take turns with a pass at the log file lock.
-                var conflict = await _conflictChecker.CheckAsync(
-                    OperationType.LogProcessing, ConflictScope.Bulk(), CancellationToken.None);
+                var conflict = await _conflictChecker.CheckForLogPassAsync(CancellationToken.None);
                 if (conflict != null)
                 {
                     _logger.LogDebug(

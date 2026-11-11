@@ -221,7 +221,7 @@ public sealed class LogFileLockTests : IDisposable
     }
 
     [Fact]
-    public async Task StepCancelledWhileWaitingLetsTheNextImportPassInAsync()
+    public async Task StepCanceledWhileWaitingLetsTheNextImportPassInAsync()
     {
         await using var harness = await CreateHarnessAsync();
         var owner = harness.Owner;
@@ -238,7 +238,7 @@ public sealed class LogFileLockTests : IDisposable
     }
 
     [Fact]
-    public async Task StepCancelledWhileWaitingStopsNamingTheHolderAsync()
+    public async Task StepCanceledWhileWaitingStopsNamingTheHolderAsync()
     {
         await using var harness = await CreateHarnessAsync();
         var owner = harness.Owner;
@@ -271,7 +271,7 @@ public sealed class LogFileLockTests : IDisposable
     }
 
     [Fact]
-    public async Task StepCancelledWhileTheSpeedTrackerRunsGivesTheLogsBackAsync()
+    public async Task StepCanceledWhileTheSpeedTrackerRunsGivesTheLogsBackAsync()
     {
         await using var harness = await CreateHarnessAsync();
         var owner = harness.Owner;
@@ -481,7 +481,7 @@ public sealed class LogFileLockTests : IDisposable
         var second = stepContext.Run(() => LockAsync(owner, LogFileLockKind.Rewrite));
         var stepStarted = waiterContext.Run(() => owner.WaitForLogStepAsync(active: true, CancellationToken.None));
 
-        // Cancelling the last waiting import clears the turn it was owed.
+        // Canceling the last waiting import clears the turn it was owed.
         await cancel.CancelAsync();
         await passContext.RunNextAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pass);

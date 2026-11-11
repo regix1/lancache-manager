@@ -40,15 +40,15 @@ public class CacheSizeScanNotificationFlagTests
                 _ => null
             });
             Guid? started = null;
-            var queue = CreateProxy<IOperationQueue>((method, args) =>
+            var queue = CreateProxy<IOperationWaitlist>((method, args) =>
             {
                 var start = (Func<Task<Guid?>>)args![3]!;
                 return RunStartAsync();
 
-                async Task<QueuedOperationResponse> RunStartAsync()
+                async Task<OperationStartResponse> RunStartAsync()
                 {
                     started = await start();
-                    return new QueuedOperationResponse { OperationId = started!.Value };
+                    return new OperationStartResponse { OperationId = started!.Value, Status = OperationStartStatus.Started };
                 }
             });
             var service = new ScanProbe(CacheServiceFor(tracker, paths), paths, queue, tracker);
@@ -80,7 +80,7 @@ public class CacheSizeScanNotificationFlagTests
         var missing = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "cache_size");
         var paths = CreateProxy<IPathResolver>((method, _) =>
             method.Name == nameof(IPathResolver.GetRustCacheSizePath) ? missing : null);
-        var queue = CreateProxy<IOperationQueue>((_, _) => throw new InvalidOperationException("A run without its tool never reaches the queue"));
+        var queue = CreateProxy<IOperationWaitlist>((_, _) => throw new InvalidOperationException("A run without its tool never reaches the queue"));
         var service = new ScanProbe(cacheService: null!, paths, queue, tracker);
         var notice = new RunNotice(mode, trigger);
 
@@ -110,7 +110,8 @@ public class CacheSizeScanNotificationFlagTests
         {
             var paths = CreateProxy<IPathResolver>((method, _) =>
                 method.Name == nameof(IPathResolver.GetRustCacheSizePath) ? tool : null);
-            var queue = CreateProxy<IOperationQueue>((_, _) => throw new DownloadInProgressException("A download is in progress"));
+            var queue = CreateProxy<IOperationWaitlist>((_, _) => throw new DownloadInProgressException(
+                "A download is in progress", "errors.unmappedRemoval.downloadInProgress"));
             var logger = new CapturingLogger<CacheSizeScanScheduledService>();
             var service = new ScanProbe(cacheService: null!, paths, queue, NewTracker(), logger);
 
@@ -161,7 +162,7 @@ public class CacheSizeScanNotificationFlagTests
         public ScanProbe(
             CacheManagementService cacheService,
             IPathResolver paths,
-            IOperationQueue queue,
+            IOperationWaitlist queue,
             UnifiedOperationTracker tracker,
             ILogger<CacheSizeScanScheduledService>? logger = null)
             : base(

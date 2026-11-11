@@ -11,8 +11,8 @@ namespace LancacheManager.Core.Services;
 /// </summary>
 public class DownloadInProgressException : ValidationException
 {
-    public DownloadInProgressException(string message)
-        : base(message, ErrorResponse.DownloadInProgressCode) { }
+    public DownloadInProgressException(string message, string stageKey)
+        : base(message, ErrorResponse.DownloadInProgressCode) => StageKey = stageKey;
 }
 
 /// <summary>
@@ -106,7 +106,13 @@ public sealed class CacheScanGate
     /// <summary>
     /// Returns null when a scan may start, or the reason it may not.
     /// </summary>
-    public string? CheckDownloadInProgress()
+    public string? CheckDownloadInProgress() => CheckDownloadRefusal()?.Message;
+
+    /// <summary>
+    /// Returns null when a scan may start, or the refusal to throw, keyed by why it may not, so a run
+    /// that ends on it names that reason in the reader's language.
+    /// </summary>
+    public DownloadInProgressException? CheckDownloadRefusal()
     {
         // One read for both: the tracker writes the clock and the snapshot together at every
         // transition, and asking for them separately lets a death land between the two answers.
@@ -117,7 +123,7 @@ public sealed class CacheScanGate
             const string starting =
                 "The download tracker has not reported yet, so a scan cannot tell whether the cache is being written to. Try again in a few seconds.";
             _logger.LogDebug("[CacheScanGate] {Reason}", starting);
-            return starting;
+            return new DownloadInProgressException(starting, "errors.unmappedRemoval.trackerNotReported");
         }
 
         if (!snapshot.HasActiveDownloads)
@@ -127,7 +133,7 @@ public sealed class CacheScanGate
 
         const string reason = "A client download is writing to the cache right now. Try again once it finishes.";
         _logger.LogDebug("[CacheScanGate] {Reason}", reason);
-        return reason;
+        return new DownloadInProgressException(reason, "errors.unmappedRemoval.downloadInProgress");
     }
 
     /// <summary>
@@ -161,12 +167,9 @@ public sealed class CacheScanGate
                 return TrackerStopped();
             }
 
-            if (CheckDownloadInProgress() is { } reason)
+            if (CheckDownloadRefusal() is { } refusal)
             {
-                return new DownloadInProgressException(reason)
-                {
-                    StageKey = "errors.unmappedRemoval.downloadInProgress"
-                };
+                return refusal;
             }
 
             await Task.Delay(_downloadWatchInterval, cancellationToken);
@@ -175,10 +178,8 @@ public sealed class CacheScanGate
 
     /// <summary>The refusal for a removal while no tracker child reports, so no download can be seen.</summary>
     internal static DownloadInProgressException TrackerStopped() => new(
-        "The download tracker stopped, so the removal cannot tell whether a client is reading the cache.")
-    {
-        StageKey = "errors.unmappedRemoval.trackerStopped"
-    };
+        "The download tracker stopped, so the removal cannot tell whether a client is reading the cache.",
+        "errors.unmappedRemoval.trackerStopped");
 
     /// <summary>
     /// How many clients are pushing bytes through the cache right now. A caller naming what a
@@ -202,7 +203,7 @@ public sealed class CacheScanGate
     /// an English string would reach a Chinese browser untranslated. The sentences above are different
     /// - they answer an HTTP request and are already English on the wire.
     /// </summary>
-    public const string ScheduleQueuedReasonKey = "management.schedules.queuedUntilCacheFree";
+    public const string ScheduleWaitingReasonKey = "management.schedules.waitingUntilCacheFree";
 
     /// <summary>
     /// The same sentence with the run's own name in it, for the one refusal that has a name to give:
@@ -211,5 +212,5 @@ public sealed class CacheScanGate
     /// cover more than one schedule, where there is no single name and this one would render its
     /// placeholder as literal text.
     /// </summary>
-    public const string ScheduleQueuedReasonNamedKey = "management.schedules.queuedUntilCacheFreeNamed";
+    public const string ScheduleWaitingReasonNamedKey = "management.schedules.waitingUntilCacheFreeNamed";
 }

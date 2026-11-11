@@ -198,7 +198,7 @@ public class ProtocolProbeResult
     public string? RedirectScheme { get; set; }
 }
 
-/// <summary>Current public-edge HTTP/HTTPS behaviour of one ad hoc tested hostname (v1.5),
+/// <summary>Current public-edge HTTP/HTTPS behavior of one ad hoc tested hostname (v1.5),
 /// produced by the same resolve-and-probe pipeline as the sweep's content lane.</summary>
 public class HostProtocolProbeResult
 {

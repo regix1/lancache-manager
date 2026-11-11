@@ -1,7 +1,7 @@
 import type { ReactNode, Ref } from 'react';
 
 interface StepHeaderProps {
-  /** Icon element, already sized and coloured by the caller, e.g. `<CheckCircle className="w-7 h-7 icon-success" />`. */
+  /** Icon element, already sized and colored by the caller, e.g. `<CheckCircle className="w-7 h-7 icon-success" />`. */
   icon: ReactNode;
   /** Circle fill class, e.g. `bg-themed-info`. Six real values across the setup steps. */
   iconBackground: string;
@@ -16,7 +16,7 @@ interface StepHeaderProps {
 }
 
 /**
- * Centred icon-circle + heading + description block that opens every setup wizard step.
+ * Centered icon-circle + heading + description block that opens every setup wizard step.
  */
 export const StepHeader: React.FC<StepHeaderProps> = ({
   icon,

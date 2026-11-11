@@ -9,7 +9,7 @@ namespace LancacheManager.Core.Services.Xbox;
 /// Typed <see cref="HttpClient"/> that performs the full manager-side, daemon-free Xbox MSA device-code
 /// login + catalog harvest, ported faithfully from the prefill daemon's
 /// <c>XboxPrefill/Handlers/XboxAccountManager.cs</c> + <c>XboxApi.cs</c> + <c>ManifestHandler.cs</c>
-/// (all PROVEN live against a real account). It is the Xbox analogue of <c>EpicApiDirectClient</c>:
+/// (all PROVEN live against a real account). It is the Xbox analog of <c>EpicApiDirectClient</c>:
 ///
 ///   device-code init (oauth20_connect.srf) -> poll (oauth20_token.srf, pending/slow_down) ->
 ///   refresh-token grant -> XBL user/authenticate -> XBL device/authenticate (SIGNED, ECDSA POP) ->

@@ -46,10 +46,10 @@ public sealed class PrefillRunTests
         await fixture.RefreshAsync();
         await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, second.PrefillRunId, true);
 
-        Assert.Equal([second.PrefillRunId], fixture.Client.Cancelled);
+        Assert.Equal([second.PrefillRunId], fixture.Client.Canceled);
         Assert.False(first.Completion.Task.IsCompleted);
         Assert.False(third.Completion.Task.IsCompleted);
-        Assert.Equal("cancelled", (await second.Completion.Task).Snapshot.State);
+        Assert.Equal("canceled", (await second.Completion.Task).Snapshot.State);
         Assert.Equal(10, first.Snapshot.BytesTransferred);
         Assert.Equal(30, third.Snapshot.BytesTransferred);
         Assert.Contains(fixture.Session.Runs.Values, run => run.TerminalCompletedFlag != 2);
@@ -58,7 +58,7 @@ public sealed class PrefillRunTests
     [Theory]
     [InlineData("success", 100, true)]
     [InlineData("already_cached", 0, false)]
-    [InlineData("cancelled", 25, false)]
+    [InlineData("canceled", 25, false)]
     [InlineData("failed", 25, false)]
     [InlineData("skipped", 0, false)]
     public async Task OnlySuccessfulDownloadsCreateCacheRecordsAsync(string result, long bytes, bool cached)
@@ -176,7 +176,7 @@ public sealed class PrefillRunTests
         await fixture.StartAsync("20");
         var error = await Assert.ThrowsAsync<DaemonCommandException>(() => fixture.Daemon.CancelPrefillAsync(fixture.Session.Id));
         Assert.Equal("ambiguous-operation", error.ErrorCode);
-        Assert.Empty(fixture.Client.Cancelled);
+        Assert.Empty(fixture.Client.Canceled);
     }
 
     [Fact]
@@ -263,7 +263,7 @@ public sealed class PrefillRunTests
             DateTime.UtcNow, TimeSpan.FromMinutes(3)));
         Assert.False(first.Completion.Task.IsCompleted);
         Assert.False(second.CancelRequested);
-        fixture.Client.Set(first, "cancelled", 5, "cancelled");
+        fixture.Client.Set(first, "canceled", 5, "canceled");
         await fixture.RefreshAsync();
         Assert.Equal("failed", (await first.Completion.Task).Snapshot.State);
         Assert.Equal("stalled", first.Snapshot.Reason);
@@ -283,7 +283,7 @@ public sealed class PrefillRunTests
         run.LastProgressTicksUtc = DateTime.UtcNow.Ticks;
         run.PrefillWork.Release();
         Assert.False(await stalled);
-        Assert.Empty(fixture.Client.Cancelled);
+        Assert.Empty(fixture.Client.Canceled);
         Assert.False(run.CancelRequested);
     }
 
@@ -296,7 +296,7 @@ public sealed class PrefillRunTests
         var third = await fixture.StartAsync("30");
         await DaemonTestMethods.InvokePrivateHandlerAsync(fixture.Daemon, "ApplyStatusAsync", fixture.Session,
             new DaemonStatus { Status = "awaiting-login" }, null);
-        Assert.Equal(3, fixture.Client.Cancelled.Count);
+        Assert.Equal(3, fixture.Client.Canceled.Count);
         foreach (var run in new[] { first, second, third })
         {
             Assert.Equal("failed", (await run.Completion.Task.WaitAsync(TimeSpan.FromSeconds(5))).Snapshot.State);
@@ -307,7 +307,7 @@ public sealed class PrefillRunTests
     }
 
     [Fact]
-    public async Task UserCancelStaysCancelledWhenSignOutLandsDuringCancelAsync()
+    public async Task UserCancelStaysCanceledWhenSignOutLandsDuringCancelAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
         var run = await fixture.StartAsync("10");
@@ -316,13 +316,13 @@ public sealed class PrefillRunTests
         await DaemonTestMethods.InvokePrivateHandlerAsync(fixture.Daemon, "ApplyStatusAsync", fixture.Session,
             new DaemonStatus { Status = "awaiting-login" }, null);
         Assert.Null(run.CancelReason);
-        fixture.Client.Set(run, "cancelled", 5, "cancelled");
+        fixture.Client.Set(run, "canceled", 5, "canceled");
         await fixture.RefreshAsync();
-        Assert.Equal("cancelled", (await run.Completion.Task.WaitAsync(TimeSpan.FromSeconds(5))).Snapshot.State);
+        Assert.Equal("canceled", (await run.Completion.Task.WaitAsync(TimeSpan.FromSeconds(5))).Snapshot.State);
         Assert.Null(run.Snapshot.Reason);
         await using var context = new AppDbContext(fixture.Options);
         var saved = await context.PrefillRuns.SingleAsync(row => row.Id == run.PrefillRunId);
-        Assert.Equal("cancelled", saved.State);
+        Assert.Equal("canceled", saved.State);
         Assert.Null(saved.Reason);
     }
 
@@ -609,7 +609,7 @@ public sealed class PrefillRunTests
         Assert.False(run.Completion.Task.IsCompleted);
 
         hold.SetResult();
-        Assert.Equal("cancelled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
+        Assert.Equal("canceled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
     }
 
     [Fact]
@@ -654,7 +654,7 @@ public sealed class PrefillRunTests
 
         Assert.False(result.LoggedOut);
         Assert.Equal(0, client.Logouts);
-        Assert.Empty(client.Cancelled);
+        Assert.Empty(client.Canceled);
         Assert.False(run.Completion.Task.IsCompleted);
     }
 
@@ -721,8 +721,8 @@ public sealed class PrefillRunTests
         await fixture.RefreshAsync();
         await fixture.RefreshAsync();
 
-        Assert.Contains(run.PrefillRunId, fixture.Client.Cancelled);
-        Assert.Equal("cancelled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
+        Assert.Contains(run.PrefillRunId, fixture.Client.Canceled);
+        Assert.Equal("canceled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
     }
 
     [Fact]
@@ -739,13 +739,13 @@ public sealed class PrefillRunTests
 
         Assert.False(await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, run.PrefillRunId, true,
             reason: "runtime-exceeded"));
-        Assert.Empty(fixture.Client.Cancelled);
+        Assert.Empty(fixture.Client.Canceled);
 
         fixture.Client.Status = null;
         await fixture.RefreshAsync();
         await fixture.RefreshAsync();
 
-        Assert.Equal([run.PrefillRunId], fixture.Client.Cancelled);
+        Assert.Equal([run.PrefillRunId], fixture.Client.Canceled);
         Assert.Equal("failed", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
         Assert.False(fixture.Session.Recovering);
     }
@@ -777,7 +777,7 @@ public sealed class PrefillRunTests
     }
 
     [Fact]
-    public async Task AStartQueuedBehindASignInWhenTheDaemonReportsSignedOutAnswersAsync()
+    public async Task AStartWaitingBehindASignInWhenTheDaemonReportsSignedOutAnswersAsync()
     {
         await using var fixture = await RunFixture.CreateAsync(persistent: true);
         Assert.True(fixture.Daemon.PersistentChangeGate.TryEnterChange(out var change));
@@ -812,14 +812,14 @@ public sealed class PrefillRunTests
         Assert.False(result.LoggedOut);
         Assert.InRange(clock.Elapsed, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4));
         Assert.Equal(0, client.Logouts);
-        Assert.Single(client.Cancelled);
+        Assert.Single(client.Canceled);
         Assert.False(run.Completion.Task.IsCompleted);
         Assert.True(fixture.Daemon.IsSessionLive(fixture.Session));
         Assert.False(fixture.Session.AdmissionClosed);
     }
 
     [Fact]
-    public async Task ALogoutWaitsForACancelledRunThatKeepsDownloadingAsync()
+    public async Task ALogoutWaitsForACanceledRunThatKeepsDownloadingAsync()
     {
         await using var fixture = await RunFixture.CreateAsync(persistent: true);
         UseStallTimeout(fixture.Daemon, 2);
@@ -835,7 +835,7 @@ public sealed class PrefillRunTests
             client.Set(run, "downloading", bytes, "downloading");
             await fixture.RefreshAsync();
         }
-        client.Set(run, "cancelled", 40, "cancelled");
+        client.Set(run, "canceled", 40, "canceled");
         await fixture.RefreshAsync();
 
         Assert.True((await logout.WaitAsync(Bound)).LoggedOut);
@@ -855,7 +855,7 @@ public sealed class PrefillRunTests
         SetField(fixture.Daemon, "_cacheService", new PrefillCacheService(cache, NullLogger<PrefillCacheService>.Instance));
         var clock = Stopwatch.StartNew();
         var logout = fixture.Daemon.LogoutPersistentSessionAsync(fixture.Session.Id);
-        Assert.True(SpinWait.SpinUntil(() => client.Cancelled.Count > 0, Bound));
+        Assert.True(SpinWait.SpinUntil(() => client.Canceled.Count > 0, Bound));
 
         client.Set(run, "completed", 100, "success");
         var page = client.Pages[run.PrefillRunId];
@@ -897,9 +897,9 @@ public sealed class PrefillRunTests
         SetField(fixture.Daemon, "_sessionService", new PrefillSessionService(history, NullLogger<PrefillSessionService>.Instance));
         var clock = Stopwatch.StartNew();
         var logout = fixture.Daemon.LogoutPersistentSessionAsync(fixture.Session.Id);
-        Assert.True(SpinWait.SpinUntil(() => client.Cancelled.Count > 0, Bound));
+        Assert.True(SpinWait.SpinUntil(() => client.Canceled.Count > 0, Bound));
 
-        client.Set(run, "cancelled", 0, "cancelled");
+        client.Set(run, "canceled", 0, "canceled");
         var end = fixture.RefreshAsync();
         try
         {
@@ -928,7 +928,7 @@ public sealed class PrefillRunTests
         client.CompleteCancellation = false;
         var run = await fixture.StartAsync("10");
         var logout = fixture.Daemon.LogoutPersistentSessionAsync(fixture.Session.Id);
-        Assert.True(SpinWait.SpinUntil(() => client.Cancelled.Count > 0, Bound));
+        Assert.True(SpinWait.SpinUntil(() => client.Canceled.Count > 0, Bound));
         // A stored row that already holds an end makes the terminal save answer not applied.
         await using (var context = new AppDbContext(fixture.Options))
         {
@@ -937,7 +937,7 @@ public sealed class PrefillRunTests
             await context.SaveChangesAsync();
         }
 
-        client.Set(run, "cancelled", 0, "cancelled");
+        client.Set(run, "canceled", 0, "canceled");
         await fixture.RefreshAsync();
 
         Assert.Equal(0, Volatile.Read(ref run.TerminalSavePending));
@@ -956,7 +956,7 @@ public sealed class PrefillRunTests
         await fixture.StartAsync("10");
         var old = fixture.Session;
         var logout = fixture.Daemon.LogoutPersistentSessionAsync(old.Id);
-        Assert.True(SpinWait.SpinUntil(() => client.Cancelled.Count > 0, Bound));
+        Assert.True(SpinWait.SpinUntil(() => client.Canceled.Count > 0, Bound));
 
         // A re-adopt registers a new session object under the same id.
         var readoptedClient = (RunClient)(object)DispatchProxy.Create<IDaemonClient, RunClient>();
@@ -983,27 +983,27 @@ public sealed class PrefillRunTests
     }
 
     [Fact]
-    public async Task ACancelledRunsEndThatArrivesDuringTheCancelsReadEndsTheRunAsync()
+    public async Task ACanceledRunsEndThatArrivesDuringTheCancelsReadEndsTheRunAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
         var client = Script(fixture);
         var run = await fixture.StartAsync("10");
         client.CompleteCancellation = false;
-        client.Set(run, "cancelling", 0, "downloading");
-        var cancelling = client.Pages[run.PrefillRunId];
-        client.Set(run, "cancelled", 0, "cancelled");
-        var cancelled = client.Pages[run.PrefillRunId];
+        client.Set(run, "canceling", 0, "downloading");
+        var canceling = client.Pages[run.PrefillRunId];
+        client.Set(run, "canceled", 0, "canceled");
+        var canceled = client.Pages[run.PrefillRunId];
         var reads = 0;
-        client.ReadPage = (_, _) => Interlocked.Increment(ref reads) == 1 ? cancelling : cancelled;
+        client.ReadPage = (_, _) => Interlocked.Increment(ref reads) == 1 ? canceling : canceled;
         var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         client.PageHold = hold;
 
         Assert.True(await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, run.PrefillRunId, false).WaitAsync(Bound));
         Assert.True(SpinWait.SpinUntil(() => run.PrefillWork.CurrentCount == 0, Bound));
-        await RaiseProgressAsync(fixture, run, cancelled.Operation.Sequence);
+        await RaiseProgressAsync(fixture, run, canceled.Operation.Sequence);
         hold.SetResult();
 
-        Assert.Equal("cancelled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
+        Assert.Equal("canceled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
     }
 
     [Fact]
@@ -1012,14 +1012,14 @@ public sealed class PrefillRunTests
         await using var fixture = await RunFixture.CreateAsync();
         var run = await fixture.StartAsync("10");
         await run.PrefillWork.WaitAsync();
-        fixture.Client.Set(run, "cancelled", 0, "cancelled");
+        fixture.Client.Set(run, "canceled", 0, "canceled");
         await RaiseProgressAsync(fixture, run, fixture.Client.Pages[run.PrefillRunId].Operation.Sequence);
         var stalled = fixture.Daemon.FailStalledSessionAsync(fixture.Session, run.PrefillRunId, DateTime.UtcNow,
             TimeSpan.FromHours(1));
         run.PrefillWork.Release();
 
         Assert.False(await stalled.WaitAsync(Bound));
-        Assert.Equal("cancelled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
+        Assert.Equal("canceled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
     }
 
     [Fact]
@@ -1032,7 +1032,7 @@ public sealed class PrefillRunTests
         switchable.Recover(new TestDbContextFactory(fixture.Options));
         SetField(fixture.Daemon, "_sessionService", new PrefillSessionService(switchable, NullLogger<PrefillSessionService>.Instance));
         await run.PrefillWork.WaitAsync();
-        client.Set(run, "cancelled", 0, "cancelled");
+        client.Set(run, "canceled", 0, "canceled");
         await RaiseProgressAsync(fixture, run, client.Pages[run.PrefillRunId].Operation.Sequence);
         var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         client.PageHold = hold;
@@ -1044,7 +1044,7 @@ public sealed class PrefillRunTests
         switchable.Recover(new TestDbContextFactory(fixture.Options));
         hold.SetResult();
 
-        Assert.Equal("cancelled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
+        Assert.Equal("canceled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
     }
 
     [Fact]
@@ -1072,10 +1072,10 @@ public sealed class PrefillRunTests
             admission.SetResult();
             await start.WaitAsync(Bound);
 
-            Assert.Equal("cancelled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
+            Assert.Equal("canceled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
         }
         finally { fixture.Session.RecoveryWork.Release(); }
-        Assert.Equal([run.PrefillRunId], client.Cancelled);
+        Assert.Equal([run.PrefillRunId], client.Canceled);
         Assert.Null(run.CancelReason);
     }
 
@@ -1102,12 +1102,12 @@ public sealed class PrefillRunTests
         {
             admission.SetResult();
             await start.WaitAsync(Bound);
-            Assert.True(SpinWait.SpinUntil(() => client.Cancelled.Count > 0, Bound));
+            Assert.True(SpinWait.SpinUntil(() => client.Canceled.Count > 0, Bound));
         }
         finally { fixture.Session.RecoveryWork.Release(); }
         switchable.Recover(new TestDbContextFactory(fixture.Options));
 
-        Assert.Equal([run.PrefillRunId], client.Cancelled);
+        Assert.Equal([run.PrefillRunId], client.Canceled);
         Assert.True(run.CancelRequested);
     }
 
@@ -1126,15 +1126,15 @@ public sealed class PrefillRunTests
 
         var refused = await Assert.ThrowsAsync<DaemonCommandException>(() => start.WaitAsync(Bound));
         Assert.Equal("auth-lost", refused.ErrorCode);
-        Assert.Equal("cancelled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
+        Assert.Equal("canceled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
         Assert.False(fixture.Session.Runs.ContainsKey(run.PrefillRunId));
         bool EndedPush((string Method, object?[] Args) call) =>
             call.Method == nameof(ISignalRNotificationService.NotifyAdminAsync)
             && call.Args.Length > 1 && call.Args[1] is DaemonSessionDto session
-            && session.Runs.Any(listed => listed.RunId == run.PrefillRunId && listed.Snapshot.State == "cancelled");
+            && session.Runs.Any(listed => listed.RunId == run.PrefillRunId && listed.Snapshot.State == "canceled");
         Assert.True(SpinWait.SpinUntil(() => fixture.Recorder.Invocations.ToArray().Any(EndedPush), Bound));
         Assert.Single(fixture.Recorder.Invocations.ToArray(), EndedPush);
-        Assert.Empty(fixture.Client.Cancelled);
+        Assert.Empty(fixture.Client.Canceled);
     }
 
     [Fact]
@@ -1186,7 +1186,7 @@ public sealed class PrefillRunTests
         fixture.Client.CompleteCancellation = false;
         var run = await fixture.StartAsync("10");
         await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, run.PrefillRunId, true);
-        fixture.Client.Set(run, "cancelling", 0, "downloading");
+        fixture.Client.Set(run, "canceling", 0, "downloading");
         // A restart keeps only the saved row, which holds the cancel and no end.
         Assert.True(fixture.Session.Runs.TryRemove(run.PrefillRunId, out _));
 
@@ -1241,7 +1241,7 @@ public sealed class PrefillRunTests
 
         await Assert.ThrowsAsync<DaemonCommandException>(() => start.WaitAsync(Bound));
         await fixture.RefreshAsync();
-        Assert.Empty(client.Cancelled);
+        Assert.Empty(client.Canceled);
     }
 
     [Fact]
@@ -1276,13 +1276,13 @@ public sealed class PrefillRunTests
             Assert.IsType<OkResult>(await cancel.WaitAsync(Bound));
             await first!.WaitAsync(Bound);
             await second!.WaitAsync(Bound);
-            var cancelled = fixture.Daemon.GetRun(fixture.Session.Id, secondId)!;
-            Assert.Equal("cancelled", (await cancelled.Completion.Task.WaitAsync(Bound)).Snapshot.State);
+            var canceled = fixture.Daemon.GetRun(fixture.Session.Id, secondId)!;
+            Assert.Equal("canceled", (await canceled.Completion.Task.WaitAsync(Bound)).Snapshot.State);
         }
         finally { fixture.Session.RecoveryWork.Release(); }
         // The cancel landed while the second Start waited for the gate, so that Start ends before reaching the daemon.
         Assert.Equal(1, fixture.Client.StartCount);
-        Assert.Empty(fixture.Client.Cancelled);
+        Assert.Empty(fixture.Client.Canceled);
         Assert.False(fixture.Daemon.GetRun(fixture.Session.Id, firstId)!.Completion.Task.IsCompleted);
     }
 
@@ -1297,15 +1297,15 @@ public sealed class PrefillRunTests
         run.Recovering = true;
         fixture.Session.Recovering = true;
         run.CancelDeadlineUtc = DateTime.UtcNow - TimeSpan.FromSeconds(1);
-        fixture.Client.Set(run, "cancelling", 0, "downloading");
+        fixture.Client.Set(run, "canceling", 0, "downloading");
         fixture.Session.NextRecoveryAtUtc = DateTime.MinValue;
 
         await fixture.Daemon.ProcessSessionExpiryAsync(DateTime.UtcNow);
 
         Assert.Equal(0, run.TerminalCompletedFlag);
-        fixture.Client.Set(run, "cancelled", 0, "cancelled");
+        fixture.Client.Set(run, "canceled", 0, "canceled");
         await fixture.RefreshAsync();
-        Assert.Equal("cancelled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
+        Assert.Equal("canceled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
     }
 
     [Fact]
@@ -1339,7 +1339,7 @@ public sealed class PrefillRunTests
             Assert.True(SpinWait.SpinUntil(() => run.Completion.Task.IsCompleted, Bound));
         }
         finally { fixture.Session.RecoveryWork.Release(); }
-        Assert.Equal("cancelled", (await run.Completion.Task).Snapshot.State);
+        Assert.Equal("canceled", (await run.Completion.Task).Snapshot.State);
     }
 
     [Fact]
@@ -1350,15 +1350,15 @@ public sealed class PrefillRunTests
         var run = await fixture.StartAsync("10");
         await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, run.PrefillRunId, true);
         // The daemon ended the run and its end event was lost.
-        fixture.Client.Set(run, "cancelled", 0, "cancelled");
+        fixture.Client.Set(run, "canceled", 0, "canceled");
         run.CancelDeadlineUtc = DateTime.UtcNow - TimeSpan.FromSeconds(1);
         fixture.Session.NextRecoveryAtUtc = DateTime.MaxValue;
 
         await fixture.Daemon.ProcessSessionExpiryAsync(DateTime.UtcNow);
 
         var ended = await run.Completion.Task.WaitAsync(Bound);
-        Assert.Equal("cancelled", ended.Snapshot.State);
-        Assert.Equal("cancelled", run.Items["10"].Result);
+        Assert.Equal("canceled", ended.Snapshot.State);
+        Assert.Equal("canceled", run.Items["10"].Result);
         Assert.False(run.HistoryIncomplete);
     }
 
@@ -1505,6 +1505,39 @@ public sealed class PrefillRunTests
     }
 
     [Fact]
+    public async Task AnUnsentStartWhoseEndWasNotSavedKeepsItsReasonWhenTheSessionStopsAsync()
+    {
+        // Not disposed: the stop already disposed the session's token source, and the database is in memory.
+        var fixture = await RunFixture.CreateAsync();
+        var client = Script(fixture);
+        var switchable = new SwitchableDbContextFactory();
+        switchable.Recover(new TestDbContextFactory(fixture.Options));
+        SetField(fixture.Daemon, "_sessionService", new PrefillSessionService(switchable, NullLogger<PrefillSessionService>.Instance));
+        var admission = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.PrefillHold = admission;
+        var start = fixture.Daemon.PrefillAsync(fixture.Session.Id, appIds: ["10"]);
+        await client.PrefillEntered.Task.WaitAsync(Bound);
+        var run = Assert.Single(fixture.Session.Runs.Values);
+
+        switchable.Fail();
+        // Held across the stop, so the waiting refresh cannot save the kept end before the stop reaches the run.
+        await fixture.Session.RecoveryWork.WaitAsync();
+        try
+        {
+            admission.SetException(new DaemonCommandException("instance-changed"));
+            await Assert.ThrowsAsync<DaemonCommandException>(() => start.WaitAsync(Bound));
+            switchable.Recover(new TestDbContextFactory(fixture.Options));
+            await fixture.Daemon.TerminateSessionAsync(fixture.Session.Id).WaitAsync(Bound);
+        }
+        finally { fixture.Session.RecoveryWork.Release(); }
+
+        var ended = await run.Completion.Task.WaitAsync(Bound);
+        Assert.Equal("failed", ended.Snapshot.State);
+        Assert.Equal("instance-changed", ended.Snapshot.Reason);
+        Assert.False(run.HistoryIncomplete);
+    }
+
+    [Fact]
     public async Task ACancelDuringThePersistentGateWaitStopsTheStartBeforeTheDaemonAsync()
     {
         await using var fixture = await RunFixture.CreateAsync(persistent: true);
@@ -1516,10 +1549,10 @@ public sealed class PrefillRunTests
         Assert.False(await fixture.Daemon.CancelPrefillRunAsync(fixture.Session.Id, run.PrefillRunId, false).WaitAsync(Bound));
         await change!.DisposeAsync();
 
-        Assert.Equal("cancelled", (await start.WaitAsync(Bound)).State);
-        Assert.Equal("cancelled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
+        Assert.Equal("canceled", (await start.WaitAsync(Bound)).State);
+        Assert.Equal("canceled", (await run.Completion.Task.WaitAsync(Bound)).Snapshot.State);
         Assert.Equal(0, fixture.Client.StartCount);
-        Assert.Empty(fixture.Client.Cancelled);
+        Assert.Empty(fixture.Client.Canceled);
     }
 
     [Fact]
@@ -1550,7 +1583,7 @@ public sealed class PrefillRunTests
             ((DaemonSessionDto)call.Args[1]!).Runs.Any(listed => listed.RunId == run.PrefillRunId);
         bool Ended((string Method, object?[] Args) call) =>
             ((DaemonSessionDto)call.Args[1]!).Runs.Any(listed => listed.RunId == run.PrefillRunId
-                && listed.Snapshot.State == "cancelled");
+                && listed.Snapshot.State == "canceled");
         Assert.True(SpinWait.SpinUntil(() => Updates().Any(Ended), Bound));
 
         var updates = Updates();
@@ -1768,7 +1801,7 @@ internal class RunClient : NullReturningProxy
     public DaemonStatus? Status { get; set; }
     public string InstanceId { get; set; } = Guid.NewGuid().ToString();
     public ConcurrentDictionary<Guid, DaemonOperationPage> Pages { get; } = new();
-    public List<Guid> Cancelled { get; } = [];
+    public List<Guid> Canceled { get; } = [];
     public int StartCount { get; private set; }
     public int StartLoginCalls { get; private set; }
 
@@ -1777,7 +1810,7 @@ internal class RunClient : NullReturningProxy
 
     /// <summary>When true, a login command makes the daemon report its logged-in capabilities.</summary>
     public bool SignInOnStartLogin { get; set; }
-    public bool LoseAcknowledgement { get; set; }
+    public bool LoseAcknowledgment { get; set; }
 
     /// <summary>When set, a Start is refused with this error code.</summary>
     public string? StartRefusal { get; set; }
@@ -1823,7 +1856,7 @@ internal class RunClient : NullReturningProxy
                 BytesTransferred = bytes,
                 CompletedApps = itemResult == "success" ? 1 : 0,
                 FailedApps = itemResult == "failed" ? 1 : 0,
-                CancelledApps = itemResult == "cancelled" ? 1 : 0
+                CanceledApps = itemResult == "canceled" ? 1 : 0
             },
             Items = [item]
         };
@@ -1840,9 +1873,9 @@ internal class RunClient : NullReturningProxy
             status.ReadStamp = System.Diagnostics.Stopwatch.GetTimestamp();
             if (!OmitInventory)
             {
-                status.ActiveOperations = Pages.Values.Where(page => page.Operation.State is not ("completed" or "failed" or "cancelled"))
+                status.ActiveOperations = Pages.Values.Where(page => page.Operation.State is not ("completed" or "failed" or "canceled"))
                     .Select(page => page.Operation).ToList();
-                status.RecentOperations = Pages.Values.Where(page => page.Operation.State is "completed" or "failed" or "cancelled")
+                status.RecentOperations = Pages.Values.Where(page => page.Operation.State is "completed" or "failed" or "canceled")
                     .Select(page => page.Operation).ToList();
             }
             return Task.FromResult<DaemonStatus?>(status);
@@ -1872,7 +1905,7 @@ internal class RunClient : NullReturningProxy
             };
             Pages[id] = new DaemonOperationPage(snapshot, options, true, options.AppIds.Count,
                 options.AppIds.Select(app => new DaemonRunItem { AppId = app, Sequence = 1 }).ToArray(), null);
-            return LoseAcknowledgement ? Task.FromException<PrefillResult>(new IOException("Acknowledgement lost"))
+            return LoseAcknowledgment ? Task.FromException<PrefillResult>(new IOException("Acknowledgment lost"))
                 : Task.FromResult(new PrefillResult { Success = true, RunId = id, DaemonInstanceId = InstanceId, State = "started" });
         }
         if (targetMethod?.Name == nameof(IDaemonClient.GetOperationAsync))
@@ -1883,24 +1916,24 @@ internal class RunClient : NullReturningProxy
             return Pages.TryGetValue((Guid)args![0]!, out var page) ? Task.FromResult(page)
                 : Task.FromException<DaemonOperationPage>(new DaemonCommandException("operation-not-found"));
         }
-        if (targetMethod?.Name == nameof(IDaemonClient.CancelPrefillAsync) && args?[0] is Guid cancelled)
+        if (targetMethod?.Name == nameof(IDaemonClient.CancelPrefillAsync) && args?[0] is Guid canceled)
         {
-            Cancelled.Add(cancelled);
-            var page = Pages[cancelled];
+            Canceled.Add(canceled);
+            var page = Pages[canceled];
             if (CompleteCancellation)
             {
                 page = page with
                 {
                     Operation = page.Operation with
                     {
-                        State = "cancelled",
+                        State = "canceled",
                         Sequence = page.Operation.Sequence + 1,
                         UpdatedAt = DateTimeOffset.UtcNow,
-                        CancelledApps = page.TotalItems
+                        CanceledApps = page.TotalItems
                     },
-                    Items = page.Items.Select(item => item with { State = "cancelled", Result = "cancelled", Sequence = item.Sequence + 1 }).ToArray()
+                    Items = page.Items.Select(item => item with { State = "canceled", Result = "canceled", Sequence = item.Sequence + 1 }).ToArray()
                 };
-                Pages[cancelled] = page;
+                Pages[canceled] = page;
             }
             return Task.FromResult(page.Operation);
         }

@@ -744,7 +744,7 @@ Response 200 (inline object): (no fields)
 
 Access: requires a signed-in session
 
-Reads the cached cache size, or starts a queued rescan when force is true.
+Reads the cached cache size, or asks the operation queue for a rescan when force is true.
 
 Parameters: `datasource`? (query): string, `force`? (query): boolean
 Response 200 (`CacheSizeUnavailableResponse`): `available?: boolean`
@@ -805,7 +805,7 @@ Access: requires a signed-in session
 
 Gets the current schedule status (interval, next run, last run, processing state).
 
-Response 200 (`EpicScheduleStatus`): `refreshIntervalHours?: number`, `isProcessing?: boolean`, `lastRefreshTime?: string?`, `nextRefreshIn?: number`, `isAuthenticated?: boolean`, `operationId?: string?`, `status?: EpicMappingStatus`, `progressPercent?: number`, `statusMessage?: string?`
+Response 200 (`EpicScheduleStatus`): `refreshIntervalHours?: number`, `isProcessing?: boolean`, `lastRefreshTime?: string?`, `nextRefreshIn?: number`, `isAuthenticated?: boolean`, `operationId?: string?`, `status?: EpicMappingStatus`, `progressPercent?: number`
 
 ### GET /api/epic/game-mappings/search
 
@@ -952,7 +952,7 @@ Access: requires a signed-in session
 Starts a background corruption detection scan.
 
 Parameters: `threshold`? (query): integer, `lookbackDays`? (query): integer, `detectionMethod`? (query): string, `scanMode`? (query): string
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### POST /api/cache/count/game/{appId}
 
@@ -961,7 +961,7 @@ Access: requires a signed-in session
 Starts a background count of the cache files a removal of this Steam game would delete.
 
 Parameters: `appId` (path): integer
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### POST /api/cache/count/game/epic/{gameName}
 
@@ -970,7 +970,7 @@ Access: requires a signed-in session
 Starts a background count of the cache files a removal of this Epic game would delete.
 
 Parameters: `gameName` (path): string
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### POST /api/cache/count/game/named/{service}/{gameName}
 
@@ -979,7 +979,7 @@ Access: requires a signed-in session
 Starts a background count of the cache files a removal of this named game would delete.
 
 Parameters: `service` (path): string, `gameName` (path): string
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### POST /api/cache/count/service/{name}
 
@@ -988,7 +988,7 @@ Access: requires a signed-in session
 Starts a background count of the cache files a removal of this service would delete.
 
 Parameters: `name` (path): string
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### POST /api/cache/count/unmapped
 
@@ -996,7 +996,7 @@ Access: requires a signed-in session
 
 Starts a background count of the unmapped cache files a removal would delete now.
 
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### POST /api/depots/import
 
@@ -1102,7 +1102,7 @@ Access: requires a signed-in session
 
 Clears cache files for every configured datasource.
 
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### DELETE /api/cache/corruption
 
@@ -1128,7 +1128,7 @@ Access: requires a signed-in session
 Clears cache files for one datasource, leaving the others untouched.
 
 Parameters: `name` (path): string
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### DELETE /api/cache/evicted
 
@@ -1136,7 +1136,7 @@ Access: requires a signed-in session
 
 Removes all evicted downloads in a single batched operation.
 
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### DELETE /api/cache/evicted/{scope}
 
@@ -1145,7 +1145,7 @@ Access: requires a signed-in session
 Removes the evicted downloads and log entries for a single entity.
 
 Parameters: `scope` (path): string, `key`? (query): string
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### DELETE /api/cache/evicted/named/{service}/{gameName}
 
@@ -1154,7 +1154,7 @@ Access: requires a signed-in session
 Removes evicted data for a single named (Blizzard/Riot) game.
 
 Parameters: `service` (path): string, `gameName` (path): string
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### DELETE /api/cache/services/{name}
 
@@ -1163,7 +1163,7 @@ Access: requires a signed-in session
 Removes every cached file for one service across all datasources.
 
 Parameters: `name` (path): string, `scope`? (query): string
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### DELETE /api/cache/services/{service}/corruption
 
@@ -1171,8 +1171,8 @@ Access: requires a signed-in session
 
 Removes the corrupted chunks a prior detection scan found for one service.
 
-Parameters: `service` (path): string, `scanId`? (query): string, `candidateIds`? (query): string
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Parameters: `service` (path): string, `scanId`? (query): string
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### DELETE /api/cache/unmapped
 
@@ -1182,7 +1182,7 @@ Removes the cache files no game or service claims, within the files and bytes th
 confirmed from a count.
 
 Parameters: `maxFiles`? (query): integer, `maxBytes`? (query): integer, `scope`? (query): string
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### DELETE /api/depots/rebuild
 
@@ -1207,7 +1207,7 @@ Access: requires a signed-in session
 Cancels the current Epic catalog refresh if one is running.
 
 Body (inline object): (no fields)
-Response 200 (`EpicRefreshCancelResponse`): `cancelled?: boolean`, `message?: string`
+Response 200 (`EpicRefreshCancelResponse`): `canceled?: boolean`, `message?: string`
 
 ### DELETE /api/game-images/cache
 
@@ -1215,7 +1215,7 @@ Access: requires a signed-in session
 
 Clears the game image cache and starts the re-fetch that refills it.
 
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### DELETE /api/games/{appId}
 
@@ -2304,7 +2304,7 @@ Access: requires a signed-in session
 Triggers an immediate run of the service, bypassing the scheduled interval.
 
 Parameters: `serviceKey` (path): string
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### POST /api/system/schedules/reset
 
@@ -2773,7 +2773,7 @@ Access: requires a signed-in session
 Cancels a running operation.
 
 Parameters: `id` (path): string
-Response 200 (`OperationCancelResponse`): `message?: string`, `operationId?: string`, `status?: OperationStatus`, `alreadyFinished?: boolean`
+Response 200 (`OperationCancelResponse`): `operationId?: string`, `status?: OperationStatus`, `alreadyFinished?: boolean`
 
 ### POST /api/operations/{id}/close
 
@@ -2790,7 +2790,7 @@ Access: requires a signed-in session
 Force-kills a running operation when cancel alone does not unblock the UI.
 
 Parameters: `id` (path): string
-Response 200 (`OperationForceKillResponse`): `message?: string`, `operationId?: string`
+Response 200 (`OperationForceKillResponse`): `operationId?: string`
 
 ### POST /api/operations/{id}/retry-repair
 
@@ -2942,7 +2942,7 @@ Access: requires a signed-in session
 Empties every table the application stores data in, including the sessions table, so this
 call signs the caller out and every other user with it.
 
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`
 
 ### DELETE /api/database/tables
 
@@ -2951,4 +2951,4 @@ Access: requires a signed-in session
 Wipes only the named tables instead of the whole database.
 
 Body (`ResetTablesRequest`): `tables?: string[]`
-Response 202 (`QueuedOperationResponse`): `followUpQueued?: boolean?`, `operationId?: string`, `queued?: boolean`, `alreadyRunning?: boolean`, `status?: string`, `skippedReason?: string?`
+Response 202 (`OperationStartResponse`): `followUpWaiting?: boolean?`, `operationId?: string`, `status?: OperationStartStatus`, `skippedReason?: string?`

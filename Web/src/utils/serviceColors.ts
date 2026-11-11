@@ -162,9 +162,9 @@ const SERVICE_BRANDS = {
 type ServiceId = keyof typeof SERVICE_BRANDS;
 
 /**
- * The brand colour property of a known service, as a closed union. `satisfies` above keeps the
+ * The brand color property of a known service, as a closed union. `satisfies` above keeps the
  * literal spelling of every `colorVar`, so components that compose a tier onto the name get a
- * compile error for a service the theme declares no colour for.
+ * compile error for a service the theme declares no color for.
  */
 export type ServiceColorToken = (typeof SERVICE_BRANDS)[ServiceId]['colorVar'];
 

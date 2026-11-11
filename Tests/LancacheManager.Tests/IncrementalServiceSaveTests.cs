@@ -8,7 +8,7 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// Coverage for the incremental mode of GameCacheDetectionDataService.SaveServicesAsync.
-/// A cancelled detection scan hands over only the services it reached before the stop, so a
+/// A canceled detection scan hands over only the services it reached before the stop, so a
 /// service missing from that list says nothing about whether its files are still on disk.
 /// The absence-to-evict pass is therefore skipped in incremental mode and still runs on a
 /// full scan. These tests run against the EF Core InMemory provider so the production code
@@ -139,7 +139,7 @@ public class IncrementalServiceSaveTests
     }
 
     /// <summary>
-    /// Skipping the absence pass must not also skip the refresh: a service the cancelled run DID
+    /// Skipping the absence pass must not also skip the refresh: a service the canceled run DID
     /// reach still gets its counts written and its stale Evicted badge cleared.
     /// </summary>
     [Fact]

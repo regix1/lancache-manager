@@ -420,7 +420,7 @@ function ServicePrefillPanel({
         hasExpiredRef.current = true;
         signalR.setTimeRemaining(0);
         signalR.setIsLoggedIn(false);
-        // Expiry is already signalled downstream by `timeRemaining <= 0`
+        // Expiry is already signaled downstream by `timeRemaining <= 0`
         // (every consumer guards with `status === 'Active' && timeRemaining > 0`).
         // Previously we also mutated session.status to a synthetic 'Expired' - nothing
         // read that value, so it was dead state. Dropped to keep the DTO status aligned
@@ -707,7 +707,7 @@ function ServicePrefillPanel({
   // reconnect catch-up, and the clear/remove handlers that re-read on their own so the badges are
   // right with the socket down. One click reaches two of them, and a first-ever run emits one
   // event per newly cached game, so without this each reload's three sequential requests (the
-  // daemon round trip among them) would stack. A caller arriving mid-pass is queued rather than
+  // daemon round trip among them) would stack. A caller arriving mid-pass is held rather than
   // dropped - the running pass may have started before that caller's delete committed, since a
   // game finishing anywhere raises the same event - and awaits the pass that will include it.
   const reloadGamesOnce = useCallback((): Promise<void> => {
@@ -993,7 +993,7 @@ function ServicePrefillPanel({
       // The person's Cancel names this dialog's own sign-in once its first prompt gave it an attempt, so a dialog that a
       // newer sign-in from another tab replaced never ends that sign-in; before that prompt it ends whichever sign-in runs.
       const attempt = authLoginAttemptRef.current;
-      const cancelled =
+      const canceled =
         attempt === null
           ? await signalR.hubConnection.current.invoke<boolean>(
               'CancelLoginAsync',
@@ -1007,7 +1007,7 @@ function ServicePrefillPanel({
       setShowAuthModal(false);
       authActions.resetAuthForm();
       // A sign-in that finished as the cancel reached the daemon is held signed out, because the person asked to stop it.
-      if (cancelled) addLog('info', t('prefill.log.loginCancelled'));
+      if (canceled) addLog('info', t('prefill.log.loginCanceled'));
     } catch (err) {
       // The dialog has already closed. One notice: the popup for an admin, the log line for a
       // guest, who has no notification bar. The hub's error is an English sentence, so both get the key.
@@ -1296,14 +1296,14 @@ function ServicePrefillPanel({
     estimateRequestIdRef.current += 1;
     setEstimatedSize({ bytes: 0, loading: true });
 
-    let cancelled = false;
+    let canceled = false;
     let attempt = 0;
     let handle: ReturnType<typeof setTimeout>;
     const maxAttempts = 5;
 
     const run = async () => {
       const result = await fetchEstimatedSize();
-      if (cancelled) return;
+      if (canceled) return;
       // Refetch ONLY while the estimate is genuinely not ready - the hub was not Connected yet
       // (result === null) or the daemon has not resolved the selection yet (result.ready ===
       // false). A resolved result, even 0 bytes, is accepted immediately, so this is not a blind
@@ -1326,7 +1326,7 @@ function ServicePrefillPanel({
     handle = setTimeout(run, 400);
 
     return () => {
-      cancelled = true;
+      canceled = true;
       clearTimeout(handle);
       // Retire this generation on teardown too, so a late response for a now-gone selection
       // (selection cleared, unmount, or reconnect re-run) can never commit.
@@ -1766,7 +1766,7 @@ function ServicePrefillPanel({
                   serviceId={serviceId}
                   progress={getPrefillRunProgress(run)}
                   onCancel={() => void signalR.cancelPrefill(run.runId)}
-                  isCancelling={run.cancelRequested}
+                  isCanceling={run.cancelRequested}
                   error={signalR.runErrors[run.runId]}
                   disabled={!isSessionActive}
                 />

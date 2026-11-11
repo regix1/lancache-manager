@@ -136,8 +136,8 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
           description={t('initialization.epicAuth.subtitle')}
         />
         <Alert color="error">
-          {mapping?.phase === 'cancelled'
-            ? t('signalr.epicMapping.cancelled')
+          {mapping?.phase === 'canceled'
+            ? t('signalr.epicMapping.canceled')
             : t('signalr.epicMapping.mappingFailed')}
         </Alert>
         <Button

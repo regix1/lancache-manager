@@ -28,6 +28,14 @@ public class OperationInfo
     /// <summary>The lookback window, in days, of a corruption scan or a request for one; null for every other type.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public int? ScanLookbackDays { get; init; }
+
+    /// <summary>
+    /// What the request behind this run asked for beyond its type, scope and target (a table list, removal
+    /// limits, a crawl mode). Written by the wait-queue after the run registers, so a later request joins this
+    /// run only when it asks for the same work. A run registered without the queue keeps the plain key.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public OperationRequestKey RequestKey { get; set; } = OperationRequestKey.Plain;
     public OperationStatus Status { get; set; } = OperationStatus.Pending;
     public string Message { get; set; } = "";
     public double PercentComplete { get; set; }
@@ -126,6 +134,10 @@ public class OperationInfo
     [System.Text.Json.Serialization.JsonIgnore]
     public List<RunWarning> Warnings { get; } = new();
 
+    /// <summary>The failure's key and the values its sentence names; set only for a failure whose error is its own stage key.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public RunWarning? FailureReason { get; set; }
+
     /// <summary>Failures in a row for the schedule this kept ending belongs to; written by the schedule registry.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public int ConsecutiveFailures { get; set; }
@@ -140,12 +152,12 @@ public class OperationInfo
     public bool Success { get; set; }
 
     /// <summary>
-    /// Indicates if the operation was cancelled.
+    /// Indicates if the operation was canceled.
     /// </summary>
-    public bool Cancelled { get; set; }
+    public bool Canceled { get; set; }
 
     /// <summary>
-    /// CancellationTokenSource for cancelling the operation.
+    /// CancellationTokenSource for canceling the operation.
     /// Not serialized to JSON responses.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
@@ -159,9 +171,9 @@ public class OperationInfo
     public Process? AssociatedProcess { get; set; }
 
     /// <summary>
-    /// Indicates if the operation is currently being cancelled.
+    /// Indicates if the operation is currently being canceled.
     /// </summary>
-    public bool IsCancelling => CancellationTokenSource?.IsCancellationRequested ?? false;
+    public bool IsCanceling => CancellationTokenSource?.IsCancellationRequested ?? false;
 
     /// <summary>
     /// Additional metadata specific to the operation type.

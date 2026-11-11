@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Theme color defaults (dark-default built-in theme values).
-// This is the single source of truth for colour keys and their defaults.
+// This is the single source of truth for color keys and their defaults.
 // ---------------------------------------------------------------------------
 
 const themeColorDefaults: Record<string, string> = {
@@ -63,7 +63,7 @@ const themeColorDefaults: Record<string, string> = {
   warningBg: '#44403c',
   warningText: '#fcd34d',
   // Lifted off red-500, which reads 3.26:1 against this palette's card and 2.66:1 on its own badge
-  // ground. This colour is the error INK far more often than it is an error fill - roughly 26 text
+  // ground. This color is the error INK far more often than it is an error fill - roughly 26 text
   // rules against one filled button - so it steps toward the page's text rather than away.
   error: '#f47d7d',
   // Deepened to match: the ink above needs a ground this far down to clear 4.5:1, and the badge
@@ -71,12 +71,12 @@ const themeColorDefaults: Record<string, string> = {
   errorBg: '#661616',
   errorText: '#fca5a5',
   // info keeps a default even though it matches the primary: six of the eight shipped themes
-  // deliberately give it a hue of their own, so it is a status colour, not the accent.
+  // deliberately give it a hue of their own, so it is a status color, not the accent.
   info: '#3b82f6',
   // infoBg and infoText are left out on purpose. They are shades of info above, not of the accent:
   // all nine shipped themes draw this pair from their own info, and both derive below off info so
   // the badge and the words on it cannot end up different hues.
-  // Waiting/queued state (operation wait-queue cards). Purple on the default palette;
+  // Waiting state (operation wait-queue cards). Purple on the default palette;
   // themes whose palettes clash with purple override with a distinct in-palette hue.
   waiting: '#a855f7',
   waitingBg: '#3b0764',
@@ -103,7 +103,7 @@ const themeColorDefaults: Record<string, string> = {
   // this palette's blue, whatever blizzardColor the theme actually sets.
   blizzardColor: '#5d6bdc', // Battle.net's royal blue turned toward indigo, clear of the accent
   // Off the accent, which it used to match exactly: a WSUS chip painted in the accent stops saying
-  // WSUS. A paler ice cyan sits 20.3 dE from the accent and 16.7 from its nearest service neighbour,
+  // WSUS. A paler ice cyan sits 20.3 dE from the accent and 16.7 from its nearest service neighbor,
   // where the old value was 0.0 and 10.5, and it reads 7.31:1 on the card instead of 5.05:1.
   wsusColor: '#8ad4dc',
   riotColor: '#d13639',
@@ -136,7 +136,7 @@ const themeColorDefaults: Record<string, string> = {
   // especially along a straight edge with nothing else nearby for the eye to anchor on).
   cardBorder: '#4b5563',
   // buttonBg and buttonHover are both left out on purpose: buttonBg follows primaryColor and
-  // buttonHover is darken(buttonBg) below, so recolouring a theme's accent moves the pair
+  // buttonHover is darken(buttonBg) below, so recoloring a theme's accent moves the pair
   // together.
   buttonText: '#ffffff',
   inputBg: '#374151',
@@ -149,7 +149,7 @@ const themeColorDefaults: Record<string, string> = {
   checkboxCheckmark: '#ffffff',
   checkboxShadow: 'none',
   // checkboxHoverShadow is left out on purpose: the ring below builds it from checkboxAccent,
-  // so only its 3px geometry is fixed and the colour follows the theme.
+  // so only its 3px geometry is fixed and the color follows the theme.
   checkboxHoverBg: '#374151',
 
   // ── Sliders ──────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ const themeColorDefaults: Record<string, string> = {
   hitRateWarningText: '#fcd34d',
 
   // ── Action buttons ───────────────────────────────────────────────────
-  // Every filled button in the app takes one shared label colour, buttonText below, so each fill
+  // Every filled button in the app takes one shared label color, buttonText below, so each fill
   // has to carry white on its own. The 500 steps these were cut from cannot: white reads 2.15:1 on
   // amber-500 and 2.54:1 on emerald-500, and no white-on-mid-tone fill can be fixed from the label
   // end while the label is shared. Amber and emerald are the two brightest hues here and take two
@@ -185,7 +185,7 @@ const themeColorDefaults: Record<string, string> = {
   actionProcessHover: '#065f46',
   // Red goes two steps rather than the one white needs, because reset and delete sit side by side
   // and a red-green deficiency reads both of them by lightness alone. At amber-700 against red-600
-  // those lightnesses match, and the two buttons became the same colour under simulated
+  // those lightnesses match, and the two buttons became the same color under simulated
   // deuteranopia (CIE76 dE 3.1). Red-800 reopens that to 19.7 and holds 29.9 under protanopia.
   actionDeleteBg: '#991b1b',
   actionDeleteHover: '#7f1d1d',
@@ -268,7 +268,7 @@ const themeColorDefaults: Record<string, string> = {
 
   // ── Sessions ─────────────────────────────────────────────────────────
   // userSessionColor and userSessionBg are left out on purpose: the signed-in marker is the
-  // accent, and its fill is that same colour at 15%.
+  // accent, and its fill is that same color at 15%.
   guestSessionColor: '#06b6d4',
   guestSessionBg: 'rgba(6, 182, 212, 0.15)',
   activeSessionColor: '#f97316',
@@ -287,7 +287,7 @@ const themeColorDefaults: Record<string, string> = {
   // ── Fireworks / celebration ──────────────────────────────────────────
   // fireworkColor1 and fireworkRocketColor are left out on purpose so they follow
   // primaryColor.
-  // fireworkColor2 is the second colour in the burst, not a shade of the first: four of the
+  // fireworkColor2 is the second color in the burst, not a shade of the first: four of the
   // shipped themes deliberately put a contrasting hue here so the two shells read apart.
   fireworkColor2: '#60a5fa',
   fireworkColor3: '#06b6d4',
@@ -308,12 +308,12 @@ const themeColorDefaults: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Read the red/green/blue channels out of a theme colour, or null when the value
-// is not a colour this file can take apart. Handles #rrggbb, the #rgb shorthand,
-// and the rgb()/rgba() forms the colour editor writes whenever a swatch is given
+// Read the red/green/blue channels out of a theme color, or null when the value
+// is not a color this file can take apart. Handles #rrggbb, the #rgb shorthand,
+// and the rgb()/rgba() forms the color editor writes whenever a swatch is given
 // an alpha. The alpha is read past and discarded; every caller decides the opacity
 // of what it is building. Exported because a canvas that wants to build its own
-// gradient stops from a resolved theme colour needs the same three numbers, and a
+// gradient stops from a resolved theme color needs the same three numbers, and a
 // second parser beside this one is how the shorthand form gets missed in one of them.
 // ---------------------------------------------------------------------------
 export function readColorChannels(color: string): [number, number, number] | null {
@@ -343,12 +343,12 @@ export function readColorChannels(color: string): [number, number, number] | nul
 }
 
 // ---------------------------------------------------------------------------
-// Utility: convert a base colour to an rgba string at the requested opacity.
-// The base colour's own alpha is dropped: the caller asks for a specific opacity
-// because the tint's job is to sit at that strength, whatever the colour it came
+// Utility: convert a base color to an rgba string at the requested opacity.
+// The base color's own alpha is dropped: the caller asks for a specific opacity
+// because the tint's job is to sit at that strength, whatever the color it came
 // from was set to.
-// Anything unreadable falls back to mid grey rather than black, because black at a
-// low opacity is invisible on a dark theme and the miscoloured tint would ship
+// Anything unreadable falls back to mid gray rather than black, because black at a
+// low opacity is invisible on a dark theme and the miscolored tint would ship
 // unnoticed.
 // ---------------------------------------------------------------------------
 export function hexToRgba(hex: string, opacity: number): string {
@@ -361,24 +361,24 @@ export function hexToRgba(hex: string, opacity: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Utility: the same colour at a different lightness, as a #rrggbb string. Scales
+// Utility: the same color at a different lightness, as a #rrggbb string. Scales
 // HSL lightness by the given factor and leaves hue and saturation where they were,
-// so every shade a theme grows from its own colours keeps that colour's hue.
+// so every shade a theme grows from its own colors keeps that color's hue.
 //
 // Scaling lightness is what matches how the shipped themes were actually drawn:
-// all nine write a hover that sits a step below their own button colour at
+// all nine write a hover that sits a step below their own button color at
 // essentially the same hue. Working in a perceptual space instead was measured
 // and came out worse here, because it holds chroma flat while these ramps gain a
 // little chroma as they darken.
 //
 // The two directions are not equally accurate, and that is a property of these
-// palettes rather than of the maths. They turn about five degrees toward cyan as
+// palettes rather than of the math. They turn about five degrees toward cyan as
 // they lighten and barely three as they darken, so a step that keeps the hue
 // reproduces the shipped darker shades to dE2000 0.8 and the lighter ones only to
-// 2.3 - measured over every colour sharing the hue, not over a handful of
+// 2.3 - measured over every color sharing the hue, not over a handful of
 // formulas. A lighter step is still far closer than the alternative it replaces,
 // which was one palette's blue frozen into every other theme.
-// Unreadable input gives mid grey, matching hexToRgba above.
+// Unreadable input gives mid gray, matching hexToRgba above.
 // ---------------------------------------------------------------------------
 function scaleLightness(color: string, factor: number): string {
   const channels = readColorChannels(color);
@@ -398,8 +398,8 @@ function scaleLightness(color: string, factor: number): string {
       .padStart(2, '0');
 
   if (span === 0) {
-    const grey = toChannel(lightness);
-    return `#${grey}${grey}${grey}`;
+    const gray = toChannel(lightness);
+    return `#${gray}${gray}${gray}`;
   }
 
   const saturation = (high + low) / 2 > 0.5 ? span / (2 - high - low) : span / (high + low);
@@ -448,11 +448,11 @@ function lighten(color: string, factor: number): string {
 // theme having to declare it. A page whose text is lighter than its background is
 // a dark theme and wants its accent shades lighter; a light page wants them
 // darker. textPrimary and bgPrimary always carry a default, so there is always
-// something to read, and the comparison stays right for a mid-grey page where a
+// something to read, and the comparison stays right for a mid-gray page where a
 // plain brightness threshold would not.
 //
 // Relative luminance is the WCAG definition. It is used only to order two
-// colours, never reported, so nothing downstream depends on the exact number.
+// colors, never reported, so nothing downstream depends on the exact number.
 // ---------------------------------------------------------------------------
 function toLinear(channel: number): number {
   const value = channel / 255;
@@ -634,20 +634,20 @@ export function indicatorColor(color: string, ground: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Fill in derived colours that depend on other base colours.
+// Fill in derived colors that depend on other base colors.
 // Only sets a key when it is missing or empty.
 // ---------------------------------------------------------------------------
 function normalizeThemeColors(colors: Record<string, string>): Record<string, string> {
   const result = { ...colors };
 
-  // Focus colours default to primary
+  // Focus colors default to primary
   if (!result.borderFocus) result.borderFocus = result.primaryColor;
   if (!result.inputFocus) result.inputFocus = result.primaryColor;
   if (!result.checkboxFocus) result.checkboxFocus = result.primaryColor;
   if (!result.cardOutline) result.cardOutline = result.primaryColor;
   if (!result.floatingIconColor) result.floatingIconColor = result.primaryColor;
 
-  // Controls and markers that are the accent itself rather than a colour of their own.
+  // Controls and markers that are the accent itself rather than a color of their own.
   // They resolve here instead of carrying a default so that a theme setting primaryColor
   // gets one accent everywhere, without having to restate it a dozen times.
   if (!result.navTabActive) result.navTabActive = result.primaryColor;
@@ -662,22 +662,22 @@ function normalizeThemeColors(colors: Record<string, string>): Record<string, st
   if (!result.fireworkRocketColor) result.fireworkRocketColor = result.primaryColor;
   if (!result.userSessionColor) result.userSessionColor = result.primaryColor;
 
-  // The signed-in marker's fill is that same colour at 15%, derived from userSessionColor
+  // The signed-in marker's fill is that same color at 15%, derived from userSessionColor
   // rather than the primary so an overridden marker keeps its fill in step
   if (!result.userSessionBg) result.userSessionBg = hexToRgba(result.userSessionColor, 0.15);
 
   // A button's hover is a step down from the button itself, so it comes off buttonBg rather
-  // than the primary and stays in step with a theme that recolours only the button
+  // than the primary and stays in step with a theme that recolors only the button
   if (!result.buttonHover) result.buttonHover = darken(result.buttonBg, 0.84);
 
   // Stop borrows the destructive red rather than carrying a red of its own, so a theme that
-  // retunes only its delete colour keeps its stop buttons in step. Stopping a run is its own
+  // retunes only its delete color keeps its stop buttons in step. Stopping a run is its own
   // job though, so the pair is separately settable for a theme that wants to part them
   if (!result.actionStopBg) result.actionStopBg = result.actionDeleteBg;
   if (!result.actionStopHover) result.actionStopHover = result.actionDeleteHover;
 
   // The checkbox hover ring: a fixed 3px of the checkbox's own accent at 10%. Only the
-  // geometry is fixed, so the colour still follows the theme
+  // geometry is fixed, so the color still follows the theme
   if (!result.checkboxHoverShadow) {
     result.checkboxHoverShadow = `0 0 0 3px ${hexToRgba(result.checkboxAccent, 0.1)}`;
   }
@@ -700,7 +700,7 @@ function normalizeThemeColors(colors: Record<string, string>): Record<string, st
   //
   // The words take a bigger step than a link does, and on a light page a much bigger one. Badge
   // text has to clear the tinted ground under it rather than the page, and a bright hue such as
-  // yellow or pale grey lightens far more than a blue does for the same move along the scale: a
+  // yellow or pale gray lightens far more than a blue does for the same move along the scale: a
   // link-sized step leaves that text at 2.2:1 on its own badge, where this one holds at least
   // 4.7:1 across every hue tried
   if (!result.infoBg) {
@@ -710,7 +710,7 @@ function normalizeThemeColors(colors: Record<string, string>): Record<string, st
     result.infoText = dark ? lighten(result.info, 1.32) : darken(result.info, 0.55);
   }
 
-  // The halo around the rocket, off the rocket rather than the accent so a theme that recolours
+  // The halo around the rocket, off the rocket rather than the accent so a theme that recolors
   // only its rocket keeps the two in step. A glow is brighter than the thing it surrounds on
   // either kind of page, so this is the one accent shade that does not flip with the palette
   if (!result.fireworkGlowColor) {
@@ -742,7 +742,7 @@ function normalizeThemeColors(colors: Record<string, string>): Record<string, st
 }
 
 // ---------------------------------------------------------------------------
-// Parse a partial colour map, fill defaults, then normalise.
+// Parse a partial color map, fill defaults, then normalize.
 // ---------------------------------------------------------------------------
 export function parseThemeColors(partial: Record<string, unknown>): Record<string, string> {
   const result: Record<string, string> = { ...themeColorDefaults };

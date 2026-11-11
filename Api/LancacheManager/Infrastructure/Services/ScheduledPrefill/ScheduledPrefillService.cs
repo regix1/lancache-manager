@@ -455,7 +455,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// <summary>
     /// Runs one tick's due services side by side and reports the run as a whole. Each service also
     /// gets its OWN tracked operation, so its notification card carries its own id, its own progress
-    /// and its own terminal, and cancelling that card stops only that platform. The run-level
+    /// and its own terminal, and canceling that card stops only that platform. The run-level
     /// operation stays alongside them: it is what tells one run from the next and what the Schedules
     /// card's running state reads.
     /// </summary>
@@ -480,7 +480,9 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         var success = true;
         string? error = null;
         string? errorStageKey = null;
-        var cancelled = false;
+        // Set only by a throw: the outcome path's error text is the English twin of its key.
+        string? errorDetail = null;
+        var canceled = false;
 
         try
         {
@@ -565,12 +567,12 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             }
             var results = await Task.WhenAll(tasks);
             var tally = ScheduledPrefillRunGates.TallyRunResults(results);
-            if (tally.ReportsCancelled)
+            if (tally.ReportsCanceled)
             {
                 success = false;
-                cancelled = true;
+                canceled = true;
                 error = "Scheduled prefill stopped";
-                _logger.LogInformation("[ScheduledPrefill] Scheduled run was cancelled");
+                _logger.LogInformation("[ScheduledPrefill] Scheduled run was canceled");
             }
             else
             {
@@ -586,15 +588,17 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         catch (OperationCanceledException) when (runToken.IsCancellationRequested)
         {
             success = false;
-            cancelled = true;
-            error = "Scheduled prefill run cancelled";
+            canceled = true;
+            error = "Scheduled prefill run canceled";
             if (!stoppingToken.IsCancellationRequested) StampScheduleBasis(dueServices);
-            _logger.LogInformation("[ScheduledPrefill] Scheduled run was cancelled");
+            _logger.LogInformation("[ScheduledPrefill] Scheduled run was canceled");
         }
         catch (Exception ex)
         {
             success = false;
             error = ex.Message;
+            errorDetail = ex.Message;
+            errorStageKey = "signalr.scheduledPrefill.failed";
             throw;
         }
         finally
@@ -605,16 +609,16 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 {
                     try
                     {
-                        // An undispatched run that was not cancelled left through the catch above, so error is the
+                        // An undispatched run that was not canceled left through the catch above, so error is the
                         // exception's message: the server log keeps it and the card and the run row read the key.
-                        if (!cancelled)
+                        if (!canceled)
                             await ReportProgressAsync(notifications, serviceRun, "failed", error!,
                                 percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
                                 stageKey: "signalr.scheduledPrefill.failed");
                         await CompleteServiceRunAsync(
                             serviceRun, tracker, notifications,
-                            cancelled ? ScheduledPrefillServiceRunResult.Cancelled : ScheduledPrefillServiceRunResult.Failed,
-                            cancelled ? error : null);
+                            canceled ? ScheduledPrefillServiceRunResult.Canceled : ScheduledPrefillServiceRunResult.Failed,
+                            canceled ? error : null);
                     }
                     catch (Exception ex)
                     {
@@ -634,12 +638,15 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                             success,
                             error,
                             stageKey = errorStageKey,
-                            cancelled
+                            canceled
                         });
                     }
                     finally
                     {
-                        tracker.CompleteOperation(operationId.Value, success, error, cancelled);
+                        // The run row ends on the outcome's key; a cancel ends on the generic one. A throw's
+                        // text stays as the row's error beside the key.
+                        tracker.CompleteOperation(operationId.Value, success, canceled ? null : errorStageKey, canceled,
+                            onCompleting: operation => operation.ErrorDetail = errorDetail);
                     }
                 }
             }
@@ -687,7 +694,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     /// everything is caught here and nothing is rethrown: a rethrow makes the awaited
     /// <c>Task.WhenAll</c> throw, which discards every sibling's result along with the genuine
     /// last-run each of them had already earned. A cancel of this service's own token - its card's
-    /// cancel, or the whole run's - reports <see cref="ScheduledPrefillServiceRunResult.Cancelled"/>;
+    /// cancel, or the whole run's - reports <see cref="ScheduledPrefillServiceRunResult.Canceled"/>;
     /// anything else reports <see cref="ScheduledPrefillServiceRunResult.Failed"/>.
     /// </summary>
     private async Task<ScheduledPrefillServiceRunResult> RunAndStampServiceAsync(
@@ -708,7 +715,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             // This service's own card is created here rather than by the run, so a platform that
             // skips in milliseconds still gets a card saying why instead of being invisible.
             var restored = serviceRun.RestoredRun;
-            var initialStage = restored?.CancelRequested == true ? "cancelling"
+            var initialStage = restored?.CancelRequested == true ? "canceling"
                 : restored?.Recovering == true ? "recovering"
                 : restored is not null ? "running" : "starting";
             var current = serviceRun.State.Snapshot;
@@ -751,19 +758,19 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             {
                 await ReportProgressAsync(
                     notifications, serviceRun, "skipped",
-                    "Another schedule is using this platform. This attempt was skipped and was not queued.",
+                    "Another schedule is using this platform. This attempt was skipped and does not wait to run later.",
                     stageKey: "signalr.scheduledPrefill.skippedOverlap");
             }
         }
         catch (OperationCanceledException) when (serviceRun.State.Detached)
         {
-            result = ScheduledPrefillServiceRunResult.Cancelled;
+            result = ScheduledPrefillServiceRunResult.Canceled;
         }
         catch (OperationCanceledException) when (serviceRun.Token.IsCancellationRequested)
         {
             // Filtered on this service's token, not on any cancellation: an unrelated internal
-            // timeout surfaces with the token un-cancelled and must still be reported as a failure.
-            result = ScheduledPrefillServiceRunResult.Cancelled;
+            // timeout surfaces with the token un-canceled and must still be reported as a failure.
+            result = ScheduledPrefillServiceRunResult.Canceled;
             _logger.LogInformation("[ScheduledPrefill] Service {Service} was stopped", serviceConfig.ServiceId);
         }
         catch (Exception ex)
@@ -783,7 +790,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             };
             await ReportProgressAsync(notifications, serviceRun, "failed", failure.Message,
                 percent: ScheduledPrefillRunGates.ComputeRunPercent(1),
-                stageKey: failure.StageKey);
+                stageKey: failure.StageKey, stageContext: failure.Context);
         }
         finally
         {
@@ -793,7 +800,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 // this tick (including skips/failures), so the 1-minute poll does not immediately re-run it
                 // (recurring) nor re-fire a startup-only service. A still-needs-login service then
                 // retries on its next interval rather than spamming a Started/Completed cycle every
-                // minute. A cancelled run is exempt here and handled once by the run itself, which is the
+                // minute. A canceled run is exempt here and handled once by the run itself, which is the
                 // only place that can tell a user's stop (stamp, so it sticks) from app shutdown.
                 if (!runToken.IsCancellationRequested && !serviceRun.State.Detached)
                 {
@@ -958,15 +965,15 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         string? failureMessage)
     {
         var success = result == ScheduledPrefillServiceRunResult.Ran;
-        var cancelled = result == ScheduledPrefillServiceRunResult.Cancelled;
+        var canceled = result == ScheduledPrefillServiceRunResult.Canceled;
         var skipped = result == ScheduledPrefillServiceRunResult.Skipped;
 
         // A skip, a needs-login and an unavailable run keep the recorded line, which IS their reason. A
         // gated failure keeps it too, because it reported itself through a progress event before returning.
-        var snapshot = serviceRun.State.Record(cancelled ? "cancelled" : skipped ? "skipped"
+        var snapshot = serviceRun.State.Record(canceled ? "canceled" : skipped ? "skipped"
                 : success ? "completed" : "failed", failureMessage ?? string.Empty, null, null, terminal: true);
         if (snapshot is null) return;
-        var error = success || cancelled ? null : snapshot.Message;
+        var error = success || canceled ? null : snapshot.Message;
 
         // The .NET exception message has no key to translate it by, exactly as the run-level terminal
         // already documents, and the recorded key belongs to the progress line this is replacing.
@@ -996,7 +1003,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 success = success || skipped,
                 error,
                 stageKey,
-                cancelled,
+                canceled,
                 // The same wire word the tracker puts on a run that did nothing, so the card closes as
                 // skipped rather than reading "failed" for a missing container or a logged-out one.
                 status = skipped ? "skipped" : null
@@ -1009,11 +1016,14 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             {
                 tracker.SetWarning(serviceRun.OperationId, warning);
             }
-            // The run row keeps this as its error, and a card drawn from the row after a reload translates it with no
-            // values, so a key that reads whole stands in for the English line.
+            // The run row ends on the recorded line's key, and a failure carries that line's values as its failure
+            // reason, so a card drawn from the row after a reload words the same sentence.
             tracker.CompleteOperation(serviceRun.OperationId, success || skipped,
-                error is not null && !skipped && snapshot.StageContext is null ? snapshot.StageKey : error,
-                cancelled, skipped);
+                error is null ? null : snapshot.StageKey,
+                canceled, skipped,
+                onCompleting: error is not null && !skipped && snapshot is { StageKey: { } failureKey, StageContext: { } values }
+                    ? (OperationInfo operation) => operation.FailureReason = new RunWarning(failureKey, values)
+                    : null);
         }
     }
 
@@ -1126,7 +1136,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         // exactly like the persistent-list endpoint (status?.Status == "logged-in"). The daemon is the
         // source of truth: the in-memory AuthState is unreliable for a persistent container re-adopted
         // on a manager restart (it stays NotAuthenticated until interactive login). A null status or a
-        // failing/cancelled poll is treated as needs-login rather than crashing the run.
+        // failing/canceled poll is treated as needs-login rather than crashing the run.
         bool isLoggedIn;
         try
         {
@@ -1250,7 +1260,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         catch (PrefillAlreadyRunningException)
         {
             await ReportProgressAsync(notifications, serviceRun, "skipped",
-                "The prefill daemon has no available run slots. This attempt was not queued.",
+                "The prefill daemon has no available run slots. This attempt does not wait to run later.",
                 stageKey: "errors.prefill.runLimit");
             return ScheduledPrefillServiceRunResult.Unavailable;
         }
@@ -1298,7 +1308,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         "starting" => ("Starting scheduled prefill", "signalr.scheduledPrefill.starting"),
         "preparing" => ("Preparing prefill", "signalr.scheduledPrefill.preparing"),
         "recovering" => ("Waiting for the prefill daemon to reconnect", "signalr.scheduledPrefill.reconnecting"),
-        "cancelling" => ("Stopping prefill", "signalr.scheduledPrefill.stopping"),
+        "canceling" => ("Stopping prefill", "signalr.scheduledPrefill.stopping"),
         _ => ("Prefill in progress", "signalr.scheduledPrefill.running")
     };
 
@@ -1345,12 +1355,12 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                         await daemon.FailStalledSessionAsync(session, run.PrefillRunId, now,
                             config.StallTimeout, scheduleId: serviceRun.ServiceConfig.ScheduleId);
                 }
-                var stage = run.CancelRequested ? "cancelling" : run.Recovering || session.Recovering ? "recovering"
+                var stage = run.CancelRequested ? "canceling" : run.Recovering || session.Recovering ? "recovering"
                     : run.Snapshot.State is "started" or "preparing" ? "preparing" : "running";
                 var previous = serviceRun.State.Snapshot;
-                var resumed = previous.Stage == "recovering" && stage is not ("recovering" or "cancelling");
+                var resumed = previous.Stage == "recovering" && stage is not ("recovering" or "canceling");
                 if (resumed) await relay.ReplayLatestAsync(resume: true);
-                if (stage is "recovering" or "cancelling" || previous.Stage == "starting"
+                if (stage is "recovering" or "canceling" || previous.Stage == "starting"
                     || resumed && serviceRun.State.Stage == "recovering")
                 {
                     var line = DescribeStage(stage);
@@ -1376,7 +1386,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         // completes amber naming what stopped it.
         var done = summary.CompletedApps + summary.CachedApps;
         var stoppedPartway = summary.State == "failed" && !someGamesFailed && done > 0;
-        var outcome = summary.State == "cancelled" ? ScheduledPrefillServiceRunResult.Cancelled
+        var outcome = summary.State == "canceled" ? ScheduledPrefillServiceRunResult.Canceled
             : summary.State != "completed" && !someGamesFailed && !stoppedPartway ? ScheduledPrefillServiceRunResult.Failed
             : summary.CompletedApps + summary.CachedApps == 0 ? ScheduledPrefillServiceRunResult.Skipped
             : ScheduledPrefillServiceRunResult.Ran;
@@ -1410,7 +1420,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
             summary.CachedApps > 0 && summary.CachedApps == summary.TotalApps);
         var stageKey = outcome switch
         {
-            ScheduledPrefillServiceRunResult.Cancelled => "signalr.scheduledPrefill.stopped",
+            ScheduledPrefillServiceRunResult.Canceled => "signalr.scheduledPrefill.stopped",
             ScheduledPrefillServiceRunResult.Skipped => "signalr.scheduledPrefill.skippedOverlap",
             ScheduledPrefillServiceRunResult.Ran => completion.StageKey,
             _ => run.CancelReason == "runtime-exceeded" ? "signalr.scheduledPrefill.failedMaxRuntime"
@@ -1420,13 +1430,13 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         await ReportProgressAsync(notifications, serviceRun, outcome switch
         {
             ScheduledPrefillServiceRunResult.Ran => "completed",
-            ScheduledPrefillServiceRunResult.Cancelled => "cancelled",
+            ScheduledPrefillServiceRunResult.Canceled => "canceled",
             ScheduledPrefillServiceRunResult.Skipped => "skipped",
             _ => "failed"
         }, outcome switch
         {
             ScheduledPrefillServiceRunResult.Ran => completion.Message,
-            ScheduledPrefillServiceRunResult.Cancelled => "Prefill stopped",
+            ScheduledPrefillServiceRunResult.Canceled => "Prefill stopped",
             ScheduledPrefillServiceRunResult.Skipped => "All selected games overlapped another prefill; no work was performed.",
             _ => run.ErrorMessage!
         }, bytesDownloaded: summary.BytesTransferred, downloadSessionId: session.Id,
@@ -1438,7 +1448,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
     // "download-failed" reason its crashes carry, so neither the state nor the reason tells a run that lost
     // some games from one that stopped. The games do: a run that stopped early (a crash, a stall, the time
     // limit, sign-in lost, a daemon restart) leaves games that never finished, which the daemon ends as
-    // "cancelled" or as "skipped" with its reason, or which keep no result at all. A game the daemon
+    // "canceled" or as "skipped" with its reason, or which keep no result at all. A game the daemon
     // skipped on its own carries no reason.
     private static bool EndedWithSomeGamesFailed(DaemonRun run)
         => run.Snapshot is { State: "failed", FailedApps: > 0 } snapshot
@@ -1588,7 +1598,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 _appsCompleted = Math.Max(
                     _appsCompleted,
                     progress.UpdatedApps + progress.AlreadyUpToDate + progress.FailedApps
-                        + progress.SkippedApps + progress.CancelledApps);
+                        + progress.SkippedApps + progress.CanceledApps);
 
                 // Same running Math.Max, and for the same reason: the daemon finishes a run whose
                 // every app failed by reporting success, so this count is the only evidence the run
@@ -1597,7 +1607,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
                 _totalApps = Math.Max(_totalApps, progress.TotalApps);
 
                 // Re-check inside the gate: the run's terminal path may have won the race while this
-                // tick was queued. A live line must never land on a card that is already terminal.
+                // tick waited for the gate. A live line must never land on a card that is already terminal.
                 if (!_active || Volatile.Read(ref run.TerminalCompletedFlag) != 0)
                 {
                     return;
@@ -1762,7 +1772,7 @@ public sealed class ScheduledPrefillService : ConfigurableScheduledService, ISch
         ///
         /// The wait is BOUNDED. An unbounded one would hand a hung hub send the power to wedge the
         /// whole run: the gate would never be released, so this would never return, and the service
-        /// would never emit its completed/cancelled/failed terminal nor complete its tracked
+        /// would never emit its completed/canceled/failed terminal nor complete its tracked
         /// operation. Giving up after the timeout is strictly better than that - the relay is already
         /// deactivated, and if the stuck send ever does land, it is a "running" line on a card the
         /// client has already seen go terminal, which the notification handlers ignore.

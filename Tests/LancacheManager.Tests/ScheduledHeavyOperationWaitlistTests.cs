@@ -14,16 +14,16 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
-public sealed class ScheduledHeavyOperationQueueTests
+public sealed class ScheduledHeavyOperationWaitlistTests
 {
     [Fact]
     public async Task ImmediateStartRefusalAcceptsTheEquivalentRegisteredScan()
     {
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
-        var queue = new OperationQueueService(tracker,
+        var queue = new OperationWaitlistService(tracker,
             OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var starts = 0;
         Guid active = default;
         var result = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan", () =>
@@ -31,21 +31,21 @@ public sealed class ScheduledHeavyOperationQueueTests
             starts++;
             active = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
             return Task.FromResult<Guid?>(null);
-        }, CancellationToken.None);
-        Assert.True(result.AlreadyRunning);
-        Assert.False(result.Queued);
+        }, CancellationToken.None, OperationRequestKey.Plain);
+        Assert.Equal(OperationStartStatus.AlreadyRunning, result.Status);
+        Assert.NotEqual(OperationStartStatus.Waiting, result.Status);
         Assert.Equal(active, result.OperationId);
         Assert.Equal(1, starts);
         Assert.Empty(tracker.GetWaitingOperations());
     }
 
     [Fact]
-    public async Task CacheFileScan_ScheduledRun_EntersUniversalOperationQueueAsync()
+    public async Task CacheFileScan_ScheduledRun_EntersUniversalOperationWaitlistAsync()
     {
         var rustBinaryPath = Path.GetTempFileName();
         try
         {
-            var queue = new RecordingOperationQueue();
+            var queue = new RecordingOperationWaitlist();
             var pathResolver = CreateProxy<IPathResolver>((method, _) => method.Name switch
             {
                 nameof(IPathResolver.GetRustCacheSizePath) => rustBinaryPath,
@@ -70,9 +70,9 @@ public sealed class ScheduledHeavyOperationQueueTests
     }
 
     [Fact]
-    public async Task GameDetection_ScheduledRun_EntersUniversalOperationQueueAsync()
+    public async Task GameDetection_ScheduledRun_EntersUniversalOperationWaitlistAsync()
     {
-        var queue = new RecordingOperationQueue();
+        var queue = new RecordingOperationWaitlist();
         var service = new TestGameDetectionService(queue, CreateStateService());
         var notice = new RunNotice(NotificationMode.Manual, RunTrigger.Startup);
         service.SelectRunNotice(notice);
@@ -84,9 +84,9 @@ public sealed class ScheduledHeavyOperationQueueTests
     }
 
     [Fact]
-    public async Task EvictionScan_ScheduledRun_EntersUniversalOperationQueueAsync()
+    public async Task EvictionScan_ScheduledRun_EntersUniversalOperationWaitlistAsync()
     {
-        var queue = new RecordingOperationQueue();
+        var queue = new RecordingOperationWaitlist();
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"scheduled-eviction-queue-{Guid.NewGuid():N}")
             .Options;
@@ -111,11 +111,10 @@ public sealed class ScheduledHeavyOperationQueueTests
     public async Task EvictionScan_StartupDuplicate_CompletesStartupDependencyWithoutWaitingAsync()
     {
         var activeId = Guid.NewGuid();
-        var queue = new RecordingOperationQueue(new QueuedOperationResponse
+        var queue = new RecordingOperationWaitlist(new OperationStartResponse
         {
             OperationId = activeId,
-            AlreadyRunning = true,
-            Status = "alreadyRunning"
+            Status = OperationStartStatus.AlreadyRunning
         });
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"startup-eviction-dedupe-{Guid.NewGuid():N}")
@@ -149,39 +148,39 @@ public sealed class ScheduledHeavyOperationQueueTests
         var conflictChecker = OperationConflictTestServices.Create(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker,
             conflictChecker,
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
             OperationType.LogProcessing,
             "Log Processing",
             new CancellationTokenSource());
         Guid startedId = default;
-        var queued = await queue.EnqueueAsync(
+        var waitingRun = await queue.EnqueueAsync(
             OperationType.CacheSizeScan,
             ConflictScope.Bulk(),
             "Cache File Scan",
             () => Task.FromResult<Guid?>(startedId = tracker.RegisterOperation(
                 OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource())),
-            CancellationToken.None);
+            CancellationToken.None, OperationRequestKey.Plain);
 
-        Assert.True(queued.Queued);
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
         tracker.CompleteOperation(blockerId, success: true);
 
-        var handedOn = await WaitForEndingAsync(tracker, queued.OperationId);
+        var handedOn = await WaitForEndingAsync(tracker, waitingRun.OperationId);
         Assert.Equal(OperationStatus.Completed, handedOn.Status);
-        Assert.False(handedOn.Cancelled);
+        Assert.False(handedOn.Canceled);
         Assert.Equal(startedId, handedOn.NextOperationId);
-        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == queued.OperationId);
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == waitingRun.OperationId);
         Assert.Equal(OperationType.CacheSizeScan.ToWireString(), row.OperationType);
         Assert.Null(row.Error);
         Assert.Equal(startedId, row.NextOperationId);
         Assert.Equal(OperationStatus.Running, tracker.GetOperation(startedId)!.Status);
-        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(queued.OperationId));
-        Assert.True(tracker.GetOperation(startedId)!.Cancelled);
-        tracker.CompleteOperation(startedId, success: false, cancelled: true);
+        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(waitingRun.OperationId));
+        Assert.True(tracker.GetOperation(startedId)!.Canceled);
+        tracker.CompleteOperation(startedId, success: false, canceled: true);
     }
 
     /// <summary>
@@ -189,10 +188,10 @@ public sealed class ScheduledHeavyOperationQueueTests
     /// Skipped has to be terminal everywhere the queue looks, or the waiter behind it never
     /// promotes and the queue stalls with no error anywhere. Two things are asserted: the
     /// skipped blocker leaves the active set (that is what the conflict checker reads), and the
-    /// queued operation's own start delegate actually ran.
+    /// waiting operation's own start delegate actually ran.
     /// </summary>
     [Fact]
-    public async Task SkippedBlocker_PromotesTheQueuedOperationAsync()
+    public async Task SkippedBlocker_PromotesTheWaitingOperationAsync()
     {
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(
@@ -201,10 +200,10 @@ public sealed class ScheduledHeavyOperationQueueTests
         var conflictChecker = OperationConflictTestServices.Create(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker,
             conflictChecker,
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
             OperationType.LogProcessing,
@@ -212,7 +211,7 @@ public sealed class ScheduledHeavyOperationQueueTests
             new CancellationTokenSource());
         var startedId = Guid.NewGuid();
         var startCalls = 0;
-        var queued = await queue.EnqueueAsync(
+        var waitingRun = await queue.EnqueueAsync(
             OperationType.CacheSizeScan,
             ConflictScope.Bulk(),
             "Cache File Scan",
@@ -221,9 +220,9 @@ public sealed class ScheduledHeavyOperationQueueTests
                 Interlocked.Increment(ref startCalls);
                 return Task.FromResult<Guid?>(startedId);
             },
-            CancellationToken.None);
+            CancellationToken.None, OperationRequestKey.Plain);
 
-        Assert.True(queued.Queued);
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
         Assert.Equal(0, Volatile.Read(ref startCalls));
 
         tracker.CompleteOperation(blockerId, success: true, skipped: true);
@@ -231,14 +230,14 @@ public sealed class ScheduledHeavyOperationQueueTests
         Assert.Equal(OperationStatus.Skipped, tracker.GetOperation(blockerId)?.Status);
         Assert.DoesNotContain(tracker.GetActiveOperations(), op => op.Id == blockerId);
 
-        var promoted = await WaitForEndingAsync(tracker, queued.OperationId);
+        var promoted = await WaitForEndingAsync(tracker, waitingRun.OperationId);
         Assert.Equal(OperationStatus.Completed, promoted.Status);
         Assert.Equal(startedId, promoted.NextOperationId);
         Assert.Equal(1, Volatile.Read(ref startCalls));
     }
 
     [Fact]
-    public async Task QueuedScheduledOperation_CanBeCancelledBeforePromotionAsync()
+    public async Task WaitingScheduledOperation_CanBeCanceledBeforePromotionAsync()
     {
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(
@@ -247,17 +246,17 @@ public sealed class ScheduledHeavyOperationQueueTests
         var conflictChecker = OperationConflictTestServices.Create(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker,
             conflictChecker,
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
             OperationType.LogProcessing,
             "Log Processing",
             new CancellationTokenSource());
         var startCalls = 0;
-        var queued = await queue.EnqueueAsync(
+        var waitingRun = await queue.EnqueueAsync(
             OperationType.GameDetection,
             ConflictScope.Bulk(),
             "Game Detection",
@@ -266,13 +265,13 @@ public sealed class ScheduledHeavyOperationQueueTests
                 Interlocked.Increment(ref startCalls);
                 return Task.FromResult<Guid?>(Guid.NewGuid());
             },
-            CancellationToken.None);
+            CancellationToken.None, new GameDetectionRequestKey(DetectionScanType.Full));
 
-        Assert.True(queued.Queued);
-        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(queued.OperationId));
-        var cancelled = await WaitForEndingAsync(tracker, queued.OperationId);
-        Assert.Equal(OperationStatus.Cancelled, cancelled.Status);
-        Assert.Null(cancelled.NextOperationId);
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
+        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(waitingRun.OperationId));
+        var canceled = await WaitForEndingAsync(tracker, waitingRun.OperationId);
+        Assert.Equal(OperationStatus.Canceled, canceled.Status);
+        Assert.Null(canceled.NextOperationId);
 
         tracker.CompleteOperation(blockerId, success: true);
         await Task.Delay(200);
@@ -289,10 +288,10 @@ public sealed class ScheduledHeavyOperationQueueTests
         var conflictChecker = OperationConflictTestServices.Create(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker,
             conflictChecker,
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
             OperationType.LogProcessing,
@@ -300,18 +299,18 @@ public sealed class ScheduledHeavyOperationQueueTests
             new CancellationTokenSource());
         var startCalls = 0;
         var startedId = Guid.NewGuid();
-        var queued = await queue.EnqueueAsync(
+        var waitingRun = await queue.EnqueueAsync(
             OperationType.EvictionScan,
             ConflictScope.Bulk(),
             "Eviction Scan",
             () => Task.FromResult<Guid?>(
                 Interlocked.Increment(ref startCalls) == 1 ? null : startedId),
-            CancellationToken.None);
+            CancellationToken.None, OperationRequestKey.Plain);
 
-        Assert.True(queued.Queued);
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
         tracker.CompleteOperation(blockerId, success: true);
 
-        var handedOn = await WaitForEndingAsync(tracker, queued.OperationId);
+        var handedOn = await WaitForEndingAsync(tracker, waitingRun.OperationId);
         Assert.Equal(2, Volatile.Read(ref startCalls));
         Assert.Equal(OperationStatus.Completed, handedOn.Status);
         Assert.Equal(startedId, handedOn.NextOperationId);
@@ -327,25 +326,25 @@ public sealed class ScheduledHeavyOperationQueueTests
         var conflictChecker = OperationConflictTestServices.Create(
             tracker,
             NullLogger<OperationConflictChecker>.Instance);
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker,
             conflictChecker,
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
 
         var startCalls = 0;
         var startedId = Guid.NewGuid();
-        var queued = await queue.EnqueueAsync(
+        var waitingRun = await queue.EnqueueAsync(
             OperationType.EvictionScan,
             ConflictScope.Bulk(),
             "Eviction Scan",
             () => Task.FromResult<Guid?>(
                 Interlocked.Increment(ref startCalls) == 1 ? null : startedId),
-            CancellationToken.None);
+            CancellationToken.None, OperationRequestKey.Plain);
 
-        Assert.True(queued.Queued);
-        Assert.NotEqual(Guid.Empty, queued.OperationId);
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
+        Assert.NotEqual(Guid.Empty, waitingRun.OperationId);
 
-        var handedOn = await WaitForEndingAsync(tracker, queued.OperationId);
+        var handedOn = await WaitForEndingAsync(tracker, waitingRun.OperationId);
         Assert.Equal(2, Volatile.Read(ref startCalls));
         Assert.Equal(OperationStatus.Completed, handedOn.Status);
         Assert.Equal(startedId, handedOn.NextOperationId);
@@ -364,7 +363,7 @@ public sealed class ScheduledHeavyOperationQueueTests
     }
 
     private static void AssertQueueRequest(
-        RecordingOperationQueue queue,
+        RecordingOperationWaitlist queue,
         OperationType expectedType,
         string expectedName)
     {
@@ -427,17 +426,16 @@ public sealed class ScheduledHeavyOperationQueueTests
             => Handler!(targetMethod!, args);
     }
 
-    private sealed class RecordingOperationQueue : IOperationQueue
+    private sealed class RecordingOperationWaitlist : IOperationWaitlist
     {
-        private readonly QueuedOperationResponse _response;
+        private readonly OperationStartResponse _response;
 
-        public RecordingOperationQueue(QueuedOperationResponse? response = null)
+        public RecordingOperationWaitlist(OperationStartResponse? response = null)
         {
-            _response = response ?? new QueuedOperationResponse
+            _response = response ?? new OperationStartResponse
             {
                 OperationId = Guid.NewGuid(),
-                Queued = true,
-                Status = "waiting"
+                Status = OperationStartStatus.Waiting
             };
         }
 
@@ -447,19 +445,16 @@ public sealed class ScheduledHeavyOperationQueueTests
         public Func<Task<Guid?>>? Start { get; private set; }
         public RunNotice? Notice { get; private set; }
 
-        public Task<QueuedOperationResponse> EnqueueAsync(
+        public Task<OperationStartResponse> EnqueueAsync(
             OperationType type,
             ConflictScope scope,
             string displayName,
             Func<Task<Guid?>> start,
             CancellationToken ct,
+            OperationRequestKey requestKey,
             bool reportRefusal = false,
             RunNotice? notice = null,
-            string? target = null,
-            StructuralScanMode? scanMode = null,
-            int? scanThreshold = null,
-            int? scanLookbackDays = null,
-            DetectionScanType? detectionScanType = null)
+            string? target = null)
         {
             Type = type;
             Scope = scope;
@@ -468,13 +463,19 @@ public sealed class ScheduledHeavyOperationQueueTests
             Notice = notice;
             return Task.FromResult(_response);
         }
+
+        public Task<OperationConflictResponse?> StartUnlessBusyAsync(
+            OperationType type,
+            ConflictScope scope,
+            Func<Task<Guid?>> start,
+            CancellationToken ct, OperationRequestKey requestKey) => throw new NotSupportedException();
     }
 
     private sealed class TestCacheSizeScanScheduledService : CacheSizeScanScheduledService
     {
         public TestCacheSizeScanScheduledService(
             IPathResolver pathResolver,
-            IOperationQueue operationQueue,
+            IOperationWaitlist operationQueue,
             IStateService stateService)
             : base(
                 cacheService: null!,
@@ -493,7 +494,7 @@ public sealed class ScheduledHeavyOperationQueueTests
 
     private sealed class TestGameDetectionService : GameDetectionService
     {
-        public TestGameDetectionService(IOperationQueue operationQueue, IStateService stateService)
+        public TestGameDetectionService(IOperationWaitlist operationQueue, IStateService stateService)
             : base(
                 detectionService: null!,
                 stateService,
@@ -513,7 +514,7 @@ public sealed class ScheduledHeavyOperationQueueTests
     {
         public TestCacheReconciliationService(
             IServiceProvider serviceProvider,
-            IOperationQueue operationQueue,
+            IOperationWaitlist operationQueue,
             IStateService stateService)
             : base(
                 serviceProvider,

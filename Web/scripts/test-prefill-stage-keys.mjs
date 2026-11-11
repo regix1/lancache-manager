@@ -219,7 +219,7 @@ const { getErrorMessage } = await import(
   })
 );
 
-const { blankStringValues, translateStageKeyMessage, hasUnresolvedInterpolation } = await import(
+const { translateStageKeyMessage, hasUnresolvedInterpolation } = await import(
   await compileToUrl('../src/utils/stageKeyMessage.ts', { '@/i18n': i18nStub })
 );
 
@@ -451,7 +451,6 @@ const scheduledPrefillServiceLabel = bindLifted(functionFor('scheduledPrefillSer
 
 // Both wordings below read the stage key through this, so it is lifted the same way they are.
 const scheduledPrefillSentence = bindLifted(functionFor('scheduledPrefillSentence'), {
-  blankStringValues,
   translateStageKeyMessage,
   hasUnresolvedInterpolation
 });
@@ -564,17 +563,10 @@ test('a game name holding braces does not turn the progress line back into Engli
     assert.equal(await cardFor(event, 'zh'), `Steam：正在下载 ${game}（2/5 个游戏）`);
   }
 
-  // A token the context did not fill still falls back to the English beside the key.
-  const missingTotal = {
-    serviceId: 'Steam',
-    stage: 'running',
-    message: 'Downloading Foo {{Bar}} Edition (2 of 5 games)',
-    stageKey: 'signalr.scheduledPrefill.downloadingGame',
-    stageContext: { game: 'Foo {{Bar}} Edition', completed: 2 }
-  };
+  // A line with no key reads the caller's fallback key, never the English sent beside it.
   assert.equal(
-    await cardFor(missingTotal, 'zh'),
-    'Steam：Downloading Foo {{Bar}} Edition (2 of 5 games)'
+    scheduledPrefillFailure({ serviceId: 'Steam', error: 'Downloading Foo {{Bar}} Edition' }),
+    'Steam 失败：操作失败'
   );
 });
 
@@ -594,14 +586,16 @@ test('a needs-login skip keeps the prerequisite it named, in the reader language
   );
 });
 
-test('a daemon sentence with no key still reaches the card instead of vanishing', async () => {
+test('a daemon failure reaches the card as its key, in the reader language', async () => {
+  // The server keys every daemon failure (run.ErrorStageKey); a stall has no daemon text, so its message is the key.
   const event = {
     serviceId: 'Steam',
     stage: 'failed',
-    message: 'SteamKit2 refused the depot manifest request'
+    message: 'signalr.scheduledPrefill.failedStalled',
+    stageKey: 'signalr.scheduledPrefill.failedStalled'
   };
 
-  assert.equal(await cardFor(event, 'zh'), 'Steam：SteamKit2 refused the depot manifest request');
+  assert.equal(await cardFor(event, 'zh'), 'Steam：预填充已停滞（无进度）');
 });
 
 test('a failed service names itself and its reason in the reader language', async () => {
@@ -615,11 +609,14 @@ test('a failed service names itself and its reason in the reader language', asyn
     'Steam 失败：所有到期的服务都需要登录'
   );
 
-  // A run that died on an exception has only .NET's own text, so the card shows that rather than
-  // an empty line.
+  // A run that died on an exception ends on the failed key; .NET's own text stays in the server log.
   assert.equal(
-    scheduledPrefillFailure({ serviceId: 'Steam', error: 'The operation has timed out.' }),
-    'Steam 失败：The operation has timed out.'
+    scheduledPrefillFailure({
+      serviceId: 'Steam',
+      error: 'The operation has timed out.',
+      stageKey: 'signalr.scheduledPrefill.failed'
+    }),
+    'Steam 失败：预填充失败'
   );
 });
 

@@ -485,12 +485,12 @@ test('the orphan removal dialog cannot confirm once no selected record is left',
 });
 
 test('the log controls are disabled while an unmapped removal runs', () => {
-  // The gate is a running or stopping unmapped removal; a queued one has refused nothing yet.
+  // The gate is a running or stopping unmapped removal; a waiting one has refused nothing yet.
   for (const path of [datasourcesPath, logRemovalPath]) {
     const options = declarationText(path, 'isUnmappedRemovalRunning');
     assert.match(options, /useOperationBusy\(/, path);
     assert.match(options, /types: \['unmapped_file_removal'\]/, path);
-    assert.match(options, /status: \['running', 'cancelling'\]/, path);
+    assert.match(options, /status: \['running', 'canceling'\]/, path);
   }
 
   // The Reposition menu item and the per-datasource Reposition button.
@@ -608,7 +608,7 @@ test('the row whose own removal is canceling keeps its spinner and label and giv
   const activeLogRemovalNotification = evaluateDeclaration(
     logRemovalPath,
     'activeLogRemovalNotification',
-    { runs: [{ type: 'log_removal', status: 'cancelling', details: { service: 'steam' } }] }
+    { runs: [{ type: 'log_removal', status: 'canceling', details: { service: 'steam' } }] }
   );
   const activeLogRemoval = evaluateDeclaration(logRemovalPath, 'activeLogRemoval', {
     activeLogRemovalNotification
@@ -738,7 +738,7 @@ test('the orphan removal is disabled while an unmapped removal runs, and says wh
   const gate = declarationText(storagePath, 'isUnmappedRemovalRunning');
   assert.match(gate, /useOperationBusy\(/);
   assert.match(gate, /types: \['unmapped_file_removal'\]/);
-  assert.match(gate, /status: \['running', 'cancelling'\]/);
+  assert.match(gate, /status: \['running', 'canceling'\]/);
   assert.match(
     declarationText(storagePath, 'unmappedRemovalReason'),
     /t\('management\.storage\.unmappedRemovalRunning'\)/
@@ -794,6 +794,68 @@ test('a refused per-service Clear passes the refusal on as it came, never matche
     assert.equal(bindings.onError.calls[0][0], 'management.logRemoval.errors.removeServiceFailed');
     assert.equal(bindings.onError.calls[0][1], refusal, message);
     assert.deepEqual(bindings.clearServiceRemovalPending.calls, [['alpha:steam']]);
+  }
+});
+
+test('a per-service Clear that waits or joins a running one is told by its status alone', async () => {
+  for (const [answer, released] of [
+    [{ operationId: 'waiting-op', status: 'waiting' }, true],
+    [{ operationId: 'running-op', status: 'alreadyRunning' }, true],
+    [{ operationId: 'new-op', status: 'running' }, false]
+  ]) {
+    const bindings = {
+      ...shared(),
+      authMode: 'authenticated',
+      ApiService: { removeServiceFromDatasourceLogs: () => Promise.resolve(answer) },
+      getServiceDisplayName: (service) => service,
+      setPendingServiceRemoval: recorder(),
+      markServiceRemovalStarting: recorder(),
+      clearServiceRemovalPending: recorder()
+    };
+    await bindLifted(liftConstArrow(logRemovalPath, 'executeRemoveServiceLogs'), bindings)(
+      'alpha',
+      'steam'
+    );
+    assert.equal(bindings.onError.calls.length, 0, answer.status);
+    // A waiting or joined request releases the button; the waiting card carries no per-service details.
+    assert.deepEqual(
+      bindings.clearServiceRemovalPending.calls,
+      released ? [['alpha:steam']] : [],
+      answer.status
+    );
+  }
+});
+
+test('a table reset tells a waiting reset from one already running by its status alone', async () => {
+  const tableResetPath = 'src/components/features/management/sections/DataSection.tsx';
+  for (const [answer, message] of [
+    [
+      { operationId: 'waiting-op', status: 'waiting' },
+      'common.notifications.willQueueBehindCurrent'
+    ],
+    [
+      { operationId: 'running-op', status: 'alreadyRunning' },
+      'management.database.success.resetAlreadyRunning'
+    ],
+    [{ operationId: 'new-op', status: 'running' }, 'management.database.success.resetStarted']
+  ]) {
+    const bindings = {
+      ...shared(),
+      authMode: 'authenticated',
+      clearInProgressRef: { current: false },
+      selectedTables: ['Downloads'],
+      ApiService: { resetSelectedTables: () => Promise.resolve(answer) },
+      setLoading: recorder(),
+      setShowClearModal: recorder(),
+      setSelectedTables: recorder()
+    };
+    await bindLifted(liftConstArrow(tableResetPath, 'confirmClear'), bindings)();
+    assert.equal(bindings.onError.calls.length, 0, answer.status);
+    assert.deepEqual(
+      bindings.onSuccess.calls.map((call) => call[0]),
+      [message],
+      answer.status
+    );
   }
 });
 

@@ -556,7 +556,7 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
 
         var session = SessionsOf(daemon).Values.Single(s => s.IsPersistent);
         Assert.Equal(1, client.StartLoginCallCount);
-        Assert.Equal(1, client.CancelLoginCallCount);                        // cancelled daemon-side (acknowledged)
+        Assert.Equal(1, client.CancelLoginCallCount);                        // canceled daemon-side (acknowledged)
         Assert.Null(session.PendingLoginChallenge);                          // resume cache left empty
         Assert.Equal(DaemonAuthState.NotAuthenticated, session.AuthState);   // ordinary needs-login state
 
@@ -862,13 +862,13 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
 
         Assert.Equal("errors.prefill.containerRemovalFailed", failure.StageKey);
         Assert.True(run.Completion.Task.IsCompleted);
-        Assert.Equal("cancelled", run.Snapshot.State);
+        Assert.Equal("canceled", run.Snapshot.State);
         Assert.Equal("signalr.prefillSession.stopped", run.Snapshot.Reason);
         Assert.True(gateway.ContainsContainer(session.ContainerId));
         await using (var context = await database.CreateDbContextAsync())
         {
             var row = await context.PrefillHistoryEntries.SingleAsync(entry => entry.RunId == runId);
-            Assert.Equal(PrefillHistoryEntryStatus.Cancelled, row.Status);
+            Assert.Equal(PrefillHistoryEntryStatus.Canceled, row.Status);
             Assert.Equal("signalr.prefillSession.stopped", row.Reason);
         }
         // The session stays listed with the cleanup error, so its downloading mark has to clear.
@@ -3638,7 +3638,7 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
         await stop.CancelAsync();
         var (result, stageKeys) = await run;
 
-        Assert.Equal(ScheduledPrefillServiceRunResult.Cancelled, result);
+        Assert.Equal(ScheduledPrefillServiceRunResult.Canceled, result);
         Assert.Contains("signalr.scheduledPrefill.stopped", stageKeys);
         Assert.DoesNotContain("signalr.scheduledPrefill.needsPersistentContainer", stageKeys);
         Assert.True(gateway.ContainsContainer(container.Id));
@@ -3846,7 +3846,7 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
     // Builds the shared per-recreate-test scenario: FullPersistence + Steam enabled, one prior persistent
     // Active row (with the given expiry) that cleanup will orphan, and an empty container inventory.
     private (DbContextOptions<AppDbContext> Options, TestSteamDaemon Daemon, RecordingContainerGateway Gateway, string PriorSessionId)
-        SetupRecreateScenario(DateTime priorExpiry, int validityDays = 90, Func<IDaemonClient>? clientFactory = null, ISignalRNotificationService? notifications = null, ILogger<SteamDaemonService>? logger = null, TimeProvider? cacheStatusClock = null, IInterceptor[]? interceptors = null)
+        SetupRecreateScenario(DateTime priorExpiry, int validityDays = 90, Func<IDaemonClient>? clientFactory = null, ISignalRNotificationService? notifications = null, ILogger<SteamDaemonService>? logger = null, TimeProvider? cacheStatusClock = null, IInterceptor[]? interceptors = null, IUnifiedOperationTracker? operationTracker = null)
     {
         var (options, dbFactory) = NewDatabase(interceptors ?? []);
         var sessionService = new PrefillSessionService(dbFactory, NullLogger<PrefillSessionService>.Instance);
@@ -3854,7 +3854,7 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
 
         var gateway = new RecordingContainerGateway();
         var config = Config(PersistenceMode.FullPersistence, steamEnabled: true);
-        var daemon = new TestSteamDaemon(MakeDeps(dbFactory, sessionService, config, validityDays, notifications, cacheStatusClock: cacheStatusClock), gateway, clientFactory, logger);
+        var daemon = new TestSteamDaemon(MakeDeps(dbFactory, sessionService, config, validityDays, notifications, cacheStatusClock: cacheStatusClock, operationTracker: operationTracker), gateway, clientFactory, logger);
         return (options, daemon, gateway, priorSessionId);
     }
 
@@ -3874,7 +3874,8 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
         IDbContextFactory<AppDbContext> dbFactory, PrefillSessionService sessionService, ScheduledPrefillConfigDto config, int validityDays = 90,
         ISignalRNotificationService? notifications = null,
         string? image = null,
-        TimeProvider? cacheStatusClock = null)
+        TimeProvider? cacheStatusClock = null,
+        IUnifiedOperationTracker? operationTracker = null)
     {
         notifications ??= FakeInterface<ISignalRNotificationService>();
         var stateService = OrchestrationStateService.New(config, validityDays);
@@ -3889,7 +3890,7 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
             })
             .Build();
         var networkOptions = new StaticOptionsMonitor(new PrefillNetworkOptions { NetworkMode = "bridge" });
-        return new DaemonDeps(notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), cacheStatusClock);
+        return new DaemonDeps(notifications, configuration, pathResolver, stateService, sessionService, cacheService, networkOptions, new TestLancacheServerLocator(), cacheStatusClock, operationTracker);
     }
 
     private static ScheduledPrefillConfigDto Config(PersistenceMode global, bool steamEnabled)
@@ -4097,7 +4098,8 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
         PrefillCacheService CacheService,
         IOptionsMonitor<PrefillNetworkOptions> NetworkOptions,
         ILancacheServerLocator Locator,
-        TimeProvider? CacheStatusClock = null);
+        TimeProvider? CacheStatusClock = null,
+        IUnifiedOperationTracker? OperationTracker = null);
 
     private sealed class TestSteamDaemon : SteamDaemonService
     {
@@ -4107,7 +4109,7 @@ public sealed partial class PrefillContainerOrchestrationTests : IDisposable
         // login client for the session the recreate path builds; everything else keeps the default
         // reconnect fake. The optional logger lets a test capture the warning/error contract.
         public TestSteamDaemon(DaemonDeps d, IPrefillContainerGateway g, Func<IDaemonClient>? clientFactory = null, ILogger<SteamDaemonService>? logger = null, IActivityRegistry? activity = null)
-            : base(logger ?? NullLogger<SteamDaemonService>.Instance, d.Notifications, d.Configuration, d.PathResolver, d.StateService, d.SessionService, d.CacheService, d.NetworkOptions, d.Locator, new SingleContainerGatewayFactory(g), activity, cacheStatusClock: d.CacheStatusClock)
+            : base(logger ?? NullLogger<SteamDaemonService>.Instance, d.Notifications, d.Configuration, d.PathResolver, d.StateService, d.SessionService, d.CacheService, d.NetworkOptions, d.Locator, new SingleContainerGatewayFactory(g), activity, operationTracker: d.OperationTracker, cacheStatusClock: d.CacheStatusClock)
             => _clientFactory = clientFactory;
 
         protected override IDaemonClient CreateDaemonClient(bool useTcpMode, int? tcpHostPort, string socketPath, string socketSecret)

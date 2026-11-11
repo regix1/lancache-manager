@@ -21,7 +21,7 @@ public enum DepotScanPhase
     Authenticating,
     RefreshingCatalog,
     Completed,
-    Cancelled,
+    Canceled,
     Error,
     Unknown
 }
@@ -75,7 +75,7 @@ public static class DepotScanPhaseExtensions
         DepotScanPhase.Authenticating => "Authenticating",
         DepotScanPhase.RefreshingCatalog => "Refreshing catalog",
         DepotScanPhase.Completed => "Completed",
-        DepotScanPhase.Cancelled => "Cancelled",
+        DepotScanPhase.Canceled => "Canceled",
         DepotScanPhase.Error => "Error occurred",
         DepotScanPhase.Unknown => "Unknown",
         _ => "Unknown"
@@ -105,7 +105,7 @@ public static class DepotScanPhaseExtensions
             "Authenticating" => DepotScanPhase.Authenticating,
             "Refreshing catalog" => DepotScanPhase.RefreshingCatalog,
             "completed" or "Completed" => DepotScanPhase.Completed,
-            "cancelled" or "Cancelled" => DepotScanPhase.Cancelled,
+            "canceled" or "Canceled" => DepotScanPhase.Canceled,
             "Error occurred" or "Error" => DepotScanPhase.Error,
             "Unknown" => DepotScanPhase.Unknown,
             _ => Enum.TryParse<DepotScanPhase>(status, ignoreCase: true, out var parsed)

@@ -303,7 +303,7 @@ const createHookRun = () => {
     flushPassive,
     runFrame() {
       const next = frames.entries().next().value;
-      assert.ok(next, 'a frame is queued');
+      assert.ok(next, 'a frame is requested');
       const [id, callback] = next;
       frames.delete(id);
       phase = 'frame';

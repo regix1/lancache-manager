@@ -872,9 +872,9 @@ public class PrefillSessionService
         var run = await context.PrefillRuns.AsNoTracking().SingleOrDefaultAsync(r => r.Id == runId && r.Session != null
             && r.Session.IsPersistent && r.Session.Platform == platform, cancellationToken);
         if (run is null) return null;
-        // When a run fails, the daemon leaves every game without a result Cancelled (the server cancelled a
+        // When a run fails, the daemon leaves every game without a result Canceled (the server canceled a
         // stalled, signed-out or over-time run) or Skipped (the daemon failed the run itself). Only the games that
-        // were downloading failed with the run, and they carry the run's reason; queued games never started.
+        // were downloading failed with the run, and they carry the run's reason; games still waiting never started.
         var runFailed = run.State == "failed";
         var currentAppId = runFailed
             ? (JsonSerializer.Deserialize<DaemonRunSnapshot>(run.SnapshotJson)
@@ -883,7 +883,7 @@ public class PrefillSessionService
         // No cap: the read covers one run and is bounded by that run's game count.
         var failed = await context.PrefillHistoryEntries.AsNoTracking()
             .Where(e => e.RunId == runId && (e.Status == PrefillHistoryEntryStatus.Failed || (runFailed
-                && (e.Status == PrefillHistoryEntryStatus.Cancelled || e.Status == PrefillHistoryEntryStatus.Skipped)
+                && (e.Status == PrefillHistoryEntryStatus.Canceled || e.Status == PrefillHistoryEntryStatus.Skipped)
                 && (e.AppId == currentAppId || e.BytesDownloaded > 0))))
             .OrderBy(e => e.Sequence).ToListAsync(cancellationToken);
         return [.. failed.Select(e =>
@@ -899,6 +899,8 @@ public class PrefillSessionService
                     "auth-lost" => platform == PrefillPlatform.Steam
                         ? "errors.prefill.signInLost" : "errors.prefill.loginRequired",
                     "game-details-unavailable" => "errors.prefill.gameDetailsUnavailable",
+                    // The Xbox daemon's reason for a game the LANCache gave back no data for
+                    "cache-domain-missing" => "errors.prefill.cacheDomainMissing",
                     "stalled" => "signalr.scheduledPrefill.failedStalled",
                     "runtime-exceeded" => "signalr.scheduledPrefill.failedMaxRuntime",
                     _ => DaemonCommandException.StageKeyForCode(reason) switch
@@ -992,7 +994,7 @@ public class PrefillSessionService
                     "success" or "completed" => PrefillHistoryEntryStatus.Completed,
                     "already_cached" => PrefillHistoryEntryStatus.Cached,
                     "failed" => PrefillHistoryEntryStatus.Failed,
-                    "cancelled" => PrefillHistoryEntryStatus.Cancelled,
+                    "canceled" => PrefillHistoryEntryStatus.Canceled,
                     "skipped" => PrefillHistoryEntryStatus.Skipped,
                     _ => PrefillHistoryEntryStatus.InProgress
                 };
@@ -1004,7 +1006,7 @@ public class PrefillSessionService
             {
                 foreach (var entry in history.Values.Where(e => e.Status == PrefillHistoryEntryStatus.InProgress))
                 {
-                    entry.Status = snapshot.State == "cancelled" ? PrefillHistoryEntryStatus.Cancelled : PrefillHistoryEntryStatus.Failed;
+                    entry.Status = snapshot.State == "canceled" ? PrefillHistoryEntryStatus.Canceled : PrefillHistoryEntryStatus.Failed;
                     entry.CompletedAtUtc = snapshot.UpdatedAt.UtcDateTime;
                     entry.Reason = snapshot.Reason ?? "outcome-unknown";
                 }

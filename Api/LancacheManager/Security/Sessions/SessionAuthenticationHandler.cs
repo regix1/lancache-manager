@@ -95,7 +95,7 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
             // again would only hold the request open longer. Deliberately catching everything, too:
             // nothing in the stack distinguishes "server unreachable" from any other provider fault,
             // and ValidateSessionAsync takes no cancellation token, so nothing that arrives here is a
-            // cancelled request being misreported as a failure.
+            // canceled request being misreported as a failure.
             Logger.LogError(ex, "Could not reach the database to validate a session cookie; the request continues unauthenticated");
             return AuthenticateResult.NoResult();
         }
@@ -236,7 +236,7 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
     }
 
     /// <summary>
-    /// Override the default challenge behaviour to log at Debug instead of the framework
+    /// Override the default challenge behavior to log at Debug instead of the framework
     /// default (Information). This suppresses the "AuthenticationScheme: Session was
     /// challenged" message that floods production logs on every unauthenticated request
     /// (polling endpoints, guests viewing the login screen, etc.).

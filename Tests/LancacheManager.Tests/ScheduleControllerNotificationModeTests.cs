@@ -50,21 +50,20 @@ public class ScheduleControllerNotificationModeTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task TriggerRunAsync_ReturnsActualFollowUpDecisionWithoutAnOperation(bool followUpQueued)
+    public async Task TriggerRunAsync_ReturnsActualFollowUpDecisionWithoutAnOperation(bool followUpWaiting)
     {
         var registry = new FakeScheduleRegistry
         {
             InfoForGet = new ServiceScheduleInfo { Key = "scheduledPrefill" },
             RunStatus = new ScheduleRunStatus { IsRunning = true },
-            FollowUpQueued = followUpQueued
+            FollowUpWaiting = followUpWaiting
         };
-        var response = Assert.IsType<QueuedOperationResponse>(
+        var response = Assert.IsType<OperationStartResponse>(
             Assert.IsType<AcceptedResult>((await CreateController(registry).TriggerRunAsync("scheduledPrefill")).Result).Value);
-        Assert.True(response.AlreadyRunning);
-        Assert.Equal("alreadyRunning", response.Status);
-        Assert.Equal(followUpQueued, response.FollowUpQueued);
+        Assert.Equal(OperationStartStatus.AlreadyRunning, response.Status);
+        Assert.Equal(followUpWaiting, response.FollowUpWaiting);
         Assert.Equal(Guid.Empty, response.OperationId);
-        Assert.False(response.Queued);
+        Assert.NotEqual(OperationStartStatus.Waiting, response.Status);
         Assert.Equal(ScheduleActorKind.Unknown, registry.LastActor?.Kind);
     }
 
@@ -794,14 +793,14 @@ public class ScheduleControllerNotificationModeTests
             return ScanModeAccepted;
         }
 
-        public Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpQueued)> TriggerRunAsync(
+        public Task<(ScheduleRunStatus Status, string? SkippedReason, bool FollowUpWaiting)> TriggerRunAsync(
             string serviceKey,
             ScheduleActor? actor = null)
         {
             LastActor = actor;
             LastTriggeredKey = serviceKey;
             return Task.FromResult<(ScheduleRunStatus, string?, bool)>(
-                (RunStatus ?? new ScheduleRunStatus(), null, FollowUpQueued));
+                (RunStatus ?? new ScheduleRunStatus(), null, FollowUpWaiting));
         }
 
         public Task<(int TriggeredCount, int AlreadyRunningCount, int SkippedCount, string? SkippedReason)> TriggerAllAsync(
@@ -810,7 +809,7 @@ public class ScheduleControllerNotificationModeTests
             LastActor = actor;
             return Task.FromResult<(int, int, int, string?)>((0, 2, 0, null));
         }
-        public bool FollowUpQueued { get; set; }
+        public bool FollowUpWaiting { get; set; }
         public void ResetToDefaults() { }
         public void NotifySchedulesChanged() { }
         public Task BroadcastSchedulesAsync() => Task.CompletedTask;

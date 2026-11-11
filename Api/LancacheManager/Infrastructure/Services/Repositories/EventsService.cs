@@ -128,7 +128,7 @@ public class EventsService : IEventsService
                 .AsNoTracking()
                 .Where(ed => ed.EventId == eventId)
                 .Select(ed => ed.Download)
-                .ApplyPrefillFilter(hiddenPrefillRules)
+                .ApplyClientFilters(_stateService.GetHiddenClientIps(), [], hiddenPrefillRules)
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync(cancellationToken);
         }
@@ -139,7 +139,7 @@ public class EventsService : IEventsService
                 .AsNoTracking()
                 .Where(d => d.StartTimeUtc <= evt.EndTimeUtc
                     && (d.EndTimeUtc >= evt.StartTimeUtc || d.StartTimeUtc >= evt.StartTimeUtc))
-                .ApplyPrefillFilter(hiddenPrefillRules)
+                .ApplyClientFilters(_stateService.GetHiddenClientIps(), [], hiddenPrefillRules)
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync(cancellationToken);
         }

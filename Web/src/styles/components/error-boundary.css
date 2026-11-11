@@ -24,4 +24,9 @@
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     padding: 2rem;
   }
+
+  /* Dark themes draw no shadow: the card's fill and border set it apart from the page. */
+  [data-theme='dark'] .error-boundary-container {
+    box-shadow: none;
+  }
 }

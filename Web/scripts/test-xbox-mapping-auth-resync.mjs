@@ -19,7 +19,7 @@ const toUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toS
 const reactStubSource = `
 let slots = null;
 let cursor = 0;
-let queued = [];
+let pendingEffects = [];
 
 export const useRef = (initial) => {
   if (!slots[cursor]) {
@@ -60,7 +60,7 @@ export const useEffect = (run, deps) => {
   slot.ran = true;
   slot.deps = deps;
   if (changed) {
-    queued.push(() => { slot.cleanup?.(); slot.cleanup = run(); });
+    pendingEffects.push(() => { slot.cleanup?.(); slot.cleanup = run(); });
   }
 };
 
@@ -70,10 +70,10 @@ export const createComponent = () => {
     render(body) {
       slots = componentSlots;
       cursor = 0;
-      queued = [];
+      pendingEffects = [];
       const result = body();
-      const effects = queued;
-      queued = [];
+      const effects = pendingEffects;
+      pendingEffects = [];
       slots = null;
       effects.forEach((run) => run());
       return result;
@@ -654,7 +654,7 @@ test('a sign-in another person canceled and replaced reads canceled', async () =
   await waitForApproval(xbox);
 
   xbox.render(false);
-  endAttempt(server, 'cancelled', 'signalr.xbox.mapping.cancelled');
+  endAttempt(server, 'canceled', 'signalr.xbox.mapping.canceled');
   // Their own sign-in then saved the account, which this sign-in did not.
   saveAccount(server);
   endAttempt(server, 'completed', 'signalr.xbox.mapping.completed', 'attempt-b');
@@ -664,7 +664,7 @@ test('a sign-in another person canceled and replaced reads canceled', async () =
 
   assert.equal(xbox.succeeded.count, 0);
   assert.equal(xbox.failed.count, 1);
-  assert.equal(xbox.failed.message, 'signalr.xbox.mapping.cancelled');
+  assert.equal(xbox.failed.message, 'signalr.xbox.mapping.canceled');
 });
 
 test('a sign-in a restart ended reads ended or expired', async () => {

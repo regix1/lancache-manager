@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { afterEach } from 'node:test';
 import { compileToUrl, moduleUrl } from './transpile-module.mjs';
 
 const reactUrl = moduleUrl(`
@@ -57,14 +57,30 @@ const reactUrl = moduleUrl(`
   export const useLayoutEffect = useEffect;
 `);
 
+// Same body as helpers.ts, so the fake window's matchMedia drives reduced motion.
+const reducedMotionUrl = moduleUrl(
+  "export const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;"
+);
+const scrollGlideUrl = await compileToUrl('../src/utils/scrollGlide.ts', {
+  '@components/features/management/status-check/helpers': reducedMotionUrl
+});
+
 const [{ useExpansionScroll }, { runtime }] = await Promise.all([
   import(
     await compileToUrl('../src/components/features/downloads/useExpansionScroll.ts', {
-      react: reactUrl
+      react: reactUrl,
+      '@utils/scrollGlide': scrollGlideUrl
     })
   ),
   import(reactUrl)
 ]);
+
+// Each fake frame moves the fake clock by this much; the default 20 frames cover the 450 ms travel.
+const FRAME_MS = 50;
+
+afterEach(() => {
+  delete globalThis.performance.now;
+});
 
 class Events {
   listeners = new Map();
@@ -88,9 +104,9 @@ const browser = () => {
   const events = new Events();
   const frames = new Map();
   const calls = [];
+  const clock = { now: 1000 };
   let frameId = 0;
   let reduceMotion = false;
-  let smoothMoves = true;
 
   const documentOwner = {
     clientHeight: 600,
@@ -113,9 +129,10 @@ const browser = () => {
     removeEventListener: (...args) => events.removeEventListener(...args),
     getComputedStyle: () => ({ position: 'sticky' }),
     matchMedia: () => ({ matches: reduceMotion }),
+    // A native smooth scroll is still in flight when a test reads the position, so it moves nothing.
     scrollTo({ top, behavior }) {
       calls.push({ behavior, owner: 'document', top });
-      if (behavior !== 'smooth' || smoothMoves) documentOwner.scrollTop = top;
+      if (behavior !== 'smooth') documentOwner.scrollTop = top;
     }
   };
 
@@ -127,17 +144,19 @@ const browser = () => {
     return id;
   };
   globalThis.cancelAnimationFrame = (id) => frames.delete(id);
+  Object.defineProperty(globalThis.performance, 'now', {
+    configurable: true,
+    value: () => clock.now
+  });
 
   return {
     calls,
+    clock,
     documentOwner,
     events,
     frames,
     setReduceMotion(value) {
       reduceMotion = value;
-    },
-    setSmoothMoves(value) {
-      smoothMoves = value;
     }
   };
 };
@@ -172,11 +191,12 @@ const content = (...targets) => ({
   }
 });
 
-const advance = async (state, count = 8) => {
+const advance = async (state, count = 20) => {
   for (let index = 0; index < count; index += 1) {
     const pending = [...state.frames.values()];
     state.frames.clear();
-    pending.forEach((callback) => callback(index));
+    state.clock.now += FRAME_MS;
+    pending.forEach((callback) => callback(state.clock.now));
     await Promise.resolve();
     await Promise.resolve();
   }
@@ -214,11 +234,11 @@ test('document scrolling waits for readiness and uses the nearest fitting edge b
   hook.result().requestScroll('A');
   hook.render({ expandedItem: 'A' });
   await advance(state);
-  assert.deepEqual(state.calls, [], 'placeholder readiness cannot start movement');
+  assert.equal(state.documentOwner.scrollTop, 0, 'placeholder readiness cannot start movement');
 
   hook.render({ membersReady: true });
   await advance(state);
-  assert.deepEqual(state.calls[0], { behavior: 'smooth', owner: 'document', top: 316 });
+  assert.equal(state.documentOwner.scrollTop, 316);
   assert.equal(
     state.events.listeners.get('wheel')?.size ?? 0,
     0,
@@ -234,9 +254,14 @@ test('an oversized row aligns its header and reduced motion moves immediately', 
 
   hook.result().requestScroll('A');
   hook.render({ expandedItem: 'A', membersReady: true });
-  await advance(state);
+  // The first pass finds no frame yet: the effect's promise chain asks for its first layout frame
+  // only after a few awaits. The next two passes are the two layout frames.
+  await advance(state, 3);
+  // Let the promise chain after the second layout frame finish without running another frame.
+  await new Promise((resolve) => setImmediate(resolve));
 
-  assert.deepEqual(state.calls[0], { behavior: 'auto', owner: 'document', top: 436 });
+  assert.equal(state.documentOwner.scrollTop, 436, 'the two layout frames are enough to land');
+  assert.equal(state.frames.size, 0, 'no travel frame is scheduled');
 });
 
 test('a fully visible row consumes the intent without scrolling', async () => {
@@ -247,7 +272,7 @@ test('a fully visible row consumes the intent without scrolling', async () => {
   hook.render({ expandedItem: 'A', membersReady: true });
   await advance(state);
 
-  assert.deepEqual(state.calls, []);
+  assert.equal(state.documentOwner.scrollTop, 0);
 });
 
 test('a virtual list is the scroll owner and keeps its measurement ref path intact', async () => {
@@ -260,7 +285,8 @@ test('a virtual list is the scroll owner and keeps its measurement ref path inta
   hook.render({ expandedItem: 'A', membersReady: true });
   await advance(state);
 
-  assert.deepEqual(owner.calls[0], { behavior: 'smooth', owner: 'virtual', top: 216 });
+  assert.equal(owner.scrollTop, 216);
+  assert.equal(state.documentOwner.scrollTop, 0, 'the page stays put');
 });
 
 test('finite disclosure motion and two stable frames finish before scrolling', async () => {
@@ -280,13 +306,13 @@ test('finite disclosure motion and two stable frames finish before scrolling', a
   hook.result().requestScroll('A');
   hook.render({ expandedItem: 'A', membersReady: true });
   await advance(state, 4);
-  assert.deepEqual(state.calls, []);
+  assert.equal(state.documentOwner.scrollTop, 0);
 
   finishAnimation();
   await advance(state, 1);
-  assert.deepEqual(state.calls, [], 'one layout frame is not enough');
-  await advance(state, 5);
-  assert.equal(state.calls.length, 1);
+  assert.equal(state.documentOwner.scrollTop, 0, 'one layout frame is not enough');
+  await advance(state);
+  assert.equal(state.documentOwner.scrollTop, 316);
 });
 
 test('wheel interruption consumes pending intent and cannot revive after data arrives', async () => {
@@ -299,7 +325,7 @@ test('wheel interruption consumes pending intent and cannot revive after data ar
   hook.render({ membersReady: true });
   await advance(state);
 
-  assert.deepEqual(state.calls, []);
+  assert.equal(state.documentOwner.scrollTop, 0);
 });
 
 test('touch interruption consumes pending intent before readiness', async () => {
@@ -312,23 +338,33 @@ test('touch interruption consumes pending intent before readiness', async () => 
   hook.render({ membersReady: true });
   await advance(state);
 
-  assert.deepEqual(state.calls, []);
+  assert.equal(state.documentOwner.scrollTop, 0);
 });
 
-test('pointer interruption stops native movement at its current position', async () => {
-  const state = browser();
-  state.setSmoothMoves(false);
-  const hook = mountHook(baseOptions(content(group({ top: 700, height: 200 }))));
+for (const [name, event] of [
+  ['wheel', {}],
+  ['pointerdown', {}],
+  ['touchstart', {}],
+  ['keydown', { key: 'PageDown' }]
+]) {
+  test(`${name} during the travel stops it where it is`, async () => {
+    const state = browser();
+    const hook = mountHook(baseOptions(content(group({ top: 700, height: 200 }))));
 
-  hook.result().requestScroll('A');
-  hook.render({ expandedItem: 'A', membersReady: true });
-  await advance(state, 4);
-  assert.equal(state.calls[0].behavior, 'smooth');
+    hook.result().requestScroll('A');
+    hook.render({ expandedItem: 'A', membersReady: true });
+    await advance(state, 4);
+    assert.equal(state.events.listeners.get('wheel')?.size, 1, 'the travel is under way');
 
-  state.documentOwner.scrollTop = 123;
-  state.events.dispatch('pointerdown');
-  assert.deepEqual(state.calls.at(-1), { behavior: 'auto', owner: 'document', top: 123 });
-});
+    // The input's own scroll lands here; the stop must leave it alone.
+    state.documentOwner.scrollTop = 123;
+    state.events.dispatch(name, event);
+    assert.deepEqual(state.calls, [], 'the stop makes no scroll call');
+    assert.equal(state.frames.size, 0, 'no further frame is scheduled');
+    await advance(state);
+    assert.equal(state.documentOwner.scrollTop, 123);
+  });
+}
 
 test('navigation keys cancel a pending request before readiness', async () => {
   const state = browser();
@@ -340,7 +376,7 @@ test('navigation keys cancel a pending request before readiness', async () => {
   hook.render({ membersReady: true });
   await advance(state);
 
-  assert.deepEqual(state.calls, []);
+  assert.equal(state.documentOwner.scrollTop, 0);
 });
 
 test('A-B-A keeps only the latest explicit click intent', async () => {
@@ -355,8 +391,7 @@ test('A-B-A keeps only the latest explicit click intent', async () => {
   hook.render({ expandedItem: 'A', membersReady: true });
   await advance(state);
 
-  assert.equal(state.calls.length, 1);
-  assert.equal(state.calls[0].top, 316);
+  assert.equal(state.documentOwner.scrollTop, 316);
 });
 
 test('collapse, view changes, setting changes, and remounts create no scroll', async () => {
@@ -368,21 +403,21 @@ test('collapse, view changes, setting changes, and remounts create no scroll', a
   hook.render({ enabled: false });
   hook.render({ enabled: true, resetKey: 'page-2' });
   await advance(state);
-  assert.deepEqual(state.calls, [], 'state and setting effects never mint an intent');
+  assert.equal(state.documentOwner.scrollTop, 0, 'state and setting effects never mint an intent');
 
   hook.result().requestScroll('A');
   hook.render({ expandedItem: null, membersReady: false });
   await advance(state);
-  assert.deepEqual(state.calls, [], 'collapse consumes the explicit intent');
+  assert.equal(state.documentOwner.scrollTop, 0, 'collapse consumes the explicit intent');
 
   hook.result().requestScroll('A');
   hook.render({ expandedItem: 'A', membersReady: true, view: 'card' });
   await advance(state);
-  assert.deepEqual(state.calls, [], 'card view retains its no-auto-scroll behavior');
+  assert.equal(state.documentOwner.scrollTop, 0, 'card view retains its no-auto-scroll behavior');
 
   hook.render({ view: 'normal', membersReady: false });
   hook.result().requestScroll('A');
   runtime.unmount();
   await advance(state);
-  assert.deepEqual(state.calls, [], 'unmount consumes pending intent');
+  assert.equal(state.documentOwner.scrollTop, 0, 'unmount consumes pending intent');
 });

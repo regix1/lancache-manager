@@ -24,6 +24,10 @@ public class ThemeController : ControllerBase
     // System theme IDs that cannot be deleted
     private static readonly string[] _systemThemes = { "dark-default", "light-default", "graphite" };
 
+    // Held across the store and its push, so pushes leave in the order the values were stored; otherwise
+    // two saves together can leave every screen on the value the server no longer holds.
+    private static readonly SemaphoreSlim _defaultGuestThemeWriteLock = new(1, 1);
+
     public ThemeController(
         IConfiguration configuration,
         ILogger<ThemeController> logger,
@@ -598,15 +602,23 @@ public class ThemeController : ControllerBase
         var (themeId, error) = SanitizeThemeId(request);
         if (error != null) return error;
 
-        _stateRepository.SetDefaultGuestTheme(themeId!);
-        _logger.LogInformation($"Updated default guest theme to: {themeId}");
-
-        // Broadcast theme change to all connected clients
-        // Only guest users with selectedTheme=null will apply this change
-        await _notifications.NotifyAllAsync(SignalREvents.DefaultGuestThemeChanged, new
+        await _defaultGuestThemeWriteLock.WaitAsync();
+        try
         {
-            newThemeId = themeId
-        });
+            _stateRepository.SetDefaultGuestTheme(themeId!);
+            _logger.LogInformation($"Updated default guest theme to: {themeId}");
+
+            // Broadcast theme change to all connected clients
+            // Only guest users with selectedTheme=null will apply this change
+            await _notifications.NotifyAllAsync(SignalREvents.DefaultGuestThemeChanged, new
+            {
+                newThemeId = themeId
+            });
+        }
+        finally
+        {
+            _defaultGuestThemeWriteLock.Release();
+        }
 
         _logger.LogInformation($"Broadcasted DefaultGuestThemeChanged event for theme: {themeId}");
 

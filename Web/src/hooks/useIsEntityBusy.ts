@@ -25,9 +25,9 @@ export function useIsEntityBusy(
 
   return useMemo(() => {
     return runs.some((n) => {
-      // A cancelling removal still owns its entity until it unwinds. A waiting one carries no
+      // A canceling removal still owns its entity until it unwinds. A waiting one carries no
       // game or service yet (its record holds only the queue's park state), so it never matches.
-      if (!kinds.includes(n.type) || (n.status !== 'running' && n.status !== 'cancelling')) {
+      if (!kinds.includes(n.type) || (n.status !== 'running' && n.status !== 'canceling')) {
         return false;
       }
       if (identifierKind === 'steamGame') return n.details?.gameAppId === gameAppId;

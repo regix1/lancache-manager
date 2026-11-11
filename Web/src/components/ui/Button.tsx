@@ -11,7 +11,7 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   open?: boolean;
   /**
    * The job the button does. `run`, `stop`, `destructive`, `primary` and `secondary` say what the
-   * button is for and let the theme decide its colour; the palette names below say the colour
+   * button is for and let the theme decide its color; the palette names below say the color
    * outright and are being migrated away from, one directory at a time. Each job name resolves to
    * the class its palette name already produced, so the two spellings render identically.
    */

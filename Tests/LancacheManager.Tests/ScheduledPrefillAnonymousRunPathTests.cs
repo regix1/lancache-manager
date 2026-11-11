@@ -103,9 +103,9 @@ public class ScheduledPrefillAnonymousRunPathTests
 
         var (result, stageKey) = await run.WaitAsync(TimeSpan.FromSeconds(10));
 
-        Assert.Equal(ScheduledPrefillServiceRunResult.Cancelled, result);
+        Assert.Equal(ScheduledPrefillServiceRunResult.Canceled, result);
         Assert.Equal("signalr.scheduledPrefill.stopped", stageKey);
-        Assert.Empty(held.Cancelled);
+        Assert.Empty(held.Canceled);
     }
 
     /// <summary>
@@ -178,7 +178,7 @@ public class ScheduledPrefillAnonymousRunPathTests
     /// </summary>
     // Not sealed: DispatchProxy.Create derives a runtime subclass, which the compiler can only
     // allow casting an interface-typed reference back to when the class isn't sealed (mirrors
-    // ScheduledPrefillServiceTests.CancellingTrackerProxy).
+    // ScheduledPrefillServiceTests.CancelingTrackerProxy).
     private class RecordingNotificationsProxy : DispatchProxy
     {
         private readonly object _sync = new();

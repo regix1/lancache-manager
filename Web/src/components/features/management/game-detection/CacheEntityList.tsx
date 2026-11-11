@@ -44,7 +44,7 @@ function CacheEntityList<TItem>({
   selection
 }: CacheEntityListProps<TItem>) {
   const { t } = useTranslation();
-  // Any running/queued cache-domain removal (single, bulk, or evicted) disables the
+  // Any running/waiting cache-domain removal (single, bulk, or evicted) disables the
   // select-all toggle so mid-run toggles cannot be silently discarded on settle.
   const isCacheRemovalActive = useCacheRemovalActive();
   const [searchQuery, setSearchQuery] = useState('');

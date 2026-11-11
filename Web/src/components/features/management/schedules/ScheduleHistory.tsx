@@ -203,7 +203,7 @@ export function ScheduleHistory() {
     { value: '', label: t('management.prefillSessions.statusFilters.all') },
     { value: 'completed', label: t('management.schedules.history.status.completed') },
     { value: 'failed', label: t('management.schedules.history.status.failed') },
-    { value: 'cancelled', label: t('management.schedules.history.status.cancelled') },
+    { value: 'canceled', label: t('management.schedules.history.status.canceled') },
     { value: 'skipped', label: t('management.schedules.history.status.skipped') }
   ];
   const pageSizeOptions = ([20, 50, 100] as const).map((pageSize) => ({
@@ -257,7 +257,7 @@ export function ScheduleHistory() {
                   status === '' ||
                   status === 'completed' ||
                   status === 'failed' ||
-                  status === 'cancelled' ||
+                  status === 'canceled' ||
                   status === 'skipped'
                 ) {
                   changeQuery({ ...pageRef.current, page: 1, status });
@@ -342,9 +342,14 @@ export function ScheduleHistory() {
                 platformKey !== null && i18n.exists(platformKey) ? t(platformKey) : null;
               const detail = execution.warning
                 ? t(execution.warning.stageKey, formatWarningCounts(execution.warning.context))
-                : typeof execution.detail === 'string' && execution.detail.trim().length > 0
-                  ? translateStageKeyMessage(execution.detail)
-                  : null;
+                : execution.status === 'failed' && execution.failureReason
+                  ? t(
+                      execution.failureReason.stageKey,
+                      formatWarningCounts(execution.failureReason.context)
+                    )
+                  : typeof execution.detail === 'string' && execution.detail.trim().length > 0
+                    ? translateStageKeyMessage(execution.detail)
+                    : null;
 
               return (
                 <div key={execution.id} className="schedule-history-row">

@@ -45,7 +45,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly GameCacheDetectionDataService _cacheDetections;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly EvictedDetectionPreservationService _evictedDetectionPreservationService;
-    private readonly IOperationQueue _operationQueue;
+    private readonly IOperationWaitlist _operationQueue;
     private readonly IHostApplicationLifetime _applicationLifetime;
     private int _isRunning;
     private Guid? _currentScanOperationId;
@@ -143,10 +143,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             var parked = notice.OperationId is Guid parkedId
                 ? _operationTracker.GetOperation(parkedId)
                 : null;
-            var continueQueued = parked?.Status == OperationStatus.Waiting
+            var continueWaiting = parked?.Status == OperationStatus.Waiting
                 && parked.Type == OperationType.EvictionScan
                 && parked.CancellationTokenSource != null;
-            if (continueQueued)
+            if (continueWaiting)
             {
                 cts = parked!.CancellationTokenSource!;
                 stopScanOnShutdown = _applicationLifetime.ApplicationStopping.Register(static source =>
@@ -183,9 +183,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             _ = Task.Run(async () =>
             {
-                var outcome = new EvictionScanRunOutcome(
-                    Success: false,
-                    Error: "Eviction scan worker failed before it started");
+                // Set by the scan or by the failure catch below; only the shutdown catch leaves it
+                // unset, and that path does not complete the run.
+                EvictionScanRunOutcome? outcome = null;
                 var stoppedByShutdown = false;
                 try
                 {
@@ -219,23 +219,35 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     // card ends even while the scan's repair still runs or its outcome save retries.
                     if (!stoppedByShutdown)
                     {
+                        var ended = outcome!;
+                        // An exception's text or the Rust child's error text is not a key: the run ends
+                        // on the failed key and the text rides as its detail.
+                        var failureText = ended.Error is { } text && EndingStageKey(text) == ScanFailedStageKey
+                            ? text
+                            : null;
                         _operationTracker.CompleteOperation(
                             operationId,
-                            outcome.Success || outcome.Skipped,
-                            outcome.Error,
-                            cancelled: outcome.Cancelled,
-                            skipped: outcome.Skipped,
+                            ended.Success || ended.Skipped,
+                            failureText is null ? ended.Error : ScanFailedStageKey,
+                            canceled: ended.Canceled,
+                            skipped: ended.Skipped,
                             onCompleting: operation =>
                             {
+                                if (failureText is not null)
+                                {
+                                    operation.FailureReason = new RunWarning(
+                                        ScanFailedStageKey,
+                                        new Dictionary<string, object?> { ["errorDetail"] = failureText });
+                                }
                                 if (_evictionScanTerminalStates.TryGetValue(operationId, out var terminalState))
                                 {
-                                    terminalState.Processed = outcome.Processed;
-                                    terminalState.Evicted = outcome.Evicted;
-                                    terminalState.UnEvicted = outcome.UnEvicted;
+                                    terminalState.Processed = ended.Processed;
+                                    terminalState.Evicted = ended.Evicted;
+                                    terminalState.UnEvicted = ended.UnEvicted;
                                 }
-                                if (outcome.Success) operation.PercentComplete = 100;
+                                if (ended.Success) operation.PercentComplete = 100;
                                 // Every skipped outcome is a download refusal; the schedule holds the run on it.
-                                operation.SkippedForDownload = outcome.Skipped;
+                                operation.SkippedForDownload = ended.Skipped;
                             });
                     }
                     onCompleted?.Invoke();
@@ -250,7 +262,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             EndRun();
             if (operationRegistered)
             {
-                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+                _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.evictionScan.error.fatal",
+                    onCompleting: operation => operation.FailureReason = new RunWarning(
+                        "signalr.evictionScan.error.fatal",
+                        new Dictionary<string, object?> { ["errorDetail"] = ex.Message }));
             }
             else if (ownsToken)
             {
@@ -275,7 +290,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         GameCacheDetectionDataService gameCacheDetectionDataService,
         GameCacheDetectionService gameCacheDetectionService,
         EvictedDetectionPreservationService evictedDetectionPreservationService,
-        IOperationQueue operationQueue,
+        IOperationWaitlist operationQueue,
         IHostApplicationLifetime applicationLifetime,
         DatasourceCapabilityService capabilityService,
         CacheScanGate cacheScanGate)
@@ -362,16 +377,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 "Eviction Scan",
                 StartStartupScanAsync,
                 stoppingToken,
+                OperationRequestKey.Plain,
                 notice: notice);
 
-            if (outcome.Queued || outcome.AlreadyRunning)
+            if (outcome.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
             {
                 // Preserve the old startup dependency behavior when another heavy operation is
-                // already active: let GameDetectionService continue while this scan remains queued
+                // already active: let GameDetectionService continue while this scan remains waiting
                 // or an identical scan is already represented by the queue/tracker.
                 _logger.LogInformation(
                     "[EvictionScan] Startup scan {Disposition} (operation: {OperationId})",
-                    outcome.Queued ? "queued" : "already requested",
+                    outcome.Status == OperationStartStatus.Waiting ? "waiting" : "already requested",
                     outcome.OperationId);
                 return;
             }
@@ -421,15 +437,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             "Eviction Scan",
             StartScheduledScanAsync,
             stoppingToken,
+            OperationRequestKey.Plain,
             notice: notice);
 
-        if (outcome.Queued)
+        if (outcome.Status == OperationStartStatus.Waiting)
         {
             _logger.LogInformation(
-                "[EvictionScan] Scheduled scan queued (waiting operation: {OperationId})",
+                "[EvictionScan] Scheduled scan waiting (waiting operation: {OperationId})",
                 outcome.OperationId);
         }
-        else if (outcome.AlreadyRunning)
+        else if (outcome.Status == OperationStartStatus.AlreadyRunning)
         {
             _logger.LogInformation(
                 "[EvictionScan] Scheduled scan already requested (operation: {OperationId})",
@@ -470,7 +487,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             return new EvictionScanRunOutcome(Success: false, Error: null, Skipped: true);
         }
 
-        // Execution-time capability revalidation prevents a queued scan from running after
+        // Execution-time capability revalidation prevents a waiting scan from running after
         // the fleet changes to mixed or unknown key evidence. Fail closed across the whole
         // fleet because a partial scan would mark false evictions.
         var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
@@ -515,13 +532,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             && !_applicationLifetime.ApplicationStopping.IsCancellationRequested)
         {
             // X while the repair waited to be prepared: nothing ran and nothing is owed.
-            return new EvictionScanRunOutcome(Success: false, Error: null, Cancelled: true);
+            return new EvictionScanRunOutcome(Success: false, Error: null, Canceled: true);
         }
 
         string? datasourceConfigPath = null;
         string? progressFilePath = null;
         var operationSucceeded = false;
-        var operationCancelled = false;
+        var operationCanceled = false;
         var scanPrepared = false;
         string? operationError = null;
         var completedScan = new EvictionScanResult();
@@ -602,7 +619,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             var jsonOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
             await File.WriteAllTextAsync(datasourceConfigPath, JsonSerializer.Serialize(datasourceConfig, jsonOptions), stoppingToken);
 
-            // Each source is marked launched only after its scheme is read above: a scan refused or cancelled
+            // Each source is marked launched only after its scheme is read above: a scan refused or canceled
             // before this point launched nothing, so its repair checks no source's scheme and only finalizes
             // the scan's empty checkpoint.
             foreach (var source in repairSources)
@@ -752,12 +769,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 await repairOwner.FinishRepairAsync(
                     operationId,
                     success: true,
-                    cancelled: false,
+                    canceled: false,
                     error: null,
                     update: repair => repair.RunContinues = true);
 
                 // Handle evicted data "remove" mode. The removal self-registers its OWN
-                // OperationType.EvictionRemoval operation (operationId: null) so it is cancellable,
+                // OperationType.EvictionRemoval operation (operationId: null) so it is cancelable,
                 // visible to GET /api/cache/removals/active, and emits its own
                 // EvictionRemovalStarted/Progress/Complete events with its own operationId. The
                 // removal gets a fresh notice with the scan's mode and trigger, so it is drawn the
@@ -785,8 +802,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("[EvictionScan] Operation {OperationId} was cancelled", operationId);
-            operationCancelled = true;
+            _logger.LogInformation("[EvictionScan] Operation {OperationId} was canceled", operationId);
+            operationCanceled = true;
             // No error text: the run stopped on request, and Success:false already carries that.
         }
         catch (ConflictException refusal)
@@ -847,7 +864,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             catch (Exception ex)
             {
                 operationSucceeded = false;
-                operationCancelled = false;
+                operationCanceled = false;
                 operationError = ex.Message;
                 _logger.LogError(
                     ex,
@@ -856,17 +873,27 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             }
         }
         // The scan's last save. After the early save above, it records how the run ended (stopped, failed or done), so a
-        // restart restores the same card.
+        // restart restores the same card. A failure with text (the scanner's error or an exception) saves the failed key
+        // with the text as its value, as the live ending words it; operationError keeps the text for the outcome.
+        var failureDetail = !operationSucceeded && !operationCanceled
+            && operationError is { } errorText && EndingStageKey(errorText) == ScanFailedStageKey
+                ? errorText
+                : null;
         await repairOwner.FinishRepairAsync(
             operationId,
             operationSucceeded,
-            operationCancelled,
-            operationError);
+            operationCanceled,
+            failureDetail is null ? operationError : ScanFailedStageKey,
+            update: failureDetail is null
+                ? null
+                : repair => repair.FailureReason = new RunWarning(
+                    ScanFailedStageKey,
+                    new Dictionary<string, object?> { ["errorDetail"] = failureDetail }));
 
         return new EvictionScanRunOutcome(operationSucceeded, operationError,
             RepairStarted: true,
             Processed: completedScan.Processed, Evicted: completedScan.Evicted, UnEvicted: completedScan.UnEvicted,
-            Cancelled: operationCancelled);
+            Canceled: operationCanceled);
     }
 
     public Task RestoreRepairAsync(OperationRepair repair, CancellationToken stoppingToken)
@@ -917,10 +944,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 context["detectionError"] = state.DetectionError;
             }
 
-            var stageKey = terminal.Cancelled
-                ? "signalr.evictionScan.cancelled"
+            var stageKey = terminal.Canceled
+                ? "signalr.evictionScan.canceled"
                 : EndingStageKey(terminal.Error);
-            if (stageKey == ScanFailedStageKey) context["errorDetail"] = terminal.Error;
+            if (stageKey == ScanFailedStageKey)
+            {
+                // A record saves the failed key with its text as the restored run's failure reason (set before this
+                // emit, which runs inside CompleteOperation); records older versions saved hold the text itself.
+                context["errorDetail"] = terminal.Error == ScanFailedStageKey
+                    ? _operationTracker.GetOperation(repair.Id)?.FailureReason?.Context.GetValueOrDefault("errorDetail")
+                    : terminal.Error;
+            }
             return _notifications.NotifyAllAsync(
                 SignalREvents.EvictionScanComplete,
                 new EvictionScanComplete(
@@ -930,9 +964,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     Processed: state.Processed,
                     Evicted: state.Evicted,
                     UnEvicted: state.UnEvicted,
-                    Error: terminal.Cancelled ? terminal.Error : null,
+                    Error: terminal.Canceled ? terminal.Error : null,
                     Context: context,
-                    Cancelled: terminal.Cancelled));
+                    Canceled: terminal.Canceled));
         };
 
         var restored = _operationTracker.TryRestoreOperation(
@@ -1512,7 +1546,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private Guid RegisterEvictionScanOperation(string name, CancellationTokenSource cts, RunNotice notice)
     {
         var parked = notice.OperationId is Guid parkedId ? _operationTracker.GetOperation(parkedId) : null;
-        var continueQueued = parked?.Status == OperationStatus.Waiting
+        var continueWaiting = parked?.Status == OperationStatus.Waiting
             && parked.Type == OperationType.EvictionScan
             && parked.CancellationTokenSource == cts;
         var terminalState = new EvictionScanTerminalState();
@@ -1540,17 +1574,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 };
                 if (terminalState.DetectionError != null) context["detectionError"] = terminalState.DetectionError;
 
-                if (terminal.Cancelled)
+                if (terminal.Canceled)
                 {
                     return _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                         Success: false,
                         OperationId: operationId,
-                        StageKey: "signalr.evictionScan.cancelled",
+                        StageKey: "signalr.evictionScan.canceled",
                         Processed: 0,
                         Evicted: 0,
                         UnEvicted: 0,
                         Context: context,
-                        Cancelled: true));
+                        Canceled: true));
                 }
 
                 // Above the success branch: a refused run completes successfully because it did
@@ -1586,7 +1620,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 }
 
                 var stageKey = EndingStageKey(terminal.Error);
-                if (stageKey == ScanFailedStageKey) context["errorDetail"] = terminal.Error;
+                if (stageKey == ScanFailedStageKey)
+                {
+                    // A live run ends on the failed key with its text in FailureReason (set before this
+                    // emit, which runs inside CompleteOperation); any other ending here is text itself.
+                    context["errorDetail"] = terminal.Error == ScanFailedStageKey
+                        ? _operationTracker.GetOperation(operationId)!.FailureReason!.Context["errorDetail"]
+                        : terminal.Error;
+                }
                 return _notifications.NotifyOperationFailedAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                     Success: false,
                     OperationId: operationId,
@@ -1597,9 +1638,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     Context: context));
             };
 
-        if (continueQueued)
+        if (continueWaiting)
         {
-            if (parked == null || !_operationTracker.BeginQueuedOperation(
+            if (parked == null || !_operationTracker.BeginWaitingOperation(
                     parked.Id,
                     scanState,
                     finish,
@@ -1639,7 +1680,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// Phase one of every scan: a full game detection under this scan's operation, so a game whose
     /// files came back since the last detection is re-sized before the scan zeroes what is gone.
     /// The detection runs with its own card hidden (its data events still fire), its percent is
-    /// forwarded onto this scan's card, and cancelling the scan cancels it. A refused or failed
+    /// forwarded onto this scan's card, and canceling the scan cancels it. A refused or failed
     /// detection is logged and the scan goes on, because the scan reports its own gates itself.
     /// A scan promoted from behind a successful full detection reuses that detection when nothing
     /// has invalidated it and no download is writing the cache.
@@ -1689,7 +1730,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
 
         _operationTracker.OperationTerminal += OnTerminal;
-        // Cancelling the scan cancels the detection it is waiting on. The wait still ends on the
+        // Canceling the scan cancels the detection it is waiting on. The wait still ends on the
         // detection's own terminal, which keeps the single-owner ordering the tracker expects.
         using var cancelDetection = stoppingToken.Register(() => { _operationTracker.CancelOperation(detectionId.Value); });
         try
@@ -1861,7 +1902,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// </summary>
     private sealed record EvictionScanRunOutcome(bool Success, string? Error, bool Skipped = false,
         bool RepairStarted = false,
-        int Processed = 0, int Evicted = 0, int UnEvicted = 0, bool Cancelled = false);
+        int Processed = 0, int Evicted = 0, int UnEvicted = 0, bool Canceled = false);
 
     /// <summary>
     /// Mutable terminal-metrics holder for an in-flight EvictionRemoval. Populated BY VALUE in
@@ -1885,7 +1926,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// Starts bulk eviction removal for all evicted records.
     /// </summary>
     /// <param name="cancellationToken">
-    /// Unused for cancellation control — eviction removals are cancelled via the tracker
+    /// Unused for cancellation control — eviction removals are canceled via the tracker
     /// (universal cancel/force-kill drives the registered CTS). Kept so the controller can pass
     /// <c>HttpContext.RequestAborted</c> without a signature change.
     /// </param>
@@ -1939,7 +1980,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// Starts scoped eviction removal for a single game or service.
     /// </summary>
     /// <param name="cancellationToken">
-    /// Unused for cancellation control — eviction removals are cancelled via the tracker
+    /// Unused for cancellation control — eviction removals are canceled via the tracker
     /// (universal cancel/force-kill drives the registered CTS). Kept so the controller can pass
     /// <c>HttpContext.RequestAborted</c> without a signature change.
     /// </param>
@@ -2045,12 +2086,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         int downloadsRemoved = 0,
         int logEntriesRemoved = 0,
         string? error = null,
-        bool cancelled = false)
+        bool canceled = false,
+        RunWarning? failureReason = null)
     {
-        _operationTracker.CompleteOperation(operationId, success, success ? null : error,
-            cancelled: cancelled, onCompleting: operation =>
+        // The run ends on its stage key; an exception's text rides as the detail under it.
+        _operationTracker.CompleteOperation(operationId, success, success ? null : stageKey,
+            canceled: canceled, onCompleting: operation =>
             {
                 if (success) operation.PercentComplete = 100;
+                if (!success && error is not null) operation.ErrorDetail = error;
+                // A failure whose key names its text keeps both, as the record a restart restores does.
+                if (failureReason is not null) operation.FailureReason = failureReason;
                 if (_evictionRemovalTerminalStates.TryGetValue(operationId, out var removalTerminalState))
                 {
                     removalTerminalState.StageKey = stageKey;
@@ -2064,14 +2110,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private async Task FinishEvictionRemovalRepairAsync(
         Guid operationId,
         bool success,
-        bool cancelled,
-        string? error)
+        bool canceled,
+        string? error,
+        RunWarning? failureReason = null)
     {
         var operation = _operationTracker.GetOperation(operationId);
         if (operation?.Status.IsTerminal() == true)
         {
             success = operation.Status == OperationStatus.Completed;
-            cancelled = operation.Status == OperationStatus.Cancelled;
+            canceled = operation.Status == OperationStatus.Canceled;
             error = operation.Status == OperationStatus.Failed
                 ? operation.Message
                 : null;
@@ -2079,7 +2126,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         await _serviceProvider
             .GetRequiredService<OperationStateService>()
-            .FinishRepairAsync(operationId, success, cancelled, error);
+            .FinishRepairAsync(operationId, success, canceled, error,
+                update: failureReason is null ? null : repair => repair.FailureReason = failureReason);
     }
 
     /// <summary>
@@ -2098,7 +2146,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         {
             var operationId = operationIdAccessor();
 
-            if (info.Cancelled)
+            if (info.Canceled)
             {
                 return _notifications.NotifyAllAsync(
                     SignalREvents.EvictionRemovalComplete,
@@ -2109,19 +2157,23 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         DownloadsRemoved: terminalState.DownloadsRemoved,
                         LogEntriesRemoved: terminalState.LogEntriesRemoved,
                         Error: info.Error,
-                        Cancelled: true));
+                        Canceled: true));
             }
 
+            // A failure with a reason ends on the reason's key with the values its sentence names, set before this
+            // emit (it runs inside CompleteOperation), live and on a run a restart restores.
+            var failureReason = info.Success ? null : _operationTracker.GetOperation(operationId)?.FailureReason;
             return _notifications.NotifyAllAsync(
                 SignalREvents.EvictionRemovalComplete,
                 new EvictionRemovalComplete(
                     Success: info.Success,
                     OperationId: operationId,
-                    StageKey: terminalState.StageKey,
+                    StageKey: failureReason is null ? terminalState.StageKey : failureReason.StageKey,
                     DownloadsRemoved: terminalState.DownloadsRemoved,
                     LogEntriesRemoved: terminalState.LogEntriesRemoved,
                     Error: info.Success ? null : info.Error,
-                    Cancelled: false));
+                    Canceled: false,
+                    Context: failureReason is null ? null : new Dictionary<string, object?>(failureReason.Context)));
         };
     }
 
@@ -2768,7 +2820,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             await FinishEvictionRemovalRepairAsync(
                 opId,
                 success: true,
-                cancelled: false,
+                canceled: false,
                 error: null);
 
             await CompleteRemovalAsync(
@@ -2781,38 +2833,45 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         catch (OperationCanceledException)
         {
             // A cancel is an expected outcome, not an error.
-            _logger.LogInformation("[EvictionScan] Bulk eviction removal cancelled (operation {OpId})", opId);
+            _logger.LogInformation("[EvictionScan] Bulk eviction removal canceled (operation {OpId})", opId);
             if (repairPrepared)
             {
                 await FinishEvictionRemovalRepairAsync(
                     opId,
                     success: false,
-                    cancelled: true,
+                    canceled: true,
                     error: null);
             }
             await CompleteRemovalAsync(
                 opId,
                 success: false,
-                stageKey: "signalr.evictionRemove.cancelled",
+                stageKey: "signalr.evictionRemove.canceled",
                 error: null,
-                cancelled: true);
+                canceled: true);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error removing evicted records from database");
+            // The run and its record end on the failure key with the text as its value, so a restart restores the
+            // card the live run showed.
+            var failure = new RunWarning(
+                "signalr.evictionRemove.error.fatal",
+                new Dictionary<string, object?> { ["errorDetail"] = ex.Message });
             if (repairPrepared)
             {
                 await FinishEvictionRemovalRepairAsync(
                     opId,
                     success: false,
-                    cancelled: false,
-                    error: ex.Message);
+                    canceled: false,
+                    error: failure.StageKey,
+                    failureReason: failure);
             }
             await CompleteRemovalAsync(
                 opId,
                 success: false,
-                stageKey: "signalr.evictionRemove.failed",
-                error: ex.Message);
+                stageKey: failure.StageKey,
+                error: ex.Message,
+                failureReason: failure);
         }
         finally
         {
@@ -3616,13 +3675,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // The targeted cache/log mutation stales the current corruption scans, so demote them
             // to view-only history; retained snapshots survive as reference. This is deliberately
             // the last fallible step before success is published; the atomic update retains the
-            // prior current scans if it fails or is cancelled.
+            // prior current scans if it fails or is canceled.
             await DatabaseService.DemoteCachedCorruptionEvidenceAsync(context, stoppingToken);
 
             await FinishEvictionRemovalRepairAsync(
                 opId,
                 success: true,
-                cancelled: false,
+                canceled: false,
                 error: null);
 
             await CompleteRemovalAsync(
@@ -3635,39 +3694,46 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         catch (OperationCanceledException)
         {
             // A cancel is an expected outcome, not an error.
-            _logger.LogInformation("[EvictionScan] Eviction removal for {Scope} '{Key}' cancelled (operation {OpId})",
+            _logger.LogInformation("[EvictionScan] Eviction removal for {Scope} '{Key}' canceled (operation {OpId})",
                 scope, key, opId);
             if (repairPrepared)
             {
                 await FinishEvictionRemovalRepairAsync(
                     opId,
                     success: false,
-                    cancelled: true,
+                    canceled: true,
                     error: null);
             }
             await CompleteRemovalAsync(
                 opId,
                 success: false,
-                stageKey: "signalr.evictionRemove.cancelled",
+                stageKey: "signalr.evictionRemove.canceled",
                 error: null,
-                cancelled: true);
+                canceled: true);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error removing evicted records for {Scope} '{Key}'", scope, key);
+            // The run and its record end on the failure key with the text as its value, so a restart restores the
+            // card the live run showed.
+            var failure = new RunWarning(
+                "signalr.evictionRemove.error.fatal",
+                new Dictionary<string, object?> { ["errorDetail"] = ex.Message });
             if (repairPrepared)
             {
                 await FinishEvictionRemovalRepairAsync(
                     opId,
                     success: false,
-                    cancelled: false,
-                    error: ex.Message);
+                    canceled: false,
+                    error: failure.StageKey,
+                    failureReason: failure);
             }
             await CompleteRemovalAsync(
                 opId,
                 success: false,
-                stageKey: "signalr.evictionRemove.failed",
-                error: ex.Message);
+                stageKey: failure.StageKey,
+                error: ex.Message,
+                failureReason: failure);
         }
         finally
         {

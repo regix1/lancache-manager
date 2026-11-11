@@ -180,7 +180,7 @@ test('catalog updates are completion-only registry entries', () => {
   for (const [type, event] of catalogEntries) {
     const at = registry.indexOf(`type: '${type}'`);
     assert.notEqual(at, -1, `${type} is missing from the registry`);
-    // The window has to reach past the entry's own getters without running into its neighbour.
+    // The window has to reach past the entry's own getters without running into its neighbor.
     // Both patterns below sit in the first ~200 characters, but the Epic entry already
     // overruns into the Xbox one by 4, so widening this is no longer free.
     const entry = registry.slice(at, at + 600);
@@ -213,7 +213,7 @@ test('cache-size action uses scan wording without changing the global Refresh la
 test('successful cache clearing forces all-range dashboard refresh while ordinary events stay live-only', () => {
   assert.match(
     dashboardContext,
-    /handleCacheClearingComplete[\s\S]*?if \(!event\.success \|\| event\.cancelled\) return;[\s\S]*?handleForcedRefreshEvent\('CacheClearingComplete'\)/
+    /handleCacheClearingComplete[\s\S]*?if \(!event\.success \|\| event\.canceled\) return;[\s\S]*?handleForcedRefreshEvent\('CacheClearingComplete'\)/
   );
   assert.match(
     dashboardContext,
@@ -228,7 +228,7 @@ test('successful eviction scan and removal force all-range dashboard refresh lik
   );
   assert.match(
     dashboardContext,
-    /handleEvictionRemovalComplete[\s\S]*?if \(!event\.success \|\| event\.cancelled\) return;[\s\S]*?clearDetectionState\(\);[\s\S]*?handleForcedRefreshEvent\('EvictionRemovalComplete'\)/
+    /handleEvictionRemovalComplete[\s\S]*?if \(!event\.success \|\| event\.canceled\) return;[\s\S]*?clearDetectionState\(\);[\s\S]*?handleForcedRefreshEvent\('EvictionRemovalComplete'\)/
   );
 });
 
@@ -312,17 +312,17 @@ test('an older orphan response cannot replace a newer one, fail after it, or pub
     ]
   );
 
-  const cancelled = loadOrphanedFetch();
-  const serverCancelled = cancelled.fetchOrphanedDownloads();
-  const abortError = new Error('Request cancelled');
+  const canceled = loadOrphanedFetch();
+  const serverCanceled = canceled.fetchOrphanedDownloads();
+  const abortError = new Error('Request canceled');
   abortError.name = 'AbortError';
-  cancelled.pending[0].reject(abortError);
-  await serverCancelled;
-  const browserCancelled = cancelled.fetchOrphanedDownloads();
-  cancelled.pending[1].reject(new DOMException('aborted', 'AbortError'));
-  await browserCancelled;
+  canceled.pending[0].reject(abortError);
+  await serverCanceled;
+  const browserCanceled = canceled.fetchOrphanedDownloads();
+  canceled.pending[1].reject(new DOMException('aborted', 'AbortError'));
+  await browserCanceled;
   assert.deepEqual(
-    cancelled.writes.filter(([kind]) => kind === 'error'),
+    canceled.writes.filter(([kind]) => kind === 'error'),
     []
   );
 

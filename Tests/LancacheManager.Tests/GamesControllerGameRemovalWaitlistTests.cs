@@ -20,13 +20,13 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
-public sealed class GamesControllerGameRemovalQueueTests : IDisposable
+public sealed class GamesControllerGameRemovalWaitlistTests : IDisposable
 {
     private readonly string _root;
-    private readonly RecordingOperationQueue _queue;
+    private readonly RecordingOperationWaitlist _queue;
     private readonly GamesController _controller;
 
-    public GamesControllerGameRemovalQueueTests()
+    public GamesControllerGameRemovalWaitlistTests()
     {
         _root = Path.Combine(Path.GetTempPath(), "lm-game-removal-queue-" + Guid.NewGuid().ToString("N"));
         var cachePath = Path.Combine(_root, "cache");
@@ -54,25 +54,10 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             NullLogger<DatasourceService>.Instance);
         var capabilityService = new DatasourceCapabilityService(datasourceService);
 
-        _queue = new RecordingOperationQueue(new QueuedOperationResponse
+        _queue = new RecordingOperationWaitlist(new OperationStartResponse
         {
             OperationId = Guid.NewGuid(),
-            Queued = true,
-            Status = "waiting"
-        });
-
-        var conflict = CreateProxy<IOperationConflictChecker>((method, _) =>
-        {
-            if (method.Name == nameof(IOperationConflictChecker.CheckAsync))
-            {
-                return Task.FromResult<OperationConflictResponse?>(new OperationConflictResponse
-                {
-                    StageKey = "errors.conflict.overlappingEntity",
-                    Error = "blocked"
-                });
-            }
-
-            return DefaultReturn(method.ReturnType);
+            Status = OperationStartStatus.Waiting
         });
 
         _controller = new GamesController(
@@ -83,7 +68,6 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             logger: NullLogger<GamesController>.Instance,
             pathResolver: pathResolver,
             operationTracker: CreateProxy<IUnifiedOperationTracker>((method, _) => DefaultReturn(method.ReturnType)),
-            conflictChecker: conflict,
             operationQueue: _queue,
             capabilityService: capabilityService,
             cacheScanGate: CacheScanGateHarness.Idle());
@@ -105,7 +89,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             CancellationToken.None,
             CacheRemovalScope.CacheFiles);
 
-        AssertQueuedGameRemoval(result, ConflictScope.SteamGame(570));
+        AssertWaitingGameRemoval(result, ConflictScope.SteamGame(570));
     }
 
     [Fact]
@@ -116,7 +100,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             CancellationToken.None,
             CacheRemovalScope.CacheFiles);
 
-        AssertQueuedGameRemoval(result, ConflictScope.EpicGame("cat-fortnite", "Fortnite"));
+        AssertWaitingGameRemoval(result, ConflictScope.EpicGame("cat-fortnite", "Fortnite"));
     }
 
     [Fact]
@@ -128,7 +112,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             CancellationToken.None,
             CacheRemovalScope.CacheFiles);
 
-        AssertQueuedGameRemoval(result, ConflictScope.NamedGame("blizzard", "Diablo IV"));
+        AssertWaitingGameRemoval(result, ConflictScope.NamedGame("blizzard", "Diablo IV"));
     }
 
     [Fact]
@@ -253,7 +237,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task RemovalRunner_ExternalTerminalRejectsLateProgressAndWorkerResult(bool cancelled)
+    public async Task RemovalRunner_ExternalTerminalRejectsLateProgressAndWorkerResult(bool canceled)
     {
         var tracker = new UnifiedOperationTracker(
             new ProcessManager(NullLogger<ProcessManager>.Instance),
@@ -282,7 +266,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             (id, progress) => progress,
             "complete", "finalizing", (id, report) => report,
             (id, report) => new SignalRNotifications.GameRemovalComplete(true, id, 570, null, "complete", FilesDeleted: report),
-            id => new SignalRNotifications.GameRemovalComplete(false, id, 570, null, "cancelled", Cancelled: true),
+            id => new SignalRNotifications.GameRemovalComplete(false, id, 570, null, "canceled", Canceled: true),
             (id, exception) => exception.Message,
             (id, exception) => new SignalRNotifications.GameRemovalComplete(false, id, 570, null, "failed", Error: exception.Message),
             async (_, _, report) =>
@@ -303,7 +287,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
                 Removal = new RemovalRepair { EntityKey = "570" }
             },
             PrepareRepairAsync: (_, _) => Task.CompletedTask,
-            FinishRepairAsync: (_, _, _, _) =>
+            FinishRepairAsync: (_, _, _, _, _) =>
             {
                 finalized.TrySetResult();
                 return Task.CompletedTask;
@@ -324,7 +308,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         Assert.Contains("\"target\":\"Portal 2\"",
             System.Text.Json.JsonSerializer.Serialize(row, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase }));
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        tracker.CompleteOperation(operationId, success: false, error: cancelled ? null : "disk failure", cancelled: cancelled);
+        tracker.CompleteOperation(operationId, success: false, error: canceled ? null : "disk failure", canceled: canceled);
         var completedAt = tracker.GetOperation(operationId)!.CompletedAt;
         release.TrySetResult();
         await finalized.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -332,13 +316,13 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         Assert.Equal(2, metrics.FilesDeleted);
         Assert.Equal(0, finalMetricsApplied);
         Assert.Equal(completedAt, tracker.GetOperation(operationId)!.CompletedAt);
-        Assert.Equal(cancelled ? OperationStatus.Cancelled : OperationStatus.Failed, tracker.GetOperation(operationId)!.Status);
+        Assert.Equal(canceled ? OperationStatus.Canceled : OperationStatus.Failed, tracker.GetOperation(operationId)!.Status);
         lock (messages)
         {
             var terminal = Assert.IsType<SignalRNotifications.GameRemovalComplete>(Assert.Single(messages, item => item.Event == "complete").Value);
             Assert.Equal(operationId, terminal.OperationId);
-            Assert.Equal(cancelled, terminal.Cancelled);
-            Assert.Equal(cancelled ? null : "disk failure", terminal.Error);
+            Assert.Equal(canceled, terminal.Canceled);
+            Assert.Equal(canceled ? null : "disk failure", terminal.Error);
             Assert.DoesNotContain(messages, item => item.Value is RemovalProgressUpdate { StageKey: "late" });
         }
     }
@@ -346,7 +330,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task RestoredRemovalPublishesRetainedMetrics(bool cancelled)
+    public async Task RestoredRemovalPublishesRetainedMetrics(bool canceled)
     {
         var tracker = new UnifiedOperationTracker(
             new ProcessManager(NullLogger<ProcessManager>.Instance),
@@ -377,7 +361,7 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             Type = OperationType.GameRemoval,
             Name = "Game Removal: Dota 2",
             StartedAt = DateTime.UtcNow.AddMinutes(-1),
-            Outcome = cancelled ? OperationStatus.Cancelled : OperationStatus.Completed,
+            Outcome = canceled ? OperationStatus.Canceled : OperationStatus.Completed,
             Target = new CacheRepairTarget { SteamAppId = 570 },
             Removal = new RemovalRepair
             {
@@ -393,8 +377,8 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         await manager.RestoreRepairAsync(repair, CancellationToken.None);
         tracker.CompleteOperation(
             operationId,
-            success: !cancelled,
-            cancelled: cancelled);
+            success: !canceled,
+            canceled: canceled);
         var complete = await emitted.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Equal(operationId, complete.OperationId);
@@ -403,8 +387,8 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         Assert.Equal(4, complete.FilesDeleted);
         Assert.Equal(2_048L, complete.BytesFreed);
         Assert.Equal(7UL, complete.LogEntriesRemoved);
-        Assert.Equal(cancelled, complete.Cancelled);
-        Assert.Equal(!cancelled, complete.Success);
+        Assert.Equal(canceled, complete.Canceled);
+        Assert.Equal(!canceled, complete.Success);
     }
 
     [Fact]
@@ -459,19 +443,19 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
         };
 
         await manager.RestoreRepairAsync(repair, CancellationToken.None);
-        tracker.CompleteOperation(operationId, success: true, cancelled: false);
+        tracker.CompleteOperation(operationId, success: true, canceled: false);
         var complete = await emitted.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.True(complete.Success);
         Assert.True(complete.EntityKept);
     }
 
-    private void AssertQueuedGameRemoval(IActionResult result, ConflictScope expectedScope)
+    private void AssertWaitingGameRemoval(IActionResult result, ConflictScope expectedScope)
     {
         var accepted = Assert.IsAssignableFrom<ObjectResult>(result);
         Assert.Equal(202, accepted.StatusCode);
-        var body = Assert.IsType<QueuedOperationResponse>(accepted.Value);
-        Assert.True(body.Queued);
+        var body = Assert.IsType<OperationStartResponse>(accepted.Value);
+        Assert.Equal(OperationStartStatus.Waiting, body.Status);
         Assert.Equal(_queue.Response.OperationId, body.OperationId);
         Assert.Equal(OperationType.GameRemoval, _queue.Type);
         Assert.Equal(expectedScope, _queue.Scope);
@@ -573,27 +557,24 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             => Handler!(targetMethod!, args);
     }
 
-    private sealed class RecordingOperationQueue(QueuedOperationResponse response) : IOperationQueue
+    private sealed class RecordingOperationWaitlist(OperationStartResponse response) : IOperationWaitlist
     {
-        public QueuedOperationResponse Response { get; } = response;
+        public OperationStartResponse Response { get; } = response;
         public OperationType? Type { get; private set; }
         public ConflictScope? Scope { get; private set; }
         public string? DisplayName { get; private set; }
         public Func<Task<Guid?>>? Start { get; private set; }
 
-        public Task<QueuedOperationResponse> EnqueueAsync(
+        public Task<OperationStartResponse> EnqueueAsync(
             OperationType type,
             ConflictScope scope,
             string displayName,
             Func<Task<Guid?>> start,
             CancellationToken ct,
+            OperationRequestKey requestKey,
             bool reportRefusal = false,
             RunNotice? notice = null,
-            string? target = null,
-            StructuralScanMode? scanMode = null,
-            int? scanThreshold = null,
-            int? scanLookbackDays = null,
-            DetectionScanType? detectionScanType = null)
+            string? target = null)
         {
             Type = type;
             Scope = scope;
@@ -601,6 +582,10 @@ public sealed class GamesControllerGameRemovalQueueTests : IDisposable
             Start = start;
             return Task.FromResult(Response);
         }
+
+        public Task<OperationConflictResponse?> StartUnlessBusyAsync(
+            OperationType type, ConflictScope scope, Func<Task<Guid?>> start, CancellationToken ct, OperationRequestKey requestKey)
+            => throw new NotSupportedException();
     }
 }
 
@@ -823,6 +808,7 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
     {
         var paths = DispatchProxy.Create<IPathResolver, Paths>();
         ((Paths)(object)paths).Root = _root;
+        var checker = DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>();
         return new CacheController(
             cacheService: Manager,
             cacheClearingService: null!,
@@ -836,8 +822,8 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
             datasourceService: _datasources,
             dbContextFactory: null!,
             reconciliationService: null!,
-            conflictChecker: DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
-            operationQueue: null!,
+            conflictChecker: checker,
+            operationQueue: new OperationWaitlistService(Tracker, checker, NullLogger<OperationWaitlistService>.Instance),
             capabilityService: _capability,
             cacheScanGate: CacheScanGateHarness.Idle(),
             cacheSizeScan: null!,
@@ -1050,7 +1036,7 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
         OperationType type,
         Guid operationId,
         bool success,
-        bool cancelled,
+        bool canceled,
         string? error,
         int filesDeleted,
         long bytesFreed)
@@ -1061,22 +1047,22 @@ internal sealed class RemovalRepairHarness : IAsyncDisposable
                 success,
                 "steam",
                 operationId,
-                success ? "complete" : cancelled ? "cancelled" : "failed",
+                success ? "complete" : canceled ? "canceled" : "failed",
                 filesDeleted,
                 bytesFreed,
                 Error: error,
-                Cancelled: cancelled);
+                Canceled: canceled);
         }
         return new SignalRNotifications.GameRemovalComplete(
             success,
             operationId,
             570,
             null,
-            success ? "complete" : cancelled ? "cancelled" : "failed",
+            success ? "complete" : canceled ? "canceled" : "failed",
             FilesDeleted: filesDeleted,
             BytesFreed: bytesFreed,
             Error: error,
-            Cancelled: cancelled);
+            Canceled: canceled);
     }
 
     /// <summary>Whether a log step holds the logs when a child launches, given 200 ms to show it.</summary>

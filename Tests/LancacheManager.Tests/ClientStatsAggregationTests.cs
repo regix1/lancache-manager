@@ -297,7 +297,7 @@ public sealed class ClientStatsAggregationTests
     }
 
     [Fact]
-    public void AClientWithNoNicknameIsLabelledWithItsHostname()
+    public void AClientWithNoNicknameIsLabeledWithItsHostname()
     {
         var result = ClientStatsAggregationHelper.AggregateAndRank(
             new[] { Aggregate("10.0.0.9", hitBytes: 40, missBytes: 0) },

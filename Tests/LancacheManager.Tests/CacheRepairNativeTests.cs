@@ -353,7 +353,7 @@ public sealed class CacheRepairNativeTests
             Assert.Equal(operationId, notification.OperationId);
             Assert.False(notification.Success);
             Assert.Equal(OperationStatus.Failed, notification.Status);
-            Assert.False(notification.Cancelled);
+            Assert.False(notification.Canceled);
             Assert.Equal(OperationStatus.Failed, terminalOperation.Status);
 
             // The restored card ends while its repair still runs. The row stops showing the repair
@@ -541,7 +541,7 @@ public sealed class CacheRepairNativeTests
                 services.AddSingleton<NginxLogRotationService>();
                 services.AddSingleton<ILancacheEnvFileReader, LancacheEnvFileReader>();
                 services.AddSingleton<IOperationConflictChecker, OperationConflictChecker>();
-                services.AddSingleton<IOperationQueue, IdleQueue>();
+                services.AddSingleton<IOperationWaitlist, IdleQueue>();
                 services.AddSingleton<CorruptionDetectionService>();
                 services.AddSingleton(TimeProvider.System);
                 services.AddSingleton<RustLogProcessorService>();
@@ -612,25 +612,28 @@ public sealed class CacheRepairNativeTests
         }
     }
 
-    private sealed class IdleQueue : IOperationQueue
+    private sealed class IdleQueue : IOperationWaitlist
     {
-        public Task<QueuedOperationResponse> EnqueueAsync(
+        public Task<OperationStartResponse> EnqueueAsync(
             OperationType type,
             ConflictScope scope,
             string displayName,
             Func<Task<Guid?>> start,
             CancellationToken ct,
+            OperationRequestKey requestKey,
             bool reportRefusal = false,
             RunNotice? notice = null,
-            string? target = null,
-            StructuralScanMode? scanMode = null,
-            int? scanThreshold = null,
-            int? scanLookbackDays = null,
-            DetectionScanType? detectionScanType = null)
+            string? target = null)
         {
-            return Task.FromException<QueuedOperationResponse>(
-                new InvalidOperationException("The native repair fixture does not start queued work."));
+            return Task.FromException<OperationStartResponse>(
+                new InvalidOperationException("The native repair fixture does not start work through the queue."));
         }
+
+        public Task<OperationConflictResponse?> StartUnlessBusyAsync(
+            OperationType type,
+            ConflictScope scope,
+            Func<Task<Guid?>> start,
+            CancellationToken ct, OperationRequestKey requestKey) => throw new NotSupportedException();
     }
 
     private class NativePaths : PathResolverProxy

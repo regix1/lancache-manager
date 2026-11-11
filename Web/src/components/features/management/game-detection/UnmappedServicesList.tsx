@@ -40,7 +40,7 @@ const UnmappedServicesList: React.FC<UnmappedServicesListProps> = ({
   onRemove
 }) => {
   const { t } = useTranslation();
-  // A running or queued game, service, evicted-item or unmapped removal blocks this button the
+  // A running or waiting game, service, evicted-item or unmapped removal blocks this button the
   // same way it blocks the per-item Remove buttons.
   const isCacheRemovalActive = useCacheRemovalActive();
   const { available: diskObjectsAvailable, denialReason: diskObjectDenialReason } =

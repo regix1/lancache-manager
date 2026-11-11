@@ -30,7 +30,7 @@ const RETRO_VIEW_PATH = 'src/components/features/downloads/RetroView.tsx';
 const reactStubSource = `
 let slots = null;
 let cursor = 0;
-let queued = [];
+let pendingEffects = [];
 let scheduleRender = null;
 
 const depsChanged = (slot, deps) =>
@@ -73,7 +73,7 @@ export const useEffect = (run, deps) => {
     slot.ran = true;
     slot.deps = deps;
     slot.next = run;
-    queued.push(slot);
+    pendingEffects.push(slot);
   }
 };
 
@@ -92,11 +92,11 @@ export const createComponent = (body) => {
       pending = false;
       slots = componentSlots;
       cursor = 0;
-      queued = [];
+      pendingEffects = [];
       scheduleRender = render;
       body();
-      const effects = queued;
-      queued = [];
+      const effects = pendingEffects;
+      pendingEffects = [];
       slots = null;
       effects.forEach((slot) => {
         if (slot.cleanup) slot.cleanup();
@@ -188,7 +188,7 @@ const apiErrorUrl = moduleUrl(apiErrorStubSource);
 const timeFilterUrl = moduleUrl(timeFilterStubSource);
 
 // The one refresh-rate setting every live surface reads. Held short so the test does not wait out a
-// realistic cadence; the behaviour under test is that Retro reads THIS rather than a constant of
+// realistic cadence; the behavior under test is that Retro reads THIS rather than a constant of
 // its own.
 const REFRESH_INTERVAL_MS = 200;
 const refreshRateUrl = moduleUrl(`
@@ -335,7 +335,7 @@ test('a page change and a reconnect still replace a request in flight', () => {
   control.hold = false;
 });
 
-test('a failed refresh keeps rows and starts the follow-up queued during it', async () => {
+test('a failed refresh keeps rows and starts the follow-up asked for during it', async () => {
   control.hold = true;
   const retro = mountRetro();
   const previous = { id: 'kept-row' };
@@ -352,7 +352,7 @@ test('a failed refresh keeps rows and starts the follow-up queued during it', as
 
   assert.deepEqual(retro.getResult().items, [previous], 'the previous response remains visible');
   assert.equal(retro.getResult().error?.message, 'server failure');
-  assert.equal(calls.length, 3, 'the queued event starts one follow-up after failure');
+  assert.equal(calls.length, 3, 'the held event starts one follow-up after failure');
   retro.unmount();
   control.hold = false;
 });
@@ -535,7 +535,7 @@ test('a background refresh folds behind a page fetch and clears its fade after i
   assert.equal(retro.getResult().isFetching, true, 'a page change is user-initiated, so it fades');
 
   // This event now folds instead of aborting the page request. The user-requested fade remains
-  // until that page answers, and the queued background follow-up does not turn it back on.
+  // until that page answers, and the wanted background follow-up does not turn it back on.
   hub.emit('DownloadsRefresh');
   assert.equal(
     retro.getResult().isFetching,
@@ -547,7 +547,7 @@ test('a background refresh folds behind a page fetch and clears its fade after i
   assert.equal(
     retro.getResult().isFetching,
     false,
-    'the page settles and its queued background follow-up does not fade the table'
+    'the page settles and its wanted background follow-up does not fade the table'
   );
   retro.unmount();
 });

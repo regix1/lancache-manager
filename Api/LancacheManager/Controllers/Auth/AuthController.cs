@@ -30,6 +30,10 @@ public class AuthController : ControllerBase
     private readonly IdentityAuditService _identityAuditService;
     private readonly AccessService? _accessService;
 
+    // Held across the store and its push, so pushes leave in the order the values were stored; otherwise
+    // two saves together can leave every screen on the value the server no longer holds.
+    private static readonly SemaphoreSlim _guestConfigWriteLock = new(1, 1);
+
     public AuthController(
         SessionService sessionService,
         ILogger<AuthController> logger,
@@ -310,7 +314,7 @@ public class AuthController : ControllerBase
         var keyMatched = !keyRequired || _apiKeyService.ValidateApiKey(request.ApiKey);
 
         // Checked after the password rather than instead of it, for the same reason: a locked account
-        // that answered without hashing would be recognisable by how fast it refused.
+        // that answered without hashing would be recognizable by how fast it refused.
         var locked = account != null && _accountLockout.IsLocked(account.Id);
 
         if (!passwordMode || account == null || account.IsDisabled || !passwordMatched || !keyMatched || locked)
@@ -567,7 +571,7 @@ public class AuthController : ControllerBase
     {
         if (!_sessionService.IsGuestAccessEnabled())
         {
-            throw new ForbiddenException("Guest access is disabled");
+            throw new ForbiddenException("Guest access is disabled") { StageKey = "errors.guest.disabled" };
         }
 
         // An unfinished installation serves the setup wizard and nothing else, and a guest cannot
@@ -576,7 +580,7 @@ public class AuthController : ControllerBase
         // the session is refused instead.
         if (!_stateService.GetSetupCompleted())
         {
-            throw new ForbiddenException("Setup is not complete");
+            throw new ForbiddenException("Setup is not complete") { StageKey = "errors.guest.setupIncomplete" };
         }
 
         // Nobody owns an installation that has authentication on and no account yet, so a guest
@@ -589,14 +593,21 @@ public class AuthController : ControllerBase
             await using var context = await _dbContextFactory.CreateDbContextAsync();
             if (!await context.UserAccounts.AnyAsync())
             {
-                throw new ForbiddenException("No administrator account exists yet");
+                throw new ForbiddenException("No administrator account exists yet")
+                {
+                    StageKey = "errors.guest.noAdministrator"
+                };
             }
         }
 
         var result = await _sessionService.CreateGuestSessionAsync(HttpContext);
         if (result == null)
         {
-            return StatusCode(500, ApiResponse.Error("Failed to create guest session"));
+            return StatusCode(500, new ErrorResponse
+            {
+                Error = "Failed to create guest session",
+                StageKey = "errors.guest.sessionFailed"
+            });
         }
 
         var (rawToken, session) = result.Value;
@@ -771,24 +782,33 @@ public class AuthController : ControllerBase
             return BadRequest(ApiResponse.Invalid("Duration must be between 1 and 720 hours"));
         }
 
-        if (request.DurationHours is null)
+        int effectiveHours;
+        await _guestConfigWriteLock.WaitAsync();
+        try
         {
-            _sessionService.ClearDurationOverride();
-            _logger.LogInformation("Guest duration UI override cleared (will revert to env/appsettings default)");
-        }
-        else
-        {
-            _sessionService.SetGuestDurationHours(request.DurationHours.Value);
-            _logger.LogInformation("Default guest duration updated to {Hours}h (existing sessions unchanged)", request.DurationHours.Value);
-        }
+            if (request.DurationHours is null)
+            {
+                _sessionService.ClearDurationOverride();
+                _logger.LogInformation("Guest duration UI override cleared (will revert to env/appsettings default)");
+            }
+            else
+            {
+                _sessionService.SetGuestDurationHours(request.DurationHours.Value);
+                _logger.LogInformation("Default guest duration updated to {Hours}h (existing sessions unchanged)", request.DurationHours.Value);
+            }
 
-        // Broadcast the effective (post-merge) value, not the raw request value, so clients
-        // see the env/appsettings fallback when the override is cleared.
-        var effectiveHours = _sessionService.GetGuestDurationHours();
-        await _signalR.NotifyAllAsync(SignalREvents.GuestDurationUpdated, new
+            // Broadcast the effective (post-merge) value, not the raw request value, so clients
+            // see the env/appsettings fallback when the override is cleared.
+            effectiveHours = _sessionService.GetGuestDurationHours();
+            await _signalR.NotifyAllAsync(SignalREvents.GuestDurationUpdated, new
+            {
+                durationHours = effectiveHours
+            });
+        }
+        finally
         {
-            durationHours = effectiveHours
-        });
+            _guestConfigWriteLock.Release();
+        }
 
         return Ok(new GuestDurationResponse
         {
@@ -810,12 +830,20 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(GuestLockResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<GuestLockResponse>> SetGuestLockAsync([FromBody] GuestLockRequest request)
     {
-        _sessionService.SetGuestModeLocked(request.IsLocked);
-
-        await _signalR.NotifyAllAsync(SignalREvents.GuestModeLockChanged, new
+        await _guestConfigWriteLock.WaitAsync();
+        try
         {
-            isLocked = request.IsLocked
-        });
+            _sessionService.SetGuestModeLocked(request.IsLocked);
+
+            await _signalR.NotifyAllAsync(SignalREvents.GuestModeLockChanged, new
+            {
+                isLocked = request.IsLocked
+            });
+        }
+        finally
+        {
+            _guestConfigWriteLock.Release();
+        }
 
         return Ok(new GuestLockResponse
         {
@@ -867,77 +895,104 @@ public class AuthController : ControllerBase
             return BadRequest(ApiResponse.Invalid(durationError));
         }
 
-        var wasSteamEnabled = _sessionService.IsSteamPrefillEnabled();
-        var wasBattleNetEnabled = _stateService.GetBattleNetGuestPrefillEnabledByDefault();
-        var wasRiotEnabled = _stateService.GetRiotGuestPrefillEnabledByDefault();
-
-        _sessionService.SetSteamGuestPrefillEnabled(request.EnabledByDefault);
-        _sessionService.SetGuestPrefillDurationHours(request.DurationHours);
-        _stateService.SetDefaultGuestMaxThreadCount(request.MaxThreadCount);
-
-        // Battle.net is an optional, anonymous service; only update when the caller supplies values.
-        if (request.BattleNetEnabledByDefault.HasValue)
-            _stateService.SetBattleNetGuestPrefillEnabledByDefault(request.BattleNetEnabledByDefault.Value);
-        if (request.BattleNetDurationHours.HasValue)
-            _stateService.SetBattleNetGuestPrefillDurationHours(request.BattleNetDurationHours.Value);
-
-        // Riot is an optional, anonymous service; only update when the caller supplies values.
-        if (request.RiotEnabledByDefault.HasValue)
-            _stateService.SetRiotGuestPrefillEnabledByDefault(request.RiotEnabledByDefault.Value);
-        if (request.RiotDurationHours.HasValue)
-            _stateService.SetRiotGuestPrefillDurationHours(request.RiotDurationHours.Value);
-
-        var steamGrantCount = 0;
-        if (request.EnabledByDefault && !wasSteamEnabled)
+        await _guestConfigWriteLock.WaitAsync();
+        try
         {
-            var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
-                PrefillPlatform.Steam, request.DurationHours);
-            await EmitDefaultPrefillGrantsAsync(grants, "steam");
-            steamGrantCount = grants.Count;
+            var wasSteamEnabled = _sessionService.IsSteamPrefillEnabled();
+            var wasBattleNetEnabled = _stateService.GetBattleNetGuestPrefillEnabledByDefault();
+            var wasRiotEnabled = _stateService.GetRiotGuestPrefillEnabledByDefault();
+
+            _sessionService.SetSteamGuestPrefillEnabled(request.EnabledByDefault);
+            _sessionService.SetGuestPrefillDurationHours(request.DurationHours);
+            _stateService.SetDefaultGuestMaxThreadCount(request.MaxThreadCount);
+
+            // Battle.net is an optional, anonymous service; only update when the caller supplies values.
+            if (request.BattleNetEnabledByDefault.HasValue)
+                _stateService.SetBattleNetGuestPrefillEnabledByDefault(request.BattleNetEnabledByDefault.Value);
+            if (request.BattleNetDurationHours.HasValue)
+                _stateService.SetBattleNetGuestPrefillDurationHours(request.BattleNetDurationHours.Value);
+
+            // Riot is an optional, anonymous service; only update when the caller supplies values.
+            if (request.RiotEnabledByDefault.HasValue)
+                _stateService.SetRiotGuestPrefillEnabledByDefault(request.RiotEnabledByDefault.Value);
+            if (request.RiotDurationHours.HasValue)
+                _stateService.SetRiotGuestPrefillDurationHours(request.RiotDurationHours.Value);
+
+            var steamGrantCount = 0;
+            if (request.EnabledByDefault && !wasSteamEnabled)
+            {
+                var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
+                    PrefillPlatform.Steam, request.DurationHours);
+                await EmitDefaultPrefillGrantsAsync(grants, "steam");
+                steamGrantCount = grants.Count;
+            }
+
+            var battleNetGrantCount = 0;
+            if (request.BattleNetEnabledByDefault is true && !wasBattleNetEnabled)
+            {
+                var battleNetDurationHours = request.BattleNetDurationHours
+                    ?? _stateService.GetBattleNetGuestPrefillDurationHours();
+                var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
+                    PrefillPlatform.BattleNet, battleNetDurationHours);
+                await EmitDefaultPrefillGrantsAsync(grants, "battlenet");
+                battleNetGrantCount = grants.Count;
+            }
+
+            var riotGrantCount = 0;
+            if (request.RiotEnabledByDefault is true && !wasRiotEnabled)
+            {
+                var riotDurationHours = request.RiotDurationHours
+                    ?? _stateService.GetRiotGuestPrefillDurationHours();
+                var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
+                    PrefillPlatform.Riot, riotDurationHours);
+                await EmitDefaultPrefillGrantsAsync(grants, "riot");
+                riotGrantCount = grants.Count;
+            }
+
+            if (steamGrantCount > 0 || battleNetGrantCount > 0 || riotGrantCount > 0)
+            {
+                _logger.LogInformation(
+                    "Default guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads}; granted to {SteamCount} Steam, {BattleNetCount} Battle.net, {RiotCount} Riot guest session(s)",
+                    request.EnabledByDefault, request.DurationHours, request.MaxThreadCount,
+                    steamGrantCount, battleNetGrantCount, riotGrantCount);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Default guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads} (existing sessions unchanged)",
+                    request.EnabledByDefault, request.DurationHours, request.MaxThreadCount);
+            }
+
+            await _signalR.NotifyAllAsync(SignalREvents.GuestPrefillConfigChanged, new
+            {
+                enabledByDefault = _sessionService.IsSteamPrefillEnabled(),
+                durationHours = _sessionService.GetGuestPrefillDurationHours(),
+                maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount()
+            });
+
+            // Each service's guest panel listens only for its own event, so every service this save
+            // wrote is announced.
+            if (request.BattleNetEnabledByDefault.HasValue || request.BattleNetDurationHours.HasValue)
+            {
+                await _signalR.NotifyAllAsync(SignalREvents.BattleNetGuestPrefillConfigChanged, new
+                {
+                    enabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
+                    durationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+                });
+            }
+            if (request.RiotEnabledByDefault.HasValue || request.RiotDurationHours.HasValue)
+            {
+                await _signalR.NotifyAllAsync(SignalREvents.RiotGuestPrefillConfigChanged, new
+                {
+                    enabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
+                    durationHours = _stateService.GetRiotGuestPrefillDurationHours()
+                });
+            }
         }
-
-        var battleNetGrantCount = 0;
-        if (request.BattleNetEnabledByDefault is true && !wasBattleNetEnabled)
+        finally
         {
-            var battleNetDurationHours = request.BattleNetDurationHours
-                ?? _stateService.GetBattleNetGuestPrefillDurationHours();
-            var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
-                PrefillPlatform.BattleNet, battleNetDurationHours);
-            await EmitDefaultPrefillGrantsAsync(grants, "battlenet");
-            battleNetGrantCount = grants.Count;
+            _guestConfigWriteLock.Release();
         }
-
-        var riotGrantCount = 0;
-        if (request.RiotEnabledByDefault is true && !wasRiotEnabled)
-        {
-            var riotDurationHours = request.RiotDurationHours
-                ?? _stateService.GetRiotGuestPrefillDurationHours();
-            var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
-                PrefillPlatform.Riot, riotDurationHours);
-            await EmitDefaultPrefillGrantsAsync(grants, "riot");
-            riotGrantCount = grants.Count;
-        }
-
-        if (steamGrantCount > 0 || battleNetGrantCount > 0 || riotGrantCount > 0)
-        {
-            _logger.LogInformation(
-                "Default guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads}; granted to {SteamCount} Steam, {BattleNetCount} Battle.net, {RiotCount} Riot guest session(s)",
-                request.EnabledByDefault, request.DurationHours, request.MaxThreadCount,
-                steamGrantCount, battleNetGrantCount, riotGrantCount);
-        }
-        else
-        {
-            _logger.LogInformation(
-                "Default guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads} (existing sessions unchanged)",
-                request.EnabledByDefault, request.DurationHours, request.MaxThreadCount);
-        }
-
-        await _signalR.NotifyAllAsync(SignalREvents.GuestPrefillConfigChanged, new
-        {
-            enabledByDefault = request.EnabledByDefault,
-            durationHours = request.DurationHours,
-            maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount()
-        });
 
         return Ok(new SetGuestPrefillConfigResponse
         {
@@ -986,40 +1041,48 @@ public class AuthController : ControllerBase
             return BadRequest(ApiResponse.Invalid(durationError));
         }
 
-        var wasEnabled = _stateService.GetEpicGuestPrefillEnabledByDefault();
-
-        _stateService.SetEpicGuestPrefillEnabledByDefault(request.EnabledByDefault);
-        _stateService.SetEpicGuestPrefillDurationHours(request.DurationHours);
-        _stateService.SetEpicDefaultGuestMaxThreadCount(request.MaxThreadCount);
-
-        var grantCount = 0;
-        if (request.EnabledByDefault && !wasEnabled)
+        await _guestConfigWriteLock.WaitAsync();
+        try
         {
-            var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
-                PrefillPlatform.Epic, request.DurationHours);
-            await EmitDefaultPrefillGrantsAsync(grants, "epic");
-            grantCount = grants.Count;
+            var wasEnabled = _stateService.GetEpicGuestPrefillEnabledByDefault();
+
+            _stateService.SetEpicGuestPrefillEnabledByDefault(request.EnabledByDefault);
+            _stateService.SetEpicGuestPrefillDurationHours(request.DurationHours);
+            _stateService.SetEpicDefaultGuestMaxThreadCount(request.MaxThreadCount);
+
+            var grantCount = 0;
+            if (request.EnabledByDefault && !wasEnabled)
+            {
+                var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
+                    PrefillPlatform.Epic, request.DurationHours);
+                await EmitDefaultPrefillGrantsAsync(grants, "epic");
+                grantCount = grants.Count;
+            }
+
+            if (grantCount > 0)
+            {
+                _logger.LogInformation(
+                    "Default Epic guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads}; granted to {GrantCount} eligible guest session(s)",
+                    request.EnabledByDefault, request.DurationHours, request.MaxThreadCount, grantCount);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Default Epic guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads} (existing sessions unchanged)",
+                    request.EnabledByDefault, request.DurationHours, request.MaxThreadCount);
+            }
+
+            await _signalR.NotifyAllAsync(SignalREvents.EpicGuestPrefillConfigChanged, new
+            {
+                enabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
+                durationHours = _stateService.GetEpicGuestPrefillDurationHours(),
+                epicMaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
+            });
         }
-
-        if (grantCount > 0)
+        finally
         {
-            _logger.LogInformation(
-                "Default Epic guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads}; granted to {GrantCount} eligible guest session(s)",
-                request.EnabledByDefault, request.DurationHours, request.MaxThreadCount, grantCount);
+            _guestConfigWriteLock.Release();
         }
-        else
-        {
-            _logger.LogInformation(
-                "Default Epic guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads} (existing sessions unchanged)",
-                request.EnabledByDefault, request.DurationHours, request.MaxThreadCount);
-        }
-
-        await _signalR.NotifyAllAsync(SignalREvents.EpicGuestPrefillConfigChanged, new
-        {
-            enabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
-            durationHours = _stateService.GetEpicGuestPrefillDurationHours(),
-            epicMaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
-        });
 
         return Ok(new SetGuestPrefillConfigResponse
         {
@@ -1067,38 +1130,46 @@ public class AuthController : ControllerBase
             return BadRequest(ApiResponse.Invalid(durationError));
         }
 
-        var wasEnabled = _stateService.GetBattleNetGuestPrefillEnabledByDefault();
-
-        _stateService.SetBattleNetGuestPrefillEnabledByDefault(request.EnabledByDefault);
-        _stateService.SetBattleNetGuestPrefillDurationHours(request.DurationHours);
-
-        var grantCount = 0;
-        if (request.EnabledByDefault && !wasEnabled)
+        await _guestConfigWriteLock.WaitAsync();
+        try
         {
-            var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
-                PrefillPlatform.BattleNet, request.DurationHours);
-            await EmitDefaultPrefillGrantsAsync(grants, "battlenet");
-            grantCount = grants.Count;
+            var wasEnabled = _stateService.GetBattleNetGuestPrefillEnabledByDefault();
+
+            _stateService.SetBattleNetGuestPrefillEnabledByDefault(request.EnabledByDefault);
+            _stateService.SetBattleNetGuestPrefillDurationHours(request.DurationHours);
+
+            var grantCount = 0;
+            if (request.EnabledByDefault && !wasEnabled)
+            {
+                var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
+                    PrefillPlatform.BattleNet, request.DurationHours);
+                await EmitDefaultPrefillGrantsAsync(grants, "battlenet");
+                grantCount = grants.Count;
+            }
+
+            if (grantCount > 0)
+            {
+                _logger.LogInformation(
+                    "Default Battle.net guest prefill config updated: enabled={Enabled}, duration={Hours}h; granted to {GrantCount} eligible guest session(s)",
+                    request.EnabledByDefault, request.DurationHours, grantCount);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Default Battle.net guest prefill config updated: enabled={Enabled}, duration={Hours}h (existing sessions unchanged)",
+                    request.EnabledByDefault, request.DurationHours);
+            }
+
+            await _signalR.NotifyAllAsync(SignalREvents.BattleNetGuestPrefillConfigChanged, new
+            {
+                enabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
+                durationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+            });
         }
-
-        if (grantCount > 0)
+        finally
         {
-            _logger.LogInformation(
-                "Default Battle.net guest prefill config updated: enabled={Enabled}, duration={Hours}h; granted to {GrantCount} eligible guest session(s)",
-                request.EnabledByDefault, request.DurationHours, grantCount);
+            _guestConfigWriteLock.Release();
         }
-        else
-        {
-            _logger.LogInformation(
-                "Default Battle.net guest prefill config updated: enabled={Enabled}, duration={Hours}h (existing sessions unchanged)",
-                request.EnabledByDefault, request.DurationHours);
-        }
-
-        await _signalR.NotifyAllAsync(SignalREvents.BattleNetGuestPrefillConfigChanged, new
-        {
-            enabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
-            durationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
-        });
 
         return Ok(new SetBattleNetGuestPrefillConfigResponse
         {
@@ -1145,38 +1216,46 @@ public class AuthController : ControllerBase
             return BadRequest(ApiResponse.Invalid(durationError));
         }
 
-        var wasEnabled = _stateService.GetRiotGuestPrefillEnabledByDefault();
-
-        _stateService.SetRiotGuestPrefillEnabledByDefault(request.EnabledByDefault);
-        _stateService.SetRiotGuestPrefillDurationHours(request.DurationHours);
-
-        var grantCount = 0;
-        if (request.EnabledByDefault && !wasEnabled)
+        await _guestConfigWriteLock.WaitAsync();
+        try
         {
-            var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
-                PrefillPlatform.Riot, request.DurationHours);
-            await EmitDefaultPrefillGrantsAsync(grants, "riot");
-            grantCount = grants.Count;
+            var wasEnabled = _stateService.GetRiotGuestPrefillEnabledByDefault();
+
+            _stateService.SetRiotGuestPrefillEnabledByDefault(request.EnabledByDefault);
+            _stateService.SetRiotGuestPrefillDurationHours(request.DurationHours);
+
+            var grantCount = 0;
+            if (request.EnabledByDefault && !wasEnabled)
+            {
+                var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
+                    PrefillPlatform.Riot, request.DurationHours);
+                await EmitDefaultPrefillGrantsAsync(grants, "riot");
+                grantCount = grants.Count;
+            }
+
+            if (grantCount > 0)
+            {
+                _logger.LogInformation(
+                    "Default Riot guest prefill config updated: enabled={Enabled}, duration={Hours}h; granted to {GrantCount} eligible guest session(s)",
+                    request.EnabledByDefault, request.DurationHours, grantCount);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Default Riot guest prefill config updated: enabled={Enabled}, duration={Hours}h (existing sessions unchanged)",
+                    request.EnabledByDefault, request.DurationHours);
+            }
+
+            await _signalR.NotifyAllAsync(SignalREvents.RiotGuestPrefillConfigChanged, new
+            {
+                enabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
+                durationHours = _stateService.GetRiotGuestPrefillDurationHours()
+            });
         }
-
-        if (grantCount > 0)
+        finally
         {
-            _logger.LogInformation(
-                "Default Riot guest prefill config updated: enabled={Enabled}, duration={Hours}h; granted to {GrantCount} eligible guest session(s)",
-                request.EnabledByDefault, request.DurationHours, grantCount);
+            _guestConfigWriteLock.Release();
         }
-        else
-        {
-            _logger.LogInformation(
-                "Default Riot guest prefill config updated: enabled={Enabled}, duration={Hours}h (existing sessions unchanged)",
-                request.EnabledByDefault, request.DurationHours);
-        }
-
-        await _signalR.NotifyAllAsync(SignalREvents.RiotGuestPrefillConfigChanged, new
-        {
-            enabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
-            durationHours = _stateService.GetRiotGuestPrefillDurationHours()
-        });
 
         return Ok(new SetBattleNetGuestPrefillConfigResponse
         {
@@ -1224,40 +1303,48 @@ public class AuthController : ControllerBase
             return BadRequest(ApiResponse.Invalid(durationError));
         }
 
-        var wasEnabled = _stateService.GetXboxGuestPrefillEnabledByDefault();
-
-        _stateService.SetXboxGuestPrefillEnabledByDefault(request.EnabledByDefault);
-        _stateService.SetXboxGuestPrefillDurationHours(request.DurationHours);
-        _stateService.SetXboxDefaultGuestMaxThreadCount(request.MaxThreadCount);
-
-        var grantCount = 0;
-        if (request.EnabledByDefault && !wasEnabled)
+        await _guestConfigWriteLock.WaitAsync();
+        try
         {
-            var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
-                PrefillPlatform.Xbox, request.DurationHours);
-            await EmitDefaultPrefillGrantsAsync(grants, "xbox");
-            grantCount = grants.Count;
+            var wasEnabled = _stateService.GetXboxGuestPrefillEnabledByDefault();
+
+            _stateService.SetXboxGuestPrefillEnabledByDefault(request.EnabledByDefault);
+            _stateService.SetXboxGuestPrefillDurationHours(request.DurationHours);
+            _stateService.SetXboxDefaultGuestMaxThreadCount(request.MaxThreadCount);
+
+            var grantCount = 0;
+            if (request.EnabledByDefault && !wasEnabled)
+            {
+                var grants = await _sessionService.GrantDefaultPrefillToEligibleGuestSessionsAsync(
+                    PrefillPlatform.Xbox, request.DurationHours);
+                await EmitDefaultPrefillGrantsAsync(grants, "xbox");
+                grantCount = grants.Count;
+            }
+
+            if (grantCount > 0)
+            {
+                _logger.LogInformation(
+                    "Default Xbox guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads}; granted to {GrantCount} eligible guest session(s)",
+                    request.EnabledByDefault, request.DurationHours, request.MaxThreadCount, grantCount);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Default Xbox guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads} (existing sessions unchanged)",
+                    request.EnabledByDefault, request.DurationHours, request.MaxThreadCount);
+            }
+
+            await _signalR.NotifyAllAsync(SignalREvents.XboxGuestPrefillConfigChanged, new
+            {
+                enabledByDefault = _stateService.GetXboxGuestPrefillEnabledByDefault(),
+                durationHours = _stateService.GetXboxGuestPrefillDurationHours(),
+                xboxMaxThreadCount = _stateService.GetXboxDefaultGuestMaxThreadCount()
+            });
         }
-
-        if (grantCount > 0)
+        finally
         {
-            _logger.LogInformation(
-                "Default Xbox guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads}; granted to {GrantCount} eligible guest session(s)",
-                request.EnabledByDefault, request.DurationHours, request.MaxThreadCount, grantCount);
+            _guestConfigWriteLock.Release();
         }
-        else
-        {
-            _logger.LogInformation(
-                "Default Xbox guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads} (existing sessions unchanged)",
-                request.EnabledByDefault, request.DurationHours, request.MaxThreadCount);
-        }
-
-        await _signalR.NotifyAllAsync(SignalREvents.XboxGuestPrefillConfigChanged, new
-        {
-            enabledByDefault = _stateService.GetXboxGuestPrefillEnabledByDefault(),
-            durationHours = _stateService.GetXboxGuestPrefillDurationHours(),
-            xboxMaxThreadCount = _stateService.GetXboxDefaultGuestMaxThreadCount()
-        });
 
         return Ok(new SetGuestPrefillConfigResponse
         {

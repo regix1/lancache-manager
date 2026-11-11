@@ -15,14 +15,14 @@
   /* Badge Base Class */
   .themed-badge {
     @apply px-1.5 font-semibold;
-    /* Vertical padding is deliberately lopsided. Centring aligns the font's box, not the glyphs,
+    /* Vertical padding is deliberately lopsided. Centering aligns the font's box, not the glyphs,
        and the box reserves descender room this badge can never use: the text is always uppercase,
        so nothing is drawn below the baseline. That empty descent pushed the visible characters
-       0.9px above centre. Moving most of 1px of the 4px from the bottom to the top puts the ink
-       back on the centre line.
+       0.9px above center. Moving most of 1px of the 4px from the bottom to the top puts the ink
+       back on the center line.
        2.9 and not a round 3: at 3px the text lands 0.19 CSS px low, which nothing shows on a 1x
        display but a phone renders as more than half a device pixel, so the ink sits visibly off
-       centre there and nowhere else. Measured even at 1x, 2x and 3x at this split. */
+       center there and nowhere else. Measured even at 1x, 2x and 3x at this split. */
     padding-top: 2.9px;
     padding-bottom: 1.1px;
     display: inline-flex;
@@ -43,7 +43,7 @@
        already pushing to this height. */
     min-height: 1.0625rem; /* 17px */
     /* The chip step of the scale, not a literal 3px: hard-coded, a badge kept its corners even
-       when the theme asked for sharp ones, which every other surface honours. */
+       when the theme asked for sharp ones, which every other surface honors. */
     border-radius: var(--theme-border-radius-sm);
     white-space: nowrap;
     text-transform: uppercase;
@@ -111,10 +111,10 @@
     color: var(--theme-info-text);
   }
 
-  /* Grey-tinted fill derived from the badge's own text colour, so the neutral badge
+  /* Gray-tinted fill derived from the badge's own text color, so the neutral badge
      reads as a real filled chip like the warning/error/success badges (each a muted
-     tint of its text) instead of a transparent grey label. No border: the fill defines
-     it, matching the borderless coloured badges. Count chips re-add their own border
+     tint of its text) instead of a transparent gray label. No border: the fill defines
+     it, matching the borderless colored badges. Count chips re-add their own border
      via .badge-count below, so those are unaffected. */
   .status-badge-neutral {
     background-color: var(--theme-text-secondary-muted);
@@ -150,9 +150,9 @@
    * never rounded-full) + centered tabular figures. Compose on top of a Badge
    * variant (`<Badge variant="neutral" className="badge-count">`) or a raw span
    * (`themed-badge status-badge-neutral badge-count`). The border is a subtle dark
-   * grey (--theme-border-secondary, the same colour the cards use) so the chip
+   * gray (--theme-border-secondary, the same color the cards use) so the chip
    * blends quietly into the surface instead of reading as a bright outline. On a
-   * SATURATED colour fill (primary-blue active tab, live-green badge) a grey border
+   * SATURATED color fill (primary-blue active tab, live-green badge) a gray border
    * goes muddy, so those badges add `.badge-count-on-color` to switch the outline to
    * a translucent white. Placed after the status-badge-* rules so its border wins. */
   .badge-count {
@@ -163,7 +163,7 @@
   }
 
   /* Neutral count chips ride on buttons and selected segments. The neutral fill is a
-     20% wash of secondary text, so the control's colour shows through and the numeral
+     20% wash of secondary text, so the control's color shows through and the numeral
      (often inherited button-text) disappears into it. An opaque well keeps the chip
      the same on idle and selected controls. Compounded so it wins in the prod bundle
      after @layer is stripped. */
@@ -183,15 +183,15 @@
     animation: none;
   }
 
-  /* Count badge sitting on a saturated colour fill (accent button, live badge):
-   * a grey outline muddies the colour, so use a translucent white edge instead. */
+  /* Count badge sitting on a saturated color fill (accent button, live badge):
+   * a gray outline muddies the color, so use a translucent white edge instead. */
   .badge-count-on-color {
     border-color: var(--theme-badge-white-subtle);
   }
 
   /* Warning-toned count (corruption totals): a translucent amber FILL turns
    * muddy brown over dark card surfaces and an amber border reads worse, so the
-   * chip keeps the standard neutral surface + grey border and the warning tone
+   * chip keeps the standard neutral surface + gray border and the warning tone
    * lives in the numeral alone. Compose with a neutral Badge:
    * <Badge variant="neutral" className="badge-count badge-count-warning">. */
   .themed-badge.status-badge-neutral.badge-count.badge-count-warning,
@@ -202,7 +202,7 @@
   /* Live status pill — shared green fill so DateRangePicker and TimeFilter
    * do not each hand-roll the same static inline style for the active-event badge.
    * Takes the solid .status-badge-success pair rather than a translucent wash of its own text
-   * colour: a wash can only ever eat into the contrast the green already has on the card, and in
+   * color: a wash can only ever eat into the contrast the green already has on the card, and in
    * the dark themes no alpha reaches 4.5:1 (even 0% is 4.83). */
   .live-badge {
     background-color: var(--theme-success-bg);

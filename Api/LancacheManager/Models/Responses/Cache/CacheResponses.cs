@@ -7,7 +7,7 @@ public class CacheOperationResponse
 {
     public string Message { get; set; } = string.Empty;
 
-    /// <summary>The started operation's id. Null only for the queued case, where the caller polls by name instead.</summary>
+    /// <summary>The started operation's id. Null only for the waiting case, where the caller polls by name instead.</summary>
     public Guid? OperationId { get; set; }
 
     /// <summary>The service this removal targeted. Null for an all-datasources or all-services operation.</summary>
@@ -305,7 +305,7 @@ public class CacheSizeScanStatusResponse
 }
 
 /// <summary>Response for DELETE /api/cache/evicted/{scope}: the scoped eviction removal that was started.</summary>
-public class EvictionRemovalEntityStartResponse
+public class EvictionRemovalStartResponse
 {
     public Guid OperationId { get; set; }
     public string Scope { get; set; } = string.Empty;

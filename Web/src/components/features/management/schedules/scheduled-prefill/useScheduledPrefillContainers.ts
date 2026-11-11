@@ -86,8 +86,8 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
   const [actions, setActions] = useState<
     Partial<Record<ScheduledPrefillServiceKey, ScheduledPrefillPersistentActionState['action']>>
   >({});
-  const [cancellingRunIds, setCancellingRunIds] = useState<string[]>([]);
-  const cancellingRunsRef = useRef(new Set<string>());
+  const [cancelingRunIds, setCancelingRunIds] = useState<string[]>([]);
+  const cancelingRunsRef = useRef(new Set<string>());
   const [runErrors, setRunErrors] = useState<Record<string, string>>({});
 
   const [persistentLoginTarget, setPersistentLoginTarget] =
@@ -120,7 +120,7 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
   const loadPersistentContainers = useCallback(async (signal?: AbortSignal) => {
     if (signal?.aborted) return null;
     // A load asked while one is out only queues another fetch; the answer in flight still applies.
-    // The caller waits for that next read alone, never for reads queued after it, so a push that
+    // The caller waits for that next read alone, never for reads asked for after it, so a push that
     // lands during every read cannot hold an awaiting action open.
     const inFlight = persistentContainersRequestRef.current;
     if (inFlight && !inFlight.controller.signal.aborted) {
@@ -186,7 +186,7 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
         } while (request.again && !controller.signal.aborted);
       } finally {
         signal?.removeEventListener('abort', abort);
-        // An abort ends the loop before the read these callers queued.
+        // An abort ends the loop before the read these callers asked for.
         for (const resolve of request.waiting) resolve(null);
         if (persistentContainersRequestRef.current === request) {
           persistentContainersRequestRef.current = null;
@@ -757,8 +757,8 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
     return act(serviceKey, 'logout', async (current) => {
       const serviceId = getPersistentServiceId(serviceKey);
       if (hasActivePersistentLogin(serviceId)) {
-        const cancelled = await endPersistentLogin(serviceId, container.sessionId);
-        if (!cancelled) throw new Error(t('prefill.persistent.cancelLoginFailed'));
+        const canceled = await endPersistentLogin(serviceId, container.sessionId);
+        if (!canceled) throw new Error(t('prefill.persistent.cancelLoginFailed'));
       } else {
         const { forgotten } = await ApiService.logoutPersistentPrefillContainer(
           serviceId,
@@ -883,17 +883,17 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
     const run = container?.runs?.find((item) => item.runId === runId);
     if (
       !container?.isRunning ||
-      cancellingRunsRef.current.has(runId) ||
+      cancelingRunsRef.current.has(runId) ||
       (run && (!isPrefillRunActive(run) || run.cancelRequested))
     ) {
       return;
     }
-    cancellingRunsRef.current.add(runId);
-    setCancellingRunIds([...cancellingRunsRef.current]);
-    setRunErrors((errors) => ({ ...errors, [runId]: '' }));
+    cancelingRunsRef.current.add(runId);
+    setCancelingRunIds([...cancelingRunsRef.current]);
 
     try {
       await ApiService.cancelPersistentPrefill(serviceId, container.sessionId, runId);
+      setRunErrors((errors) => ({ ...errors, [runId]: '' }));
       setPersistentContainers(
         (current) =>
           current?.map((item) =>
@@ -911,8 +911,8 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
     } catch (error: unknown) {
       setRunErrors((errors) => ({ ...errors, [runId]: getErrorMessage(error) }));
     } finally {
-      cancellingRunsRef.current.delete(runId);
-      setCancellingRunIds([...cancellingRunsRef.current]);
+      cancelingRunsRef.current.delete(runId);
+      setCancelingRunIds([...cancelingRunsRef.current]);
     }
   };
 
@@ -950,7 +950,7 @@ export function useScheduledPrefillContainers(activeService: ScheduledPrefillSer
     handleLogoutPersistent,
     handlePersistentLogin,
     handleCancelPersistentDownload,
-    cancellingRunIds,
+    cancelingRunIds,
     runErrors,
     clearLogins,
     privateAvailabilityIdentity

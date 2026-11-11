@@ -165,7 +165,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   }, [selectedCount, options, valuesSet, placeholder, t]);
 
   /**
-   * A left-aligned menu that would overflow the right edge CENTRES on its trigger
+   * A left-aligned menu that would overflow the right edge CENTERS on its trigger
    * rather than sliding to the gutter, which the shared below/above placement does not
    * do, so this menu supplies its own.
    */

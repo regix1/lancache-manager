@@ -212,6 +212,51 @@ public sealed class SpeedActivityTests
         Assert.Equal(emptyRevision, rawEmptyAgain.Revision);
     }
 
+    // The tracker's resolved flag decides the name tier, not how the title reads: a game whose title
+    // is its service's label keeps its own row, and a title the lookup did not find stays on the
+    // service row.
+    [Fact]
+    public async Task ResolvedFlagDecidesTheNameTierAsync()
+    {
+        var clock = new MutableClock(new DateTimeOffset(Now));
+        var datasources = PrimaryDatasources();
+        var tracker = CacheScanGateHarness.TrackerWith(new DownloadSpeedSnapshot
+        {
+            Version = 2,
+            StreamId = "public-stream",
+            TimestampUtc = Now,
+            WindowSeconds = 2,
+        }, [], clock, datasources);
+        var runId = Guid.NewGuid();
+        CacheScanGateHarness.SetField(tracker, "_currentRunId", runId);
+        CacheScanGateHarness.SetField(tracker, "_runSources", new Dictionary<Guid, Dictionary<string, string>>
+        {
+            [runId] = CacheScanGateHarness.CaptureRoots(datasources),
+        });
+
+        var frame = Snapshot(Now.AddSeconds(2), Now.AddSeconds(15), isAvailable: true);
+        frame.StreamId = string.Empty;
+        frame.Revision = 1;
+        frame.GameSpeeds.Add(Snapshot(Now.AddSeconds(2), Now.AddSeconds(15), isAvailable: true).GameSpeeds[0]);
+        for (var i = 0; i < frame.GameSpeeds.Count; i++)
+        {
+            var game = frame.GameSpeeds[i];
+            game.Service = "riot";
+            game.ClientIp = i == 0 ? "10.0.0.5" : "10.0.0.6";
+            game.DepotId = 0;
+            game.GameName = "Riot Games";
+            game.GameNameResolved = i == 0;
+            game.Sources[0].DepotIds = [];
+        }
+        await tracker.AcceptNativeSnapshotAsync(frame, runId, CancellationToken.None);
+
+        var games = tracker.GetCurrentSnapshot().GameSpeeds;
+        var named = Assert.Single(games, game => game.ClientIp == "10.0.0.5");
+        Assert.Equal("riot|10.0.0.5|name:riot games", named.Key);
+        Assert.True(named.GameNameResolved);
+        Assert.Equal("riot|10.0.0.6|service", Assert.Single(games, game => game.ClientIp == "10.0.0.6").Key);
+    }
+
     [Fact]
     public async Task NativeVersionSequenceAndRunIdentityAreValidatedAsync()
     {
@@ -412,7 +457,7 @@ public sealed class SpeedActivityTests
     }
 
     [Fact]
-    public async Task OlderConcurrentReadCannotDisplaceNewestQueuedRevision()
+    public async Task OlderConcurrentReadCannotDisplaceNewestPendingRevision()
     {
         var tracker = CacheScanGateHarness.TrackerWith(new DownloadSpeedSnapshot
         {
@@ -470,8 +515,8 @@ public sealed class SpeedActivityTests
 
         Assert.True(snapshotLockHeld);
         Assert.True(secondWriteObserved);
-        Assert.True(publication.Reader.TryRead(out var queued));
-        Assert.Equal(3, queued.Revision);
+        Assert.True(publication.Reader.TryRead(out var pending));
+        Assert.Equal(3, pending.Revision);
         Assert.False(publication.Reader.TryRead(out _));
     }
 

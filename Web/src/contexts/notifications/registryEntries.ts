@@ -2,7 +2,7 @@
  * Shared shapes for the entries in {@link NOTIFICATION_REGISTRY}.
  *
  * Three builders live here, one per lifecycle family:
- *   - {@link buildStandardOperationEntry} - a cancellable server operation with a
+ *   - {@link buildStandardOperationEntry} - a cancelable server operation with a
  *     Started -> Progress -> Complete event triple and per-type messages.
  *   - {@link buildMappingOperationEntry} - the five scheduled mapping services,
  *     combining that standard lifecycle with shared tracker recovery.
@@ -91,18 +91,18 @@ interface OperationStatusEvent {
 // ============================================================================
 
 /**
- * Standard three-status pattern: 'completed' -> 'completed',
- * 'failed'|'cancelled' -> 'failed', everything else -> undefined.
+ * Standard terminal-status pattern: 'completed', 'failed', 'canceled' and 'skipped' are
+ * returned as they are, everything else -> undefined.
  *
- * The cancelled arm never fires in practice: every server-side cancellation is reported on a
+ * The canceled arm never fires in practice: every server-side cancellation is reported on a
  * Complete payload, never on Progress, and the completion handler reads the cancel flag itself.
- * It stays because a returned 'cancelled' would otherwise fall through to undefined here, which
+ * It stays because a returned 'canceled' would otherwise fall through to undefined here, which
  * the progress handler reads as "still running" - a stopped card frozen mid-run is worse than a
- * stopped card shown as failed. A cancelled run that reaches a user reads grey, not red.
+ * stopped card shown as canceled. A canceled run that reaches a user reads gray, not red.
  */
 function standardGetStatus(event: OperationStatusEvent): string | undefined {
   if (event.status === 'completed') return 'completed';
-  if (event.status === 'failed' || event.status === 'cancelled' || event.status === 'skipped')
+  if (event.status === 'failed' || event.status === 'canceled' || event.status === 'skipped')
     return event.status;
   return undefined;
 }
@@ -134,7 +134,12 @@ export function errorOrStageKeyMessage<
   TEvent extends TerminalStageKeyEvent = TerminalStageKeyEvent
 >(fallbackKey: string): (event: TEvent) => string {
   return (event) =>
-    (event.error ? translateStageKeyMessage(event.error) : undefined) ??
+    (event.error
+      ? translateStageKeyMessage(
+          event.error,
+          event.error === event.stageKey ? (event.context ?? undefined) : undefined
+        )
+      : undefined) ??
     (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
     i18n.t(fallbackKey);
 }
@@ -190,7 +195,7 @@ interface StandardOperationEntryOptions<TStarted, TProgress, TComplete> {
 }
 
 /**
- * Builds the entry for a cancellable server operation: a serverOp cancel, the event
+ * Builds the entry for a cancelable server operation: a serverOp cancel, the event
  * triple derived from `eventPrefix`, and the operation-id details every card in this
  * family carries.
  */
@@ -322,9 +327,9 @@ export function buildMappingOperationEntry<
     complete: {
       getSuccessMessage: stageKeyMessage<TComplete>(`${i18nBase}.completed`),
       getFailureMessage: errorOrStageKeyMessage<TComplete>(`${i18nBase}.failed`),
-      getCancelledMessage: stageKeyMessage<TComplete>(`${i18nBase}.cancelled`),
+      getCanceledMessage: stageKeyMessage<TComplete>(`${i18nBase}.canceled`),
       getSuccessDetails: operationIdDetails,
-      getCancelledDetails: operationIdDetails
+      getCanceledDetails: operationIdDetails
     }
   });
 }
@@ -347,7 +352,7 @@ interface ScheduledRunStatusResponse {
 }
 
 interface ScheduledRunEntryOptions {
-  cancellable: boolean;
+  cancelable: boolean;
   type: NotificationType;
   /** URL segment + backend serviceKey used for the run-status recovery endpoint. */
   serviceKey: string;
@@ -367,7 +372,7 @@ export function buildScheduledRunEntry(
   const { type, serviceKey, eventPrefix, i18nBase, countable, defaultMessage } = options;
   return {
     type,
-    ...(options.cancellable
+    ...(options.cancelable
       ? {
           cancelKind: 'serverOp' as const,
           cancelTooltipKey: 'common.notifications.cancelOperationAria'

@@ -17,7 +17,7 @@ namespace LancacheManager.Tests;
 /// A wizard step id lives in two places that cannot see each other: the <see cref="SetupStep"/> enum
 /// with its two switch arms, and the <c>InitStep</c> union the client sends. Adding a step to one side
 /// only is silent at compile time and only shows up at runtime, because
-/// <c>SetupStepJsonConverter.Read</c> maps an unrecognised string to <see cref="SetupStep.Unknown"/>
+/// <c>SetupStepJsonConverter.Read</c> maps an unrecognized string to <see cref="SetupStep.Unknown"/>
 /// instead of throwing and <c>SystemController.cs:356-360</c> then answers 400. The client retries the
 /// write and the wizard step it could not record still renders, so the flow looks like it works.
 ///
@@ -64,7 +64,7 @@ public sealed class SetupStepWireContractTests : IDisposable
             Assert.True(
                 parsed.HasValue && parsed.Value != SetupStep.Unknown,
                 $"'{wire}' is in the client InitStep union but SetupStep.TryParseWire does not "
-                + "recognise it, so PATCH /api/system/setup answers 400 for that step");
+                + "recognize it, so PATCH /api/system/setup answers 400 for that step");
             Assert.Equal(wire, parsed!.Value.ToWireString());
         }
     }

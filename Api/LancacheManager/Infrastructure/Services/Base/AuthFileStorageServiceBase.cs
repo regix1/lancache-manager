@@ -293,12 +293,12 @@ public abstract class AuthFileStorageServiceBase<TAuthData, TPersistedAuthData>
         }
     }
 
-    public void CancelIntegrationLogin(IntegrationCaller caller, Guid? attemptId, Action? cancelled = null)
+    public void CancelIntegrationLogin(IntegrationCaller caller, Guid? attemptId, Action? canceled = null)
     {
         lock (_lock)
         {
             var login = ContinueIntegrationLogin(caller, attemptId);
-            FinishIntegrationLogin(login, cancelled);
+            FinishIntegrationLogin(login, canceled);
         }
     }
 

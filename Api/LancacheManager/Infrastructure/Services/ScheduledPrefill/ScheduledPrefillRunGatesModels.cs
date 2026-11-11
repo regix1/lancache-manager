@@ -28,7 +28,7 @@ public enum ScheduledPrefillServiceRunResult
     /// <see cref="Ran"/>: a stopped prefill did not finish, so it must not stamp the genuine
     /// "Last run", and distinct from <see cref="Failed"/>: nothing went wrong.
     /// </summary>
-    Cancelled
+    Canceled
 }
 
 /// <summary>

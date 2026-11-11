@@ -77,7 +77,7 @@ public sealed class ClientHostnameService : IClientHostnameService
 
     /// <summary>
     /// Substitutes the DNS transport, which answers with the raw reverse name exactly as a resolver
-    /// gives it, and the host's own network configuration, so the gating, bounding, normalising and
+    /// gives it, and the host's own network configuration, so the gating, bounding, normalizing and
     /// caching around them can be exercised without a resolver on the network and without the
     /// answers changing with the machine the tests run on. Pass null to use the real ones.
     /// </summary>
@@ -231,7 +231,7 @@ public sealed class ClientHostnameService : IClientHostnameService
             catch (OperationCanceledException)
             {
                 // The budget elapsed (or the caller went away). Every remaining wait is already
-                // cancelled, so the loop still awaits them rather than leaving their faults
+                // canceled, so the loop still awaits them rather than leaving their faults
                 // unobserved; the queries themselves carry on detached and warm the cache, so the
                 // rest of the names land on the next refresh.
                 budgetElapsed = true;
@@ -890,7 +890,7 @@ public sealed class ClientHostnameService : IClientHostnameService
 /// while a query that failed is held only briefly.
 ///
 /// Queries run detached from caller cancellation (the query's own timeout bounds them) so one
-/// abandoned caller can never poison the shared cached task; callers still honour their own token
+/// abandoned caller can never poison the shared cached task; callers still honor their own token
 /// through <see cref="Task.WaitAsync(CancellationToken)"/>.
 /// </summary>
 internal sealed class ClientHostnameCache

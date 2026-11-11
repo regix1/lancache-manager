@@ -17,7 +17,7 @@ namespace LancacheManager.Infrastructure.Services.Base;
 /// (<see cref="ScheduledBackgroundService"/> and <see cref="ConfigurableScheduledService"/>) each
 /// declare their own <see cref="DefaultRunOnStartup"/>: the two hierarchies ship different values,
 /// so this class leaves the property abstract rather than picking a default that would silently
-/// change startup behaviour for whichever hierarchy did not expect it.
+/// change startup behavior for whichever hierarchy did not expect it.
 /// </summary>
 public abstract class ScheduledServiceBase : BackgroundService
 {
@@ -54,10 +54,10 @@ public abstract class ScheduledServiceBase : BackgroundService
     {
         for (var index = 0; index < SlotCount; index++)
         {
-            if (slots[index] is not { Cancelled: false, RequestedScanType: null } own || SlotOf(own) == index) continue;
+            if (slots[index] is not { Canceled: false, RequestedScanType: null } own || SlotOf(own) == index) continue;
             slots[index] = null;
             var slot = SlotOf(own);
-            if (slots[slot] is { Cancelled: false } waiting && waiting.Adopt(Tracker, own)) continue;
+            if (slots[slot] is { Canceled: false } waiting && waiting.Adopt(Tracker, own)) continue;
             slots[slot] = own;
         }
     }
@@ -132,7 +132,7 @@ public abstract class ScheduledServiceBase : BackgroundService
 
     /// <summary>
     /// Reports a run's end: the error it failed with, whether it was canceled, and whether the run is
-    /// still kept for later (held or queued again), in which case its waiting card stays.
+    /// still kept for later (held or parked again), in which case its waiting card stays.
     /// </summary>
     internal Action<RunNotice, string, string?, bool, bool>? RunCompleted { get; set; }
 
@@ -148,7 +148,7 @@ public abstract class ScheduledServiceBase : BackgroundService
     /// Downloads ended, so the held run goes ahead. Posted without waiting: the reader handles it before
     /// any message written to this queue later, and nobody needs its answer. It closes into
     /// <paramref name="runningOperation"/>'s card when an operation is doing the work the held run asked
-    /// for, into the run the loop took when that run will do it, and is queued otherwise.
+    /// for, into the run the loop took when that run will do it, and waits behind it otherwise.
     /// </summary>
     internal void ReleaseHeldRun(Func<RunNotice, Guid?> runningOperation)
         => _runMessages.Writer.TryWrite(new ReleaseHold(runningOperation));
@@ -274,7 +274,7 @@ public abstract class ScheduledServiceBase : BackgroundService
     /// The run queue's answer to a request: whether it was admitted, the request that will run (a waiting
     /// one the new request joined, or the new request itself), and whether it waits behind a busy run.
     /// </summary>
-    public sealed record Admission(bool Admitted, RunNotice Retained, bool FollowUpQueued);
+    public sealed record Admission(bool Admitted, RunNotice Retained, bool FollowUpWaiting);
 
     private abstract record RunMessage
     {
@@ -354,7 +354,7 @@ public abstract class ScheduledServiceBase : BackgroundService
                 take.Reply.TrySetResult(_running);
                 break;
             case PeekRequest peek:
-                peek.Reply.TrySetResult(_requested.Any(request => request is { Cancelled: false }) || _owed is { Cancelled: false });
+                peek.Reply.TrySetResult(_requested.Any(request => request is { Canceled: false }) || _owed is { Canceled: false });
                 break;
             case TakeOwed take:
                 take.Reply.TrySetResult(TakeOwedRun());
@@ -376,12 +376,12 @@ public abstract class ScheduledServiceBase : BackgroundService
                 start.Reply.TrySetResult(_running);
                 break;
             case EnterWork enter:
-                if (!enter.Run.Cancelled)
+                if (!enter.Run.Canceled)
                 {
                     if (ReferenceEquals(_running, enter.Run)) _phase = RunPhase.Running;
                     _isCurrentlyExecuting = true;
                 }
-                enter.Reply.TrySetResult(!enter.Run.Cancelled);
+                enter.Reply.TrySetResult(!enter.Run.Canceled);
                 break;
             case RunEnded ended:
                 if (ReferenceEquals(_running, ended.Run))
@@ -390,7 +390,7 @@ public abstract class ScheduledServiceBase : BackgroundService
                     _phase = RunPhase.Idle;
                 }
                 _isCurrentlyExecuting = false;
-                // Decided against the state this message sees: a run held or queued again keeps its
+                // Decided against the state this message sees: a run held or parked again keeps its
                 // card for the run still to come, whichever order its end and its release arrived in.
                 if (ended.Report)
                     RunCompleted?.Invoke(ended.Run, ended.ServiceKey, ended.Error, ended.Canceled, Keeps(ended.Run));
@@ -421,7 +421,7 @@ public abstract class ScheduledServiceBase : BackgroundService
     {
         for (var index = 0; index < SlotCount; index++)
         {
-            if (_requested[index] is { Cancelled: true }) _requested[index] = null;
+            if (_requested[index] is { Canceled: true }) _requested[index] = null;
         }
         MoveOwnRun(_requested);
         var slot = SlotOf(notice);
@@ -434,12 +434,12 @@ public abstract class ScheduledServiceBase : BackgroundService
         var anyRequested = _requested[slot] is not null;
         var busy = IsDoingWork(_running);
         var running = OwnRunInProgress();
-        // Run All starts idle schedules only. A follow-up queued behind a busy one shows a second
+        // Run All starts idle schedules only. A follow-up waiting behind a busy one shows a second
         // card for a run nobody asked for. A run being canceled will not do the work, so it does not
         // count. A Run All run held for a download already has its card (PendingId) and still queues.
         var freshRunAll = notice.Trigger == RunTrigger.RunAll && notice.PendingId is null;
         if ((!QueueManualRuns && (busy || anyRequested))
-            || (freshRunAll && (running is { Cancelled: false } || anyRequested)))
+            || (freshRunAll && (running is { Canceled: false } || anyRequested)))
         {
             return new Admission(false, _requested[slot] ?? running ?? notice, false);
         }
@@ -452,7 +452,7 @@ public abstract class ScheduledServiceBase : BackgroundService
 
     private void Owe(RunNotice notice)
     {
-        if (_owed is { Cancelled: true }) _owed = null;
+        if (_owed is { Canceled: true }) _owed = null;
         if (_owed is { } owed && owed.Adopt(Tracker, notice))
         {
             CancelIntervalDelay();
@@ -468,11 +468,11 @@ public abstract class ScheduledServiceBase : BackgroundService
     // than the schedule's own stays when the caller takes only the schedule's own run.
     private RunNotice? TakeRequested(bool includeExtra)
     {
-        var owedType = _owed is { Cancelled: false } owed ? ScanTypeOf(owed) : null;
+        var owedType = _owed is { Canceled: false } owed ? ScanTypeOf(owed) : null;
         for (var index = SlotCount - 1; index >= 0; index--)
         {
             var request = _requested[index];
-            if (request is not { Cancelled: false })
+            if (request is not { Canceled: false })
             {
                 _requested[index] = null;
                 continue;
@@ -499,7 +499,7 @@ public abstract class ScheduledServiceBase : BackgroundService
 
     private RunNotice? TakeOwedRun()
     {
-        var taken = _owed is { Cancelled: false } owed ? owed : null;
+        var taken = _owed is { Canceled: false } owed ? owed : null;
         _owed = null;
         if (taken is null) return null;
         // The owed run and a request taken in the same pass are one run when they ask for the same scan; the
@@ -522,7 +522,7 @@ public abstract class ScheduledServiceBase : BackgroundService
 
     private RunNotice Hold(RunNotice notice, Action<RunNotice> raiseCard)
     {
-        if (notice.Cancelled) return notice;
+        if (notice.Canceled) return notice;
         // The gate turned this run away, so it no longer covers a held run released after this.
         if (ReferenceEquals(_running, notice))
         {
@@ -531,7 +531,7 @@ public abstract class ScheduledServiceBase : BackgroundService
         }
         MoveOwnRun(_held);
         var slot = SlotOf(notice);
-        if (_held[slot] is { Cancelled: true }) _held[slot] = null;
+        if (_held[slot] is { Canceled: true }) _held[slot] = null;
         if (_held[slot] is { } held)
         {
             // One hold per scan type, one card: a later request of that type joins it, and a card the
@@ -560,7 +560,7 @@ public abstract class ScheduledServiceBase : BackgroundService
     private void ReleaseOne(RunNotice held, Func<RunNotice, Guid?> runningOperation)
     {
         // A card already being dismissed is gone, even before its cancel reaches the notice.
-        if (held.Cancelled || held.OperationId is { } heldCard && Tracker?.GetOperation(heldCard)?.Cancelled == true) return;
+        if (held.Canceled || held.OperationId is { } heldCard && Tracker?.GetOperation(heldCard)?.Canceled == true) return;
         // The card stops naming the download it waited for.
         if (held.OperationId is { } card) Tracker?.SetBlockedByName(card, null);
         // An operation already doing the work: the card closes into its card as a join, which a cancel
@@ -569,7 +569,7 @@ public abstract class ScheduledServiceBase : BackgroundService
         // The run the loop took does the work it waited for, unless it is a person's Run Now and
         // that run already started, which queues a second run the way a Run Now does then. A run asked
         // for a scan type other than the held run's is another scan's work, so the held run queues.
-        if (_running is { Cancelled: false } taken && ScanTypeOf(taken) == ScanTypeOf(held)
+        if (_running is { Canceled: false } taken && ScanTypeOf(taken) == ScanTypeOf(held)
             && (held.Trigger != RunTrigger.Manual || _phase == RunPhase.Starting)
             && taken.Adopt(Tracker, held))
         {
@@ -728,7 +728,7 @@ public abstract class ScheduledServiceBase : BackgroundService
     /// <summary>
     /// Hardcoded default for whether work runs at startup, before the first interval elapses.
     /// Left abstract because the two loop base classes ship different defaults - a shared default
-    /// here would silently flip startup behaviour for one of the two hierarchies. Individual
+    /// here would silently flip startup behavior for one of the two hierarchies. Individual
     /// services override it to express their intended default; the user can override it at runtime
     /// via SetRunOnStartup - typically loaded from IStateService in each service's constructor and
     /// updated via the Schedules UI.
@@ -1004,7 +1004,7 @@ public abstract class ScheduledServiceBase : BackgroundService
         CancellationTokenSource? runCts = null;
         try
         {
-            if (runNotice.Cancelled) return (false, false);
+            if (runNotice.Canceled) return (false, false);
             stoppingToken.ThrowIfCancellationRequested();
             var runDenial = ScheduleRunGate is { } gate ? await gate(serviceKey, CurrentRunTrigger) : null;
             if (runDenial is not null)
@@ -1030,9 +1030,9 @@ public abstract class ScheduledServiceBase : BackgroundService
             // instead of silently ending the service loop.
             shuttingDown = true;
         }
-        catch (OperationCanceledException) when (runNotice.Cancelled || runCts?.IsCancellationRequested == true)
+        catch (OperationCanceledException) when (runNotice.Canceled || runCts?.IsCancellationRequested == true)
         {
-            // A cancelled admission does not change the next scheduled occurrence.
+            // A canceled admission does not change the next scheduled occurrence.
         }
         catch (Exception ex)
         {
@@ -1059,7 +1059,7 @@ public abstract class ScheduledServiceBase : BackgroundService
             }
             try
             {
-                await EndRunAsync(runNotice, serviceKey, error, runNotice.Cancelled || runCts?.IsCancellationRequested == true,
+                await EndRunAsync(runNotice, serviceKey, error, runNotice.Canceled || runCts?.IsCancellationRequested == true,
                     report: !shuttingDown && !declined);
                 if (executionEntered) broadcastEnd();
             }

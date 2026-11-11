@@ -33,7 +33,7 @@ public interface ISignalRNotificationService
     ///
     /// <paramref name="failedEvent"/> is the operation's own <c>*Complete</c> record (typed via the
     /// shared <see cref="IOperationComplete"/> contract) and MUST represent a failure terminal:
-    /// <c>Success=false, Status=Failed, Cancelled=false, Error=&lt;message&gt;</c>. Cancellation is a
+    /// <c>Success=false, Status=Failed, Canceled=false, Error=&lt;message&gt;</c>. Cancellation is a
     /// distinct terminal and must NOT be sent through this method.
     /// </summary>
     /// <param name="eventName">The SignalR event name (use SignalREvents constants, e.g. CacheClearComplete).</param>

@@ -475,7 +475,7 @@ struct CalibrationProgress<'a> {
 /// Each scenario tests a different cache structure pattern.
 /// Emits one progress tick per test scenario (honest step-level granularity - the
 /// individual measurements inside a scenario have no measurable sub-progress).
-/// Returns None when calibration could not run or was cancelled mid-way.
+/// Returns None when calibration could not run or was canceled mid-way.
 fn run_dynamic_calibration(
     cache_dir: &Path,
     is_network_fs: bool,
@@ -590,8 +590,8 @@ fn run_dynamic_calibration(
     for (step_index, scenario) in scenarios.iter().enumerate() {
         // Cooperative stdin-CANCEL: stop between tests, clean up, and report no result so
         // the caller can bail out instead of writing a half-calibrated final payload.
-        if cancel::is_cancelled() {
-            eprintln!("Calibration cancelled - cleaning up");
+        if cancel::is_canceled() {
+            eprintln!("Calibration canceled - cleaning up");
             let _ = fs::remove_dir_all(&calibration_dir);
             return None;
         }
@@ -1076,8 +1076,8 @@ fn calculate_cache_size(
         let calibration =
             run_dynamic_calibration(cache_dir, is_network_fs, Some(&calibration_progress));
 
-        if cancel::is_cancelled() {
-            anyhow::bail!("Cache size scan cancelled");
+        if cancel::is_canceled() {
+            anyhow::bail!("Cache size scan canceled");
         }
 
         // Build estimates info even for empty cache (shows filesystem capability)
@@ -1181,7 +1181,7 @@ fn calculate_cache_size(
             std::thread::sleep(std::time::Duration::from_millis(300));
 
             let scanned = dirs_for_monitor.load(Ordering::Relaxed);
-            if scanned >= total_hex_dirs || cancel::is_cancelled() {
+            if scanned >= total_hex_dirs || cancel::is_canceled() {
                 break;
             }
 
@@ -1221,7 +1221,7 @@ fn calculate_cache_size(
     // to reduce concurrent NFS operations which can cause stale file handles
     hex_dirs.par_iter().for_each(|hex_dir| {
         // Cooperative stdin-CANCEL: skip remaining directories so the binary exits quickly.
-        if cancel::is_cancelled() {
+        if cancel::is_canceled() {
             return;
         }
 
@@ -1271,8 +1271,8 @@ fn calculate_cache_size(
     // Wait for monitor to finish
     let _ = monitor_handle.join();
 
-    if cancel::is_cancelled() {
-        anyhow::bail!("Cache size scan cancelled");
+    if cancel::is_canceled() {
+        anyhow::bail!("Cache size scan canceled");
     }
 
     let scan_duration = start_time.elapsed();
@@ -1339,8 +1339,8 @@ fn calculate_cache_size(
         }
     };
 
-    if cancel::is_cancelled() {
-        anyhow::bail!("Cache size scan cancelled");
+    if cancel::is_canceled() {
+        anyhow::bail!("Cache size scan canceled");
     }
 
     print_deletion_time_recommendations(&estimates, false);
@@ -1439,8 +1439,8 @@ fn calculate_cache_size_network(
         total_bytes
     );
 
-    if cancel::is_cancelled() {
-        anyhow::bail!("Cache size scan cancelled");
+    if cancel::is_canceled() {
+        anyhow::bail!("Cache size scan canceled");
     }
 
     // Update progress
@@ -1498,8 +1498,8 @@ fn calculate_cache_size_network(
         _ => hex_dir_count as u64 * 257, // Estimate: 256 subdirs per hex dir + 1
     };
 
-    if cancel::is_cancelled() {
-        anyhow::bail!("Cache size scan cancelled");
+    if cancel::is_canceled() {
+        anyhow::bail!("Cache size scan canceled");
     }
 
     let scan_duration = start_time.elapsed();
@@ -1543,8 +1543,8 @@ fn calculate_cache_size_network(
         }
     };
 
-    if cancel::is_cancelled() {
-        anyhow::bail!("Cache size scan cancelled");
+    if cancel::is_canceled() {
+        anyhow::bail!("Cache size scan canceled");
     }
 
     print_deletion_time_recommendations(&estimates, true);
@@ -1567,7 +1567,7 @@ fn calculate_cache_size_network(
 
 fn main() -> anyhow::Result<()> {
     // Cooperative stdin-CANCEL: the scan loop, calibration loop, and progress monitor all
-    // poll cancel::is_cancelled() and bail out cleanly between items.
+    // poll cancel::is_canceled() and bail out cleanly between items.
     cancel::install();
 
     let mut args: Vec<String> = env::args().collect();

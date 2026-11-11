@@ -170,7 +170,7 @@ public partial class EpicMappingService
             Interlocked.Exchange(ref _isProcessingInt, 0);
             // A cancel or the window's end that came between the continue check and this call ends the sign-in here.
             _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
-                login.AttemptId, OperationStatus.Cancelled, "errors.integration.attemptExpired"));
+                login.AttemptId, OperationStatus.Canceled, "errors.integration.attemptExpired"));
             await NotifyLoginEndedAsync(login);
             throw new OperationCanceledException();
         }
@@ -253,17 +253,17 @@ public partial class EpicMappingService
         catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException &&
                                                     !window.IsCancellationRequested && DateTime.UtcNow < login.ExpiresAtUtc)
         {
-            _logger.LogInformation("Epic mapping auth cancelled");
+            _logger.LogInformation("Epic mapping auth canceled");
             if (reporter is not null)
             {
                 await reporter.CompleteAsync(
                     success: false,
-                    cancelled: true,
+                    canceled: true,
                     context: CreateEpicContext());
             }
             // The request this cancel ends answers 499, so a browser reads how its sign-in ended by its attempt id.
             _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
-                login.AttemptId, OperationStatus.Cancelled, "errors.integration.attemptExpired"));
+                login.AttemptId, OperationStatus.Canceled, "errors.integration.attemptExpired"));
             throw;
         }
         catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)
@@ -432,7 +432,7 @@ public partial class EpicMappingService
         // is left out.
         catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)
         {
-            _logger.LogInformation("Epic sign-in mapping cancelled");
+            _logger.LogInformation("Epic sign-in mapping canceled");
             try
             {
                 if (gamesMerge is null && games.Count > 0)
@@ -453,11 +453,11 @@ public partial class EpicMappingService
             }
             catch (Exception mergeEx)
             {
-                _logger.LogWarning(mergeEx, "Failed to keep the Epic games read before the sign-in mapping was cancelled");
+                _logger.LogWarning(mergeEx, "Failed to keep the Epic games read before the sign-in mapping was canceled");
             }
             await reporter.CompleteAsync(
                 success: false,
-                cancelled: true,
+                canceled: true,
                 context: CreateEpicContext());
         }
         catch (Exception ex)

@@ -81,11 +81,11 @@ public sealed class PersistentSessionExpiryService : ScheduledBackgroundService
 
             var result = await daemon.ProcessSessionExpiryAsync(nowUtc, stoppingToken);
 
-            if (result.FlaggedNeedsRelogin > 0 || result.Terminated > 0 || result.StalledFailed > 0 || result.AbandonedLoginsCancelled > 0)
+            if (result.FlaggedNeedsRelogin > 0 || result.Terminated > 0 || result.StalledFailed > 0 || result.AbandonedLoginsCanceled > 0)
             {
                 _logger.LogInformation(
-                    "[PersistentSessionExpiry] {Daemon}: flaggedNeedsRelogin={FlaggedNeedsRelogin}, terminated={Terminated}, stalledFailed={StalledFailed}, abandonedLoginsCancelled={AbandonedLoginsCancelled}",
-                    daemon.GetType().Name, result.FlaggedNeedsRelogin, result.Terminated, result.StalledFailed, result.AbandonedLoginsCancelled);
+                    "[PersistentSessionExpiry] {Daemon}: flaggedNeedsRelogin={FlaggedNeedsRelogin}, terminated={Terminated}, stalledFailed={StalledFailed}, abandonedLoginsCanceled={AbandonedLoginsCanceled}",
+                    daemon.GetType().Name, result.FlaggedNeedsRelogin, result.Terminated, result.StalledFailed, result.AbandonedLoginsCanceled);
             }
         }
         catch (OperationCanceledException)

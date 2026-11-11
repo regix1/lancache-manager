@@ -321,12 +321,12 @@ public sealed class SteamSessionPolicyTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task CancelledPicsRequestsDoNotReconnectAsync(bool cancelledBeforeRequest)
+    public async Task CanceledPicsRequestsDoNotReconnectAsync(bool canceledBeforeRequest)
     {
         using var fixture = new Fixture();
         fixture.Connect(EAccountType.Individual);
         using var cancel = new CancellationTokenSource();
-        if (cancelledBeforeRequest) await cancel.CancelAsync();
+        if (canceledBeforeRequest) await cancel.CancelAsync();
         var attempts = 0;
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => RunPicsAsync(fixture.Service, () =>
         {
@@ -334,7 +334,7 @@ public sealed class SteamSessionPolicyTests
             cancel.Cancel();
             throw new SteamConnectionLostException("Request interrupted");
         }, cancel.Token));
-        Assert.Equal(cancelledBeforeRequest ? 0 : 1, attempts);
+        Assert.Equal(canceledBeforeRequest ? 0 : 1, attempts);
         Assert.Equal(0, Get<long>(fixture.Service, "_sessionVersion"));
     }
 

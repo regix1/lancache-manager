@@ -194,7 +194,7 @@ test('scheduled announcements throttle ordinary text and announce lifecycle tran
     Date: { now: () => now },
     ANNOUNCEMENT_MIN_INTERVAL_MS: 5000,
     isTerminalNotificationStatus: (status) =>
-      ['completed', 'failed', 'cancelled', 'skipped'].includes(status)
+      ['completed', 'failed', 'canceled', 'skipped'].includes(status)
   });
   const card = {
     type: 'scheduled_prefill',
@@ -217,15 +217,15 @@ test('scheduled announcements throttle ordinary text and announce lifecycle tran
   assert.equal(announced.length, 2);
   for (let index = 0; index < 25; index++) hook(recovering);
   assert.equal(announced.length, 2);
-  hook({ ...recovering, status: 'cancelling' });
+  hook({ ...recovering, status: 'canceling' });
   assert.equal(announced.length, 3);
-  assert.match(announced[2], /prefill.progress.cancelling/);
+  assert.match(announced[2], /prefill.progress.canceling/);
   const terminal = { ...card, message: 'Finished', status: 'completed' };
   hook(terminal);
   hook(terminal);
   assert.equal(announced.length, 4);
 
-  for (const status of ['completed', 'failed', 'cancelled', 'skipped']) {
+  for (const status of ['completed', 'failed', 'canceled', 'skipped']) {
     for (const progressAriaValueText of [undefined, 'Everything was already cached']) {
       state = undefined;
       ref = undefined;

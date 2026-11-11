@@ -33,7 +33,7 @@ public class OperationStatusResponse
 {
     public Guid Id { get; set; }
 
-    /// <summary>False means the operation is no longer tracked (completed, failed, cancelled, or never existed).</summary>
+    /// <summary>False means the operation is no longer tracked (completed, failed, canceled, or never existed).</summary>
     public bool Active { get; set; }
 
     public double PercentComplete { get; set; }
@@ -82,7 +82,6 @@ public class WaitingOperationResponse
 /// </summary>
 public class OperationCancelResponse
 {
-    public string Message { get; set; } = string.Empty;
     public Guid OperationId { get; set; }
     public OperationStatus Status { get; set; }
 
@@ -95,6 +94,5 @@ public class OperationCancelResponse
 /// </summary>
 public class OperationForceKillResponse
 {
-    public string Message { get; set; } = string.Empty;
     public Guid OperationId { get; set; }
 }

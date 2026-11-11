@@ -255,14 +255,71 @@ public class RetroGroupingRuleTests
         Assert.Equal(2, page.TotalPages);
     }
 
-    private static async Task<RetroDownloadResponse> GetPageAsync(RetroDownloadQuery query)
+    /// <summary>
+    /// Only unmapped Steam content is unknown. A service that is not Steam can log a title that
+    /// reads "Unknown/Other", and that row is a title like any other: hiding unknown games keeps it
+    /// and the unknown bucket leaves it out.
+    /// </summary>
+    [Fact]
+    public async Task ANonSteamTitleNamedLikeTheUnknownBucketIsNeitherHiddenNorMerged()
     {
-        var controller = await NewControllerAsync();
+        List<Download> downloads =
+        [
+            NewDownload(1, "wsus", "10.0.0.1", null, null, "Unknown/Other", Day.AddHours(10), 10, 0),
+            NewDownload(2, "steam", "10.0.0.2", 2002, null, null, Day.AddHours(11), 10, 0)
+        ];
+
+        var hidden = await GetPageAsync(new RetroDownloadQuery { HideUnknown = true }, downloads);
+        Assert.Equal("no-depot-wsus-10.0.0.1-1", Assert.Single(hidden.Items).Id);
+
+        var merged = await GetPageAsync(new RetroDownloadQuery
+        {
+            GroupByGame = true,
+            MergeAcrossServices = true,
+            GroupUnknownGames = true
+        }, downloads);
+        Assert.Equal(["game-Unknown/Other", "unknown-other"], merged.Items.Select(i => i.Id).Order(StringComparer.Ordinal));
+        Assert.Equal(1, Assert.Single(merged.Items, i => i.Id == "unknown-other").RequestCount);
+    }
+
+    /// <summary>
+    /// A Steam row with no name, or with the service echoed back as its name, is unmapped content:
+    /// hiding unknown games removes it and the unknown bucket collects both kinds.
+    /// </summary>
+    [Fact]
+    public async Task ANamelessSteamRowIsHiddenAndMergedIntoTheUnknownBucket()
+    {
+        List<Download> downloads =
+        [
+            NewDownload(1, "steam", "10.0.0.1", 1001, 620, "Portal 2", Day.AddHours(10), 10, 0),
+            NewDownload(2, "steam", "10.0.0.2", 2002, null, null, Day.AddHours(11), 10, 0),
+            NewDownload(3, "steam", "10.0.0.3", 2003, null, "steam", Day.AddHours(12), 10, 0)
+        ];
+
+        var hidden = await GetPageAsync(new RetroDownloadQuery { HideUnknown = true }, downloads);
+        Assert.Equal("depot-1001-10.0.0.1", Assert.Single(hidden.Items).Id);
+
+        var merged = await GetPageAsync(new RetroDownloadQuery
+        {
+            GroupByGame = true,
+            MergeAcrossServices = true,
+            GroupUnknownGames = true
+        }, downloads);
+        Assert.Equal(["game-appid-620", "unknown-other"], merged.Items.Select(i => i.Id).Order(StringComparer.Ordinal));
+        Assert.Equal(2, Assert.Single(merged.Items, i => i.Id == "unknown-other").RequestCount);
+    }
+
+    private static Task<RetroDownloadResponse> GetPageAsync(RetroDownloadQuery query) =>
+        GetPageAsync(query, Seed());
+
+    private static async Task<RetroDownloadResponse> GetPageAsync(RetroDownloadQuery query, List<Download> downloads)
+    {
+        var controller = await NewControllerAsync(downloads);
         var result = await controller.GetRetroDownloadsAsync(query);
         return Assert.IsType<RetroDownloadResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
     }
 
-    private static async Task<DownloadsController> NewControllerAsync()
+    private static async Task<DownloadsController> NewControllerAsync(List<Download> downloads)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"retro-grouping-{Guid.NewGuid():N}")
@@ -270,7 +327,7 @@ public class RetroGroupingRuleTests
 
         await using (var seed = new AppDbContext(options))
         {
-            seed.Downloads.AddRange(Seed());
+            seed.Downloads.AddRange(downloads);
             await seed.SaveChangesAsync();
         }
 

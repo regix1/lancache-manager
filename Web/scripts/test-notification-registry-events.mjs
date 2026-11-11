@@ -60,8 +60,14 @@ const evictionScanSteps = (locale) => {
 const interruptedByRestart = (locale) =>
   JSON.parse(readFileSync(`src/i18n/locales/${locale}.json`, 'utf8')).signalr.generic
     .interruptedByRestart;
-const genericCancelled = (locale) =>
-  JSON.parse(readFileSync(`src/i18n/locales/${locale}.json`, 'utf8')).signalr.generic.cancelled;
+const genericCanceled = (locale) =>
+  JSON.parse(readFileSync(`src/i18n/locales/${locale}.json`, 'utf8')).signalr.generic.canceled;
+const importCompleted = (locale) =>
+  JSON.parse(readFileSync(`src/i18n/locales/${locale}.json`, 'utf8')).management.database.import
+    .completed;
+const logRemovalFatal = (locale) =>
+  JSON.parse(readFileSync(`src/i18n/locales/${locale}.json`, 'utf8')).signalr.logRemoval.error
+    .fatal;
 const logProcessingFailures = (locale) => {
   const { failed, failedForDatasource, failedForDatasourceWithError } = JSON.parse(
     readFileSync(`src/i18n/locales/${locale}.json`, 'utf8')
@@ -72,6 +78,16 @@ const logProcessingFailures = (locale) => {
     'signalr.logProcessing.failedForDatasourceWithError': failedForDatasourceWithError
   };
 };
+const cacheClearEndings = (locale) => {
+  const { cleared, clearedAcross, completed } = JSON.parse(
+    readFileSync(`src/i18n/locales/${locale}.json`, 'utf8')
+  ).signalr.cacheClear;
+  return {
+    'signalr.cacheClear.cleared': cleared,
+    'signalr.cacheClear.clearedAcross': clearedAcross,
+    'signalr.cacheClear.completed': completed
+  };
+};
 const loadLocalizedModules = async (locale) => {
   if (localizedModules.has(locale)) return localizedModules.get(locale);
   const messages =
@@ -79,8 +95,11 @@ const loadLocalizedModules = async (locale) => {
       ? {
           ...evictionScanSteps('zh'),
           ...logProcessingFailures('zh'),
+          ...cacheClearEndings('zh'),
           'signalr.generic.interruptedByRestart': interruptedByRestart('zh'),
-          'signalr.generic.cancelled': genericCancelled('zh'),
+          'signalr.generic.canceled': genericCanceled('zh'),
+          'signalr.logRemoval.error.fatal': logRemovalFatal('zh'),
+          'management.database.import.completed': importCompleted('zh'),
           'signalr.logProcessing.progress': '处理中: {{mbProcessed}} MB / {{mbTotal}} MB',
           'signalr.logProcessing.progressSource':
             '{{datasourceName}}：处理中：{{mbProcessed}} MB / {{mbTotal}} MB',
@@ -91,8 +110,11 @@ const loadLocalizedModules = async (locale) => {
       : {
           ...evictionScanSteps('en'),
           ...logProcessingFailures('en'),
+          ...cacheClearEndings('en'),
           'signalr.generic.interruptedByRestart': interruptedByRestart('en'),
-          'signalr.generic.cancelled': genericCancelled('en'),
+          'signalr.generic.canceled': genericCanceled('en'),
+          'signalr.logRemoval.error.fatal': logRemovalFatal('en'),
+          'management.database.import.completed': importCompleted('en'),
           'signalr.logProcessing.progress': 'Processing: {{mbProcessed}} MB of {{mbTotal}} MB',
           'signalr.logProcessing.progressSource':
             '{{datasourceName}}: Processing: {{mbProcessed}} MB of {{mbTotal}} MB',
@@ -634,15 +656,15 @@ test('a canceled batch leaves on its own unless Keep Notifications Visible is on
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
     for (const [keepVisible, status, leaves] of [
-      [false, 'cancelled', true],
-      [true, 'cancelled', false],
+      [false, 'canceled', true],
+      [true, 'canceled', false],
       [false, 'failed', false]
     ]) {
       const cards = liftLocalCards({ keepVisible });
       cards.localRef.current = [bulkRemovalCard({})];
       cards.updateNotification('bulk', {
         status,
-        details: status === 'cancelled' ? { cancelled: true } : {}
+        details: status === 'canceled' ? { canceled: true } : {}
       });
       // Two ticks: the fade timer the hold starts does not fire inside the same tick.
       mock.timers.tick(10 * 60 * 1000);
@@ -656,7 +678,7 @@ test('a canceled batch leaves on its own unless Keep Notifications Visible is on
   }
 });
 
-/** The shipped batch finalizer, cancelling the batch card in `cards` after one of three items failed. */
+/** The shipped batch finalizer, canceling the batch card in `cards` after one of three items failed. */
 const cancelBatchWithFailure = (cards) =>
   bindLifted(
     liftConstArrow(
@@ -669,12 +691,12 @@ const cancelBatchWithFailure = (cards) =>
     succeeded: 1,
     failed: 1,
     total: 3,
-    cancelled: true,
+    canceled: true,
     t: (key) => key,
     updateNotification: cards.updateNotification,
     text: {
-      cancelledKey: 'cancelled',
-      cancelledWithFailuresKey: 'cancelledWithFailures',
+      canceledKey: 'canceled',
+      canceledWithFailuresKey: 'canceledWithFailures',
       partialFailureKey: 'partialFailure',
       completeKey: 'complete'
     }
@@ -690,9 +712,9 @@ test('a canceled batch keeps an item failure that never reached the server as a 
     assert.deepEqual(cards.removing, [], 'no card with a failure only it holds leaves on its own');
     assert.deepEqual(
       cards.localRef.current.map((card) => `${card.status}:${card.message}`),
-      ['failed:cancelledWithFailures']
+      ['failed:canceledWithFailures']
     );
-    assert.equal(cards.localRef.current[0].details.cancelled, false, 'drawn red, not gray');
+    assert.equal(cards.localRef.current[0].details.canceled, false, 'drawn red, not gray');
   } finally {
     mock.timers.reset();
   }
@@ -746,7 +768,7 @@ test('a finished batch with some failed items is an amber card that stays until 
       succeeded: 2,
       failed: 1,
       total: 3,
-      cancelled: false,
+      canceled: false,
       t: (key) => key,
       updateNotification: cards.updateNotification,
       text: { partialFailureKey: 'partialFailure', completeKey: 'complete' }
@@ -788,7 +810,7 @@ test('a local amber card stays until closed, and a local green card leaves', () 
 test('a finished or canceled batch stays for the popup time, also when Keep Notifications Visible is turned off', () => {
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
-    for (const status of ['completed', 'cancelled']) {
+    for (const status of ['completed', 'canceled']) {
       for (const path of ['ends', 'setting turned off']) {
         const label = `${status}, ${path}`;
         const cards = liftLocalCards();
@@ -847,7 +869,7 @@ test('database reset events fill in the text of the card its run row opens', asy
   assert.equal(patches[2].patch.progress, 100);
 });
 
-for (const status of ['completed', 'failed', 'cancelled']) {
+for (const status of ['completed', 'failed', 'canceled']) {
   for (const configured of [false, true]) {
     test(`${status} completion text with a ${configured ? 'present' : 'missing'} message callback`, () => {
       const existing = {
@@ -863,7 +885,7 @@ for (const status of ['completed', 'failed', 'cancelled']) {
         ? {
             getSuccessMessage: () => 'Required completion sentence',
             getFailureMessage: () => 'Required failure sentence',
-            getCancelledMessage: () => 'Required cancellation sentence'
+            getCanceledMessage: () => 'Required cancellation sentence'
           }
         : {};
       const { patches, dispatchDetail } = recordPatches(existing);
@@ -875,7 +897,7 @@ for (const status of ['completed', 'failed', 'cancelled']) {
         operationId: 'operation-1',
         success: status === 'completed',
         status,
-        ...(status === 'cancelled' ? { message: 'Cancellation detail' } : {})
+        ...(status === 'canceled' ? { message: 'Cancellation detail' } : {})
       });
       const [{ source, patch }] = patches;
       assert.equal(source, 'completion');
@@ -884,16 +906,16 @@ for (const status of ['completed', 'failed', 'cancelled']) {
         ? {
             completed: 'Required completion sentence',
             failed: 'Required failure sentence',
-            cancelled: 'Required cancellation sentence'
+            canceled: 'Required cancellation sentence'
           }
         : {
             completed: 'Meaningful progress',
             failed: 'signalr.generic.failed',
-            cancelled: 'Cancellation detail'
+            canceled: 'Cancellation detail'
           };
       assert.equal(patch.message, sentences[status]);
       assert.equal(patch.error, status === 'failed' ? sentences.failed : undefined);
-      assert.equal(patch.details.cancelled, status === 'cancelled' ? true : undefined);
+      assert.equal(patch.details.canceled, status === 'canceled' ? true : undefined);
     });
   }
 }
@@ -924,7 +946,7 @@ for (const locale of ['en', 'zh']) {
     const entry = localized.NOTIFICATION_REGISTRY.find(
       (candidate) => candidate.type === 'log_removal'
     );
-    const ending = (message) => {
+    const ending = (stageKey, context) => {
       const { patches, dispatchDetail } = recordPatches(undefined);
       localized.buildCompleteHandler(
         entry,
@@ -934,22 +956,29 @@ for (const locale of ['en', 'zh']) {
         operationId: 'log-removal-1',
         success: false,
         status: 'failed',
-        cancelled: false,
+        canceled: false,
         service: 'steam',
-        message
+        stageKey,
+        context
       });
       return patches[0].patch;
     };
-    // The log removal event carries its failure reason in message and has no error field.
+    // The log removal event carries the run's ending key and its values, and has no error field.
     const restarted = ending('signalr.generic.interruptedByRestart');
     const sentence = interruptedByRestart(locale);
     assert.ok(sentence, `${locale}.json has signalr.generic.interruptedByRestart`);
     assert.equal(restarted.message, sentence);
     assert.equal(restarted.error, sentence);
-    // A reason the server wrote as a sentence still reads as written.
-    const written = ending('The access.log file is read-only');
-    assert.equal(written.message, 'The access.log file is read-only');
-    assert.equal(written.error, 'The access.log file is read-only');
+    // The child's own reason rides as the value of the translated failure line.
+    const expected = logRemovalFatal(locale).replace(
+      '{{errorDetail}}',
+      'The access.log file is read-only'
+    );
+    const written = ending('signalr.logRemoval.error.fatal', {
+      errorDetail: 'The access.log file is read-only'
+    });
+    assert.equal(written.message, expected);
+    assert.equal(written.error, expected);
   });
 
   test(`a log processing run a restart cut short reads in ${locale}, as a reload shows it`, async () => {
@@ -967,7 +996,7 @@ for (const locale of ['en', 'zh']) {
         operationId: 'log-processing-1',
         success: false,
         status: 'failed',
-        cancelled: false,
+        canceled: false,
         message,
         entriesProcessed: 0,
         linesProcessed: 0,
@@ -1003,7 +1032,7 @@ for (const locale of ['en', 'zh']) {
         operationId: 'log-processing-1',
         success: false,
         status: 'failed',
-        cancelled: false,
+        canceled: false,
         entriesProcessed: 0,
         linesProcessed: 0,
         stageKey: null,
@@ -1040,8 +1069,8 @@ for (const locale of ['en', 'zh']) {
   });
 
   for (const [type, eventPrefix, sentence] of [
-    ['log_processing', 'log-processing-1', 'Log processing was cancelled'],
-    ['log_removal', 'log-removal-1', 'Service removal for steam in access.log was cancelled']
+    ['log_processing', 'log-processing-1', 'Log processing was canceled'],
+    ['log_removal', 'log-removal-1', 'Service removal for steam in access.log was canceled']
   ]) {
     test(`a canceled ${type} run reads in ${locale}, not as the English sentence the server sends`, async () => {
       const localized = await loadLocalizedModules(locale);
@@ -1054,19 +1083,19 @@ for (const locale of ['en', 'zh']) {
       )({
         operationId: eventPrefix,
         success: false,
-        status: 'cancelled',
-        cancelled: true,
+        status: 'canceled',
+        canceled: true,
         service: 'steam',
         message: sentence,
         stageKey: 'signalr.logRemoval.removing',
         context: { service: 'steam' }
       });
       const [{ patch }] = patches;
-      const text = genericCancelled(locale);
-      assert.ok(text, `${locale}.json has signalr.generic.cancelled`);
+      const text = genericCanceled(locale);
+      assert.ok(text, `${locale}.json has signalr.generic.canceled`);
       assert.equal(patch.message, text);
       assert.equal(patch.error, undefined);
-      assert.equal(patch.details.cancelled, true);
+      assert.equal(patch.details.canceled, true);
     });
   }
 }
@@ -1153,30 +1182,60 @@ test('a prefill stage change keeps the line, and an eviction tick keeps its warn
   assert.ok(!('detailMessage' in eviction.patches[0].patch));
 });
 
-test('required cache and import summaries remain intact without optional stage keys', () => {
-  assert.equal(
-    modules.formatCacheClearCompleteMessage({
-      success: true,
-      message: 'Removed 12 files (42 MiB)'
-    }),
-    'Removed 12 files (42 MiB)'
-  );
-  assert.equal(
-    modules.formatDataImportCompleteMessage({
-      success: true,
-      message: 'Imported 37 entries in 8 seconds'
-    }),
-    'Imported 37 entries in 8 seconds'
-  );
-  assert.equal(
-    modules.formatCacheClearCompleteMessage({
-      success: true,
-      message: 'Removed 12 files',
-      stageKey: 'signalr.cacheClear.complete'
-    }),
-    'signalr.cacheClear.complete'
-  );
-});
+for (const locale of ['en', 'zh']) {
+  test(`a finished cache clear reads its key in ${locale}, never the server's sentence`, async () => {
+    const localized = await loadLocalizedModules(locale);
+    const sentences = cacheClearEndings(locale);
+    for (const [key, sentence] of Object.entries(sentences)) {
+      assert.ok(sentence, `${locale}.json has ${key}`);
+    }
+    assert.equal(
+      localized.formatCacheClearCompleteMessage({
+        operationId: 'clear-1',
+        success: true,
+        stageKey: 'signalr.cacheClear.clearedAcross',
+        context: { directories: 7, count: 2, datasources: 'steam, epic' },
+        message: 'Successfully cleared 7 cache directories across 2 datasources (steam, epic)'
+      }),
+      sentences['signalr.cacheClear.clearedAcross']
+        .replace('{{directories}}', '7')
+        .replace('{{count}}', '2')
+        .replace('{{datasources}}', 'steam, epic')
+    );
+    assert.equal(
+      localized.formatCacheClearCompleteMessage({
+        operationId: 'clear-2',
+        success: true,
+        stageKey: 'signalr.cacheClear.completed',
+        message: 'Cache clear completed'
+      }),
+      sentences['signalr.cacheClear.completed']
+    );
+  });
+}
+
+for (const locale of ['en', 'zh']) {
+  test(`a finished import reads its summary key in ${locale} with counts formatted like its detail line`, async () => {
+    const localized = await loadLocalizedModules(locale);
+    const sentence = importCompleted(locale);
+    assert.ok(sentence, `${locale}.json has management.database.import.completed`);
+    assert.equal(
+      localized.formatDataImportCompleteMessage({
+        operationId: 'import-1',
+        success: true,
+        stageKey: 'management.database.import.completed',
+        message: 'Import completed: 12,345 imported, 0 skipped, 2 errors',
+        recordsImported: 12345,
+        recordsSkipped: 0,
+        recordsErrors: 2
+      }),
+      sentence
+        .replace('{{imported}}', (12345).toLocaleString())
+        .replace('{{skipped}}', '0')
+        .replace('{{errors}}', '2')
+    );
+  });
+}
 
 test('log processing recovery follows the canonical active datasource in both locales', async () => {
   for (const locale of ['en', 'zh']) {
@@ -1355,21 +1414,23 @@ test('cache clear live, recovered, and completed messages retain datasource scop
     'Clearing cache'
   );
 
-  const success = entry.complete.getSuccessMessage(
-    { success: true, message: 'Removed 3 files' },
-    { details: { datasourceName: 'steam' } }
-  );
-  assert.equal(success, 'steam: Removed 3 files');
+  const cleared = {
+    success: true,
+    stageKey: 'signalr.cacheClear.cleared',
+    context: { directories: 3 },
+    message: 'Successfully cleared 3 cache directories'
+  };
+  const success = entry.complete.getSuccessMessage(cleared, {
+    details: { datasourceName: 'steam' }
+  });
+  assert.equal(success, 'steam: Successfully cleared 3 cache directories');
   assert.equal(
-    entry.complete.getSuccessMessage(
-      { success: true, message: 'Removed 3 files' },
-      { details: {} }
-    ),
-    'Removed 3 files'
+    entry.complete.getSuccessMessage(cleared, { details: {} }),
+    'Successfully cleared 3 cache directories'
   );
 });
 
-test('incomplete localized interpolation retains the same server sentence', async () => {
+test('a scheduled prefill line is its key translated with the values the server sent', async () => {
   const i18n = moduleUrl(`export default { t: (key, context = {}) => {
     if (key !== 'signalr.scheduledPrefill.runningWithCounts') return key;
     return 'Finished {{completed}} of {{total}}'.replace(/{{(\\w+)}}/g, (token, name) =>
@@ -1386,15 +1447,12 @@ test('incomplete localized interpolation retains the same server sentence', asyn
   );
   const sentence = bindLifted(`(${declaration.getText(source)})`, helpers);
   assert.equal(
-    sentence('signalr.scheduledPrefill.runningWithCounts', { completed: 2 }, 'Finished 2 of 5'),
+    sentence('signalr.scheduledPrefill.runningWithCounts', { completed: 2, total: 5 }),
     'Finished 2 of 5'
   );
+  // No key: the caller's fallback key names the line instead of an empty card.
   assert.equal(
-    sentence(
-      'signalr.scheduledPrefill.runningWithCounts',
-      { completed: 2, total: 5 },
-      'Finished 2 of 5'
-    ),
+    sentence(undefined, { completed: 2, total: 5 }, 'signalr.scheduledPrefill.runningWithCounts'),
     'Finished 2 of 5'
   );
 });
@@ -1419,6 +1477,57 @@ test('a terminal error that is a locale key is translated', async () => {
   assert.equal(message({ error: 'disk full' }), 'disk full');
 });
 
+test('a terminal error that is its own stage key reads with the values in its context', async () => {
+  const zh = JSON.parse(readFileSync('src/i18n/locales/zh.json', 'utf8')).signalr.depotMapping;
+  const messages = {
+    'signalr.depotMapping.github.networkError': zh.github.networkError,
+    'signalr.depotMapping.github.httpFailed': zh.github.httpFailed
+  };
+  const zhI18n = moduleUrl(`
+    const messages = ${JSON.stringify(messages)};
+    export default {
+      exists: (key) => Object.hasOwn(messages, key),
+      t: (key, context = {}) => (messages[key] ?? key).replace(/{{(\\w+)}}/g, (token, name) =>
+        context[name] === undefined ? token : String(context[name]))
+    };
+  `);
+  const constantsUrl = await compileToUrl('../src/contexts/notifications/constants.ts');
+  const stageKeyUrl = await compileToUrl('../src/utils/stageKeyMessage.ts', { '@/i18n': zhI18n });
+  const entriesUrl = await compileToUrl('../src/contexts/notifications/registryEntries.ts', {
+    './constants': constantsUrl,
+    '@utils/stageKeyMessage': stageKeyUrl,
+    '@/i18n': zhI18n
+  });
+  const { errorOrStageKeyMessage } = await import(entriesUrl);
+  const zhModules = await loadNotificationModules(zhI18n);
+  const event = {
+    operationId: 'github-1',
+    success: false,
+    error: 'signalr.depotMapping.github.networkError',
+    stageKey: 'signalr.depotMapping.github.networkError',
+    context: { errorDetail: 'reset', isReconnecting: false, reconnectAttempt: null }
+  };
+  const expected = zh.github.networkError.replace('{{errorDetail}}', 'reset');
+
+  const { patches, dispatchDetail } = recordPatches(undefined);
+  zhModules.buildCompleteHandler({ type: 'depot_mapping' }, {}, dispatchDetail)(event);
+  assert.equal(patches[0].patch.message, expected);
+  assert.equal(patches[0].patch.error, expected);
+  const message = errorOrStageKeyMessage('signalr.depotMapping.failed');
+  assert.equal(message(event), expected);
+  for (const text of [patches[0].patch.message, message(event)]) {
+    assert.match(text, /reset/);
+    assert.doesNotMatch(text, /\{\{/);
+  }
+
+  // An error that is another key gets none of the event's values; plain text passes through.
+  assert.equal(
+    message({ ...event, error: 'signalr.depotMapping.github.httpFailed' }),
+    zh.github.httpFailed
+  );
+  assert.equal(message({ ...event, error: 'disk full' }), 'disk full');
+});
+
 test('a skipped eviction scan keeps the reason whichever of its two terminal events arrives last', () => {
   const entry = modules.NOTIFICATION_REGISTRY.find(
     (candidate) => candidate.type === 'eviction_scan'
@@ -1434,7 +1543,7 @@ test('a skipped eviction scan keeps the reason whichever of its two terminal eve
     unEvicted: 0,
     error: null,
     context: { totalProcessed: 0, totalEvicted: 0, totalUnEvicted: 0 },
-    cancelled: false,
+    canceled: false,
     skipped: true
   };
   const scheduleEmit = {
@@ -1444,7 +1553,7 @@ test('a skipped eviction scan keeps the reason whichever of its two terminal eve
     percentComplete: 0,
     error: null,
     context: null,
-    cancelled: false,
+    canceled: false,
     status: 'skipped'
   };
   for (const [label, events] of [

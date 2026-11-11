@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LancacheManager.Tests;
 
 /// <summary>
-/// Behavioural coverage for the service-detection positive-evidence eviction gate
+/// Behavioral coverage for the service-detection positive-evidence eviction gate
 /// (GameCacheDetectionDataService.SaveServicesAsync) and the Downloads-keyed service
 /// self-heal (CacheReconciliationService.UnevictCachedServiceDetectionsAsync →
 /// GameCacheDetectionDataService.GetServicesToUnevictAsync). Before the fix, a service
@@ -191,7 +191,7 @@ public class ServiceEvictionGateTests
 
     /// <summary>
     /// The no-live-Downloads sub-case: a service ABSENT from the scan with NO
-    /// Downloads at all has no live evidence, so it is still evicted (matches prior behaviour
+    /// Downloads at all has no live evidence, so it is still evicted (matches prior behavior
     /// for the genuinely-gone case).
     /// </summary>
     [Fact]

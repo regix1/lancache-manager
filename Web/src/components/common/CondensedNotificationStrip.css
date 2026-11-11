@@ -166,7 +166,7 @@ div:has(> .condensed-strip:last-child) {
   }
 }
 
-/* One segment's goodbye while others stay: it fades and hands its width to its neighbours in
+/* One segment's goodbye while others stay: it fades and hands its width to its neighbors in
    the same motion (flex-grow is what the survivors divide the line by), instead of blinking
    off and snapping them wider. Same duration and curve as the whole-line fade. The compound
    selector outranks the pulse, so a leaving live segment stops breathing and just goes. */
@@ -210,7 +210,7 @@ div:has(> .condensed-strip:last-child) {
    that clipping is unreliable in Chromium: the reference box is computed to include the shadow's
    own boundaries, so an opacity recomposite (this band fades in and out) can leave the shadow
    unclipped and it blooms in every direction, upward over the line as well as down. The symptom is
-   a thin line intermittently rendering as a fat coloured slab. A gradient background cannot do
+   a thin line intermittently rendering as a fat colored slab. A gradient background cannot do
    that at all, because a background is painted inside the element's own box by definition. There
    is no clip to fail, so there is no recomposite that can change the painted height.
 
@@ -276,6 +276,12 @@ div:has(> .condensed-strip:last-child) {
      costs nothing at rest because the panel only exists while open or closing. */
   will-change: transform, opacity;
   animation: condensedStripPanelIn 0.22s cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+/* Dark themes draw no shadow: the panel keeps the bar's fill and bottom border, which already
+   set it apart from the page. */
+[data-theme='dark'] .condensed-strip-panel {
+  box-shadow: none;
 }
 
 @keyframes condensedStripPanelIn {

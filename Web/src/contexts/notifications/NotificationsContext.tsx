@@ -106,6 +106,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   const isConnectedRef = useRef(isConnected);
   isConnectedRef.current = isConnected;
   const snapshotRetryRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // A read that fails after the provider unmounted must not schedule another.
+  const mountedRef = useRef(true);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
   const sessionBeforeRef = useRef(sessionId);
@@ -250,6 +252,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         // No push comes for a run that already ended, so a failed question is asked again on the
         // run list's schedule. While disconnected or signed out, the reconnect or the new session's
         // snapshot asks instead.
+        if (!mountedRef.current || !waitersRef.current.has(waiter)) return;
         waiter.retry = setTimeout(() => {
           if (isAdminRef.current && isConnectedRef.current) follow(waiter, true);
         }, RUN_LIST_RETRY_DELAY_MS);
@@ -352,6 +355,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     }
     if (!snapshot) {
       resyncPendingRef.current = true;
+      if (!mountedRef.current) return;
       // A run that ended while this browser could not read the list keeps its card, or its closed
       // card, and its waiters busy until a read succeeds, so ask again. The reconnect asks for itself.
       snapshotRetryRef.current = setTimeout(() => {
@@ -495,7 +499,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       const cancel: RunEntry['cancel'] = {};
       for (const key of LIVE_ONLY_CANCEL_DETAIL_KEYS)
         if (patch.details && key in patch.details) cancel[key] = patch.details[key];
-      if (patch.status === 'cancelling') cancel.cancelling = true;
+      if (patch.status === 'canceling') cancel.canceling = true;
       storeRef.current = setRunCancel(storeRef.current, id, cancel);
       commit();
     },
@@ -607,15 +611,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       );
   }, [scheduleAutoDismiss, fadeLeavingRuns, commit]);
 
-  React.useEffect(
-    () => () => {
-      for (const timerId of autoDismissTimersRef.current.values()) clearTimeout(timerId);
-      autoDismissTimersRef.current.clear();
+  React.useEffect(() => {
+    mountedRef.current = true;
+    // Both refs keep one Map and one Set for the provider's whole life.
+    const timers = autoDismissTimersRef.current;
+    const waiters = waitersRef.current;
+    return () => {
+      mountedRef.current = false;
+      for (const timerId of timers.values()) clearTimeout(timerId);
+      timers.clear();
       clearTimeout(snapshotRetryRef.current);
-      for (const waiter of waitersRef.current) clearTimeout(waiter.retry);
-    },
-    []
-  );
+      for (const waiter of waiters) clearTimeout(waiter.retry);
+    };
+  }, []);
 
   // Snapshot on mount (admin-only - the run list requires admin access).
   React.useEffect(() => {
@@ -681,7 +689,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     () =>
       runs.some(
         (n) =>
-          REMOVAL_TYPES.includes(n.type) && (n.status === 'running' || n.status === 'cancelling')
+          REMOVAL_TYPES.includes(n.type) && (n.status === 'running' || n.status === 'canceling')
       ),
     [runs]
   );

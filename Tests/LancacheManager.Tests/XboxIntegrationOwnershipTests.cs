@@ -38,7 +38,7 @@ public partial class XboxScheduledRefreshProgressTests
         }
 
         [Fact]
-        public async Task PendingAttemptCannotBeCancelledByAnotherSessionOrWithoutItsId()
+        public async Task PendingAttemptCannotBeCanceledByAnotherSessionOrWithoutItsId()
         {
             using var auth = new StubDeviceCodeHandler();
             using var harness = new Harness(authHandler: auth);
@@ -55,7 +55,7 @@ public partial class XboxScheduledRefreshProgressTests
         }
 
         [Fact]
-        public async Task CancelledHarvestCannotCommitOrRetireTheNextAttempt()
+        public async Task CanceledHarvestCannotCommitOrRetireTheNextAttempt()
         {
             using var auth = new StubDeviceCodeHandler
             {
@@ -88,8 +88,8 @@ public partial class XboxScheduledRefreshProgressTests
 
             await WaitForAsync(() => harness.Service.GetAuthStatus(owner, first.AttemptId).LoginEnding is not null);
             var firstEnding = harness.Service.GetAuthStatus(owner, first.AttemptId).LoginEnding;
-            Assert.Equal(OperationStatus.Cancelled, firstEnding!.Status);
-            Assert.Equal("signalr.xbox.mapping.cancelled", firstEnding.StageKey);
+            Assert.Equal(OperationStatus.Canceled, firstEnding!.Status);
+            Assert.Equal("signalr.xbox.mapping.canceled", firstEnding.StageKey);
             Assert.Equal(OperationStatus.Completed, harness.Service.GetAuthStatus(owner, next.AttemptId).LoginEnding!.Status);
             Assert.Null(harness.Service.GetAuthStatus(owner with { SessionId = Guid.NewGuid() }, next.AttemptId).LoginEnding);
             Assert.Null(harness.Service.GetAuthStatus(owner).LoginEnding);
@@ -209,10 +209,10 @@ public partial class XboxScheduledRefreshProgressTests
 
             await WaitForAsync(() => harness.Service.GetAuthStatus(owner, start.AttemptId).LoginEnding is not null);
             var ending = harness.Service.GetAuthStatus(owner, start.AttemptId).LoginEnding;
-            Assert.Equal(OperationStatus.Cancelled, ending!.Status);
-            Assert.Equal("signalr.xbox.mapping.cancelled", ending.StageKey);
+            Assert.Equal(OperationStatus.Canceled, ending!.Status);
+            Assert.Equal("signalr.xbox.mapping.canceled", ending.StageKey);
             var terminal = Assert.Single(harness.Notifications.XboxLifecycleEvents(), e => e.IsTerminal);
-            Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+            Assert.Equal(OperationStatus.Canceled, terminal.Status);
         }
 
         private static async Task<XboxDeviceCodeChallenge> StartSignInHeldInBannerPassAsync(
@@ -280,7 +280,7 @@ public partial class XboxScheduledRefreshProgressTests
             harness.Service.CancelLogin(shared, start.AttemptId);
             await WaitForAsync(() => !harness.Service.GetAuthStatus().LoginInProgress);
             await WaitForAsync(() => harness.Service.GetAuthStatus(shared, start.AttemptId).LoginEnding is not null);
-            Assert.Equal(OperationStatus.Cancelled, harness.Service.GetAuthStatus(shared, start.AttemptId).LoginEnding!.Status);
+            Assert.Equal(OperationStatus.Canceled, harness.Service.GetAuthStatus(shared, start.AttemptId).LoginEnding!.Status);
         }
 
         [Fact]
@@ -326,7 +326,7 @@ public partial class XboxScheduledRefreshProgressTests
         }
 
         [Fact]
-        public async Task OwnerlessRecoveryIsExplicitAndCancelledRecoveryPreservesCredentials()
+        public async Task OwnerlessRecoveryIsExplicitAndCanceledRecoveryPreservesCredentials()
         {
             using var auth = new StubDeviceCodeHandler();
             using var harness = new Harness(authHandler: auth);

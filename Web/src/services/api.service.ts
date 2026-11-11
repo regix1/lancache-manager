@@ -20,7 +20,7 @@ import {
   type CacheSizeScanningInfo,
   type CacheSizeUnavailableInfo,
   type CacheSizeScanStartInfo,
-  type QueuedOperationResponse,
+  type OperationStartResponse,
   type TriggerAllResponse,
   type ClientStat,
   type ServiceStat,
@@ -184,11 +184,9 @@ interface OperationResponse {
    */
   status?: OperationStatus;
   operationId?: string;
-  // Wait-queue model (QueuedOperationResponse): present when the request was parked
-  // behind a conflicting op (queued) or deduplicated against an identical one
-  // (alreadyRunning). Callers must NOT seed a running card in either case.
-  queued?: boolean;
-  alreadyRunning?: boolean;
+  // Wait-queue model (OperationStartResponse): `status` is 'waiting' when the request was
+  // parked behind a conflicting op or joined a waiting identical one, and 'alreadyRunning'
+  // when it joined a running identical one. Callers must NOT seed a running card in either case.
   // Log processing specific
   logSizeMB?: number;
   remainingMB?: number;
@@ -325,7 +323,7 @@ export interface RetroDownloadQueryParams {
 
 /**
  * Request options accepted alongside a JSON body. `body` is excluded because getJsonFetchOptions
- * serialises it from its first argument - passing a second, raw one would silently win or lose
+ * serializes it from its first argument - passing a second, raw one would silently win or lose
  * depending on spread order.
  */
 type JsonFetchOptions = Omit<RequestInit, 'body'>;
@@ -340,8 +338,7 @@ const CACHE_FILE_REMOVAL_SCOPE = 'scope=cacheFiles';
 /** What starting a cache-file count returns. The id is what the caller polls and can cancel. */
 interface CacheFileCountStart {
   operationId: string;
-  queued?: boolean;
-  alreadyRunning?: boolean;
+  status?: OperationStartResponse['status'];
 }
 
 /**
@@ -444,7 +441,7 @@ class ApiService {
     // Cancellation (499 / client-closed request) is a distinct terminal outcome, NOT a failure:
     // it stays the AbortError path so isAbortError() catches it. Never fold this into ApiError.
     if (response.status === 499) {
-      const error = new Error('Request cancelled');
+      const error = new Error('Request canceled');
       error.name = 'AbortError';
       throw error;
     }
@@ -506,7 +503,7 @@ class ApiService {
 
   /**
    * JSON-body counterpart to getFetchOptions: identical credentials, headers and activity signal,
-   * plus the `application/json` content type and the serialised body. The body is the first
+   * plus the `application/json` content type and the serialized body. The body is the first
    * argument because every caller has one; `options` carries the rest of the request (method,
    * signal, cache).
    *
@@ -880,8 +877,7 @@ class ApiService {
 
   static async startEvictionScan(): Promise<{
     operationId: string;
-    queued?: boolean;
-    alreadyRunning?: boolean;
+    status?: OperationStartResponse['status'];
   }> {
     try {
       const res = await fetch(
@@ -890,8 +886,7 @@ class ApiService {
       );
       return await this.handleResponse<{
         operationId: string;
-        queued?: boolean;
-        alreadyRunning?: boolean;
+        status?: OperationStartResponse['status'];
       }>(res);
     } catch (error: unknown) {
       console.error('startEvictionScan error:', error);
@@ -1494,9 +1489,10 @@ class ApiService {
     }
   }
 
-  // Get cache size with deletion time estimates. A force refresh is an asynchronous queued
-  // operation and returns CacheSizeScanStartInfo. A non-force read only reads the persisted
-  // result and may report an active scan or the expected not-yet-calculated empty state.
+  // Get cache size with deletion time estimates. A force refresh is an asynchronous operation
+  // that may wait behind another one, and returns CacheSizeScanStartInfo. A non-force read only
+  // reads the persisted result and may report an active scan or the expected
+  // not-yet-calculated empty state.
   static async getCacheSize(
     datasource?: string,
     force?: boolean,
@@ -1517,7 +1513,7 @@ class ApiService {
         CacheSizeInfo | CacheSizeScanningInfo | CacheSizeUnavailableInfo | CacheSizeScanStartInfo
       >(res);
     } catch (error: unknown) {
-      // A cancelled request (aborted via signal) is a distinct terminal outcome, not a failure -
+      // A canceled request (aborted via signal) is a distinct terminal outcome, not a failure -
       // don't log it as an error; the caller filters it via isAbortError.
       if (!isAbortError(error)) {
         console.error('getCacheSize error:', error);
@@ -1558,8 +1554,6 @@ class ApiService {
     message: string;
     status: string;
     scanMode?: StructuralScanMode;
-    queued?: boolean;
-    alreadyRunning?: boolean;
   }> {
     try {
       const params = new URLSearchParams();
@@ -1582,8 +1576,6 @@ class ApiService {
         message: string;
         status: string;
         scanMode?: StructuralScanMode;
-        queued?: boolean;
-        alreadyRunning?: boolean;
       }>(res);
     } catch (error: unknown) {
       console.error('startCorruptionDetection error:', error);
@@ -1596,22 +1588,16 @@ class ApiService {
   // Remove corrupted chunks for a specific service (requires auth)
   static async removeCorruptedChunks(
     service: string,
-    scanId: string,
-    candidateIds?: string[]
+    scanId: string
   ): Promise<{
     message: string;
     service: string;
     operationId?: string;
     status?: OperationStatus;
-    queued?: boolean;
-    alreadyRunning?: boolean;
   }> {
     try {
       const params = new URLSearchParams();
       params.set('scanId', scanId);
-      if (candidateIds && candidateIds.length > 0) {
-        params.set('candidateIds', candidateIds.join(','));
-      }
       const res = await fetch(
         `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?${params.toString()}`,
         this.getFetchOptions({
@@ -1645,7 +1631,7 @@ class ApiService {
           headers: { 'Content-Type': 'application/json' }
         })
       );
-      // 202 Accepted = an operation was started or queued. Its body carries that
+      // 202 Accepted = an operation was started or is waiting. Its body carries that
       // operation's id. 200 OK is a no-op with no run to follow.
       const started = res.status === 202;
       const body = await this.handleResponse<{ message?: string; operationId?: string }>(res);
@@ -1757,7 +1743,7 @@ class ApiService {
   // Start game cache detection as background operation
   static async startGameCacheDetection(
     forceRefresh = false
-  ): Promise<{ operationId: string; queued?: boolean; alreadyRunning?: boolean }> {
+  ): Promise<{ operationId: string; status?: OperationStartResponse['status'] }> {
     try {
       const url = `${API_BASE}/games/detect${forceRefresh ? '?forceRefresh=true' : ''}`;
       const res = await fetch(
@@ -1810,8 +1796,6 @@ class ApiService {
     appId: string;
     gameName: string;
     status: OperationStatus;
-    queued?: boolean;
-    alreadyRunning?: boolean;
   }> {
     try {
       const res = await fetch(
@@ -1827,8 +1811,6 @@ class ApiService {
         appId: string;
         gameName: string;
         status: OperationStatus;
-        queued?: boolean;
-        alreadyRunning?: boolean;
       }>(res);
     } catch (error: unknown) {
       console.error('removeGameFromCache error:', error);
@@ -1843,8 +1825,6 @@ class ApiService {
     appId: string;
     gameName: string;
     status: OperationStatus;
-    queued?: boolean;
-    alreadyRunning?: boolean;
   }> {
     try {
       const res = await fetch(
@@ -1860,8 +1840,6 @@ class ApiService {
         appId: string;
         gameName: string;
         status: OperationStatus;
-        queued?: boolean;
-        alreadyRunning?: boolean;
       }>(res);
     } catch (error: unknown) {
       console.error('removeEpicGameFromCache error:', error);
@@ -1879,8 +1857,6 @@ class ApiService {
     appId: string;
     gameName: string;
     status: OperationStatus;
-    queued?: boolean;
-    alreadyRunning?: boolean;
   }> {
     try {
       const res = await fetch(
@@ -1896,8 +1872,6 @@ class ApiService {
         appId: string;
         gameName: string;
         status: OperationStatus;
-        queued?: boolean;
-        alreadyRunning?: boolean;
       }>(res);
     } catch (error: unknown) {
       console.error('removeNamedGameFromCache error:', error);
@@ -1911,8 +1885,6 @@ class ApiService {
     serviceName: string;
     status: OperationStatus;
     operationId: string;
-    queued?: boolean;
-    alreadyRunning?: boolean;
   }> {
     try {
       const res = await fetch(
@@ -1927,8 +1899,6 @@ class ApiService {
         serviceName: string;
         status: OperationStatus;
         operationId: string;
-        queued?: boolean;
-        alreadyRunning?: boolean;
       }>(res);
     } catch (error: unknown) {
       console.error('removeServiceFromCache error:', error);
@@ -2036,8 +2006,7 @@ class ApiService {
   // Progress/cancel flow through the standard eviction_removal notification (bulk scope).
   static async removeAllEvicted(): Promise<{
     operationId: string;
-    queued?: boolean;
-    alreadyRunning?: boolean;
+    status?: OperationStartResponse['status'];
   }> {
     try {
       const res = await fetch(
@@ -2151,7 +2120,7 @@ class ApiService {
   // Get all active removal operations (games, services, corruption)
   // Used for universal recovery on page refresh
 
-  // Get guest session duration configuration with source labelling (admin-only).
+  // Get guest session duration configuration with source labeling (admin-only).
   static async getGuestSessionDuration(signal?: AbortSignal): Promise<GuestDurationResponse> {
     try {
       const res = await fetch(
@@ -2345,7 +2314,7 @@ class ApiService {
   // In-flight dedupe, same reason as getCachedGameDetection: the four Management sections that
   // read the scan gate mount on one tick, and every CacheScanBlockedChanged sends all four back
   // at once, so one answer was being fetched four times. Takes no AbortSignal, because a shared
-  // promise cannot honour one caller's cancellation without cancelling the others, and no caller
+  // promise cannot honor one caller's cancellation without canceling the others, and no caller
   // passes one.
   private static _cacheScanBlockedInFlight: Promise<CacheScanBlockedResponse> | null = null;
 
@@ -2412,7 +2381,7 @@ class ApiService {
   // Get a single client group by ID
 
   /**
-   * Reads a 409 body from a clone, so a conflict this caller does not recognise still reaches the
+   * Reads a 409 body from a clone, so a conflict this caller does not recognize still reaches the
    * shared throw site in `handleResponse` with its own stream unread.
    */
   private static async readConflictBody(
@@ -2543,9 +2512,7 @@ class ApiService {
   // Cancel any operation by ID. `alreadyFinished` is true when the operation was tracked but
   // had already reached a terminal state, so the request stopped nothing and any card still
   // showing it as running is stale. Optional because an older backend build omits the field.
-  static async cancelOperation(
-    operationId: string
-  ): Promise<{ message: string; alreadyFinished?: boolean }> {
+  static async cancelOperation(operationId: string): Promise<{ alreadyFinished?: boolean }> {
     try {
       const res = await fetch(
         `${API_BASE}/operations/${operationId}/cancel`,
@@ -2555,7 +2522,7 @@ class ApiService {
           signal: AbortSignal.timeout(5000)
         })
       );
-      return await this.handleResponse<{ message: string; alreadyFinished?: boolean }>(res);
+      return await this.handleResponse<{ alreadyFinished?: boolean }>(res);
     } catch (error: unknown) {
       console.error('cancelOperation error:', error);
       throw error;
@@ -2590,7 +2557,7 @@ class ApiService {
     }
   }
 
-  static async forceKillOperation(operationId: string): Promise<{ message: string }> {
+  static async forceKillOperation(operationId: string): Promise<{ operationId: string }> {
     try {
       const res = await fetch(
         `${API_BASE}/operations/${operationId}/force-kill`,
@@ -2602,7 +2569,7 @@ class ApiService {
           signal: AbortSignal.timeout(20000)
         })
       );
-      return await this.handleResponse<{ message: string }>(res);
+      return await this.handleResponse<{ operationId: string }>(res);
     } catch (error: unknown) {
       console.error('forceKillOperation error:', error);
       throw error;
@@ -3545,13 +3512,13 @@ class ApiService {
     }
   }
 
-  static async triggerSchedule(serviceKey: string): Promise<QueuedOperationResponse> {
+  static async triggerSchedule(serviceKey: string): Promise<OperationStartResponse> {
     try {
       const res = await fetch(
         `${API_BASE}/system/schedules/${serviceKey}/run`,
         this.getFetchOptions({ method: 'POST' })
       );
-      return await this.handleResponse<QueuedOperationResponse>(res);
+      return await this.handleResponse<OperationStartResponse>(res);
     } catch (error: unknown) {
       console.error('triggerSchedule error:', error);
       throw error;
@@ -4493,7 +4460,7 @@ interface ResolveClientAddressResponse {
   reason: ClientAddressLookupReason;
 }
 
-/** Current public-edge HTTP/HTTPS behaviour of one ad hoc tested hostname (v1.5), produced by
+/** Current public-edge HTTP/HTTPS behavior of one ad hoc tested hostname (v1.5), produced by
  *  the same resolve-and-probe pipeline as the sweep's content lane. */
 export interface StatusCheckHostProtocolProbeResult {
   protocolStatus: StatusCheckProtocolStatus;

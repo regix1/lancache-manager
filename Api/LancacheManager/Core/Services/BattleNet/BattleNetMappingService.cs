@@ -240,7 +240,7 @@ public class BattleNetMappingService
             {
                 await reporter.CompleteAsync(
                     success: false,
-                    cancelled: true,
+                    canceled: true,
                     context: Context());
                 throw;
             }

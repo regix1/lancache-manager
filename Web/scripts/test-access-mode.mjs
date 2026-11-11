@@ -99,6 +99,18 @@ test('SSO selection and setup actions require an HTTPS page', () => {
   );
 });
 
+test('copy and show/hide buttons stay usable while a step submits', () => {
+  for (const marker of ['className="access-setup-copy"', 'aria-expanded={open}']) {
+    const at = accessSource.indexOf(marker);
+    assert.ok(at >= 0, `${marker} is missing`);
+    const button = accessSource.slice(
+      accessSource.lastIndexOf('<Button', at),
+      accessSource.indexOf('</Button>', at)
+    );
+    assert.ok(!button.includes('busy'), `${marker} button is locked by busy`);
+  }
+});
+
 test('disabled access choices explain their requirements through the shared card tooltip', () => {
   const choice = cardProps(accessSource, 'choice');
   assert.ok(choice.includes('disabledReason={'));
@@ -173,7 +185,7 @@ test('the access dialog is assembled from the setup wizard pieces', () => {
     assert.ok(gateSource.includes(piece), `${piece} is not drawn by the gate`);
   }
   for (const source of [accessSource, accessStyles]) {
-    assert.ok(!source.includes('--theme-accent'), 'selection is drawn in the accent colour');
+    assert.ok(!source.includes('--theme-accent'), 'selection is drawn in the accent color');
     assert.ok(!source.includes('color-mix('), 'color-mix() is banned');
   }
   assert.ok(!accessSource.includes('style={'), 'inline styles are banned');
@@ -210,11 +222,11 @@ test('every sign-in service card renders the same lines whether or not it is sel
     );
   }
   assert.ok(label.includes('name="login-kind"'), 'service radios do not share one group');
-  assert.ok(label.includes('layout="stack"'), 'service cards are not the centred variant');
+  assert.ok(label.includes('layout="stack"'), 'service cards are not the centered variant');
   assert.deepEqual(LOGIN_KINDS, ['google', 'github', 'microsoft', 'apple', 'customOidc']);
 });
 
-test('the stacked card modifier is written out so the stylesheet keeps its centring rule', () => {
+test('the stacked card modifier is written out so the stylesheet keeps its centering rule', () => {
   const cardStyles = readWebSource('src/styles/components/cards.css');
   const stackRule = cardStyles.match(/\.selectable-card--stack\s*\{([^}]*)\}/);
   assert.ok(stackRule, 'the stacked card rule is missing');

@@ -744,7 +744,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                               <Tooltip content={group.nickname} className="flex min-w-0">
                                 <p className="mgmt-row__title truncate">{group.nickname}</p>
                               </Tooltip>
-                              {/* Combined is the default, so only separated groups are labelled. */}
+                              {/* Combined is the default, so only separated groups are labeled. */}
                               {group.separateMemberRows && (
                                 <Tooltip
                                   content={t('management.sections.clients.separateRowsTooltip')}

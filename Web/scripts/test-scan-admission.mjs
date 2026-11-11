@@ -9,11 +9,12 @@ import {
   liftHookCallback,
   loadNotificationModules,
   moduleUrl,
+  operationBusyFor,
   parseSource
 } from './transpile-module.mjs';
 
 /**
- * A scan button is busy while the server's run list says its run waits, runs or is cancelling,
+ * A scan button is busy while the server's run list says its run waits, runs or is canceling,
  * and for the length of its own start request - nothing else holds it. These cases build the run
  * list with the real run store, feed it to the real `useOperationBusy`, and drive the scan
  * handlers and reconnect callbacks lifted from the components that ship them.
@@ -26,21 +27,6 @@ const { isConfirmedScanRefusalStatus } = await import(
 const { applyRun, createRunStoreState, deriveRuns } = await loadNotificationModules(
   moduleUrl('export default { t: (key) => key, exists: () => true };')
 );
-
-// Runs the factory on every call and ignores the dependency array, so these cases check what the
-// hook computes, never whether the memo is keyed on the right values.
-const reactStubUrl = moduleUrl('export const useMemo = (fn) => fn();');
-const notificationsStubUrl = moduleUrl(`
-  export const box = { runs: [] };
-  export const useNotifications = () => ({ runs: box.runs });
-`);
-const { useOperationBusy } = await import(
-  await compileToUrl('../src/hooks/useOperationBusy.ts', {
-    react: reactStubUrl,
-    '@contexts/notifications/useNotifications': notificationsStubUrl
-  })
-);
-const { box } = await import(notificationsStubUrl);
 
 const GAME_DETECTOR = 'src/components/features/management/game-detection/GameCacheDetector.tsx';
 const STORAGE = 'src/components/features/management/sections/StorageSection.tsx';
@@ -100,10 +86,7 @@ const reconnectCallback = (relativePath) => {
   return call.arguments[1].getText(source);
 };
 
-const busyFor = (runs, options) => {
-  box.runs = runs;
-  return useOperationBusy(options);
-};
+const busyFor = (runs, options) => operationBusyFor(options, runs);
 
 test('only a 400 is a confirmed scan refusal', () => {
   assert.equal(isConfirmedScanRefusalStatus(400), true);
@@ -135,12 +118,12 @@ test('a Hidden game detection run keeps the scan buttons busy though it draws no
   assert.equal(busyFor(runs, busyOptions(GAME_DETECTOR, 'isDetectionFromNotification')), true);
 });
 
-test('a cancelling eviction scan keeps the Storage Scan button busy until its run ends', () => {
+test('a canceling eviction scan keeps the Storage Scan button busy until its run ends', () => {
   const options = busyOptions(STORAGE, 'isEvictionScanNotificationRunning');
-  assert.equal(busyFor(runsAfter(row('E', { status: 'cancelling' })), options), true);
+  assert.equal(busyFor(runsAfter(row('E', { status: 'canceling' })), options), true);
   assert.equal(
     busyFor(
-      runsAfter(row('E', { status: 'cancelling' }), row('E', { status: 'cancelled' })),
+      runsAfter(row('E', { status: 'canceling' }), row('E', { status: 'canceled' })),
       options
     ),
     false,
@@ -148,9 +131,22 @@ test('a cancelling eviction scan keeps the Storage Scan button busy until its ru
   );
 });
 
-test('a cancelling game detection run keeps the detector busy', () => {
+test("a canceling eviction scan keeps the detector's scan buttons off until its run ends", () => {
+  const options = busyOptions(GAME_DETECTOR, 'evictionScanActive');
+  assert.equal(busyFor(runsAfter(row('E', { status: 'canceling' })), options), true);
+  assert.equal(
+    busyFor(
+      runsAfter(row('E', { status: 'canceling' }), row('E', { status: 'canceled' })),
+      options
+    ),
+    false,
+    'the ended run leaves the list'
+  );
+});
+
+test('a canceling game detection run keeps the detector busy', () => {
   const runs = runsAfter(
-    row('G', { operationType: 'gameDetection', name: 'Game Detection', status: 'cancelling' })
+    row('G', { operationType: 'gameDetection', name: 'Game Detection', status: 'canceling' })
   );
   assert.equal(busyFor(runs, busyOptions(GAME_DETECTOR, 'isDetectionFromNotification')), true);
 });

@@ -165,7 +165,7 @@ public class PrefillLoginRunTests
     [Theory]
     [InlineData("Login failed: Credentials rejected.", "login-failed", DaemonAuthState.LoggingIn, OperationStatus.Failed)]
     [InlineData("Login failed: Credentials rejected.", "login-failed", DaemonAuthState.PasswordRequired, OperationStatus.Failed)]
-    [InlineData("Login cancelled", null, DaemonAuthState.PasswordRequired, OperationStatus.Cancelled)]
+    [InlineData("Login canceled", null, DaemonAuthState.PasswordRequired, OperationStatus.Canceled)]
     public async Task APushedSignInFailureEndsItAsAFailure(string message, string? errorCode, DaemonAuthState stateAtPush, OperationStatus expected)
     {
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
@@ -375,7 +375,7 @@ public class PrefillLoginRunTests
 
         var result = await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
 
-        Assert.Equal(1, result.AbandonedLoginsCancelled);
+        Assert.Equal(1, result.AbandonedLoginsCanceled);
         var operation = tracker.GetOperation(operationId)!;
         Assert.Equal(OperationStatus.Failed, operation.Status);
         Assert.Equal("common.notifications.warnings.signInExpired", Assert.Single(operation.Warnings).StageKey);
@@ -402,7 +402,7 @@ public class PrefillLoginRunTests
 
         var result = await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
 
-        Assert.Equal(0, result.AbandonedLoginsCancelled);
+        Assert.Equal(0, result.AbandonedLoginsCanceled);
         var operation = tracker.GetOperation(operationId)!;
         Assert.Equal(OperationStatus.Failed, operation.Status);
         Assert.Contains(operation.Warnings, warning => warning.StageKey == "common.notifications.warnings.signInExpired");
@@ -437,7 +437,7 @@ public class PrefillLoginRunTests
         await sweep;
 
         var operation = tracker.GetOperation(operationId)!;
-        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+        Assert.Equal(OperationStatus.Canceled, operation.Status);
         Assert.Empty(operation.Warnings);
     }
 
@@ -472,7 +472,7 @@ public class PrefillLoginRunTests
         await daemon.CancelLoginAsync(session.Id);
 
         var secondRun = tracker.GetOperation(secondRunId)!;
-        Assert.Equal(OperationStatus.Cancelled, secondRun.Status);
+        Assert.Equal(OperationStatus.Canceled, secondRun.Status);
         Assert.Empty(secondRun.Warnings);
     }
 
@@ -494,7 +494,7 @@ public class PrefillLoginRunTests
         await daemon.CancelLoginAsync(session.Id);
 
         var operation = tracker.GetOperation(operationId)!;
-        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+        Assert.Equal(OperationStatus.Canceled, operation.Status);
         Assert.Empty(operation.Warnings);
     }
 
@@ -553,7 +553,7 @@ public class PrefillLoginRunTests
 
         Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
         Assert.Equal(OperationStatus.Completed, tracker.GetOperation(operationId)!.Status);
-        Assert.Equal(0, result.AbandonedLoginsCancelled);
+        Assert.Equal(0, result.AbandonedLoginsCanceled);
         Assert.True(session.LoginSettled);
     }
 
@@ -584,7 +584,7 @@ public class PrefillLoginRunTests
 
         Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
         Assert.Equal(OperationStatus.Completed, tracker.GetOperation(operationId)!.Status);
-        Assert.Equal(0, result.AbandonedLoginsCancelled);
+        Assert.Equal(0, result.AbandonedLoginsCanceled);
         Assert.True(session.LoginSettled);
     }
 
@@ -616,7 +616,7 @@ public class PrefillLoginRunTests
     [Theory]
     [InlineData("expiry", OperationStatus.Failed, "common.notifications.warnings.signInSessionEnded")]
     [InlineData("shutdown", OperationStatus.Failed, "common.notifications.warnings.signInSessionEnded")]
-    [InlineData("person", OperationStatus.Cancelled, null)]
+    [InlineData("person", OperationStatus.Canceled, null)]
     public async Task ATerminatedSessionEndsItsSignInByWhoEndedIt(string endedBy, OperationStatus expected, string? warningKey)
     {
         var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
@@ -656,7 +656,7 @@ public class PrefillLoginRunTests
         await daemon.TerminateSessionAsync(session.Id, reason);
 
         var operation = tracker.GetOperation(operationId)!;
-        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+        Assert.Equal(OperationStatus.Canceled, operation.Status);
         Assert.Empty(operation.Warnings);
     }
 
@@ -726,7 +726,7 @@ public class PrefillLoginRunTests
         await daemon.StartLoginAsync(session.Id);
         var firstAttempt = session.LoginAttempt;
         var firstRunId = Assert.IsType<Guid>(session.LoginOperationId);
-        // The state ProvideCredentialAsync and the daemon's acknowledgement leave: prompt consumed, sign-in still running.
+        // The state ProvideCredentialAsync and the daemon's acknowledgment leave: prompt consumed, sign-in still running.
         session.PendingLoginChallenge = null;
         session.AuthState = DaemonAuthState.LoggingIn;
         client.HoldCancelLogin = true;
@@ -848,7 +848,7 @@ public class PrefillLoginRunTests
 
         await daemon.StartLoginAsync(session.Id);
         var firstAttempt = session.LoginAttempt;
-        // The state ProvideCredentialAsync and the daemon's acknowledgement leave: prompt consumed, sign-in still running.
+        // The state ProvideCredentialAsync and the daemon's acknowledgment leave: prompt consumed, sign-in still running.
         session.PendingLoginChallenge = null;
         session.AuthState = DaemonAuthState.LoggingIn;
         proxy.ClearSends();
@@ -878,7 +878,7 @@ public class PrefillLoginRunTests
         Assert.Contains(proxy.Sends(), send =>
             send.ConnectionId == "conn-1" && send.EventName == SignalREvents.DaemonSessionUpdated);
         var firstEnding = Assert.IsType<PrefillLoginEnding>(daemon.GetLoginEnding(session, firstAttempt));
-        Assert.Equal(OperationStatus.Cancelled, firstEnding.Status);
+        Assert.Equal(OperationStatus.Canceled, firstEnding.Status);
         Assert.Equal("errors.integration.attemptExpired", firstEnding.StageKey);
         Assert.Equal(1, client.CancelLoginCallCount);
         Assert.Equal(firstAttempt + 1, Assert.IsType<CredentialChallenge>(second).LoginAttempt);
@@ -976,7 +976,7 @@ public class PrefillLoginRunTests
         var firstRunId = Assert.IsType<Guid>(session.LoginOperationId);
         session.PendingLoginChallenge = null;
         session.AuthState = DaemonAuthState.LoggingIn;
-        tracker.CompleteOperation(firstRunId, success: false, error: "Force killed by user", cancelled: true);
+        tracker.CompleteOperation(firstRunId, success: false, canceled: true);
         OperationWaitingBlockerTests.Reap(tracker, firstRunId);
         Assert.Null(tracker.GetOperation(firstRunId));
         Assert.Equal(firstRunId, session.LoginOperationId);
@@ -1110,7 +1110,7 @@ public class PrefillLoginRunTests
         var result = await daemon.ProcessSessionExpiryAsync(DateTime.UtcNow.AddDays(1));
 
         Assert.True(restarted);
-        Assert.Equal(0, result.AbandonedLoginsCancelled);
+        Assert.Equal(0, result.AbandonedLoginsCanceled);
         Assert.Equal(0, client.CancelLoginCallCount);
         Assert.Equal(DaemonAuthState.LoggingIn, session.AuthState);
     }

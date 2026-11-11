@@ -44,7 +44,7 @@ public sealed class ServerTimeZoneTests
         Assert.Equal("UTC", ServerTimeZone.IanaId("utc", "should-not-be-reached"));
     }
 
-    // T-5: pins the runtime behaviour the rule above exists for. The zone database renames UTC to
+    // T-5: pins the runtime behavior the rule above exists for. The zone database renames UTC to
     // "Etc/UTC" on translation, and a schedule saved as "UTC" is compared to the server's id by name.
     // If a future runtime stops renaming it, this test says so.
     [Fact]

@@ -34,13 +34,13 @@ public sealed class CacheScanGateTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(false, false)]
-    public async Task CacheFileScanPublishesItsRegisteredPredecessor(bool queued, bool visible)
+    public async Task CacheFileScanPublishesItsRegisteredPredecessor(bool waitingRun, bool visible)
     {
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
         var notice = new RunNotice(visible ? NotificationMode.All : NotificationMode.Silent, RunTrigger.Manual);
         // Parked the way the queue parks it: under the same notice the promoted run carries.
-        Guid? previous = queued ? tracker.RegisterOperation(OperationType.CacheSizeScan,
+        Guid? previous = waitingRun ? tracker.RegisterOperation(OperationType.CacheSizeScan,
             "Cache File Scan", new CancellationTokenSource(), initialStatus: OperationStatus.Waiting, notice: notice) : null;
         if (previous.HasValue) notice.Attach(tracker, previous.Value);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();
@@ -91,9 +91,9 @@ public sealed class CacheScanGateTests
                 SchemeOverride = DatasourceSchemeOverride.Monolithic }
         });
         var capability = new DatasourceCapabilityService(sources);
-        var queue = new OperationQueueService(tracker,
+        var queue = new OperationWaitlistService(tracker,
             OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var controller = (StatsController)RuntimeHelpers.GetUninitializedObject(typeof(StatsController));
         SetField(controller, "_reconciliationService", service);
         SetField(controller, "_operationQueue", queue);
@@ -112,13 +112,13 @@ public sealed class CacheScanGateTests
         RunNotice? admitted = null;
         if (blocker.HasValue)
         {
-            var queued = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>(result.Result).Value);
-            Assert.True(queued.Queued);
-            admitted = Assert.IsType<RunNotice>(tracker.GetOperation(queued.OperationId)!.Notice);
-            var duplicate = Assert.IsType<QueuedOperationResponse>(Assert.IsType<AcceptedResult>((await controller.ReconcileAsync(CancellationToken.None)).Result).Value);
-            Assert.Equal(queued.OperationId, duplicate.OperationId);
+            var waitingRun = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>(result.Result).Value);
+            Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
+            admitted = Assert.IsType<RunNotice>(tracker.GetOperation(waitingRun.OperationId)!.Notice);
+            var duplicate = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>((await controller.ReconcileAsync(CancellationToken.None)).Result).Value);
+            Assert.Equal(waitingRun.OperationId, duplicate.OperationId);
             var waiting = Assert.Single(tracker.GetWaitingOperations());
-            Assert.Equal(queued.OperationId, waiting.Id);
+            Assert.Equal(waitingRun.OperationId, waiting.Id);
             Assert.Equal(RunVisibility.Background,
                 Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == waiting.Id).Visibility);
             service.SetNotificationMode(NotificationMode.All);
@@ -506,7 +506,8 @@ public sealed class CacheScanGateTests
         // middleware from the exception, so the marker has to survive the trip through it.
         Assert.Equal(
             ErrorResponse.DownloadInProgressCode,
-            await ErrorBodyCodeAsync(new DownloadInProgressException("A client download is writing")));
+            await ErrorBodyCodeAsync(new DownloadInProgressException(
+                "A client download is writing", "errors.unmappedRemoval.downloadInProgress")));
         Assert.Null(await ErrorBodyCodeAsync(new ValidationException("Detection method must be repeated_miss")));
     }
 
@@ -657,8 +658,8 @@ public sealed class CacheScanGateTests
         var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
         var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
-        var queue = new OperationQueueService(
-            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
+        var queue = new OperationWaitlistService(
+            tracker, conflictChecker, NullLogger<OperationWaitlistService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
             OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
@@ -673,9 +674,9 @@ public sealed class CacheScanGateTests
             return Guid.NewGuid();
         }
 
-        var queued = await queue.EnqueueAsync(
-            OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan", StartScanAsync, CancellationToken.None);
-        Assert.True(queued.Queued);
+        var waitingRun = await queue.EnqueueAsync(
+            OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan", StartScanAsync, CancellationToken.None, OperationRequestKey.Plain);
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
 
         // Nothing was downloading when the request was accepted. The download starts while the
         // request sits in the queue, which is the whole point of asking again at promotion.
@@ -705,8 +706,8 @@ public sealed class CacheScanGateTests
         var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
         var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
-        var queue = new OperationQueueService(
-            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
+        var queue = new OperationWaitlistService(
+            tracker, conflictChecker, NullLogger<OperationWaitlistService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
             OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
@@ -731,9 +732,9 @@ public sealed class CacheScanGateTests
             }
         }
 
-        var queued = await queue.EnqueueAsync(
-            OperationType.CacheSizeScan, ConflictScope.Bulk(), "Cache File Scan", StartScanAsync, CancellationToken.None);
-        Assert.True(queued.Queued);
+        var waitingRun = await queue.EnqueueAsync(
+            OperationType.CacheSizeScan, ConflictScope.Bulk(), "Cache File Scan", StartScanAsync, CancellationToken.None, OperationRequestKey.Plain);
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
 
         // Nothing was downloading when Refresh cache size was accepted. The download starts while
         // the request sits in the queue, so only a re-check at promotion can catch it.
@@ -793,22 +794,23 @@ public sealed class CacheScanGateTests
         var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
         var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
-        var queue = new OperationQueueService(
-            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
+        var queue = new OperationWaitlistService(
+            tracker, conflictChecker, NullLogger<OperationWaitlistService>.Instance);
 
         // The tracker raises OperationTerminal off the completing stack, so the announcement has to
         // be awaited rather than read straight after the call returns.
         var announced = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
         tracker.OperationTerminal += operation => announced.TrySetResult(operation);
 
-        Task<Guid?> RefuseAsync() => throw new DownloadInProgressException("A download is in progress");
+        Task<Guid?> RefuseAsync() => throw new DownloadInProgressException(
+            "A download is in progress", "errors.unmappedRemoval.downloadInProgress");
 
         await Assert.ThrowsAsync<DownloadInProgressException>(() => queue.EnqueueAsync(
             OperationType.EvictionScan,
             ConflictScope.Bulk(),
             "Eviction Scan",
             RefuseAsync,
-            CancellationToken.None,
+            CancellationToken.None, OperationRequestKey.Plain,
             reportRefusal: true));
 
         var skipped = await announced.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -831,28 +833,31 @@ public sealed class CacheScanGateTests
     {
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker,
             OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var skipped = new TaskCompletionSource<OperationInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
         tracker.OperationTerminal += operation =>
         {
             if (operation.Status == OperationStatus.Skipped) skipped.TrySetResult(operation);
         };
-        Task<Guid?> RefuseAsync() => throw new DownloadInProgressException("A download is in progress");
+        Task<Guid?> RefuseAsync() => throw new DownloadInProgressException(
+            "A download is in progress", "errors.unmappedRemoval.downloadInProgress");
 
         if (afterParking)
         {
             var blockerId = tracker.RegisterOperation(OperationType.LogProcessing, "Blocker", new CancellationTokenSource());
-            var queued = await queue.EnqueueAsync(type, ConflictScope.Bulk(), "Scan", RefuseAsync, CancellationToken.None);
-            Assert.True(queued.Queued);
+            var waiting = await queue.EnqueueAsync(type, ConflictScope.Bulk(), "Scan", RefuseAsync, CancellationToken.None,
+                OperationConflictTestServices.RequestKeyFor(type));
+            Assert.Equal(OperationStartStatus.Waiting, waiting.Status);
             tracker.CompleteOperation(blockerId, success: true);
         }
         else
         {
             await Assert.ThrowsAsync<DownloadInProgressException>(() => queue.EnqueueAsync(
-                type, ConflictScope.Bulk(), "Scan", RefuseAsync, CancellationToken.None, reportRefusal: true));
+                type, ConflictScope.Bulk(), "Scan", RefuseAsync, CancellationToken.None,
+                OperationConflictTestServices.RequestKeyFor(type), reportRefusal: true));
         }
 
         var row = await skipped.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -964,7 +969,7 @@ public sealed class CacheScanGateTests
             var repair = OperationConflictTestServices.NewCacheClearRepair(Guid.NewGuid());
             await harness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
             await harness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
-            await harness.Owner.FinishRepairAsync(repair.Id, success: false, cancelled: false, error: "interrupted");
+            await harness.Owner.FinishRepairAsync(repair.Id, success: false, canceled: false, error: "interrupted");
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             var refused = Assert.IsType<ConflictObjectResult>((await controller.ResetEvictionsAsync(CancellationToken.None)).Result);
@@ -1000,8 +1005,8 @@ public sealed class CacheScanGateTests
         var tracker = new UnifiedOperationTracker(processManager, NullLogger<UnifiedOperationTracker>.Instance);
         var conflictChecker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
         var notifications = DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>();
-        var queue = new OperationQueueService(
-            tracker, conflictChecker, NullLogger<OperationQueueService>.Instance);
+        var queue = new OperationWaitlistService(
+            tracker, conflictChecker, NullLogger<OperationWaitlistService>.Instance);
 
         var blockerId = tracker.RegisterOperation(
             OperationType.LogProcessing, "Blocker", new CancellationTokenSource());
@@ -1026,8 +1031,9 @@ public sealed class CacheScanGateTests
             }
         }
 
-        var queued = await queue.EnqueueAsync(type, ConflictScope.Bulk(), name, StartAsync, CancellationToken.None);
-        Assert.True(queued.Queued);
+        var waiting = await queue.EnqueueAsync(type, ConflictScope.Bulk(), name, StartAsync, CancellationToken.None,
+            OperationConflictTestServices.RequestKeyFor(type));
+        Assert.Equal(OperationStartStatus.Waiting, waiting.Status);
 
         MakeBusy(snapshot);
         tracker.CompleteOperation(blockerId, success: true);

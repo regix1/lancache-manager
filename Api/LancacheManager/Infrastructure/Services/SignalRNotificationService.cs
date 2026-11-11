@@ -80,9 +80,9 @@ public class SignalRNotificationService : ISignalRNotificationService
             {
                 // A successful run re-anchors the games-on-disk freshness baseline BEFORE the
                 // invalidation below, so the refetch this event triggers compares live usage
-                // against the run that just finished. Failed/cancelled runs keep the old
+                // against the run that just finished. Failed/canceled runs keep the old
                 // baseline: their summary still reflects the previous successful run.
-                if (data is SignalRNotifications.GameDetectionComplete { Success: true, Cancelled: false })
+                if (data is SignalRNotifications.GameDetectionComplete { Success: true, Canceled: false })
                 {
                     await _serviceProvider.GetRequiredService<CacheManagementService>()
                         .CaptureDetectionUsageBaselineAsync();
@@ -91,7 +91,7 @@ public class SignalRNotificationService : ISignalRNotificationService
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateDetectionCache();
             }
             else if (eventName == SignalREvents.CacheClearingComplete &&
-                     data is SignalRNotifications.CacheClearComplete { Success: true, Cancelled: false })
+                     data is SignalRNotifications.CacheClearComplete { Success: true, Canceled: false })
             {
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
             }
@@ -104,7 +104,7 @@ public class SignalRNotificationService : ISignalRNotificationService
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
             }
             else if (eventName == SignalREvents.EvictionRemovalComplete &&
-                     data is EvictionRemovalComplete { Success: true, Cancelled: false })
+                     data is EvictionRemovalComplete { Success: true, Canceled: false })
             {
                 _serviceProvider.GetRequiredService<IDashboardBatchService>().InvalidateAllCache();
             }

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace LancacheManager.Models;
 
 /// <summary>
@@ -41,6 +43,12 @@ public class RetroDownloadDto
 
     /// <summary>Resolved game/app name from depot mapping or download record</summary>
     public string AppName { get; set; } = string.Empty;
+
+    /// <summary>True for Steam content whose game could not be identified. It decides which rows
+    /// "hide unknown" removes and which the unknown bucket collects; the browser reads
+    /// HasRealGameName and the unknown-other group id instead, so it stays off the wire.</summary>
+    [JsonIgnore]
+    public bool IsUnmappedSteam { get; set; }
 
     /// <summary>Steam app ID for game image lookup</summary>
     public long? SteamAppId { get; set; }
@@ -100,9 +108,11 @@ public class RetroDownloadDto
     /// grouping other than MergeAcrossServices.</summary>
     public Download? PrimaryDownload { get; set; }
 
-    /// <summary>True when any member of the group carries a resolved game name, or when the group
-    /// is the Unknown/Other bucket. The views hide the group's title when it is false, and the
-    /// first member alone cannot answer it.</summary>
+    /// <summary>True when the row has a game name of its own: one that is not empty, not
+    /// Unknown/Other and not the service's name. An ungrouped row answers from its own name. A
+    /// grouped row is true when any member has one, or when it is the Unknown/Other bucket, because
+    /// the newest member it is drawn from cannot answer for the rest. When it is false, the views
+    /// title a Steam row by its app id instead of its name.</summary>
     public bool HasRealGameName { get; set; }
 
     /// <summary>"game" or "content" for a row produced with MergeAcrossServices, which decides the

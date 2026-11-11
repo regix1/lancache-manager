@@ -38,6 +38,73 @@ public class GameDetectionSaveDeletedRowTests
         }
     }
 
+    /// <summary>Stores a row with the same unique key from a second connection the first time a save begins.</summary>
+    private sealed class InsertClashingRowBeforeFirstSave(TestDatabase database, CachedGameDetection clashing) : SaveChangesInterceptor
+    {
+        private bool _inserted;
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData saving,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_inserted)
+            {
+                _inserted = true;
+                await using var context = database.Factory.CreateDbContext();
+                context.CachedGameDetections.Add(clashing);
+                await context.SaveChangesAsync(cancellationToken);
+            }
+
+            return result;
+        }
+    }
+
+    [Fact]
+    public async Task SaveGamesAsync_UniqueKeyClash_FailsInsteadOfDroppingTheScanAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        const long epicGameAppId = 2_147_483_700;
+        var interceptedOptions = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(database.ConnectionString)
+            .AddInterceptors(new InsertClashingRowBeforeFirstSave(database, new CachedGameDetection
+            {
+                GameAppId = epicGameAppId,
+                GameName = "Epic Game",
+                Service = "epicgames",
+                EpicAppId = "epic-1",
+                CacheFilesFound = 1,
+                TotalSizeBytes = 100
+            }))
+            .Options;
+        var service = new GameCacheDetectionDataService(
+            new TestDbContextFactory(interceptedOptions),
+            NullLogger<GameCacheDetectionDataService>.Instance);
+
+        var failure = await Record.ExceptionAsync(() => service.SaveGamesAsync(
+            new List<GameCacheInfo>
+            {
+                new()
+                {
+                    GameAppId = epicGameAppId,
+                    GameName = "Epic Game",
+                    Service = "epicgames",
+                    EpicAppId = "epic-1",
+                    CacheFilesFound = 5,
+                    TotalSizeBytes = 5000,
+                    Datasources = new List<string> { "default" }
+                },
+                NewGame(30, "New Game")
+            },
+            incremental: true));
+
+        // The save is one transaction, so nothing of the scan is stored; the detection has to fail
+        // rather than report a scan whose rows were all rolled back.
+        Assert.IsAssignableFrom<DbUpdateException>(failure);
+        await using var check = database.Factory.CreateDbContext();
+        Assert.False(await check.CachedGameDetections.AnyAsync(g => g.GameAppId == 30));
+    }
+
     private static CachedGameDetection NewRow(long gameAppId, string gameName) => new()
     {
         GameAppId = gameAppId,

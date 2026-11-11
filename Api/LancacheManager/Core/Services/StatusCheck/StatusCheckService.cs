@@ -369,7 +369,10 @@ public sealed class StatusCheckService : IStatusCheckService
                     operationId,
                     success = true,
                     error = (string?)null,
-                    result
+                    result,
+                    stageKey = (string?)null,
+                    context = (Dictionary<string, object?>?)null,
+                    canceled = false
                 });
             }
             catch (Exception notifyEx)
@@ -382,26 +385,35 @@ public sealed class StatusCheckService : IStatusCheckService
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Status Check sweep {OperationId} cancelled", operationId);
-            _operationTracker.CompleteOperation(operationId, false, "Cancelled", cancelled: true);
+            _logger.LogInformation("Status Check sweep {OperationId} canceled", operationId);
+            _operationTracker.CompleteOperation(operationId, false, "signalr.statusCheck.canceled", canceled: true);
             await _notifications.NotifyAllAsync(SignalREvents.StatusCheckComplete, new
             {
                 operationId,
                 success = false,
-                error = "Cancelled",
-                result = (StatusCheckResult?)null
+                error = "Canceled",
+                result = (StatusCheckResult?)null,
+                stageKey = "signalr.statusCheck.canceled",
+                context = (Dictionary<string, object?>?)null,
+                canceled = true
             });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Status Check sweep {OperationId} failed", operationId);
-            _operationTracker.CompleteOperation(operationId, false, ex.Message);
+            _operationTracker.CompleteOperation(operationId, false, "signalr.statusCheck.failed",
+                onCompleting: operation => operation.FailureReason = new RunWarning(
+                    "signalr.statusCheck.failed",
+                    new Dictionary<string, object?> { ["errorDetail"] = ex.Message }));
             await _notifications.NotifyAllAsync(SignalREvents.StatusCheckComplete, new
             {
                 operationId,
                 success = false,
                 error = ex.Message,
-                result = (StatusCheckResult?)null
+                result = (StatusCheckResult?)null,
+                stageKey = "signalr.statusCheck.failed",
+                context = new Dictionary<string, object?> { ["errorDetail"] = ex.Message },
+                canceled = false
             });
         }
         finally

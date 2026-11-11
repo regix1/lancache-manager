@@ -57,7 +57,7 @@ public class PrefillSession
     public PrefillPlatform Platform { get; set; } = PrefillPlatform.Steam;
 
     /// <summary>
-    /// Session status: Active, Terminated, Orphaned, Cleaned, Cancelled
+    /// Session status: Active, Terminated, Orphaned, Cleaned, Canceled
     /// </summary>
     [Required]
     public PrefillSessionStatus Status { get; set; } = PrefillSessionStatus.Active;

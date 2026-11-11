@@ -22,8 +22,7 @@ public class GameImagesController : ControllerBase
     private readonly IImageCacheService _imageCacheService;
     private readonly GameImageFetchService _gameImageFetchService;
     private readonly AppDbContext _context;
-    private readonly IOperationConflictChecker _conflictChecker;
-    private readonly IOperationQueue _operationQueue;
+    private readonly IOperationWaitlist _operationQueue;
 
     // Bumped on cache clear or new image fetch so the frontend can build cache-busted image URLs
     private static long _cacheGeneration = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -55,14 +54,12 @@ public class GameImagesController : ControllerBase
         IImageCacheService imageCacheService,
         GameImageFetchService gameImageFetchService,
         AppDbContext context,
-        IOperationConflictChecker conflictChecker,
-        IOperationQueue operationQueue)
+        IOperationWaitlist operationQueue)
     {
         _logger = logger;
         _imageCacheService = imageCacheService;
         _gameImageFetchService = gameImageFetchService;
         _context = context;
-        _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
     }
 
@@ -296,8 +293,8 @@ public class GameImagesController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("cache")]
     [ProducesResponseType(typeof(ImageCacheClearResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
-    public async Task<IActionResult> ClearImageCacheAsync(CancellationToken cancellationToken = default)
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
+    public async Task<IActionResult> ClearImageCacheAsync()
     {
         _logger.LogInformation("=== ClearImageCache START ===");
 
@@ -313,42 +310,35 @@ public class GameImagesController : ControllerBase
             _gameImageFetchService.StartFetchInBackgroundAsync(refreshEpicImageUrls: true, RunTrigger.Manual);
 
         // Every row is marked for re-fetch from here on, so no path out of this method may leave
-        // without a re-fetch either running or on its way. Clearing takes no cancellation token, so
-        // it completes even when the caller has already gone away - somebody pressing this and
-        // closing the tab. What runs next does not: the conflict check throws on an aborted request
-        // as it walks the active operations, and the queue throws on its gate. Uncovered, that
-        // leaves every banner stale until the next scheduled pass.
-        OperationConflictResponse? conflict;
-        try
-        {
-            conflict = await _conflictChecker.CheckAsync(
-                OperationType.GameImageFetch,
-                ConflictScope.Bulk(),
-                cancellationToken);
+        // without a re-fetch either running or on its way. Neither the clear nor the queue calls
+        // below take the request's token, so both finish even when the caller has already gone
+        // away - somebody pressing this and closing the tab - and the re-fetch still waits behind
+        // any job the queue makes it wait for.
+        Guid? operationId = null;
 
-            // Every conflict parks the re-fetch on the wait queue, a running image fetch pass included: the
-            // queue never answers an image fetch with a pass already running, because that pass read its
-            // work list before the rows were deleted (OperationQueueService.GetDuplicateId). The re-fetch
-            // runs a pass of its own, with the Epic URL refresh, once the conflict clears.
-            if (conflict != null)
-            {
-                // The waiting click is drawn in the image fetch schedule's mode, as the run it starts is.
-                return Accepted(await _operationQueue.EnqueueAsync(
-                    OperationType.GameImageFetch, ConflictScope.Bulk(), "Game Image Fetch",
-                    StartImageFetchAsync, cancellationToken,
-                    notice: new RunNotice(_gameImageFetchService.EffectiveNotificationMode, RunTrigger.Manual)));
-            }
-        }
-        catch
-        {
-            // StartFetchInBackgroundAsync announces the request before it reaches anything that can fail,
-            // so this arms the refill whether or not it goes on to take the lock. The original
-            // failure is still what the caller sees.
-            await _gameImageFetchService.StartFetchInBackgroundAsync(refreshEpicImageUrls: true, RunTrigger.Manual);
-            throw;
-        }
+        // The queue checks and starts under one lock, so a clear and this re-fetch sent at the same
+        // moment cannot both start. A start that finds a pass holding the execution lock answers null
+        // and is armed behind it, so the lock is held only until the run registers.
+        var conflict = await _operationQueue.StartUnlessBusyAsync(
+            OperationType.GameImageFetch, ConflictScope.Bulk(),
+            async () => operationId = await StartImageFetchAsync(),
+            CancellationToken.None,
+            new GameImageFetchRequestKey(RefreshEpicImageUrls: true));
 
-        var operationId = await StartImageFetchAsync();
+        // Every conflict parks the re-fetch on the wait queue, a running image fetch pass included: the
+        // queue never answers an image fetch with a pass already running, because that pass read its
+        // work list before the rows were deleted (OperationWaitlistService.GetDuplicateId). The re-fetch
+        // runs a pass of its own, with the Epic URL refresh, once the conflict clears.
+        if (conflict != null)
+        {
+            // The waiting click is drawn in the image fetch schedule's mode, as the run it starts is.
+            return Accepted(await _operationQueue.EnqueueAsync(
+                OperationType.GameImageFetch, ConflictScope.Bulk(), "Game Image Fetch",
+                StartImageFetchAsync, CancellationToken.None,
+                // A waiting scheduled pass skips the Epic URL refresh this re-fetch needs, so it never joins one.
+                new GameImageFetchRequestKey(RefreshEpicImageUrls: true),
+                notice: new RunNotice(_gameImageFetchService.EffectiveNotificationMode, RunTrigger.Manual)));
+        }
 
         if (operationId == null)
         {

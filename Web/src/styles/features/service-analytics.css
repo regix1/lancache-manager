@@ -149,7 +149,7 @@
 }
 
 /* Which view picker is on screen. The dropdown is the phone control; every wider screen gets the
-   strip of labelled tabs, so the views read as a row of choices rather than one hidden behind a
+   strip of labeled tabs, so the views read as a row of choices rather than one hidden behind a
    menu. This used to key off the panel's own width, which meant a two-column dashboard served the
    dropdown on a full-size monitor. Where the strip and the actions beside it cannot share a line,
    the row wraps rather than swapping the control out. */
@@ -514,7 +514,7 @@
   }
 }
 
-/* Type (size/uppercase/colour) comes from the shared .caps-label; keep the
+/* Type (size/uppercase/color) comes from the shared .caps-label; keep the
    wider 0.12em tracking, normal weight and top gap. */
 /* Compounds .caps-label (element also carries .caps-label--wide) so the 0.12em tracking
    and normal weight win over the shared label regardless of chunk order. */
@@ -1062,7 +1062,7 @@
     max-height: 24rem;
   }
 
-  /* Below this width the five labelled tabs are replaced by a dropdown (ServiceAnalyticsChart),
+  /* Below this width the five labeled tabs are replaced by a dropdown (ServiceAnalyticsChart),
      so the rules that sized the tab strip for a phone live on in the picker instead. */
 
   /* The view picker takes the rest of the row and the toggle keeps its square beside it. */

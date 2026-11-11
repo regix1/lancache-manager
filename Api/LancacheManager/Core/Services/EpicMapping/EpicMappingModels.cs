@@ -39,7 +39,6 @@ public class EpicScheduleStatus
     public Guid? OperationId { get; set; }
     public EpicMappingStatus Status { get; set; } = EpicMappingStatus.Idle;
     public double ProgressPercent { get; set; }
-    public string? StatusMessage { get; set; }
 }
 
 /// <summary>

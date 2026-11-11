@@ -366,7 +366,7 @@ const UniversalNotificationBar: React.FC = () => {
       <div
         className={`w-full border-b bg-[var(--theme-nav-bg)] transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none ${
           fullItems.length > 0
-            ? 'border-[var(--theme-nav-border)] shadow-sm'
+            ? 'border-[var(--theme-nav-border)] shadow-sm no-dark-shadow'
             : 'border-transparent shadow-none'
         }${isAnimatingOut && notifications.length === 0 ? ' -translate-y-full opacity-0' : ''}`}
       >

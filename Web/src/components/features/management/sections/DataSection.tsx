@@ -352,11 +352,11 @@ const DataSection: React.FC<DataSectionProps> = ({
     try {
       const result = await ApiService.resetSelectedTables(selectedTables);
       if (result) {
-        // Wait-queue model: a queued/deduplicated response means this click didn't start a new
+        // Wait-queue model: a waiting/deduplicated response means this click didn't start a new
         // reset - say so instead of the generic "reset started" message.
-        if (result.alreadyRunning) {
+        if (result.status === 'alreadyRunning') {
           onSuccess(t('management.database.success.resetAlreadyRunning'));
-        } else if (result.queued) {
+        } else if (result.status === 'waiting') {
           onSuccess(t('common.notifications.willQueueBehindCurrent'));
         } else {
           onSuccess(

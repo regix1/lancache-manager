@@ -116,8 +116,10 @@ public class SteamAuthController : ControllerBase
                 if (request.AutoStartPicsRebuild)
                 {
                     _logger.LogInformation("Auto-starting PICS depot mapping rebuild after login");
-                    _steamKit2Service.TryStartRebuild(
-                        notice: new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual));
+                    await _steamKit2Service.StartRebuildThroughQueueAsync(
+                        incrementalOnly: false,
+                        new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual),
+                        CancellationToken.None);
                 }
 
                 return Ok(SteamLoginResponseMapper.CreateSuccessResponse(request.Username, result.OperationId, result.AttemptId, result.ExpiresAtUtc));
@@ -170,7 +172,7 @@ public class SteamAuthController : ControllerBase
     public async Task<ActionResult<MessageOnlyResponse>> CancelLogin([FromBody] IntegrationLoginRequest? request = null)
     {
         _steamKit2Service.CancelLogin(await IntegrationLease.ResolveCallerAsync(HttpContext), request?.AttemptId);
-        return Ok(new MessageOnlyResponse { Message = "Steam sign-in cancelled" });
+        return Ok(new MessageOnlyResponse { Message = "Steam sign-in canceled" });
     }
 
     /// <summary>

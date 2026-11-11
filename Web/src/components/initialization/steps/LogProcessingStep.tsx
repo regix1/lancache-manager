@@ -72,7 +72,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
   const [lastEventAt, setLastEventAt] = useState<number>(Date.now());
-  const [isCancelling, setIsCancelling] = useState(false);
+  const [isCanceling, setIsCanceling] = useState(false);
   const [forceStopConfirmOpen, setForceStopConfirmOpen] = useState<boolean>(false);
   const completionHandledRef = React.useRef(false);
   const sessionStartedRef = React.useRef(false);
@@ -171,16 +171,16 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       completionHandledRef.current = true;
       setLastEventAt(Date.now());
 
-      if (data.cancelled) {
+      if (data.canceled) {
         setNotice({
           tone: 'info',
           // A cancel carries no reason, so the notice uses the step's own key.
-          message: t('initialization.logProcessing.cancelled')
+          message: t('initialization.logProcessing.canceled')
         });
         setProgress({
           isProcessing: false,
           progress: 0,
-          status: 'cancelled'
+          status: 'canceled'
         });
         setComplete(false);
         setProcessing(false);
@@ -299,7 +299,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           const run = pass ? await ApiService.getTrackedOperation(pass) : null;
           if (stale()) return;
           if (run?.nextOperationId) {
-            // A queued pass handed its work to the run that took over. The quiet is counted as 26 seconds, so the next
+            // A waiting pass handed its work to the run that took over. The quiet is counted as 26 seconds, so the next
             // 5 second tick reads that run once, and a run still processing then goes back to the 30 second wait.
             setActiveOperationId(run.nextOperationId);
             endingPendingRef.current = false;
@@ -308,7 +308,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           }
           if (
             run?.status === 'running' ||
-            run?.status === 'cancelling' ||
+            run?.status === 'canceling' ||
             run?.status === 'waiting'
           ) {
             // The pass is still saving its outcome; its run is read again at the next tick.
@@ -324,8 +324,8 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
               progress: 100,
               status: 'completed'
             });
-          } else if (run?.status === 'cancelled') {
-            setNotice({ tone: 'info', message: t('initialization.logProcessing.cancelled') });
+          } else if (run?.status === 'canceled') {
+            setNotice({ tone: 'info', message: t('initialization.logProcessing.canceled') });
           } else if (run?.status === 'failed') {
             setNotice({
               tone: 'error',
@@ -369,11 +369,11 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       return;
     }
 
-    let cancelled = false;
+    let canceled = false;
     (async () => {
       try {
         const positions = await ApiService.getLogPositions();
-        if (cancelled) return;
+        if (canceled) return;
         const hasWarning = positions.some(
           (p) => (p.unparsedLines ?? 0) > 0 || (p.hintlessHttpDetailedLines ?? 0) > 0
         );
@@ -384,7 +384,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     })();
 
     return () => {
-      cancelled = true;
+      canceled = true;
     };
   }, [complete, progress?.entriesProcessed]);
 
@@ -462,7 +462,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
 
   const handleCancelProcessing = async () => {
     try {
-      setIsCancelling(true);
+      setIsCanceling(true);
 
       // The run may have been started moments ago, before any status poll or SignalR event
       // supplied its id, so fall back to a fresh status read rather than leaving the button inert.
@@ -499,7 +499,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         message: getErrorMessage(err)
       });
     } finally {
-      setIsCancelling(false);
+      setIsCanceling(false);
     }
   };
 
@@ -801,11 +801,11 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
             variant="filled"
             color="stop"
             onClick={() => setForceStopConfirmOpen(true)}
-            disabled={isCancelling}
+            disabled={isCanceling}
             fullWidth
           >
-            {isCancelling
-              ? t('initialization.logProcessing.cancelling')
+            {isCanceling
+              ? t('initialization.logProcessing.canceling')
               : t('initialization.logProcessing.cancel')}
           </Button>
         )}

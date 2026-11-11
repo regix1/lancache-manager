@@ -253,9 +253,10 @@ const AppContent: React.FC = () => {
       setShowFullScanRequiredModal(false);
     };
     const handleDepotMappingComplete = (event: DepotMappingCompleteEvent) => {
+      // Any run ending frees the full-scan actions; a skipped one leaves the prompt as it is.
+      fullScanActionRunningRef.current = false;
       if (event.status === 'skipped') return;
       cancelFullScanCheck();
-      fullScanActionRunningRef.current = false;
       if (event.success) {
         setShowFullScanRequiredModal(false);
       } else {
@@ -458,7 +459,7 @@ const AppContent: React.FC = () => {
       }
 
       fullScanActionRunningRef.current = false;
-      // Don't log abort errors (user cancelled)
+      // Don't log abort errors (user canceled)
       if (!isAbortError(error)) {
         console.error('Failed to download from GitHub:', error);
         await refreshFullScanPrompt(true);

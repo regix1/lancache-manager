@@ -25,7 +25,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
   // refetch was requested and run exactly one once the in-flight read settles, so the fresh
   // persisted result is never dropped by the single-flight guard.
   const pendingRefetchRef = useRef(false);
-  // Stable handle to the latest fetch so the settle path can trigger the queued refetch without
+  // Stable handle to the latest fetch so the settle path can trigger the pending refetch without
   // widening the callback's dependency list.
   const fetchRef = useRef<(force?: boolean) => Promise<void>>(() => Promise.resolve());
 
@@ -54,13 +54,13 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
 
     try {
       const size = await ApiService.getCacheSize(undefined, force, controller.signal);
-      // Mark fetched even for a scanning/queued response. hasFetched gates only the CONSUMER's
+      // Mark fetched even for a scanning/waiting response. hasFetched gates only the CONSUMER's
       // one-shot mount fetch; leaving it false while a scan runs makes that effect re-fire every
       // time isLoading toggles back, spinning GET /cache/size for the scan's whole duration. The
       // authoritative result is still delivered by CacheScanComplete (and the reconnect resync),
       // which call fetchCacheSize directly and do not consult hasFetched. Keep the last size.
       setHasFetched(true);
-      if ('scanning' in size || 'queued' in size) {
+      if ('scanning' in size || 'status' in size) {
         return;
       }
       if ('available' in size) {
@@ -100,7 +100,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
         setIsLoading(false);
         abortControllerRef.current = null;
         if (pendingRefetchRef.current) {
-          // Drain the single queued refetch now that the guard is clear.
+          // Drain the single pending refetch now that the guard is clear.
           pendingRefetchRef.current = false;
           void fetchRef.current();
         }

@@ -2,7 +2,7 @@ import i18n from '@/i18n';
 import { ApiError } from '../services/apiError';
 
 /**
- * Type guard to check if an error is an AbortError (a cancelled/aborted request). Cancellation is a
+ * Type guard to check if an error is an AbortError (a canceled/aborted request). Cancellation is a
  * distinct terminal outcome, not a failure - callers use this to skip error surfacing.
  */
 export function isAbortError(error: unknown): boolean {

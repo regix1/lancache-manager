@@ -232,6 +232,20 @@ test('an action failure can expose a still-current requirement and success relea
   assert.equal(app.state.visible, false);
 });
 
+test('a skipped run releases the full-scan action and leaves an open prompt open', async () => {
+  const app = mount();
+  app.emit('AutomaticScanSkipped');
+  app.requests[0].resolve(required());
+  await settled();
+  assert.equal(app.state.visible, true);
+  // A full-scan click that met the skipped run got a conflict and left the action marked running.
+  app.fullScanActionRunningRef.current = true;
+  // The server reports a skipped run as successful, with its typed status.
+  app.emit('DepotMappingComplete', { success: true, status: 'skipped' });
+  assert.equal(app.fullScanActionRunningRef.current, false);
+  assert.equal(app.state.visible, true);
+});
+
 test('unauthenticated sessions do not subscribe to the prompt events', () => {
   const app = mount('guest');
   app.emit('AutomaticScanSkipped');

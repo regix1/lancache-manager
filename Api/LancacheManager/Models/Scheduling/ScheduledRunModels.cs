@@ -42,7 +42,7 @@ public sealed record ScheduledRunProgressEvent(
 /// failure or cancellation it carries the highest percent reached (never a regression to 0).
 /// Implements <see cref="IOperationComplete"/> so failures route through the uniform
 /// <c>NotifyOperationFailedAsync</c> funnel. The interface's <c>OperationId</c>/<c>Status</c>/
-/// <c>Cancelled</c> members are public wire properties so cancellation remains a distinct terminal
+/// <c>Canceled</c> members are public wire properties so cancellation remains a distinct terminal
 /// outcome instead of being encoded as a failed run with a magic error string.
 /// </summary>
 public sealed record ScheduledRunCompleteEvent(
@@ -53,7 +53,7 @@ public sealed record ScheduledRunCompleteEvent(
     double PercentComplete,
     string? Error,
     Dictionary<string, object?>? Context,
-    bool Cancelled,
+    bool Canceled,
     OperationStatus Status) : IOperationComplete
 {
     Guid? IOperationComplete.OperationId => OperationId;

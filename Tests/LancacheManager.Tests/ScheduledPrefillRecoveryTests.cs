@@ -152,7 +152,7 @@ public sealed class ScheduledPrefillRecoveryTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task LifecycleWinsAgainstRelayWaitingToCommitAsync(bool cancelling)
+    public async Task LifecycleWinsAgainstRelayWaitingToCommitAsync(bool canceling)
     {
         await using var fixture = await RunFixture.CreateAsync(persistent: true);
         var daemonRun = await fixture.StartAsync("10");
@@ -185,18 +185,18 @@ public sealed class ScheduledPrefillRecoveryTests
             pending = Task.Run(() => (Task)send.Invoke(relay, [fixture.Session, progress, 10L])!);
             var revision = relayType.GetField("_revision", BindingFlags.Instance | BindingFlags.NonPublic)!;
             Assert.True(SpinWait.SpinUntil(() => (long)revision.GetValue(relay)! > 0, TimeSpan.FromSeconds(5)));
-            run.State.Record(cancelling ? "cancelling" : "recovering", cancelling ? "Stopping" : "Waiting", null, null);
+            run.State.Record(canceling ? "canceling" : "recovering", canceling ? "Stopping" : "Waiting", null, null);
         }
         await pending.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Empty(capture.Events);
-        Assert.Equal(cancelling ? "cancelling" : "recovering", run.State.Stage);
+        Assert.Equal(canceling ? "canceling" : "recovering", run.State.Stage);
         Assert.Equal(25, run.State.PercentComplete);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task RelayPreservesLifecycleUntilWatcherResumesAsync(bool cancelling)
+    public async Task RelayPreservesLifecycleUntilWatcherResumesAsync(bool canceling)
     {
         await using var fixture = await RunFixture.CreateAsync(persistent: true);
         var daemonRun = await fixture.StartAsync("10");
@@ -209,14 +209,14 @@ public sealed class ScheduledPrefillRecoveryTests
         var resumed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         capture.OnSend = (_, value) =>
         {
-            if (value.GetProperty("stage").GetString() == (cancelling ? "cancelling" : "recovering")) lifecycle.TrySetResult();
+            if (value.GetProperty("stage").GetString() == (canceling ? "canceling" : "recovering")) lifecycle.TrySetResult();
             if (value.GetProperty("message").GetString()?.Contains("Example", StringComparison.Ordinal) == true) resumed.TrySetResult();
             return Task.CompletedTask;
         };
         run.State.Record("running", "Downloading previous game", null, 25);
-        daemonRun.Recovering = !cancelling;
-        fixture.Session.Recovering = !cancelling;
-        daemonRun.CancelRequested = cancelling;
+        daemonRun.Recovering = !canceling;
+        fixture.Session.Recovering = !canceling;
+        daemonRun.CancelRequested = canceling;
         var task = (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
             .GetMethod("WatchRunAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(scheduler, [fixture.Daemon, fixture.Session, daemonRun, run, notifications, ScheduledPrefillConfigFactory.CreateDefault()])!;
@@ -247,7 +247,7 @@ public sealed class ScheduledPrefillRecoveryTests
         Assert.Equal(25, run.State.PercentComplete);
         Assert.DoesNotContain(capture.Events, item => item.Value.GetProperty("stage").GetString() == "running");
         Assert.Equal(daemonRun.DaemonInstanceId, run.State.Snapshot.DaemonInstanceId);
-        if (!cancelling)
+        if (!canceling)
         {
             daemonRun.Recovering = false;
             fixture.Session.Recovering = false;
@@ -255,7 +255,7 @@ public sealed class ScheduledPrefillRecoveryTests
             Assert.Contains("Example", run.State.Message, StringComparison.Ordinal);
             Assert.False(run.State.Snapshot.Recovering);
         }
-        fixture.Client.Set(daemonRun, cancelling ? "cancelled" : "completed", 50, cancelling ? "cancelled" : "success");
+        fixture.Client.Set(daemonRun, canceling ? "canceled" : "completed", 50, canceling ? "canceled" : "success");
         await fixture.RefreshAsync();
         await task.WaitAsync(TimeSpan.FromSeconds(5));
     }
@@ -263,7 +263,7 @@ public sealed class ScheduledPrefillRecoveryTests
     [Theory]
     [InlineData("starting")]
     [InlineData("recovering")]
-    [InlineData("cancelling")]
+    [InlineData("canceling")]
     public async Task EachWatchedStageLineCarriesTheKeyItIsTranslatedByAsync(string from)
     {
         await using var fixture = await RunFixture.CreateAsync(persistent: true);
@@ -289,7 +289,7 @@ public sealed class ScheduledPrefillRecoveryTests
         daemonRun.LastProgress = null;
         daemonRun.Recovering = from == "recovering";
         fixture.Session.Recovering = from == "recovering";
-        daemonRun.CancelRequested = from == "cancelling";
+        daemonRun.CancelRequested = from == "canceling";
         var task = (Task<ScheduledPrefillServiceRunResult>)typeof(ScheduledPrefillService)
             .GetMethod("WatchRunAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(scheduler, [fixture.Daemon, fixture.Session, daemonRun, run, notifications, ScheduledPrefillConfigFactory.CreateDefault()])!;
@@ -301,7 +301,7 @@ public sealed class ScheduledPrefillRecoveryTests
         {
             "preparing" => "signalr.scheduledPrefill.preparing",
             "recovering" => "signalr.scheduledPrefill.reconnecting",
-            "cancelling" => "signalr.scheduledPrefill.stopping",
+            "canceling" => "signalr.scheduledPrefill.stopping",
             _ => "signalr.scheduledPrefill.running"
         };
         Assert.Equal(expected, sent.GetProperty("stageKey").GetString());
@@ -310,8 +310,8 @@ public sealed class ScheduledPrefillRecoveryTests
 
         daemonRun.Recovering = false;
         fixture.Session.Recovering = false;
-        fixture.Client.Set(daemonRun, from == "cancelling" ? "cancelled" : "completed", 50,
-            from == "cancelling" ? "cancelled" : "success");
+        fixture.Client.Set(daemonRun, from == "canceling" ? "canceled" : "completed", 50,
+            from == "canceling" ? "canceled" : "success");
         await fixture.RefreshAsync();
         await task.WaitAsync(TimeSpan.FromSeconds(5));
     }
@@ -358,7 +358,7 @@ public sealed class ScheduledPrefillRecoveryTests
             Assert.Equal("silent", second.NotificationMode);
             tracker.CancelOperation(second.PrefillRunId);
             await second.Completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.Equal([second.PrefillRunId], fixture.Client.Cancelled);
+            Assert.Equal([second.PrefillRunId], fixture.Client.Canceled);
             Assert.Equal(3, fixture.Client.StartCount);
             Guid? resumedId = null;
             await WaitUntilAsync(() => (resumedId = scheduler.TriggerServiceRun(
@@ -432,7 +432,7 @@ public sealed class ScheduledPrefillRecoveryTests
         Assert.Equal(ScheduledPrefillServiceRunResult.Ran, await firstTask.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(ScheduledPrefillServiceRunResult.Ran, await secondTask.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.False(daemon.GetRun(fixture.Session.Id, manual.RunId!.Value)!.Completion.Task.IsCompleted);
-        Assert.Empty(fixture.Client.Cancelled);
+        Assert.Empty(fixture.Client.Canceled);
     }
 
     [Fact]
@@ -479,7 +479,7 @@ public sealed class ScheduledPrefillRecoveryTests
     }
 
     [Fact]
-    public async Task CancelledWatcherWaitsForItsOwnDrainAndLeavesSiblingRunningAsync()
+    public async Task CanceledWatcherWaitsForItsOwnDrainAndLeavesSiblingRunningAsync()
     {
         await using var fixture = await RunFixture.CreateAsync(persistent: true);
         fixture.Client.CompleteCancellation = false;
@@ -494,11 +494,11 @@ public sealed class ScheduledPrefillRecoveryTests
         await cancel.CancelAsync();
         await WaitUntilAsync(() => run.CancelRequested);
         Assert.False(task.IsCompleted);
-        Assert.Equal([serviceRun.OperationId], fixture.Client.Cancelled);
+        Assert.Equal([serviceRun.OperationId], fixture.Client.Canceled);
         Assert.False(sibling.CancelRequested);
-        fixture.Client.Set(run, "cancelled", 12, "cancelled");
+        fixture.Client.Set(run, "canceled", 12, "canceled");
         await fixture.RefreshAsync();
-        Assert.Equal(ScheduledPrefillServiceRunResult.Cancelled, await task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(ScheduledPrefillServiceRunResult.Canceled, await task.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.False(sibling.Completion.Task.IsCompleted);
     }
 
@@ -519,17 +519,17 @@ public sealed class ScheduledPrefillRecoveryTests
         await WaitUntilAsync(() => run.CancelRequested);
         Assert.True(fixture.Session.Recovering);
         Assert.False(task.IsCompleted);
-        Assert.Empty(fixture.Client.Cancelled);
+        Assert.Empty(fixture.Client.Canceled);
         fixture.Client.Offline = false;
         await fixture.RefreshAsync();
         await fixture.RefreshAsync();
-        Assert.Equal(ScheduledPrefillServiceRunResult.Cancelled, await task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(ScheduledPrefillServiceRunResult.Canceled, await task.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal(1, fixture.Client.StartCount);
-        Assert.Equal([serviceRun.OperationId], fixture.Client.Cancelled);
+        Assert.Equal([serviceRun.OperationId], fixture.Client.Canceled);
     }
 
     [Fact]
-    public async Task ShutdownDetachesPersistentWatcherWithoutCancellingDaemonAsync()
+    public async Task ShutdownDetachesPersistentWatcherWithoutCancelingDaemonAsync()
     {
         await using var fixture = await RunFixture.CreateAsync(persistent: true);
         using var services = new ServiceCollection().BuildServiceProvider();
@@ -540,7 +540,7 @@ public sealed class ScheduledPrefillRecoveryTests
         await scheduler.StopAsync(CancellationToken.None);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
         Assert.True(serviceRun.State.Detached);
-        Assert.Empty(fixture.Client.Cancelled);
+        Assert.Empty(fixture.Client.Canceled);
         Assert.False(fixture.Daemon.GetRun(fixture.Session.Id, serviceRun.OperationId)!.Completion.Task.IsCompleted);
     }
 
@@ -560,7 +560,7 @@ public sealed class ScheduledPrefillRecoveryTests
         Assert.Equal("runtime-exceeded", run.CancelReason);
         Assert.False(task.IsCompleted);
         Assert.False(sibling.CancelRequested);
-        fixture.Client.Set(run, "cancelled", 12, "cancelled");
+        fixture.Client.Set(run, "canceled", 12, "canceled");
         await fixture.RefreshAsync();
         Assert.Equal(ScheduledPrefillServiceRunResult.Failed, await task.WaitAsync(TimeSpan.FromSeconds(5)));
     }
@@ -585,9 +585,9 @@ public sealed class ScheduledPrefillRecoveryTests
         var task = Watch(scheduler, fixture, run, serviceRun);
         await WaitUntilAsync(() => run.CancelRequested);
         Assert.Null(run.CancelReason);
-        fixture.Client.Set(run, "cancelled", 12, "cancelled");
+        fixture.Client.Set(run, "canceled", 12, "canceled");
         await fixture.RefreshAsync();
-        Assert.Equal(ScheduledPrefillServiceRunResult.Cancelled, await task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(ScheduledPrefillServiceRunResult.Canceled, await task.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
     [Theory]
@@ -1005,7 +1005,7 @@ public sealed class ScheduledPrefillRecoveryTests
         await WaitUntilAsync(() => fixture.Session.SignInAgainAfterDrop is not null);
         await cancel.CancelAsync();
 
-        Assert.Equal(ScheduledPrefillServiceRunResult.Cancelled, await result.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(ScheduledPrefillServiceRunResult.Canceled, await result.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.NotEqual("signalr.scheduledPrefill.needsPersistentLogin", serviceRun.State.Snapshot.StageKey);
         fixture.Session.LoginLock.Release();
     }
@@ -1046,7 +1046,7 @@ public sealed class ScheduledPrefillRecoveryTests
 
         var result = StartGatedRun(scheduler, services, serviceRun, cancel);
 
-        Assert.Equal(ScheduledPrefillServiceRunResult.Cancelled, await result.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal(ScheduledPrefillServiceRunResult.Canceled, await result.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
     [Fact]
@@ -1215,8 +1215,8 @@ public sealed class ScheduledPrefillRecoveryTests
         Assert.False(string.IsNullOrWhiteSpace(started.GetProperty("message").GetString()));
         tracker.CancelOperation(daemonRun.PrefillRunId);
         events.Release.TrySetResult();
-        await WaitUntilAsync(() => operation.Status == OperationStatus.Cancelled);
-        Assert.Equal([daemonRun.PrefillRunId], fixture.Client.Cancelled);
+        await WaitUntilAsync(() => operation.Status == OperationStatus.Canceled);
+        Assert.Equal([daemonRun.PrefillRunId], fixture.Client.Canceled);
         var completed = Assert.Single(events.Events, item => item.Event == SignalREvents.ScheduledPrefillCompleted).Value;
         Assert.Equal(daemonRun.DaemonInstanceId, completed.GetProperty("daemonInstanceId").GetString());
         Assert.Equal(started.GetProperty("eventEpoch").GetGuid(), completed.GetProperty("eventEpoch").GetGuid());

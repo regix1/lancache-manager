@@ -3,7 +3,7 @@ name = "Accessible - Tritanopia"
 id = "accessible-tritanopia"
 description = "Tritanopia-accessible theme with neutral dark backgrounds and crimson-green contrast"
 author = "System"
-version = "2.3.4"
+version = "2.3.5"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -15,29 +15,29 @@ primaryColor = "#dc2626"       # Rich crimson
 secondaryColor = "#16a34a"     # Forest green
 accentColor = "#ea580c"        # Coral-orange
 
-# Backgrounds - Neutral dark grey (VSCode-inspired)
+# Backgrounds - Neutral dark gray (VSCode-inspired)
 bgPrimary = "#1e1e1e"          # VSCode dark background
 bgSecondary = "#252526"        # VSCode sidebar
-bgTertiary = "#2d2d2d"         # Slightly lighter grey
-bgHover = "#3c3c3c"            # Hover state grey
+bgTertiary = "#2d2d2d"         # Slightly lighter gray
+bgHover = "#3c3c3c"            # Hover state gray
 bgElevated = "#222223"         # Slightly lighter than bgPrimary
 bgSurface = "#2a2a2b"          # Surface within elevated panels
-bgSurfaceHover = "#323233"     # Hover on surface elements
+bgSurfaceHover = "#3a3a3b"     # Hover on surface elements
 bgSurfaceActive = "#3a3a3b"    # Active/pressed surface elements
 bgOverlay = "rgba(0,0,0,0.6)"  # Backdrop overlay
 
 # Text - Clean neutral tones
-textPrimary = "#e0e0e0"        # Light grey
-textSecondary = "#b0b0b0"      # Medium grey
-textMuted = "#808080"          # Muted grey
+textPrimary = "#e0e0e0"        # Light gray
+textSecondary = "#b0b0b0"      # Medium gray
+textMuted = "#808080"          # Muted gray
 textAccent = "#f87171"          # Light red
-textPlaceholder = "#5a5a5a"    # Placeholder grey
+textPlaceholder = "#5a5a5a"    # Placeholder gray
 
 # Drag handle
 dragHandleColor = "#5a5a5a"
 dragHandleHover = "#f87171"
 
-# Borders - Neutral grey
+# Borders - Neutral gray
 borderPrimary = "#333333"      # Dark border
 borderSecondary = "#444444"    # Medium border
 borderFocus = "#dc2626"
@@ -69,7 +69,7 @@ errorText = "#fca5a5"          # Light red
 info = "#db2777"               # Deep pink/magenta
 infoBg = "#2d0f20"
 infoText = "#f9a8d4"           # Light pink
-waiting = "#94a3b8"            # Neutral slate - tritanopia-safe "queued" tone (violet would read reddish like error/info here)
+waiting = "#94a3b8"            # Neutral slate - tritanopia-safe "waiting" tone (violet would read reddish like error/info here)
 waitingBg = "#262b33"            # Dark slate background
 waitingText = "#cbd5e1"          # Light slate text
 
@@ -94,15 +94,15 @@ neverwinterColor = "#d2cfc9"    # Soft silver
 nexusmodsColor = "#a5e4b5"      # Mint green
 nintendoColor = "#f49c8d"       # Salmon
 pathofexileColor = "#7fa24e"    # Moss green
-renegadexColor = "#aca9a4"      # Light grey
-sonyColor = "#89857e"           # Medium grey
-squareColor = "#b8969e"         # Rose grey
+renegadexColor = "#aca9a4"      # Light gray
+sonyColor = "#89857e"           # Medium gray
+squareColor = "#b8969e"         # Rose gray
 tesoColor = "#af6270"           # Dusty wine
-testColor = "#63605a"           # Dark warm grey (neutral)
+testColor = "#63605a"           # Dark warm gray (neutral)
 warframeColor = "#52b872"       # Medium green
 wargamingColor = "#465e2c"      # Deep olive
 
-# Components - Neutral grey
+# Components - Neutral gray
 cardBg = "#252526"             # Card background
 cardBorder = "#333333"         # Card border
 cardOutline = "#dc2626"
@@ -190,11 +190,11 @@ gameColor20 = "#064e3b"
 gameColorOther = "#6b7280"
 chartBorderColor = "#1b1b1b"   # Dark border
 chartGridColor = "#333333"     # Grid lines
-chartTextColor = "#808080"     # Muted grey
+chartTextColor = "#808080"     # Muted gray
 chartCacheHitColor = "#16a34a"
 chartCacheMissColor = "#dc2626"
 
-# Scrollbar - Neutral grey
+# Scrollbar - Neutral gray
 scrollbarTrack = "#252526"     # Dark track
 scrollbarThumb = "#444444"     # Thumb
 scrollbarHover = "#dc2626"

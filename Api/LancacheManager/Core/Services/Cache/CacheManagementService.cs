@@ -7,6 +7,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using static LancacheManager.Infrastructure.Utilities.FormattingUtils;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 using LancacheManager.Models;
@@ -153,7 +154,7 @@ public partial class CacheManagementService
 
     /// <summary>
     /// Reads live cache usage from the mount plus the persisted scan stats. Deliberately
-    /// non-cancellable: the work is drive metadata and small local state files, so a token
+    /// non-cancelable: the work is drive metadata and small local state files, so a token
     /// would add ceremony without a query to release.
     /// </summary>
     public async Task<CacheInfo> GetCacheInfoAsync()
@@ -1457,7 +1458,7 @@ public partial class CacheManagementService
 
             // A cancel during the run throws OperationCanceledException from the helper's stdout
             // read. This check catches a cancel that arrives after the child exited and the helper
-            // returned, and classifies it as CANCELLED - never as a "Failed to calculate cache size"
+            // returned, and classifies it as CANCELED - never as a "Failed to calculate cache size"
             // error (mirrors the eviction scan's ThrowIfCancellationRequested immediately after
             // the Rust run).
             if (cancellationToken.IsCancellationRequested)
@@ -1803,7 +1804,7 @@ public partial class CacheManagementService
         RunNotice? notice = null)
     {
         // Heavy data ops run one at a time (OperationConflictChecker section 1a). Both scan
-        // entry points (the queued manual refresh and the scheduled service) funnel through
+        // entry points (the manual refresh through the operation queue and the scheduled service) funnel through
         // here before the Rust walker spawns, so this final guard also closes start races.
         // Returning null lets callers retain the last persisted result.
         var scanConflict = await _conflictChecker.CheckAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), callerToken);
@@ -1842,15 +1843,15 @@ public partial class CacheManagementService
                 },
                 onTerminalEmit: info =>
                 {
-                    if (info.Cancelled)
+                    if (info.Canceled)
                     {
                         return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
                             Success: false,
                             OperationId: operationId,
-                            StageKey: "signalr.cacheSizeScan.cancelled",
+                            StageKey: "signalr.cacheSizeScan.canceled",
                             TotalFiles: 0,
                             TotalBytes: 0,
-                            Cancelled: true));
+                            Canceled: true));
                     }
 
                     if (info.Success)
@@ -1869,13 +1870,17 @@ public partial class CacheManagementService
                             }));
                     }
 
+                    // A failure with a reason ends on the reason's key with the values its sentence names, set before this
+                    // emit (it runs inside CompleteOperation).
+                    var failureReason = _operationTracker.GetOperation(operationId)?.FailureReason;
                     return _notifications.NotifyAllAsync(SignalREvents.CacheSizeScanComplete, new CacheSizeScanComplete(
                         Success: false,
                         OperationId: operationId,
-                        StageKey: "signalr.cacheSizeScan.complete",
+                        StageKey: failureReason is null ? "signalr.cacheSizeScan.complete" : failureReason.StageKey,
                         TotalFiles: 0,
                         TotalBytes: 0,
-                        Error: info.Error));
+                        Error: info.Error,
+                        Context: failureReason is null ? null : new Dictionary<string, object?>(failureReason.Context)));
                 },
                 notice: notice),
             callerToken);
@@ -1931,7 +1936,10 @@ public partial class CacheManagementService
                     _operationTracker.CompleteOperation(
                         operationId,
                         success: false,
-                        error: $"Cache root is unavailable or changed identity: {currentPath}");
+                        error: "signalr.cacheSizeScan.rootUnavailable",
+                        onCompleting: operation => operation.FailureReason = new RunWarning(
+                            "signalr.cacheSizeScan.rootUnavailable",
+                            new Dictionary<string, object?> { ["cachePath"] = currentPath }));
                     return null;
                 }
 
@@ -1966,7 +1974,7 @@ public partial class CacheManagementService
                 linked.Token.ThrowIfCancellationRequested();
                 if (datasourceResult == null)
                 {
-                    _operationTracker.CompleteOperation(operationId, success: false, error: "Cache size scan failed - see server logs");
+                    _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.cacheSizeScan.failed");
                     return null;
                 }
 
@@ -1996,9 +2004,9 @@ public partial class CacheManagementService
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("[CacheSizeScan] Operation {OperationId} was cancelled", operationId);
-            // Terminal CacheSizeScanComplete(cancelled) is emitted by the registered onTerminalEmit closure.
-            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
+            _logger.LogInformation("[CacheSizeScan] Operation {OperationId} was canceled", operationId);
+            // Terminal CacheSizeScanComplete(canceled) is emitted by the registered onTerminalEmit closure.
+            _operationTracker.CompleteOperation(operationId, success: false, canceled: true);
             if (callerToken.IsCancellationRequested)
             {
                 throw; // preserve the pre-existing contract for host-shutdown / aborted callers
@@ -2008,7 +2016,11 @@ public partial class CacheManagementService
         catch (Exception ex)
         {
             _logger.LogError(ex, "[CacheSizeScan] Cache file scan failed");
-            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            _operationTracker.CompleteOperation(operationId, success: false,
+                error: "signalr.cacheSizeScan.error.fatal",
+                onCompleting: operation => operation.FailureReason = new RunWarning(
+                    "signalr.cacheSizeScan.error.fatal",
+                    new Dictionary<string, object?> { ["errorDetail"] = ex.Message }));
             return null;
         }
     }
@@ -2017,7 +2029,7 @@ public partial class CacheManagementService
     /// Starts an explicit full cache-size scan without tying its lifetime to the initiating HTTP
     /// request. Returns as soon as the tracked operation has emitted its Started event; the singleton
     /// service continues the scan, persists the result, and emits <see cref="SignalREvents.CacheScanComplete"/>
-    /// after the cached result is ready for readers. Intended for <see cref="IOperationQueue"/> promotion.
+    /// after the cached result is ready for readers. Intended for <see cref="IOperationWaitlist"/> promotion.
     /// </summary>
     public Task<Guid?> StartCacheSizeScanInBackgroundAsync(RunNotice notice)
     {
@@ -2036,10 +2048,9 @@ public partial class CacheManagementService
             // returned as null: the queue reads a null start as transient and parks the caller
             // again, while a throw ends the waiting row as skipped for a download, which the
             // schedule holds on a waiting card until downloads end.
-            var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
-            if (downloadDenial != null)
+            if (_cacheScanGate.CheckDownloadRefusal() is { } downloadRefusal)
             {
-                throw new DownloadInProgressException(downloadDenial);
+                throw downloadRefusal;
             }
 
             var result = await GetCacheSizeAsync(
@@ -2054,7 +2065,7 @@ public partial class CacheManagementService
                 notice: notice);
 
             // A last-moment conflict can still make the start path decline after the queue's
-            // eligibility check. Returning null lets OperationQueue terminate the waiting card
+            // eligibility check. Returning null lets the wait list end the waiting card
             // as a failed promotion instead of leaving a ghost operation behind.
             started.TrySetResult(null);
 
@@ -2082,7 +2093,7 @@ public partial class CacheManagementService
     /// Returns a cache size result, using the persisted server-side cache for ordinary reads.
     /// Per-datasource scans are always live (not cached).
     /// The full all-datasources scan runs only when <paramref name="force"/> is true. This keeps
-    /// cache-size changes and page reads from launching an unqueued full-disk walk; automatic
+    /// cache-size changes and page reads from launching a full-disk walk outside the operation queue; automatic
     /// refreshes belong exclusively to <see cref="CacheSizeScanScheduledService"/>.
     /// </summary>
     public async Task<CacheSizeResponse?> GetCacheSizeAsync(
@@ -2112,10 +2123,9 @@ public partial class CacheManagementService
             }
 
             // This branch always walks the directory, so it is a scan however it was asked for.
-            var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
-            if (downloadDenial != null)
+            if (_cacheScanGate.CheckDownloadRefusal() is { } downloadRefusal)
             {
-                throw new DownloadInProgressException(downloadDenial);
+                throw downloadRefusal;
             }
 
             var datasourceResult = await RunCacheSizeScanAsync(cachePath, cancellationToken);
@@ -2150,14 +2160,18 @@ public partial class CacheManagementService
         if (allCachePaths.Count == 0)
         {
             _logger.LogWarning("Cache size scan skipped because no datasource is enabled");
-            await LoadCachedScanAsync();
-            return BuildStaleResult();
+            // Only the scan start through the operation queue reaches this branch with force set; a refusal fails the run at
+            // once instead of parking it as busy.
+            throw new ValidationException("No datasource is enabled")
+            {
+                StageKey = "management.datasources.noActiveDatasources"
+            };
         }
 
         await _scanCacheLock.WaitAsync(cancellationToken);
         try
         {
-            // A forced scan is either a queued manual refresh or the scheduled service.
+            // A forced scan is either a manual refresh through the operation queue or the scheduled service.
             _logger.LogInformation("Force rescan requested - running fresh cache size scan");
             var freshResult = await RunFullScanAsync(allCachePaths, cancellationToken, onScanStarted, notice);
             if (freshResult != null)
@@ -2177,7 +2191,7 @@ public partial class CacheManagementService
                 ApplyMeasuredClearRates(freshResult.Value.Total);
                 return freshResult.Value.Total;
             }
-            // Cancelled/failed force scan: fall back to the last good result (stale is
+            // Canceled/failed force scan: fall back to the last good result (stale is
             // fine) so the dashboard keeps showing data instead of erroring.
             await LoadCachedScanAsync();
             return BuildStaleResult();
@@ -2202,7 +2216,7 @@ public partial class CacheManagementService
 
     /// <summary>
     /// Returns the last good cached scan as a stale (IsCached=true) response, or null when no
-    /// cached scan exists. Used when a fresh scan was cancelled or failed so dashboards keep
+    /// cached scan exists. Used when a fresh scan was canceled or failed so dashboards keep
     /// showing the previous scan's data + timestamp (graceful staleness) instead of an error.
     /// Cancellation never deletes the cached scan file; only cache clear/removals invalidate it.
     /// </summary>

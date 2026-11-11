@@ -18,10 +18,10 @@ namespace LancacheManager.Tests;
 /// full scan that began database writes invalidates the prior full-scan remainder. Pre-write,
 /// completed, and incremental repairs preserve the prior measurement.
 /// </summary>
-public sealed class CancelledDetectionUnmappedBucketTests
+public sealed class CanceledDetectionUnmappedBucketTests
 {
     [Theory]
-    [InlineData(OperationStatus.Cancelled)]
+    [InlineData(OperationStatus.Canceled)]
     [InlineData(OperationStatus.Failed)]
     public async Task EveryExitThatDidNotFinishTheWalk_ClearsTheStoredBucket(
         OperationStatus outcome)
@@ -36,10 +36,10 @@ public sealed class CancelledDetectionUnmappedBucketTests
     }
 
     [Theory]
-    [InlineData(DetectionScanType.Full, OperationStatus.Cancelled, false)]
+    [InlineData(DetectionScanType.Full, OperationStatus.Canceled, false)]
     [InlineData(DetectionScanType.Full, OperationStatus.Failed, false)]
     [InlineData(DetectionScanType.Full, OperationStatus.Completed, true)]
-    [InlineData(DetectionScanType.Incremental, OperationStatus.Cancelled, true)]
+    [InlineData(DetectionScanType.Incremental, OperationStatus.Canceled, true)]
     [InlineData(DetectionScanType.Incremental, OperationStatus.Failed, true)]
     public async Task RepairsWithoutAnInterruptedFullWrite_PreserveTheStoredBucket(
         DetectionScanType scan,
@@ -58,7 +58,7 @@ public sealed class CancelledDetectionUnmappedBucketTests
         bool writeStarted)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseInMemoryDatabase("cancelled-detection-bucket-" + Guid.NewGuid().ToString("N"))
+            .UseInMemoryDatabase("canceled-detection-bucket-" + Guid.NewGuid().ToString("N"))
             .Options;
         var contexts = new TestDbContextFactory(options);
         var store = new GameCacheDetectionDataService(

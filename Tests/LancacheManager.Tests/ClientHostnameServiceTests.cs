@@ -187,6 +187,7 @@ public sealed class ClientHostnameServiceTests
             nameof(IStateService.GetHiddenClientIps) => new List<string> { "10.0.0.10" },
             nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string> { "10.0.0.11" },
             nameof(IStateService.GetEvictedDataMode) => "show",
+            nameof(IStateService.GetPrefillRules) => new List<ClientExclusionRule>(),
             _ => DefaultReturn(method.ReturnType)
         });
 
@@ -838,6 +839,7 @@ public sealed class ClientHostnameServiceTests
             nameof(IStateService.GetHiddenClientIps) => new List<string>(),
             nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
             nameof(IStateService.GetEvictedDataMode) => "show",
+            nameof(IStateService.GetPrefillRules) => new List<ClientExclusionRule>(),
             _ => DefaultReturn(method.ReturnType)
         });
 
@@ -872,6 +874,7 @@ public sealed class ClientHostnameServiceTests
             nameof(IStateService.GetHiddenClientIps) => new List<string>(),
             nameof(IStateService.GetStatsExcludedOnlyClientIps) => new List<string>(),
             nameof(IStateService.GetEvictedDataMode) => "show",
+            nameof(IStateService.GetPrefillRules) => new List<ClientExclusionRule>(),
             _ => DefaultReturn(method.ReturnType)
         });
 
@@ -957,7 +960,7 @@ public sealed class ClientHostnameServiceTests
 
         Assert.False(service.SetSettings(new ClientHostnameSettings { Resolver = "8.8.8.8" }));
 
-        // A refused address must not write the switches that travelled with it, or one mistyped
+        // A refused address must not write the switches that traveled with it, or one mistyped
         // address quietly turns discovery back on and re-opens names to guests.
         var settings = service.GetSettings();
         Assert.Equal("172.16.1.222", settings.Resolver);

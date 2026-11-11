@@ -44,7 +44,6 @@ public sealed partial class CacheFileRemovalScopeTests
         logger: NullLogger<GamesController>.Instance,
         pathResolver: null!,
         operationTracker: null!,
-        conflictChecker: null!,
         operationQueue: null!,
         capabilityService: null!,
         cacheScanGate: CacheScanGateHarness.Idle());

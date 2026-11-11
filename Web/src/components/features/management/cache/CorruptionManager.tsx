@@ -107,7 +107,7 @@ const isActiveCorruptionRemoval = (notification: UnifiedNotification): boolean =
   notification.type === 'corruption_removal' &&
   (notification.status === 'running' ||
     notification.status === 'waiting' ||
-    notification.status === 'cancelling');
+    notification.status === 'canceling');
 
 const sameOperationId = (left: string, right: string): boolean =>
   left.toLowerCase() === right.toLowerCase();
@@ -140,7 +140,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
   const isScanningFromNotification = useOperationBusy({
     types: ['corruption_detection'],
-    status: ['running', 'cancelling']
+    status: ['running', 'canceling']
   });
   const isScanWaitingFromNotification = useOperationBusy({
     types: ['corruption_detection'],
@@ -155,7 +155,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const isScanBusy = isScanning || isScanWaitingFromNotification;
   const isCorruptionRemovalActive = useOperationBusy({
     types: ['corruption_removal'],
-    status: ['running', 'waiting', 'cancelling']
+    status: ['running', 'waiting', 'canceling']
   });
 
   const [corruptionCounts, setCorruptionCounts] = useState<Record<string, number>>({});
@@ -540,7 +540,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       if (!res.ok) return;
       const body = (await res.json()) as { running?: boolean };
       if (removeAllOperationIdRef.current !== operationId || !startingRemoveAllRef.current) return;
-      // Between services and a queued run with no row yet still answer running.
+      // Between services and a waiting run with no row yet still answer running.
       if (body.running === false) releaseRemoveAllClick();
     } catch {
       // A failed read leaves this click on Removing.
@@ -708,7 +708,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       // repaint the selected actionable panel; the selector stays the authority.
       if (event.detectionMethod !== detectionMethod) return;
 
-      // The backend preserves the prior authoritative result when a scan fails or is cancelled.
+      // The backend preserves the prior authoritative result when a scan fails or is canceled.
       // Reload on every same-method terminal event so the displayed result stays authoritative.
       beginLoad(true);
       const requestEpoch = resultEpochRef.current;
@@ -1454,7 +1454,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               <div className="mgmt-list divided-list">
                 {projection.rows.map(({ service, count }) => {
                   const isExpanded = expandedService === service;
-                  // Each active removal names its own row, so a queued one keeps its spinner
+                  // Each active removal names its own row, so a waiting one keeps its spinner
                   // beside a running one.
                   const isRemoving =
                     runs.some(

@@ -175,6 +175,15 @@
     box-shadow: none;
   }
 
+  /* Light themes only: their cards and panels are white like the input fill, so a neutral action
+     would vanish at rest; it rests on the theme's control surface instead, a step off every card,
+     panel and page. Dark themes keep the input fill, which already stands farther from their cards.
+     :where keeps the theme part at zero weight, so a fill class on one button (bg-themed-tertiary)
+     still wins. */
+  :where([data-theme='light']) .btn-field-surface {
+    background-color: var(--theme-bg-surface);
+  }
+
   .btn-field-surface:not(.is-open):not(:disabled):hover {
     background-color: var(--theme-bg-surface-hover);
   }
@@ -198,8 +207,8 @@
   }
 
   /* Grows a small control's pointer target to the 44px touch floor while its visual box keeps
-     the size its row or chip was built around. The overlay is centred, so it takes up the gap
-     beside the control rather than reaching over a neighbour. Moving the floor happens here. */
+     the size its row or chip was built around. The overlay is centered, so it takes up the gap
+     beside the control rather than reaching over a neighbor. Moving the floor happens here. */
   .pointer-target-44 {
     position: relative;
   }

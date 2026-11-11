@@ -81,6 +81,51 @@ public sealed class LogProcessingOperationOwnershipTests
         Assert.Null(fixture.Processor.CurrentOperationId);
     }
 
+    // A second start that overlaps the first, here one made while the first registers, must not take the
+    // first start's answer, and the first must get its own id rather than nothing.
+    [Fact]
+    public async Task OverlappingProcessingStartsEachGetTheirOwnAnswer()
+    {
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        ProcessorFixture? fixture = null;
+        var secondMade = 0;
+        Guid? firstRegistered = null;
+        Task<Guid?>? second = null;
+        var forwarding = CacheScanGateHarness.CreateProxy<IUnifiedOperationTracker>((method, args) =>
+        {
+            var result = method.Invoke(tracker, args);
+            if (method.Name == nameof(IUnifiedOperationTracker.RegisterOperation)
+                && args![0] is OperationType.LogProcessing
+                && Interlocked.Exchange(ref secondMade, 1) == 0)
+            {
+                firstRegistered = (Guid)result!;
+                second = fixture!.Processor.StartInBackgroundAsync(fixture.LogFilePath);
+            }
+            return result;
+        });
+        await using var created = fixture = new ProcessorFixture(forwarding);
+
+        var first = await fixture.Processor.StartInBackgroundAsync(fixture.LogFilePath)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.NotNull(firstRegistered);
+        Assert.Equal(firstRegistered, first);
+        // Refused while the first runs; a start made after the first ended answers its own run.
+        Assert.NotEqual(first, await second!.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        // Each answer returns once its start registers, while the run goes on writing its positions
+        // and repair record into the fixture folder until it completes its operation, so teardown
+        // may delete the folder only after that.
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (fixture.Tracker.GetActiveOperations(OperationType.LogProcessing).Any())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "The background log processing run did not end.");
+            await Task.Delay(25);
+        }
+    }
+
     [Fact]
     public async Task FailedRun_LeavesNoOperationRunningAsync()
     {
@@ -200,7 +245,7 @@ public sealed class LogProcessingOperationOwnershipTests
             Assert.Single(fixture.Messages.Completions));
         Assert.Equal(operationId, complete.OperationId);
         Assert.False(complete.Success);
-        Assert.False(complete.Cancelled);
+        Assert.False(complete.Canceled);
         Assert.Equal(OperationStatus.Failed, complete.Status);
         Assert.Equal(7, complete.EntriesProcessed);
         Assert.Equal(11, complete.LinesProcessed);
@@ -310,7 +355,9 @@ public sealed class LogProcessingOperationOwnershipTests
         Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
         var riotFailure = fixture.Messages.Failures[SignalREvents.RiotMappingComplete];
         Assert.False(riotFailure.Success);
-        Assert.Equal("signalr.logProcessing.failed", riotFailure.Error);
+        // The card words the failure from the Riot run's own failed key; no error shows ahead of it.
+        Assert.Equal("signalr.riotMapping.failed", Assert.IsType<ScheduledRunCompleteEvent>(riotFailure).StageKey);
+        Assert.Null(riotFailure.Error);
     }
 
     [Fact]
@@ -400,12 +447,12 @@ public sealed class LogProcessingOperationOwnershipTests
 
         clock.Advance(TimeSpan.FromMinutes(2));
         // The grace timer exists only once the pass has decided to stop, so the child's own
-        // cancelled checkpoint cannot arrive before that decision.
+        // canceled checkpoint cannot arrive before that decision.
         await clock.WaitForActiveTimersAsync(before + 1);
-        var cancelled = TerminalProgress(0, 0, "cancelled", sourcePosition: 42);
-        cancelled.Status = OperationStatus.Cancelled.ToWireString();
-        cancelled.RiotHostsProcessed = 1;
-        await fixture.Pipe.SendAsync(cancelled, exitCode: 0);
+        var canceled = TerminalProgress(0, 0, "canceled", sourcePosition: 42);
+        canceled.Status = OperationStatus.Canceled.ToWireString();
+        canceled.RiotHostsProcessed = 1;
+        await fixture.Pipe.SendAsync(canceled, exitCode: 0);
 
         Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
         await fixture.Pipe.WaitForExitAsync();
@@ -587,10 +634,10 @@ public sealed class LogProcessingOperationOwnershipTests
         await fixture.Pipe.WaitForExitAsync();
         var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(
             Assert.Single(fixture.Messages.Completions));
-        Assert.True(complete.Cancelled);
-        Assert.Equal("signalr.generic.cancelled", complete.Message);
+        Assert.True(complete.Canceled);
+        Assert.Equal("signalr.generic.canceled", complete.Message);
         var row = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationId == operationId);
-        Assert.Equal("signalr.generic.cancelled", row.Message);
+        Assert.Equal("signalr.generic.canceled", row.Message);
     }
 
     [Fact]
@@ -742,7 +789,7 @@ public sealed class LogProcessingOperationOwnershipTests
     [InlineData("completed", 1, false)]
     [InlineData("completed_with_warnings", 1, false)]
     [InlineData("failed", 0, false)]
-    [InlineData("cancelled", 0, false)]
+    [InlineData("canceled", 0, false)]
     public void ReadEveryLogFollowsTheTerminalStatus(string terminalStatus, int filesLeftUnread, bool readEveryLog)
     {
         var progress = TerminalProgress(0, 0, terminalStatus);
@@ -969,7 +1016,7 @@ public sealed class LogProcessingOperationOwnershipTests
             var repairs = JsonSerializer.Deserialize<List<OperationRepair>>(contents)!;
             if (!repairs.Any(repair => repair.Id == operationId && repair.Outcome == OperationStatus.Completed)) return;
             stop = Task.Run(() => cancellation.ForceKillAsync(operationId));
-            SpinWait.SpinUntil(() => fixture.Tracker.GetOperation(operationId)!.Cancelled, TimeSpan.FromSeconds(10));
+            SpinWait.SpinUntil(() => fixture.Tracker.GetOperation(operationId)!.Canceled, TimeSpan.FromSeconds(10));
         };
 
         var run = fixture.Track(fixture.Processor.StartProcessingAsync());
@@ -988,7 +1035,7 @@ public sealed class LogProcessingOperationOwnershipTests
         var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(
             Assert.Single(fixture.Messages.Completions));
         Assert.True(complete.Success);
-        Assert.False(complete.Cancelled);
+        Assert.False(complete.Canceled);
         Assert.Equal(OperationStatus.Completed, fixture.Tracker.GetOperation(operationId)!.Status);
     }
 
@@ -1102,8 +1149,8 @@ public sealed class LogProcessingOperationOwnershipTests
         var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(
             Assert.Single(fixture.Messages.Completions));
         Assert.Equal(operationId, complete.OperationId);
-        Assert.True(complete.Cancelled);
-        Assert.Equal(OperationStatus.Cancelled, complete.Status);
+        Assert.True(complete.Canceled);
+        Assert.Equal(OperationStatus.Canceled, complete.Status);
         Assert.Equal(10, complete.EntriesProcessed);
         Assert.Equal(20, complete.LinesProcessed);
         Assert.Equal(
@@ -1355,7 +1402,7 @@ public sealed class LogProcessingOperationOwnershipTests
         using var cleanupSource = new DisposeTrackingCancellationTokenSource();
         sourceField.SetValue(fixture.Processor, cleanupSource);
 
-        fixture.Tracker.CompleteOperation(operationId, false, cancelled: true);
+        fixture.Tracker.CompleteOperation(operationId, false, canceled: true);
 
         Assert.Throws<ObjectDisposedException>(() => _ = registeredSource.Token);
         Assert.Equal(0, cleanupSource.DisposeCalls);
@@ -1384,7 +1431,7 @@ public sealed class LogProcessingOperationOwnershipTests
         Assert.Equal(next, fixture.Processor.CurrentOperationId);
         Assert.True(fixture.Processor.IsProcessing);
         Assert.False(fixture.Tracker.GetOperation(next)!.Status.IsTerminal());
-        fixture.Tracker.CompleteOperation(next, false, cancelled: true);
+        fixture.Tracker.CompleteOperation(next, false, canceled: true);
     }
 
     [Fact]
@@ -1591,14 +1638,14 @@ public sealed class LogProcessingOperationOwnershipTests
             batch,
             entriesProcessed: 10,
             linesProcessed: 20,
-            cancelled: false,
+            canceled: false,
             batchFinished: true);
         fixture.Processor.CompleteBatchOperation(
             operationId,
             batch,
             entriesProcessed: 10,
             linesProcessed: 20,
-            cancelled: false,
+            canceled: false,
             batchFinished: true);
 
         var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(Assert.Single(fixture.Messages.Completions));
@@ -1653,7 +1700,7 @@ public sealed class LogProcessingOperationOwnershipTests
         var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(Assert.Single(fixture.Messages.Completions));
         Assert.Equal(original, complete.OperationId);
         Assert.Equal("external failure", complete.Message);
-        fixture.Tracker.CompleteOperation(next, false, cancelled: true);
+        fixture.Tracker.CompleteOperation(next, false, canceled: true);
     }
 
     public class CompletionMessages : DispatchProxy
@@ -2121,6 +2168,7 @@ public sealed class LogProcessingOperationOwnershipTests
             }
             _postPassLock?.Release();
             await _repairOwner.StopAsync(CancellationToken.None);
+            await OperationRepairTests.WaitForRepairTasksAsync(_repairOwner);
             await _services.DisposeAsync();
             if (!string.Equals(
                     Path.GetDirectoryName(Path.GetFullPath(_root)),

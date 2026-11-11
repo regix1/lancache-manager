@@ -69,17 +69,17 @@ public sealed class PersistentProvideCredentialRequest
 }
 
 /// <summary>
-/// Request body for cancelling a persistent interactive login. Carries the pinned session id so a
+/// Request body for canceling a persistent interactive login. Carries the pinned session id so a
 /// cancel for a since-replaced session is an idempotent
 /// no-op that never cancels the replacement session's login.
 /// </summary>
 public sealed class PersistentCancelLoginRequest
 {
-    /// <summary>Platform whose running persistent session's login should be cancelled.</summary>
+    /// <summary>Platform whose running persistent session's login should be canceled.</summary>
     public required PrefillPlatform Service { get; init; }
 
     /// <summary>
-    /// Id of the persistent session whose in-flight login should be cancelled. REQUIRED - a mismatch is
+    /// Id of the persistent session whose in-flight login should be canceled. REQUIRED - a mismatch is
     /// treated as an idempotent no-op (200) that does not touch the currently-active session's login.
     /// </summary>
     public string? SessionId { get; init; }

@@ -41,7 +41,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
     - **Steam**：[steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon)，[steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) 的分支，原作者 [@tpill90](https://github.com/tpill90)
     - **Epic**：[epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon)——在 Epic 页面登录，然后粘贴**授权码**
     - **Battle.net**：[battlenet-prefill-daemon](https://github.com/regix1/battlenet-prefill-daemon)——完全匿名，无需账号
-    - **Riot**：[riot-prefill-daemon](https://github.com/regix1/riot-prefill-daemon)，基于 [@tpill90](https://github.com/tpill90) 的 lancache-prefill 系列工具构建——完全匿名；覆盖英雄联盟和无畏契约
+    - **Riot**：[riot-prefill-daemon](https://github.com/regix1/riot-prefill-daemon)，基于 [@tpill90](https://github.com/tpill90) 的 lancache-prefill 系列工具构建——完全匿名；覆盖英雄联盟、云顶之弈和无畏契约
     - **Xbox**：[xbox-prefill-daemon](https://github.com/regix1/xbox-prefill-daemon)——使用 Microsoft 设备代码登录（与 Epic 一样需要账号）
 
 ### 导入 Steam App ID

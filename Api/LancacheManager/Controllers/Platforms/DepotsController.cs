@@ -26,19 +26,22 @@ public class DepotsController : ControllerBase
     private readonly StateService _stateService;
     private readonly ILogger<DepotsController> _logger;
     private readonly IOperationConflictChecker _conflictChecker;
+    private readonly IOperationWaitlist _operationQueue;
 
     public DepotsController(
         SteamKit2Service steamKit2Service,
         PicsDataService picsDataService,
         StateService stateService,
         ILogger<DepotsController> logger,
-        IOperationConflictChecker conflictChecker)
+        IOperationConflictChecker conflictChecker,
+        IOperationWaitlist operationQueue)
     {
         _steamKit2Service = steamKit2Service;
         _picsDataService = picsDataService;
         _stateService = stateService;
         _logger = logger;
         _conflictChecker = conflictChecker;
+        _operationQueue = operationQueue;
     }
 
     /// <summary>
@@ -133,9 +136,36 @@ public class DepotsController : ControllerBase
         }
 
         // Proceed with scan
+        // The queue checks and starts under one lock, so a clear and a rebuild sent at the same moment
+        // cannot both start; a conflicting rebuild is still answered 409, never parked. The lock is held
+        // until the run registers, not for the crawl.
         // The notice carries the Hidden flag, so a Hidden schedule draws nothing for this run either.
-        var started = _steamKit2Service.TryStartRebuild(cancellationToken, incremental,
-            notice: new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual));
+        var started = false;
+        var registered = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var startConflict = await _operationQueue.StartUnlessBusyAsync(
+            OperationType.DepotMapping, ConflictScope.Bulk(),
+            async () =>
+            {
+                // The crawl outlives this request (it answers 202), so the request's token does not cancel it.
+                if (!_steamKit2Service.TryStartRebuild(CancellationToken.None, incremental,
+                    notice: new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual),
+                    started: registered))
+                {
+                    return null;
+                }
+
+                // A run that failed before it registered resolves null and did no work.
+                var operationId = await registered.Task;
+                started = operationId is not null;
+                return operationId;
+            },
+            cancellationToken,
+            // A crawl joins only a crawl of the same mode, as the sign-in and schedule starts ask.
+            DepotMappingRequestKey.Crawl(incremental));
+        if (startConflict != null)
+        {
+            return Conflict(startConflict);
+        }
 
         if (started)
         {
@@ -171,18 +201,18 @@ public class DepotsController : ControllerBase
     /// Cancels the current depot rebuild.
     /// </summary>
     /// <remarks>
-    /// DELETE is the proper method for cancelling or removing operations.
+    /// DELETE is the proper method for canceling or removing operations.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("rebuild")]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> CancelRebuildAsync()
     {
-        var cancelled = await _steamKit2Service.CancelRebuildAsync();
+        var canceled = await _steamKit2Service.CancelRebuildAsync();
 
-        if (cancelled)
+        if (canceled)
         {
-            return Ok(new MessageResponse { Message = "Depot rebuild cancelled successfully" });
+            return Ok(new MessageResponse { Message = "Depot rebuild canceled successfully" });
         }
         else
         {
@@ -221,7 +251,7 @@ public class DepotsController : ControllerBase
     [ProducesResponseType(typeof(DepotImportResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<DepotImportResponse>> ImportDepotMappingsAsync([FromQuery] string source, CancellationToken cancellationToken)
     {
-        if (source == "github")
+        if (source == "github" || source == "local")
         {
             // Without this the request is dropped inside the service and still answered with a
             // successful import, so repeat clicks all look like they worked while nothing ran.
@@ -247,10 +277,66 @@ public class DepotsController : ControllerBase
                 });
             }
 
+            if (source == "local")
+            {
+                _logger.LogInformation("Starting import of existing PICS data to database");
+
+                // Started the same way as the GitHub import below: the queue's lock covers registration only.
+                Task? localImport = null;
+                var localRegistered = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var localConflict = await _operationQueue.StartUnlessBusyAsync(
+                    OperationType.DepotMapping, ConflictScope.Bulk(),
+                    async () =>
+                    {
+                        localImport = _steamKit2Service.ImportFromLocalFileAsync(cancellationToken,
+                            new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual),
+                            localRegistered);
+                        await Task.WhenAny(localRegistered.Task, localImport);
+                        return localRegistered.Task.IsCompleted ? await localRegistered.Task : null;
+                    },
+                    cancellationToken,
+                    new DepotMappingRequestKey(DepotMappingWork.LocalImport));
+                if (localConflict != null)
+                {
+                    return Conflict(localConflict);
+                }
+
+                await localImport!;
+                _steamKit2Service.EnablePeriodicCrawls();
+
+                return Ok(new DepotImportResponse
+                {
+                    Message = "PICS data imported successfully",
+                    Source = "Local",
+                    Timestamp = DateTime.UtcNow
+                });
+            }
+
             _logger.LogInformation("Starting download of pre-created depot data from GitHub");
 
-            var success = await _steamKit2Service.ImportFromGitHubAsync(cancellationToken,
-                notice: new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual));
+            // The queue holds its lock until the import registers, not for the import, which this
+            // request still waits out below.
+            Task<bool>? importTask = null;
+            var registered = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var startConflict = await _operationQueue.StartUnlessBusyAsync(
+                OperationType.DepotMapping, ConflictScope.Bulk(),
+                async () =>
+                {
+                    importTask = _steamKit2Service.ImportFromGitHubAsync(cancellationToken,
+                        notice: new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual),
+                        started: registered);
+                    await Task.WhenAny(registered.Task, importTask);
+                    return registered.Task.IsCompleted ? await registered.Task : null;
+                },
+                cancellationToken,
+                // The import never joins a crawl, nor a crawl the import, as the schedule's import asks.
+                new DepotMappingRequestKey(DepotMappingWork.GitHubImport));
+            if (startConflict != null)
+            {
+                return Conflict(startConflict);
+            }
+
+            var success = await importTask!;
 
             if (success)
             {
@@ -275,20 +361,6 @@ public class DepotsController : ControllerBase
                     StageKey = "errors.depot.githubImportFailed"
                 };
             }
-        }
-        else if (source == "local")
-        {
-            _logger.LogInformation("Starting import of existing PICS data to database");
-
-            await _picsDataService.ImportToDatabaseAsync(cancellationToken);
-            _steamKit2Service.EnablePeriodicCrawls();
-
-            return Ok(new DepotImportResponse
-            {
-                Message = "PICS data imported successfully",
-                Source = "Local",
-                Timestamp = DateTime.UtcNow
-            });
         }
         else
         {
@@ -483,7 +555,7 @@ internal static class DepotScanModeRequirement
     /// <summary>
     /// The requirement a scan mode is missing, or null when the mode can run. The stage keys are the
     /// ones the scan mode dropdown already shows for the same missing requirement, so a refused save
-    /// and a greyed-out option give the user the same sentence.
+    /// and a grayed-out option give the user the same sentence.
     /// </summary>
     internal static ScanModeUnavailableResponse? Missing(DepotScanModeAvailability availability, bool incremental)
     {

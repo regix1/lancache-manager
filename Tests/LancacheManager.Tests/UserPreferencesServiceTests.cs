@@ -120,7 +120,7 @@ public sealed class UserPreferencesServiceTests
 
     // P-5: the three clock columns land in ONE save. Sent as three requests they commit one at a time, so a
     // second click can be applied between two writes of the first and leave the row naming a clock neither
-    // click asked for: pick UTC then a 12-hour server clock quickly and the UTC write normalises the
+    // click asked for: pick UTC then a 12-hour server clock quickly and the UTC write normalizes the
     // 12-hour choice back to 24, while the write that turns UTC off leaves it there.
     [Fact]
     public async Task ClockChange_CommitsTheThreeColumnsInOneSave()

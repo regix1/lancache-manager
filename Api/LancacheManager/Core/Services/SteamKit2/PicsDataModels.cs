@@ -29,7 +29,7 @@ public class PicsDepotMapping
     public uint? OwnerId { get; set; }  // The app that owns this depot (from depotfromapp PICS field)
     public string? DepotName { get; set; }  // Name of the depot from PICS (e.g., "Ubisoft Connect PC Client Content")
     public List<uint>? AppIds { get; set; }
-    public List<string>? AppNames { get; set; }
+    public List<string?>? AppNames { get; set; }
     public string Source { get; set; } = "SteamKit2-PICS";
     public DateTime DiscoveredAt { get; set; }
 }

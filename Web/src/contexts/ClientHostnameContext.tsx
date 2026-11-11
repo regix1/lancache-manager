@@ -47,7 +47,7 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
   // waits on a lookup and a missing entry simply leaves the raw address showing.
   const refreshHostnames = useCallback(async () => {
     // Reverse lookup names a real network's machines, so mock mode drops back to the raw generated
-    // addresses instead of labelling them with someone's real hostnames.
+    // addresses instead of labeling them with someone's real hostnames.
     if (mockMode) {
       setHostnameLookup({
         enabled: false,

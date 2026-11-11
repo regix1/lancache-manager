@@ -184,7 +184,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
         clearCredentials();
         onSuccess?.(t('management.auth.notifications.authenticated'));
       } else {
-        setAuthError(result.message || t('modals.steamAuth.errors.authenticationFailed'));
+        setAuthError(result.message);
       }
     } catch (error: unknown) {
       console.error('Authentication error:', error);
@@ -232,9 +232,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   const handleStartGuestMode = async () => {
     const result = await startGuestSession();
     if (!result.success) {
-      const message = result.message || t('modals.auth.errors.guestModeUnavailable');
-      setAuthError(message);
-      onError?.(t('management.auth.errors.startGuestFailed'), message);
+      setAuthError(result.message);
+      onError?.(t('management.auth.errors.startGuestFailed'), result.message);
       return;
     }
 

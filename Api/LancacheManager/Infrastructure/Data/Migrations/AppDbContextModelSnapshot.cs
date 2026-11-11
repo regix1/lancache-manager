@@ -304,6 +304,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<bool>("IsEvicted")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsUnresolvedDepot")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime>("LastDetectedUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -1249,6 +1252,10 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Detail")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<string>("FailureReason")
                         .HasMaxLength(4096)
                         .HasColumnType("character varying(4096)");
 

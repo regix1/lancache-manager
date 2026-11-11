@@ -247,11 +247,11 @@ public class PrefillCachedAppTests
         var result = await task;
         Assert.Equal(["cached-id"], result);
 
-        using var cancelled = new CancellationTokenSource();
-        await cancelled.CancelAsync();
-        var cancelledTask = (Task<List<string>>)method.Invoke(controller,
-            [platform, new List<string> { "cached-id" }, cancelled.Token])!;
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledTask);
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
+        var canceledTask = (Task<List<string>>)method.Invoke(controller,
+            [platform, new List<string> { "cached-id" }, canceled.Token])!;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => canceledTask);
     }
 
     [Fact]

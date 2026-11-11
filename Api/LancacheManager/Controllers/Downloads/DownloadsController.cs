@@ -47,8 +47,7 @@ public class DownloadsController : ControllerBase
     {
         var download = await _context.Downloads
             .AsNoTracking()
-            .ApplyHiddenClientFilter(_stateRepository.GetHiddenClientIps())
-            .ApplyPrefillFilter(_stateRepository.GetHiddenPrefillRules())
+            .ApplyClientFilters(_stateRepository.GetHiddenClientIps(), [], _stateRepository.GetHiddenPrefillRules())
             .FirstOrDefaultAsync(d => d.Id == id)
             ?? throw new NotFoundException("Download");
 
@@ -163,8 +162,7 @@ public class DownloadsController : ControllerBase
         // This eliminates the race condition by avoiding separate queries
         var baseQuery = _context.Downloads
             .AsNoTracking()
-            .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp))
-            .ApplyPrefillFilter(_stateRepository.GetHiddenPrefillRules())
+            .ApplyClientFilters(hiddenClientIps, [], _stateRepository.GetHiddenPrefillRules())
             .Where(d => (d.EndTimeUtc >= startDate || d.StartTimeUtc >= startDate)
                 && d.StartTimeUtc <= endDate);
 
@@ -366,7 +364,7 @@ public class DownloadsController : ControllerBase
             if (query.HideUnknown)
             {
                 grouped = grouped
-                    .Where(r => !string.Equals(r.AppName, UnknownOtherAppName, StringComparison.Ordinal))
+                    .Where(r => !r.IsUnmappedSteam)
                     .ToList();
             }
 
@@ -428,15 +426,12 @@ public class DownloadsController : ControllerBase
                         {
                             mergeKey = $"game-appid-{row.SteamAppId.Value}";
                         }
-                        else if (IsRealGameName(row.AppName, row.Service))
+                        else if (!row.IsUnmappedSteam && IsRealGameName(row.AppName, row.Service))
                         {
                             mergeKey = $"game-{row.AppName}";
                         }
-                        else if (query.GroupUnknownGames
-                                 && string.Equals(row.AppName, UnknownOtherAppName, StringComparison.Ordinal))
+                        else if (query.GroupUnknownGames && row.IsUnmappedSteam)
                         {
-                            // ResolveRetroAppName gives this name to unmapped Steam content and
-                            // nothing else, so the name is the test.
                             mergeKey = "unknown-other";
                             bucketKind = RetroBucketKind.Unknown;
                         }
@@ -537,20 +532,11 @@ public class DownloadsController : ControllerBase
                     var bucketService = query.MergeAcrossServices && kind == RetroBucketKind.Game
                         ? first.Service
                         : displayService;
-                    // A Steam bucket whose depots never mapped to a title still knows which app it
-                    // is, so it is named by that app id rather than shown as unidentified content.
-                    // Only ResolveRetroAppName mints that placeholder, and only for Steam, so the
-                    // name is the test. The row-level name is untouched, which is what the search
-                    // and the hide-unknown filter read, and both run before this merge.
-                    var gameBucketName = first.SteamAppId is > 0
-                        && string.Equals(first.AppName, UnknownOtherAppName, StringComparison.Ordinal)
-                        ? $"Steam App {first.SteamAppId.Value}"
-                        : first.AppName;
                     var bucketName = kind switch
                     {
                         RetroBucketKind.Unknown => UnknownOtherAppName,
                         RetroBucketKind.Service => bucketService,
-                        _ => query.GroupByService ? displayService : gameBucketName
+                        _ => query.GroupByService ? displayService : first.AppName
                     };
                     // The collapsed row is drawn from the newest member, and its title is hidden
                     // unless SOME member resolved a name, which the newest one alone cannot say.
@@ -559,14 +545,8 @@ public class DownloadsController : ControllerBase
                         .ThenBy(r => r.Id, StringComparer.Ordinal)
                         .First();
                     newestMemberByRowId[key] = newestMember;
-                    // Not IsRealGameName: the views hide the title outright when this is false, so
-                    // a bucket named "Steam App 620" or "Epic Games" would render with no title at
-                    // all rather than with a weaker one. The flag asks only whether some member
-                    // carries a name of its own, which is what a title needs.
                     var hasRealGameName = kind == RetroBucketKind.Unknown
-                        || bucket.Any(r => !string.IsNullOrWhiteSpace(r.AppName)
-                            && !string.Equals(r.AppName, UnknownOtherAppName, StringComparison.Ordinal)
-                            && !string.Equals(r.AppName, r.Service, StringComparison.OrdinalIgnoreCase));
+                        || bucket.Any(r => HasOwnGameName(r.AppName, r.Service, r.IsUnmappedSteam));
                     // No "metadata" here, and that is not an omission: the views give that type to
                     // a zero-byte group, and ApplyEmptySessionFilter drops every zero-byte
                     // completed row before this endpoint ever sees it.
@@ -649,7 +629,11 @@ public class DownloadsController : ControllerBase
                 "efficiency" => bucketed.ThenByDescending(g => g.CacheHitPercent).ToList(),
                 "efficiency-low" => bucketed.ThenBy(g => g.CacheHitPercent).ToList(),
                 "sessions" => bucketed.ThenByDescending(g => g.RequestCount).ToList(),
+                // An unnamed Steam game has no text of its own to sort by, so those rows follow the
+                // named ones in app id order.
                 "alphabetical" => bucketed
+                    .ThenBy(g => g.SteamAppId > 0 && !g.HasRealGameName)
+                    .ThenBy(g => g.SteamAppId > 0 && !g.HasRealGameName ? g.SteamAppId : null)
                     .ThenBy(
                         g => g.Id.StartsWith("service-", StringComparison.Ordinal)
                             ? ServiceBreakdownMerger.ServiceGroupTitle(g.Service)
@@ -769,12 +753,21 @@ public class DownloadsController : ControllerBase
     /// tables, so the browser's copy of this rule has one counterpart here instead of several.
     /// </summary>
     internal static bool IsRealGameName(string appName, string service) =>
-        !string.IsNullOrWhiteSpace(appName)
-        && !string.Equals(appName, UnknownOtherAppName, StringComparison.Ordinal)
-        && !string.Equals(appName, service, StringComparison.OrdinalIgnoreCase)
+        HasOwnGameName(appName, service, IsUnmappedSteam(service, appName))
         && !RustSpeedTrackerService._steamAppPlaceholder.IsMatch(appName)
         && !(RustSpeedTrackerService._serviceFallbackLabels.TryGetValue(service.ToLowerInvariant(), out var fallbackLabel)
              && string.Equals(appName, fallbackLabel, StringComparison.Ordinal));
+
+    /// <summary>
+    /// Whether a retro row's name is a name of its own rather than the unidentified-content
+    /// placeholder or the service echoed back. Not <see cref="IsRealGameName"/>: the views hide the
+    /// title outright when the flag this feeds is false, so a game named like the Steam placeholder,
+    /// or one named "Epic Games", would render with no title at all rather than with a weaker one.
+    /// </summary>
+    private static bool HasOwnGameName(string appName, string service, bool isUnmappedSteam) =>
+        !isUnmappedSteam
+        && !string.IsNullOrWhiteSpace(appName)
+        && !string.Equals(appName, service, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Display name for a retro group. Unmapped Steam content (a Steam row with no resolved
@@ -795,7 +788,7 @@ public class DownloadsController : ControllerBase
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
 
         var baseQuery = _context.Downloads.AsNoTracking()
-            .ApplyPrefillFilter(_stateRepository.GetHiddenPrefillRules());
+            .ApplyClientFilters(hiddenClientIps, [], _stateRepository.GetHiddenPrefillRules());
 
         // Only completed downloads for the retro view. The grouped Downloads views ask for the
         // running one as well, so it stays on screen while it downloads instead of appearing only
@@ -803,12 +796,6 @@ public class DownloadsController : ControllerBase
         if (!query.IncludeActive)
         {
             baseQuery = baseQuery.Where(d => !d.IsActive);
-        }
-
-        // Exclude hidden client IPs
-        if (hiddenClientIps.Count > 0)
-        {
-            baseQuery = baseQuery.Where(d => !hiddenClientIps.Contains(d.ClientIp));
         }
 
         // Apply eviction filter (hide/remove modes exclude evicted downloads)
@@ -984,6 +971,8 @@ public class DownloadsController : ControllerBase
         var totalBytes = r.CacheHitBytes + r.CacheMissBytes;
         var fullyEvicted = !maskEviction && r.EvictedCount == r.RequestCount;
         var anyEvicted = !maskEviction && r.EvictedCount > 0;
+        var appName = ResolveRetroAppName(r.Service, r.GameName);
+        var isUnmappedSteam = IsUnmappedSteam(r.Service, r.GameName);
         return new RetroDownloadDto
         {
             Id = r.DepotId.HasValue
@@ -994,7 +983,9 @@ public class DownloadsController : ControllerBase
             ClientIp = r.ClientIp,
             Service = r.Service,
             Datasource = r.Datasource,
-            AppName = ResolveRetroAppName(r.Service, r.GameName),
+            AppName = appName,
+            IsUnmappedSteam = isUnmappedSteam,
+            HasRealGameName = HasOwnGameName(appName, r.Service, isUnmappedSteam),
             SteamAppId = r.GameAppId,
             StartTimeUtc = r.StartTimeUtc,
             LastStartTimeUtc = r.LastStartTimeUtc,
@@ -1137,9 +1128,8 @@ public class DownloadsController : ControllerBase
         var rows = await _context.Downloads
             .AsNoTracking()
             .Where(d => request.DownloadIds.Contains(d.Id))
-            .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp))
+            .ApplyClientFilters(hiddenClientIps, [], _stateRepository.GetHiddenPrefillRules())
             .ApplyEvictedFilter(evictedMode)
-            .ApplyPrefillFilter(_stateRepository.GetHiddenPrefillRules())
             .ApplyEmptySessionFilter()
             .OrderByDescending(d => d.StartTimeUtc)
             .ThenByDescending(d => d.Id)

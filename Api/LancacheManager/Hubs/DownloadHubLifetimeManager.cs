@@ -16,9 +16,9 @@ public sealed class DownloadHubLifetimeManager : DefaultHubLifetimeManager<Downl
     // browser has stopped reading or reads slower than updates arrive. The largest burst one action
     // sends is Run All: one run for each of the 14 schedules, a few rows each, under 200 messages;
     // steady traffic is a few messages a second. A connection this many writes behind is minutes
-    // behind, so it is asked to close and reload, and the server never holds more queued messages
+    // behind, so it is asked to close and reload, and the server never holds more unsent messages
     // than this for one browser.
-    internal const int MaxQueuedWrites = 1024;
+    internal const int MaxPendingWrites = 1024;
 
     private readonly ConcurrentDictionary<string, ConnectionQueue> _connections = new();
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, ConnectionQueue>> _groups = new();
@@ -104,7 +104,7 @@ public sealed class DownloadHubLifetimeManager : DefaultHubLifetimeManager<Downl
 
     private sealed class ConnectionQueue(HubConnectionContext connection, ILogger logger)
     {
-        private int _queuedWrites;
+        private int _pendingWrites;
         private int _closeRequested;
 
         public HubConnectionContext Connection { get; } = connection;
@@ -120,13 +120,13 @@ public sealed class DownloadHubLifetimeManager : DefaultHubLifetimeManager<Downl
             // none, and a write that waits behind a full buffer still sends the update as it was when
             // it was sent.
             message.GetSerializedMessage(Connection.Protocol);
-            if (Interlocked.Increment(ref _queuedWrites) > MaxQueuedWrites)
+            if (Interlocked.Increment(ref _pendingWrites) > MaxPendingWrites)
             {
-                Interlocked.Decrement(ref _queuedWrites);
+                Interlocked.Decrement(ref _pendingWrites);
                 if (Interlocked.Exchange(ref _closeRequested, 1) == 0)
                 {
-                    logger.LogWarning("SignalR connection closed - more than {Limit} updates queued: ConnectionId={ConnectionId}",
-                        MaxQueuedWrites, Connection.ConnectionId);
+                    logger.LogWarning("SignalR connection closed - more than {Limit} updates pending: ConnectionId={ConnectionId}",
+                        MaxPendingWrites, Connection.ConnectionId);
                     // This close lets the browser reconnect and reload its runs; Abort() would send a
                     // Close that forbids reconnecting.
                     Connection.Features.Get<IConnectionLifetimeNotificationFeature>()!.RequestClose();
@@ -140,7 +140,7 @@ public sealed class DownloadHubLifetimeManager : DefaultHubLifetimeManager<Downl
             {
                 // Tells a pooled ValueTask its result was read, as the base class does.
                 write.GetAwaiter().GetResult();
-                Interlocked.Decrement(ref _queuedWrites);
+                Interlocked.Decrement(ref _pendingWrites);
             }
             else
             {
@@ -156,7 +156,7 @@ public sealed class DownloadHubLifetimeManager : DefaultHubLifetimeManager<Downl
             }
             finally
             {
-                Interlocked.Decrement(ref _queuedWrites);
+                Interlocked.Decrement(ref _pendingWrites);
             }
         }
     }

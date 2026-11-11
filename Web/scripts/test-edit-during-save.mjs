@@ -377,7 +377,7 @@ const guestHarness = ({ loading = false } = {}) => {
     configs: slot({ steam: { enabledByDefault: false, durationHours: 2, maxThreadCount: 4 } }),
     loading: slot({ steam: loading }),
     updating: slot({ steam: null }),
-    queued: slot({ steam: null }),
+    pending: slot({ steam: null }),
     sending: slot({ steam: null })
   };
   const updateSource = liftHookCallback(
@@ -390,10 +390,10 @@ const guestHarness = ({ loading = false } = {}) => {
       authMode: 'authenticated',
       loadingPrefillConfigs: state.loading.value,
       updatingPrefillConfigs: state.updating.value,
-      queuedPrefillEdits: state.queued.value,
+      pendingPrefillEdits: state.pending.value,
       prefillConfigs: state.configs.value,
       setUpdatingPrefillConfigs: state.updating.set,
-      setQueuedPrefillEdits: state.queued.set,
+      setPendingPrefillEdits: state.pending.set,
       sendingPrefillEdits: state.sending.value,
       setSendingPrefillEdits: state.sending.set,
       setPrefillConfigs: state.configs.set,
@@ -433,12 +433,12 @@ test('guest prefill: a second change while a save runs is held, then sent with t
   // The duration POST is on the wire; the thread limit changes in the next render.
   await guest.bindings().updatePrefillConfig(guest.service, 'maxThreads', { maxThreadCount: 8 });
   assert.equal(guest.bodies.length, 1, 'no second request while one runs');
-  assert.deepEqual(guest.state.queued.value.steam?.edits, { maxThreadCount: 8 });
+  assert.deepEqual(guest.state.pending.value.steam?.edits, { maxThreadCount: 8 });
 
   guest.answer(0);
   await first;
   const effect = bindLifted(
-    liftHookCallback(guestConfiguration, 'useEffect', 'queuedPrefillEdits[service.id]'),
+    liftHookCallback(guestConfiguration, 'useEffect', 'pendingPrefillEdits[service.id]'),
     guest.bindings()
   );
   effect();
@@ -455,11 +455,11 @@ test('guest prefill: a change while the first read runs is held and sent when it
   const guest = guestHarness({ loading: true });
   await guest.bindings().updatePrefillConfig(guest.service, 'enabled', { enabledByDefault: true });
   assert.equal(guest.bodies.length, 0, 'no request while the read is open');
-  assert.deepEqual(guest.state.queued.value.steam?.edits, { enabledByDefault: true });
+  assert.deepEqual(guest.state.pending.value.steam?.edits, { enabledByDefault: true });
 
   guest.state.loading.set({ steam: false });
   const effect = bindLifted(
-    liftHookCallback(guestConfiguration, 'useEffect', 'queuedPrefillEdits[service.id]'),
+    liftHookCallback(guestConfiguration, 'useEffect', 'pendingPrefillEdits[service.id]'),
     guest.bindings()
   );
   effect();
@@ -470,7 +470,7 @@ test('guest prefill: a change while the first read runs is held and sent when it
 test('guest prefill: a change held while the first read runs is dropped when the read fails', async () => {
   const guest = guestHarness({ loading: true });
   await guest.bindings().updatePrefillConfig(guest.service, 'enabled', { enabledByDefault: true });
-  assert.deepEqual(guest.state.queued.value.steam?.edits, { enabledByDefault: true });
+  assert.deepEqual(guest.state.pending.value.steam?.edits, { enabledByDefault: true });
 
   const errors = [];
   const loadPrefillConfig = bindLifted(
@@ -489,12 +489,12 @@ test('guest prefill: a change held while the first read runs is dropped when the
       toGuestPrefillConfig: () => undefined,
       setPrefillConfigError: (message) => errors.push(message),
       getErrorMessage: (error) => error.message,
-      setQueuedPrefillEdits: guest.state.queued.set
+      setPendingPrefillEdits: guest.state.pending.set
     }
   );
   await loadPrefillConfig(guest.service, 1);
   const effect = bindLifted(
-    liftHookCallback(guestConfiguration, 'useEffect', 'queuedPrefillEdits[service.id]'),
+    liftHookCallback(guestConfiguration, 'useEffect', 'pendingPrefillEdits[service.id]'),
     guest.bindings()
   );
   effect();
@@ -502,8 +502,501 @@ test('guest prefill: a change held while the first read runs is dropped when the
 
   assert.deepEqual(errors, ['read failed']);
   assert.equal(guest.state.loading.value.steam, false);
-  assert.equal(guest.state.queued.value.steam, null);
+  assert.equal(guest.state.pending.value.steam, null);
   assert.deepEqual(guest.bodies, [], 'no save over the panel defaults the read never replaced');
+});
+
+const appearanceCard = 'src/components/features/user/AppearanceDisplayCard.tsx';
+
+/** The stored guest defaults a read answers with. */
+const storedDefaults = () => ({
+  useLocalTimezone: false,
+  useUtcTimezone: false,
+  use24HourFormat: true,
+  sharpCorners: false,
+  disableTooltips: false,
+  showDatasourceLabels: true,
+  allowedTimeFormats: ['server-24h']
+});
+
+/**
+ * The shipped guest defaults read, toggle save and push handler bound to one card's state. Every
+ * request waits until the test answers it.
+ */
+const guestDefaultsHarness = () => {
+  const requests = [];
+  const loadingSteps = [];
+  const toggled = [];
+  const state = {
+    preferences: slot({ ...storedDefaults(), allowedTimeFormats: ['server-24h', 'local-24h'] }),
+    loading: slot(false),
+    error: slot(null)
+  };
+  const setLoading = (value) => {
+    loadingSteps.push(value);
+    state.loading.set(value);
+  };
+  const defaultPrefsChangedRef = { current: new Set() };
+  const defaultPrefsPushesRef = { current: new Map() };
+  // Lifted on first use, so the cases that only read run against a file without it.
+  let applyChange;
+  const applyDefaultPrefsChange = (patch) => {
+    applyChange ??= bindLifted(
+      liftHookCallback(guestConfiguration, 'useCallback', 'defaultPrefsChangedRef.current.add'),
+      { defaultPrefsChangedRef, setDefaultGuestPreferences: state.preferences.set }
+    );
+    applyChange(patch);
+  };
+  let applyPush;
+  const applyDefaultPrefsPush = (patch) => {
+    applyPush ??= bindLifted(
+      liftHookCallback(guestConfiguration, 'useCallback', 'defaultPrefsPushesRef.current.set'),
+      { defaultPrefsPushesRef, applyDefaultPrefsChange }
+    );
+    applyPush(patch);
+  };
+  let applyReply;
+  const applyDefaultPrefsReply = (patch, pushesBefore) => {
+    applyReply ??= bindLifted(
+      liftHookCallback(guestConfiguration, 'useCallback', 'pushesBefore.get'),
+      { defaultPrefsPushesRef, applyDefaultPrefsChange }
+    );
+    applyReply(patch, pushesBefore);
+  };
+  /** What every save and push handler reads to tell a reply from a newer push. */
+  const replyBindings = {
+    defaultPrefsPushesRef,
+    applyDefaultPrefsChange,
+    applyDefaultPrefsReply,
+    applyDefaultPrefsPush
+  };
+  const fetch = (path, options) => {
+    const answer = deferred();
+    requests.push({ path, method: options?.method ?? 'GET', answer });
+    return answer.promise;
+  };
+  const assertOk = async (response) => {
+    if (!response.ok) throw new Error('request failed');
+  };
+  const load = bindLifted(liftConstArrow(guestConfiguration, 'loadDefaultGuestPreferences'), {
+    defaultPrefsRequestRef: { current: 0 },
+    defaultPrefsLoadedRef: { current: false },
+    defaultPrefsChangedRef,
+    setLoadingDefaultPrefs: setLoading,
+    fetch,
+    ApiService: { getFetchOptions: () => ({}) },
+    assertOk,
+    setDefaultGuestPreferences: state.preferences.set,
+    TIME_SETTING_VALUES: ['server-24h'],
+    setDefaultPrefsError: state.error.set,
+    getErrorMessage: (error) => error.message,
+    console: { error: () => undefined }
+  });
+  const savePreference = bindLifted(
+    liftConstArrow(guestConfiguration, 'handleUpdateDefaultGuestPref'),
+    {
+      authMode: 'authenticated',
+      setUpdatingDefaultPref: () => undefined,
+      fetch,
+      ApiService: { getJsonFetchOptions: (body, options) => ({ body, ...options }) },
+      assertOk,
+      setDefaultGuestPreferences: state.preferences.set,
+      ...replyBindings,
+      notifyError: () => undefined,
+      t: (key) => key,
+      preferenceLabels: {}
+    }
+  );
+  const saveClock = bindLifted(liftConstArrow(guestConfiguration, 'updateDefaultTimeFormat'), {
+    fetch,
+    ApiService: { getJsonFetchOptions: (body, options) => ({ body, ...options }) },
+    clockFromTimeSetting: (format) => ({ format }),
+    assertOk,
+    ...replyBindings
+  });
+  const saveAllowedFormats = bindLifted(
+    liftConstArrow(guestConfiguration, 'handleAllowedFormatsChange'),
+    {
+      authMode: 'authenticated',
+      setUpdatingAllowedFormats: () => undefined,
+      fetch,
+      ApiService: { getJsonFetchOptions: (body, options) => ({ body, ...options }) },
+      assertOk,
+      getCurrentDefaultFormat: () => 'server-24h',
+      updateDefaultTimeFormat: saveClock,
+      ...replyBindings,
+      notifyError: () => undefined,
+      t: (key) => key
+    }
+  );
+  const push = bindLifted(
+    liftHookCallback(guestConfiguration, 'useCallback', "data.key === 'clock'"),
+    { setDefaultGuestPreferences: state.preferences.set, ...replyBindings }
+  );
+  const pushAllowedFormats = bindLifted(
+    liftHookCallback(guestConfiguration, 'useCallback', 'allowedTimeFormats: data.formats'),
+    replyBindings
+  );
+  /** The card's toggle handler, rendered with the current loading flag. */
+  const toggle = (key, value) =>
+    bindLifted(liftConstArrow(appearanceCard, 'handlePrefToggleChange'), {
+      loadingDefaultPrefs: state.loading.value,
+      onUpdateDefaultPref: (...args) => toggled.push(args)
+    })(key, value);
+  /** Each guest-default control's own `disabled` expression, rendered with the current flags. */
+  const disabledControls = () => {
+    const sourceFile = parseSource(appearanceCard, typescript.ScriptKind.TSX);
+    return collectNodes(
+      sourceFile,
+      (node) =>
+        typescript.isJsxAttribute(node) &&
+        node.name.getText(sourceFile) === 'disabled' &&
+        node.initializer.expression.getText(sourceFile).includes('loadingDefaultPrefs')
+    ).map((node) =>
+      bindLifted(`() => (${node.initializer.expression.getText(sourceFile)})`, {
+        loadingDefaultPrefs: state.loading.value,
+        updatingAllowedFormats: false
+      })()
+    );
+  };
+  /** Answers the newest open read with `preferences`, or fails it. */
+  const answerRead = async (preferences) => {
+    const read = requests.findLast((request) => request.method === 'GET');
+    read.answer.resolve(
+      preferences ? { ok: true, json: async () => preferences } : { ok: false, status: 503 }
+    );
+    await settle();
+  };
+  /** Answers the newest open write as saved, with `body` as the reply. */
+  const answerWrite = async (body = {}) => {
+    const write = requests.findLast((request) => request.method === 'PATCH');
+    write.answer.resolve({ ok: true, json: async () => body });
+    await settle();
+  };
+  /** Mount: the first read starts and answers with the stored defaults. */
+  const firstLoad = async () => {
+    void load();
+    await answerRead(storedDefaults());
+    loadingSteps.length = 0;
+  };
+  return {
+    state,
+    loadingSteps,
+    toggled,
+    load,
+    savePreference,
+    saveClock,
+    saveAllowedFormats,
+    push,
+    pushAllowedFormats,
+    toggle,
+    disabledControls,
+    answerRead,
+    answerWrite,
+    firstLoad
+  };
+};
+
+test('guest defaults: the controls wait for the first read only', async () => {
+  const card = guestDefaultsHarness();
+  void card.load();
+  await settle();
+  assert.deepEqual(card.disabledControls(), [true, true, true, true], 'four controls held');
+  card.toggle('sharpCorners', 'on');
+  assert.deepEqual(card.toggled, [], 'a toggle before the first answer is ignored');
+  await card.answerRead(storedDefaults());
+  assert.equal(card.state.loading.value, false);
+  assert.deepEqual(card.disabledControls(), [false, false, false, false]);
+});
+
+test('guest defaults: a reconnect reload keeps the controls usable', async () => {
+  const card = guestDefaultsHarness();
+  await card.firstLoad();
+  void card.load();
+  await settle();
+  assert.deepEqual(card.disabledControls(), [false, false, false, false]);
+  card.toggle('sharpCorners', 'on');
+  assert.deepEqual(card.toggled, [['sharpCorners', true]], 'the click reaches the save');
+  await card.answerRead(storedDefaults());
+  assert.ok(!card.loadingSteps.includes(true), 'the reload never raises the loading flag');
+  assert.equal(card.state.loading.value, false);
+});
+
+test('guest defaults: a reload that fails keeps the card and the loaded values', async () => {
+  const card = guestDefaultsHarness();
+  await card.firstLoad();
+  void card.load();
+  await card.answerRead(null);
+  assert.equal(card.state.error.value, null, 'no error box over the loaded card');
+  assert.deepEqual(card.state.preferences.value, storedDefaults());
+  assert.equal(card.state.loading.value, false);
+});
+
+test('guest defaults: a toggle saved during a reload still shows after the reload answers', async () => {
+  const card = guestDefaultsHarness();
+  await card.firstLoad();
+  void card.load();
+  await settle();
+  const saving = card.savePreference('sharpCorners', true);
+  await card.answerWrite();
+  await saving;
+  assert.equal(card.state.preferences.value.sharpCorners, true);
+  // The read left before the write; it also carries a change missed while disconnected.
+  await card.answerRead({ ...storedDefaults(), disableTooltips: true });
+  assert.equal(card.state.preferences.value.sharpCorners, true, 'the saved toggle stays');
+  assert.equal(card.state.preferences.value.disableTooltips, true, 'the missed change arrives');
+});
+
+test('guest defaults: a push received during a reload still shows after the reload answers', async () => {
+  const card = guestDefaultsHarness();
+  await card.firstLoad();
+  void card.load();
+  await settle();
+  card.push({ key: 'showDatasourceLabels', value: false });
+  await card.answerRead(storedDefaults());
+  assert.equal(card.state.preferences.value.showDatasourceLabels, false, 'the pushed value stays');
+});
+
+// The server announces a save before it answers it, so a push that lands while the save is open
+// carries a value at least as new as the reply's.
+test('guest defaults: a push received while a toggle saves wins over the save reply', async () => {
+  const card = guestDefaultsHarness();
+  await card.firstLoad();
+  const saving = card.savePreference('sharpCorners', true);
+  await settle();
+  card.push({ key: 'sharpCorners', value: false });
+  await card.answerWrite();
+  await saving;
+  assert.equal(card.state.preferences.value.sharpCorners, false, 'the pushed value stays');
+});
+
+test('guest defaults: a toggle save with no push shows the saved value', async () => {
+  const card = guestDefaultsHarness();
+  await card.firstLoad();
+  const saving = card.savePreference('sharpCorners', true);
+  await card.answerWrite();
+  await saving;
+  assert.equal(card.state.preferences.value.sharpCorners, true);
+});
+
+const savedClock = { useUtcTimezone: false, useLocalTimezone: true, use24HourFormat: false };
+const pushedClock = { useUtcTimezone: true, useLocalTimezone: false, use24HourFormat: true };
+const clockOf = (preferences) => ({
+  useUtcTimezone: preferences.useUtcTimezone,
+  useLocalTimezone: preferences.useLocalTimezone,
+  use24HourFormat: preferences.use24HourFormat
+});
+
+test('guest defaults: a push received while the clock saves wins over the save reply', async () => {
+  const card = guestDefaultsHarness();
+  await card.firstLoad();
+  const saving = card.saveClock('local-12h');
+  await settle();
+  card.push({ key: 'clock', clock: pushedClock, previousClock: savedClock });
+  await card.answerWrite({ clock: savedClock });
+  await saving;
+  assert.deepEqual(clockOf(card.state.preferences.value), pushedClock, 'the pushed clock stays');
+});
+
+test('guest defaults: a clock save with no push shows the saved clock', async () => {
+  const card = guestDefaultsHarness();
+  await card.firstLoad();
+  const saving = card.saveClock('local-12h');
+  await card.answerWrite({ clock: savedClock });
+  await saving;
+  assert.deepEqual(clockOf(card.state.preferences.value), savedClock);
+});
+
+test('guest defaults: a push received while the allowed formats save wins over the save reply', async () => {
+  const card = guestDefaultsHarness();
+  await card.firstLoad();
+  const saving = card.saveAllowedFormats(['server-24h', 'server-12h']);
+  await settle();
+  card.pushAllowedFormats({ formats: ['server-24h', 'local-24h'] });
+  await card.answerWrite();
+  await saving;
+  assert.deepEqual(card.state.preferences.value.allowedTimeFormats, ['server-24h', 'local-24h']);
+});
+
+test('guest defaults: an allowed formats save with no push shows the saved formats', async () => {
+  const card = guestDefaultsHarness();
+  await card.firstLoad();
+  const saving = card.saveAllowedFormats(['server-24h', 'server-12h']);
+  await card.answerWrite();
+  await saving;
+  assert.deepEqual(card.state.preferences.value.allowedTimeFormats, ['server-24h', 'server-12h']);
+});
+
+const userTab = 'src/components/features/user/UserTab.tsx';
+
+/**
+ * One guest setting on the Users screen: its shipped save, the ApiService call that save waits on,
+ * the state setter both write, and the text only its push handler holds.
+ */
+const userTabGuestSettings = [
+  {
+    save: 'handleUpdateDuration',
+    call: 'setGuestSessionDuration',
+    setter: 'setGuestDurationHours',
+    pushText: 'data.durationHours',
+    input: 12,
+    reply: { durationHours: 12 },
+    saved: 12,
+    push: { durationHours: 24 },
+    pushed: 24
+  },
+  {
+    save: 'handleToggleGuestLock',
+    call: 'setGuestConfigLock',
+    setter: 'setGuestModeLocked',
+    pushText: 'data.isLocked',
+    input: 'locked',
+    reply: undefined,
+    saved: true,
+    push: { isLocked: false },
+    pushed: false
+  },
+  {
+    save: 'handleUpdateGuestTheme',
+    call: 'setGuestThemePreference',
+    setter: 'setDefaultGuestTheme',
+    pushText: 'data.newThemeId',
+    input: 'light-default',
+    reply: undefined,
+    saved: 'light-default',
+    push: { newThemeId: 'dark-default' },
+    pushed: 'dark-default'
+  },
+  {
+    save: 'handleUpdateGuestRefreshRate',
+    call: 'setDefaultGuestRefreshRate',
+    setter: 'setDefaultGuestRefreshRate',
+    pushText: 'data.refreshRate',
+    input: 'LIVE',
+    reply: undefined,
+    saved: 'LIVE',
+    push: { refreshRate: 'SLOW' },
+    pushed: 'SLOW'
+  },
+  {
+    save: 'handleUpdateGuestRefreshRateLock',
+    call: 'setGuestRefreshRateLock',
+    setter: 'setGuestRefreshRateLocked',
+    pushText: 'data.locked',
+    input: false,
+    reply: undefined,
+    saved: false,
+    push: { locked: true },
+    pushed: true
+  }
+];
+
+/** A setting's shipped save and push handler bound to one shared push count and a recording setter. */
+const userTabGuestHarness = (setting) => {
+  const call = deferred();
+  const values = [];
+  const errors = [];
+  const guestDefaultPushesRef = {
+    current: { duration: 0, guestLock: 0, theme: 0, refreshRate: 0, refreshRateLock: 0 }
+  };
+  const record = (value) => values.push(value);
+  const save = bindLifted(liftConstArrow(userTab, setting.save), {
+    setUpdatingDuration: () => undefined,
+    setUpdatingGuestLock: () => undefined,
+    setUpdatingGuestTheme: () => undefined,
+    setUpdatingGuestRefreshRate: () => undefined,
+    setUpdatingGuestRefreshRateLock: () => undefined,
+    ApiService: { [setting.call]: () => call.promise },
+    [setting.setter]: record,
+    guestModeLocked: false,
+    guestDefaultPushesRef,
+    showToast: () => undefined,
+    notifyError: (_message, error) => errors.push(error),
+    t: (key) => key
+  });
+  const push = bindLifted(liftHookCallback(userTab, 'useCallback', setting.pushText), {
+    [setting.setter]: record,
+    guestDefaultPushesRef
+  });
+  return { call, values, errors, save, push };
+};
+
+for (const setting of userTabGuestSettings) {
+  test(`users screen: a push received while ${setting.save} saves wins over the save reply`, async () => {
+    const screen = userTabGuestHarness(setting);
+    const saving = screen.save(setting.input);
+    await settle();
+    screen.push(setting.push);
+    screen.call.resolve(setting.reply);
+    await saving;
+    assert.deepEqual(screen.errors, []);
+    assert.equal(screen.values.at(-1), setting.pushed, 'the pushed value stays');
+  });
+
+  test(`users screen: ${setting.save} with no push shows the saved value`, async () => {
+    const screen = userTabGuestHarness(setting);
+    const saving = screen.save(setting.input);
+    await settle();
+    screen.call.resolve(setting.reply);
+    await saving;
+    assert.deepEqual(screen.errors, []);
+    assert.equal(screen.values.at(-1), setting.saved);
+  });
+}
+
+test('users screen: a push received while the guest defaults load is open wins over the load', async () => {
+  const answers = deferred();
+  const shown = {};
+  const guestDefaultPushesRef = {
+    current: { duration: 0, guestLock: 0, theme: 0, refreshRate: 0, refreshRateLock: 0 }
+  };
+  const into = (name) => (value) => {
+    shown[name] = value;
+  };
+  const setters = {
+    setGuestDurationHours: into('duration'),
+    setGuestModeLocked: into('guestLock'),
+    setDefaultGuestTheme: into('theme'),
+    setDefaultGuestRefreshRate: into('refreshRate'),
+    setGuestRefreshRateLocked: into('refreshRateLock')
+  };
+  const load = bindLifted(liftHookCallback(userTab, 'useCallback', 'getGuestConfig'), {
+    ...setters,
+    guestDefaultsRequestRef: { current: 0 },
+    guestDefaultPushesRef,
+    setGuestDefaultsError: () => undefined,
+    setGuestDefaultsLoaded: () => undefined,
+    setAvailableThemes: () => undefined,
+    getErrorMessage: (error) => String(error),
+    themeService: { loadThemes: async () => ({ themes: [], loadError: null }) },
+    ApiService: {
+      getGuestConfig: () => answers.promise.then(() => ({ durationHours: 6, isLocked: true })),
+      getGuestThemePreference: () => answers.promise.then(() => ({ themeId: 'light-default' })),
+      getDefaultGuestRefreshRate: () =>
+        answers.promise.then(() => ({ refreshRate: 'STANDARD', locked: true }))
+    }
+  });
+  const push = (setting) =>
+    bindLifted(liftHookCallback(userTab, 'useCallback', setting.pushText), {
+      [setting.setter]: setters[setting.setter],
+      guestDefaultPushesRef
+    });
+  const [duration, , theme] = userTabGuestSettings;
+
+  const loading = load();
+  await settle();
+  // Another admin saves two settings while the reads are out; the server pushes before it answers.
+  push(duration)(duration.push);
+  push(theme)(theme.push);
+  answers.resolve();
+  await loading;
+
+  assert.equal(shown.duration, duration.pushed, 'the pushed duration stays');
+  assert.equal(shown.theme, theme.pushed, 'the pushed theme stays');
+  // Settings with no push take the values the load read.
+  assert.equal(shown.guestLock, true);
+  assert.equal(shown.refreshRate, 'STANDARD');
+  assert.equal(shown.refreshRateLock, true);
 });
 
 test('scheduled prefill schedule: an edit made while Save runs keeps the dialog open and dirty', async () => {
@@ -714,7 +1207,7 @@ const depotHarness = (status) => {
       bindings.selectedMethodRef.current = value;
     },
     setError: (value) => {
-      state.error = value;
+      state.error = typeof value === 'function' ? value(state.error) : value;
     },
     setDownloadStatus: (value) => {
       state.downloadStatus = value;

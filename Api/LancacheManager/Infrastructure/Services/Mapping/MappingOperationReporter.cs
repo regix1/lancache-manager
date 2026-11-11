@@ -37,7 +37,7 @@ public sealed class MappingOperationReporter : IAsyncDisposable
             onTerminalCleanup,
             logger,
             info =>
-                $"{definition.StageKeyPrefix}.{GetTerminalSuffix(info.Success, info.Cancelled)}");
+                $"{definition.StageKeyPrefix}.{GetTerminalSuffix(info.Success, info.Canceled)}");
     }
 
     public Guid OperationId => _inner.OperationId;
@@ -78,7 +78,7 @@ public sealed class MappingOperationReporter : IAsyncDisposable
     public Task CompleteAsync(
         bool success,
         string? error = null,
-        bool cancelled = false,
+        bool canceled = false,
         string? stageKey = null,
         Dictionary<string, object?>? context = null,
         bool skipped = false,
@@ -86,8 +86,8 @@ public sealed class MappingOperationReporter : IAsyncDisposable
         _inner.CompleteAsync(
             success,
             error,
-            cancelled,
-            stageKey ?? $"{_definition.StageKeyPrefix}.{GetTerminalSuffix(success, cancelled)}",
+            canceled,
+            stageKey ?? $"{_definition.StageKeyPrefix}.{GetTerminalSuffix(success, canceled)}",
             context,
             skipped,
             commit);
@@ -98,6 +98,6 @@ public sealed class MappingOperationReporter : IAsyncDisposable
 
     public ValueTask DisposeAsync() => _inner.DisposeAsync();
 
-    private static string GetTerminalSuffix(bool success, bool cancelled) =>
-        cancelled ? "cancelled" : success ? "completed" : "failed";
+    private static string GetTerminalSuffix(bool success, bool canceled) =>
+        canceled ? "canceled" : success ? "completed" : "failed";
 }

@@ -4,8 +4,8 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// A killed child and a crashed one both exit non-zero, so the exit code alone cannot say which
-/// happened. These pin the two halves of the classification: a cancelled run must surface as
-/// cancellation, and a run that was never cancelled must still surface as a process failure.
+/// happened. These pin the two halves of the classification: a canceled run must surface as
+/// cancellation, and a run that was never canceled must still surface as a process failure.
 /// </summary>
 public class RustProcessCancellationClassificationTests
 {

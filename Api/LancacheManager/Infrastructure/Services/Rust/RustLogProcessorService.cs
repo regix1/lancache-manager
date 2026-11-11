@@ -7,6 +7,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using Microsoft.EntityFrameworkCore;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
@@ -50,10 +51,9 @@ public class RustLogProcessorService
     // tasks until one takes the lock and runs the Epic image scan.
     private int _epicRowsResolvedPending;
 
-    // Signaled at the RegisterOperation call inside the processor so StartBackgroundProcessingAsync
-    // can return the assigned operationId without polling. Class-field is safe because _startLock
-    // gates IsProcessing = true, so there is at most one in-flight start at a time.
-    private TaskCompletionSource<Guid>? _operationRegisteredTcs;
+    // Each start's own registration signal. It flows into that start's background task only, so a
+    // start that overlaps another, or the live ingest starting directly, cannot answer its caller.
+    private readonly AsyncLocal<TaskCompletionSource<Guid>?> _operationRegisteredTcs = new();
 
     private readonly record struct LogProcessingTerminalMetrics(
         long EntriesProcessed,
@@ -79,12 +79,16 @@ public class RustLogProcessorService
         if (datasources.Count == 0)
         {
             _logger.LogWarning("No datasources configured for log processing");
-            return Task.FromResult<Guid?>(null);
+            throw new ServiceUnavailableException("No datasources configured for log processing")
+            {
+                StageKey = "errors.logs.startFailed"
+            };
         }
 
         return RunBackgroundAsync(
             RunAllDatasourcesAsync,
-            "processing all datasources");
+            "processing all datasources",
+            new ServiceUnavailableException("Failed to start log processing") { StageKey = "errors.logs.startFailed" });
     }
 
     private Guid BeginOperation()
@@ -112,7 +116,7 @@ public class RustLogProcessorService
             onTerminalEmit: BuildTerminalEmit(() => operationId),
             ownerCompletes: true);
         _currentOperationId = operationId;
-        _operationRegisteredTcs?.TrySetResult(operationId);
+        _operationRegisteredTcs.Value?.TrySetResult(operationId);
         IsProcessing = true;
         return operationId;
     }
@@ -126,7 +130,7 @@ public class RustLogProcessorService
                 && _operationTracker.GetOperation(operationId.Value)?.Metadata is LogProcessingTerminalMetrics current
                 ? current : default;
 
-            if (info.Cancelled)
+            if (info.Canceled)
             {
                 // Cancellation keeps the accepted counts without reusing a datasource's success text.
                 return _notifications.NotifyAllAsync(
@@ -134,9 +138,9 @@ public class RustLogProcessorService
                     new LogProcessingComplete(
                         OperationId: operationId,
                         Success: false,
-                        Status: OperationStatus.Cancelled,
-                        Message: "signalr.generic.cancelled",
-                        Cancelled: true,
+                        Status: OperationStatus.Canceled,
+                        Message: "signalr.generic.canceled",
+                        Canceled: true,
                         EntriesProcessed: metrics.EntriesProcessed,
                         LinesProcessed: metrics.LinesProcessed,
                         Elapsed: metrics.Elapsed,
@@ -152,7 +156,7 @@ public class RustLogProcessorService
                         Success: true,
                         Status: OperationStatus.Completed,
                         Message: metrics.Message ?? "Log processing completed successfully",
-                        Cancelled: false,
+                        Canceled: false,
                         EntriesProcessed: metrics.EntriesProcessed,
                         LinesProcessed: metrics.LinesProcessed,
                         Elapsed: metrics.Elapsed,
@@ -168,7 +172,7 @@ public class RustLogProcessorService
                     // Every failed log processing run is completed with its reason key as the error: each ending
                     // in this class passes one, and the restart replay passes the key its record stored.
                     Message: info.Error!,
-                    Cancelled: false,
+                    Canceled: false,
                     EntriesProcessed: metrics.EntriesProcessed,
                     LinesProcessed: metrics.LinesProcessed,
                     Elapsed: metrics.Elapsed,
@@ -240,7 +244,7 @@ public class RustLogProcessorService
         LogProcessingBatchState batch,
         long entriesProcessed,
         long linesProcessed,
-        bool cancelled,
+        bool canceled,
         bool batchFinished)
     {
         if (_operationTracker.GetOperation(operationId)?.Status.IsTerminal() == true)
@@ -256,19 +260,19 @@ public class RustLogProcessorService
             _currentBatch = null;
         }
 
-        if (cancelled)
+        if (canceled)
         {
             var metrics = new LogProcessingTerminalMetrics(
                 entriesProcessed,
                 linesProcessed,
                 null,
-                "signalr.generic.cancelled",
+                "signalr.generic.canceled",
                 null);
             _operationTracker.CompleteOperation(
                 operationId,
                 false,
-                "signalr.generic.cancelled",
-                cancelled: true,
+                "signalr.generic.canceled",
+                canceled: true,
                 onCompleting: operation => operation.Metadata = metrics);
             return;
         }
@@ -404,12 +408,12 @@ public class RustLogProcessorService
             for (var i = 0; i < datasources.Count; i++)
             {
                 // Stop spawning Rust children for the remaining datasources once the shared
-                // operation has been cancelled. The in-flight
+                // operation has been canceled. The in-flight
                 // datasource handles its own cancellation via the shared CTS token.
                 if (batchToken.IsCancellationRequested
                     || _operationTracker.GetOperation(batchOperationId)?.Status.IsTerminal() == true)
                 {
-                    _logger.LogInformation("Log processing batch cancelled; skipping remaining datasources");
+                    _logger.LogInformation("Log processing batch canceled; skipping remaining datasources");
                     allSuccess = false;
                     break;
                 }
@@ -441,7 +445,7 @@ public class RustLogProcessorService
                 batchOperationId,
                 outcome.Metrics,
                 outcome.Success,
-                outcome.Cancelled,
+                outcome.Canceled,
                 outcome.Error);
             repairFinished = true;
             // Files an earlier datasource skipped are named on every ending: completed, canceled or failed.
@@ -467,9 +471,9 @@ public class RustLogProcessorService
                 batch,
                 confirmed.EntriesProcessed,
                 confirmed.LinesProcessed,
-                cancelled: outcome.Cancelled,
+                canceled: outcome.Canceled,
                 batchFinished: true);
-            return allSuccess && !outcome.Cancelled;
+            return allSuccess && !outcome.Canceled;
         }
         finally
         {
@@ -491,7 +495,7 @@ public class RustLogProcessorService
                     batchOperationId,
                     finalOutcome.Metrics,
                     finalOutcome.Success,
-                    finalOutcome.Cancelled,
+                    finalOutcome.Canceled,
                     finalOutcome.Error);
                 repairFinished = true;
             }
@@ -509,7 +513,7 @@ public class RustLogProcessorService
                     batch,
                     finalMetrics.EntriesProcessed,
                     finalMetrics.LinesProcessed,
-                    cancelled: batchToken.IsCancellationRequested,
+                    canceled: batchToken.IsCancellationRequested,
                     batchFinished: false);
             }
 
@@ -522,15 +526,21 @@ public class RustLogProcessorService
 
     public Task<Guid?> StartInBackgroundAsync(string logFilePath, bool liveIngest = false, string? datasourceName = null)
     {
+        var displayedDatasource = datasourceName ?? "default";
         return RunBackgroundAsync(
             () => StartProcessingAsync(logFilePath, liveIngest, datasourceName),
-            $"processing datasource '{datasourceName ?? "default"}'");
+            $"processing datasource '{displayedDatasource}'",
+            new ServiceUnavailableException($"Failed to start log processing for '{displayedDatasource}'")
+            {
+                StageKey = "errors.logs.startFailedForDatasource",
+                Context = new Dictionary<string, object?> { ["datasource"] = displayedDatasource }
+            });
     }
 
-    private async Task<Guid?> RunBackgroundAsync(Func<Task<bool>> processor, string description)
+    private async Task<Guid?> RunBackgroundAsync(Func<Task<bool>> processor, string description, ApiException startFailure)
     {
         var registered = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _operationRegisteredTcs = registered;
+        _operationRegisteredTcs.Value = registered;
 
         var backgroundTask = Task.Run(async () =>
         {
@@ -541,6 +551,8 @@ public class RustLogProcessorService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unhandled error while {Description}", description);
+                // Before the run registered nobody else reports this failure, so it is the caller's answer.
+                if (!registered.Task.IsCompleted) throw startFailure;
                 return false;
             }
             finally
@@ -552,7 +564,15 @@ public class RustLogProcessorService
         });
 
         await Task.WhenAny(registered.Task, backgroundTask);
-        return registered.Task.IsCompletedSuccessfully ? registered.Task.Result : (Guid?)null;
+        if (registered.Task.IsCompletedSuccessfully)
+        {
+            return registered.Task.Result;
+        }
+
+        // A busy start returned false and stays a null start, which the queue parks; awaiting the
+        // finished start rethrows a failure before registration.
+        await backgroundTask;
+        return null;
     }
 
     /// <summary>
@@ -887,7 +907,7 @@ public class RustLogProcessorService
         Guid operationId,
         LogProcessingTerminalMetrics metrics,
         bool success,
-        bool cancelled,
+        bool canceled,
         string? error)
     {
         ReleaseProcessingState(operationId);
@@ -895,7 +915,7 @@ public class RustLogProcessorService
         await repairOwner.FinishRepairAsync(
             operationId,
             success,
-            cancelled,
+            canceled,
             error,
             repair =>
             {
@@ -947,20 +967,20 @@ public class RustLogProcessorService
     private static (
         LogProcessingTerminalMetrics Metrics,
         bool Success,
-        bool Cancelled,
+        bool Canceled,
         string? Error) GetBatchRepairOutcome(
             LogProcessingBatchState batch,
-            bool cancelled,
+            bool canceled,
             bool batchFinished)
     {
-        if (cancelled)
+        if (canceled)
         {
             return (
                 new LogProcessingTerminalMetrics(
                     batch.EntriesProcessed,
                     batch.LinesProcessed,
                     null,
-                    "signalr.generic.cancelled",
+                    "signalr.generic.canceled",
                     null),
                 false,
                 true,
@@ -1014,7 +1034,7 @@ public class RustLogProcessorService
 
     private static readonly string[] _validTerminalStatuses =
     {
-        "completed", "completed_with_warnings", "partial", "failed", "cancelled"
+        "completed", "completed_with_warnings", "partial", "failed", "canceled"
     };
 
     /// <summary>
@@ -1029,7 +1049,7 @@ public class RustLogProcessorService
     /// True when a run's terminal checkpoint proves committed download rows exist: a valid
     /// terminal checkpoint with at least one saved entry. Rust commits every batch transaction
     /// before writing the checkpoint, so an event emitted on this predicate can never precede
-    /// the rows it announces. Partial and cancelled runs with committed batches qualify; a
+    /// the rows it announces. Partial and canceled runs with committed batches qualify; a
     /// missing or invalid checkpoint never does (its entry count cannot be trusted).
     /// </summary>
     public static bool HasCommittedDownloads(LogProcessingProgress? progress) =>
@@ -1272,7 +1292,7 @@ public class RustLogProcessorService
                     onTerminalEmit: liveIngest ? null : BuildTerminalEmit(() => ownerOperationId),
                     ownerCompletes: true);
                 _currentOperationId = ownerOperationId;
-                _operationRegisteredTcs?.TrySetResult(ownerOperationId.Value);
+                _operationRegisteredTcs.Value?.TrySetResult(ownerOperationId.Value);
             }
 
             var processingToken = _cancellationTokenSource?.Token
@@ -1399,7 +1419,7 @@ public class RustLogProcessorService
             var startTime = DateTime.UtcNow;
 
             // Snapshotted inside the run callback BEFORE the monitor-stopping Cancel() call
-            // below poisons the token: "cancelled" is an intent this host expressed, and the
+            // below poisons the token: "canceled" is an intent this host expressed, and the
             // terminal checkpoint alone must not be able to claim it (C# owns intent).
             var cancelRequestedDuringRun = false;
             var stoppedAtLimit = false;
@@ -1479,7 +1499,7 @@ public class RustLogProcessorService
                         }
                     });
 
-                    // The progress monitor gets its OWN linked token: cancelling the shared
+                    // The progress monitor gets its OWN linked token: canceling the shared
                     // operation CTS after a child exits used to make a multi-datasource batch
                     // abort before its remaining datasources ever ran.
                     using var monitorCts = CancellationTokenSource.CreateLinkedTokenSource(processingToken);
@@ -1622,13 +1642,13 @@ public class RustLogProcessorService
                 processLabel: "log_processor");
 
             // The polled progress file is the single authority on the run outcome. The
-            // typed terminal_status decides success/warning/partial/failure; "cancelled"
+            // typed terminal_status decides success/warning/partial/failure; "canceled"
             // additionally requires that this host asked for the stop, by a cancel or at a stall.
             finalProgress = await ReadProgressFileAsync(progressPath);
             var hasTerminalCheckpoint = IsValidTerminalCheckpoint(finalProgress);
-            var wasCancelled = (cancelRequestedDuringRun || stoppedAtLimit) &&
-                ((hasTerminalCheckpoint && finalProgress!.TerminalStatus == "cancelled") ||
-                 finalProgress?.Status == OperationStatus.Cancelled.ToWireString() ||
+            var wasCanceled = (cancelRequestedDuringRun || stoppedAtLimit) &&
+                ((hasTerminalCheckpoint && finalProgress!.TerminalStatus == "canceled") ||
+                 finalProgress?.Status == OperationStatus.Canceled.ToWireString() ||
                  exitCode != 0);
 
             if (finalProgress is not null)
@@ -1647,26 +1667,26 @@ public class RustLogProcessorService
             var riotCompletedCleanly = exitCode == 0
                 && hasTerminalCheckpoint
                 && finalProgress!.TerminalStatus is "completed";
-            if (!riotSuccess && !wasCancelled)
+            if (!riotSuccess && !wasCanceled)
             {
                 _logger.LogWarning(
                     "Log processing under a Riot mapping run ended with terminal status {TerminalStatus} and exit code {ExitCode}",
                     finalProgress?.TerminalStatus,
                     exitCode);
             }
-            var riotError = riotSuccess || wasCancelled ? null : "signalr.logProcessing.failed";
+            var riotError = riotSuccess || wasCanceled ? null : "signalr.logProcessing.failed";
             await riotMappingRun.CompleteAsync(
                 riotSuccess,
-                wasCancelled,
+                wasCanceled,
                 // No attribution: this run's token is linked to the host's, so a shutdown mid-run
                 // reaches here identically to someone pressing cancel.
-                wasCancelled ? null : riotError,
+                wasCanceled ? null : riotError,
                 riotCompletedCleanly);
 
             // Committed rows become visible NOW, before any cancellation/partial/success
             // branching and before the post-passes below (auto-tag and the Epic/Blizzard/Xbox
             // resolves each emit their own conditional refresh when they change rows). A
-            // partial or cancelled run whose earlier batches committed still exposes that
+            // partial or canceled run whose earlier batches committed still exposes that
             // data here without ever being reported as a completed operation.
             var refreshSatisfied = SatisfiesDownloadsRefresh(finalProgress);
             // Prefill rows are marked before the refresh below, so the dashboard's next read
@@ -1714,10 +1734,10 @@ public class RustLogProcessorService
                     refreshSatisfied);
             }
 
-            if (wasCancelled)
+            if (wasCanceled)
             {
                 await logLock.DisposeAsync();
-                _logger.LogInformation("Processing was cancelled (exit code: {ExitCode}, progress: {Progress}%)",
+                _logger.LogInformation("Processing was canceled (exit code: {ExitCode}, progress: {Progress}%)",
                     exitCode, finalProgress?.PercentComplete ?? 0);
 
                 // Complete the operation with cancellation status. The single terminal
@@ -1729,17 +1749,17 @@ public class RustLogProcessorService
                         EntriesProcessed: hasTerminalCheckpoint ? finalProgress!.EntriesSaved : 0,
                         LinesProcessed: hasTerminalCheckpoint ? finalProgress!.LinesParsed : 0,
                         Elapsed: null,
-                        Message: "signalr.generic.cancelled",
+                        Message: "signalr.generic.canceled",
                         StageKey: null);
                     terminalMetrics = await FinishProcessingRepairAsync(
                         repairOwner!,
                         ownerOperationId.Value,
                         terminalMetrics,
                         success: false,
-                        cancelled: true,
+                        canceled: true,
                         error: null);
                     repairFinished = true;
-                    _operationTracker.CompleteOperation(ownerOperationId.Value, false, "signalr.generic.cancelled", cancelled: true, onCompleting: operation => operation.Metadata = terminalMetrics);
+                    _operationTracker.CompleteOperation(ownerOperationId.Value, false, "signalr.generic.canceled", canceled: true, onCompleting: operation => operation.Metadata = terminalMetrics);
                 }
 
                 return false;
@@ -1770,7 +1790,7 @@ public class RustLogProcessorService
                             ownerOperationId.Value,
                             terminalMetrics,
                             success: false,
-                            cancelled: false,
+                            canceled: false,
                             error: "signalr.logProcessing.failed");
                         repairFinished = true;
                         _operationTracker.CompleteOperation(ownerOperationId.Value, false, "signalr.logProcessing.failed", onCompleting: operation => operation.Metadata = terminalMetrics);
@@ -1802,7 +1822,7 @@ public class RustLogProcessorService
                             ownerOperationId.Value,
                             terminalMetrics,
                             success: false,
-                            cancelled: false,
+                            canceled: false,
                             error: "signalr.logProcessing.failed");
                         repairFinished = true;
                         _operationTracker.CompleteOperation(ownerOperationId.Value, false,
@@ -1851,7 +1871,7 @@ public class RustLogProcessorService
                                 ownerOperationId.Value,
                                 terminalMetrics,
                                 success: savedSome,
-                                cancelled: false,
+                                canceled: false,
                                 error: savedSome ? null : "signalr.logProcessing.failedForDatasourceWithError");
                             repairFinished = true;
                             if (savedSome)
@@ -1895,7 +1915,7 @@ public class RustLogProcessorService
                             ownerOperationId.Value,
                             terminalMetrics,
                             success: true,
-                            cancelled: false,
+                            canceled: false,
                             error: null);
                         repairFinished = true;
                         await repairOwner!.SetRunWarningAsync(
@@ -1908,7 +1928,7 @@ public class RustLogProcessorService
                 }
 
                 // Success is an ALLOWLIST, not "anything that wasn't rejected": a checkpoint
-                // that says cancelled without this host having requested cancellation (or any
+                // that says canceled without this host having requested cancellation (or any
                 // future terminal value) must never persist positions or report success.
                 if (finalProgress.TerminalStatus is not ("completed" or "completed_with_warnings"))
                 {
@@ -1930,7 +1950,7 @@ public class RustLogProcessorService
                             ownerOperationId.Value,
                             terminalMetrics,
                             success: false,
-                            cancelled: false,
+                            canceled: false,
                             error: "signalr.logProcessing.failed");
                         repairFinished = true;
                         _operationTracker.CompleteOperation(ownerOperationId.Value, false, "signalr.logProcessing.failed", onCompleting: operation => operation.Metadata = terminalMetrics);
@@ -2023,7 +2043,7 @@ public class RustLogProcessorService
                         ownerOperationId.Value,
                         terminalMetrics,
                         success: true,
-                        cancelled: false,
+                        canceled: false,
                         error: null);
                     repairFinished = true;
                     _operationTracker.CompleteOperation(ownerOperationId.Value, true, onCompleting: operation => operation.Metadata = terminalMetrics);
@@ -2035,7 +2055,7 @@ public class RustLogProcessorService
             else
             {
                 await logLock.DisposeAsync();
-                // Non-zero exit code but not cancelled - this is an actual error
+                // Non-zero exit code but not canceled - this is an actual error
                 _logger.LogError("Rust processor failed with exit code {ExitCode}", exitCode);
 
                 // Snapshot error metrics for the onTerminalEmit closure, then complete the op
@@ -2053,7 +2073,7 @@ public class RustLogProcessorService
                         ownerOperationId.Value,
                         terminalMetrics,
                         success: false,
-                        cancelled: false,
+                        canceled: false,
                         error: "signalr.logProcessing.failed");
                     repairFinished = true;
                     _operationTracker.CompleteOperation(ownerOperationId.Value, false, "signalr.logProcessing.failed", onCompleting: operation => operation.Metadata = terminalMetrics);
@@ -2069,7 +2089,7 @@ public class RustLogProcessorService
             {
                 await logLock.DisposeAsync();
             }
-            _logger.LogInformation("Log processing was cancelled for datasource '{DatasourceName}'", datasourceName);
+            _logger.LogInformation("Log processing was canceled for datasource '{DatasourceName}'", datasourceName);
 
             // This run's own id. It is null only when the cancellation arrived before the operation
             // was registered; a universal force-kill that already ran the terminal cleanup is caught
@@ -2086,13 +2106,13 @@ public class RustLogProcessorService
             {
                 if (shouldFinalizeOperation)
                 {
-                    // Snapshot the cancelled message for the onTerminalEmit closure, then complete
+                    // Snapshot the canceled message for the onTerminalEmit closure, then complete
                     // (CompleteOperation fires the single terminal LogProcessingComplete event).
                     terminalMetrics = new LogProcessingTerminalMetrics(
                         EntriesProcessed: 0,
                         LinesProcessed: 0,
                         Elapsed: null,
-                        Message: "signalr.generic.cancelled",
+                        Message: "signalr.generic.canceled",
                         StageKey: null);
                     if (repairPrepared && !repairFinished)
                     {
@@ -2101,11 +2121,11 @@ public class RustLogProcessorService
                             cancelOpId.Value,
                             terminalMetrics,
                             success: false,
-                            cancelled: true,
+                            canceled: true,
                             error: null);
                         repairFinished = true;
                     }
-                    _operationTracker.CompleteOperation(cancelOpId.Value, false, "signalr.generic.cancelled", cancelled: true, onCompleting: operation => operation.Metadata = terminalMetrics);
+                    _operationTracker.CompleteOperation(cancelOpId.Value, false, "signalr.generic.canceled", canceled: true, onCompleting: operation => operation.Metadata = terminalMetrics);
                 }
             }
 
@@ -2136,7 +2156,7 @@ public class RustLogProcessorService
                         ownerOperationId.Value,
                         terminalMetrics,
                         success: false,
-                        cancelled: false,
+                        canceled: false,
                         error: "signalr.logProcessing.failed");
                     repairFinished = true;
                 }
@@ -2170,7 +2190,7 @@ public class RustLogProcessorService
                 // Tear down only the state this run installed. A live tick that passed the re-entry
                 // guard during the interactive display window has already registered its own
                 // operation into the field and its own cancellation source; disposing those here
-                // would leave that run with no way to be cancelled. When the field no longer holds
+                // would leave that run with no way to be canceled. When the field no longer holds
                 // this run's id, the newer registration owns them, and a terminal cleanup that
                 // already cleared the field has done this teardown itself.
                 if (OwnsOperationState(_currentOperationId, ownerOperationId))

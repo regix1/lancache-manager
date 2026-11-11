@@ -367,6 +367,7 @@ public abstract partial class PrefillDaemonServiceBase
                 || (selection != "selected" && appIds is not null)
                 || appIds?.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 100) == true)
                 throw new LancacheManager.Middleware.ValidationException("Choose a non-empty explicit selection or one preset.");
+            ScheduledPrefillConfigFactory.RefuseTopCountAboveLimit(Platform, top);
             var options = new DaemonRunOptions
             {
                 AppIds = appIds?.Distinct(StringComparer.Ordinal).ToArray(),
@@ -575,19 +576,19 @@ public abstract partial class PrefillDaemonServiceBase
                 throw new DaemonCommandException("instance-changed");
             await _sessionService.CreateRunAsync(run, scheduleId.HasValue ? "schedule" : "manual", cancellationToken);
             persisted = true;
-            bool cancelledDuringAdmission;
-            lock (session.PrefillLock) cancelledDuringAdmission = run.CancelAfterAdmission;
+            bool canceledDuringAdmission;
+            lock (session.PrefillLock) canceledDuringAdmission = run.CancelAfterAdmission;
             // A cancel that arrived while this Start waited for the gate or the save stops it before the daemon is asked.
-            if (cancelledDuringAdmission)
+            if (canceledDuringAdmission)
             {
                 refused = true;
-                await FinishUnsentRunAsync(session, run, "cancelled", run.CancelReason);
+                await FinishUnsentRunAsync(session, run, "canceled", run.CancelReason);
                 return new PrefillResult
                 {
                     Success = true,
                     RunId = runId,
                     DaemonInstanceId = run.DaemonInstanceId,
-                    State = "cancelled"
+                    State = "canceled"
                 };
             }
             var cachedDepots = await GetCachedDepotsAsync(options.Force, session.CancellationTokenSource.Token);
@@ -620,7 +621,7 @@ public abstract partial class PrefillDaemonServiceBase
         catch (Exception ex) when (persisted && run.TerminalCompletedFlag == 0
             && ex is not PrefillAlreadyRunningException && ex is not DaemonCommandException)
         {
-            // A lost acknowledgement is not evidence that the process-owned run stopped.
+            // A lost acknowledgment is not evidence that the process-owned run stopped.
             run.Recovering = true;
             session.Recovering = true;
             _logger.LogWarning(ex, "Prefill {RunId} awaits operation recovery", runId);
@@ -644,12 +645,12 @@ public abstract partial class PrefillDaemonServiceBase
                 run.AdmissionPending = false;
                 cancelAfterAdmission = run.CancelAfterAdmission;
                 // A cancel during admission answered at once; a Start that ends before saving its run tells the page
-                // the run is gone, or the page keeps showing it as cancelling.
+                // the run is gone, or the page keeps showing it as canceling.
                 if (!persisted && cancelAfterAdmission)
                 {
                     run.Snapshot = run.Snapshot with
                     {
-                        State = "cancelled",
+                        State = "canceled",
                         Sequence = run.Snapshot.Sequence + 1,
                         UpdatedAt = DateTimeOffset.UtcNow
                     };

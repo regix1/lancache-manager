@@ -445,7 +445,7 @@ public static class ScheduledPrefillConfigFactory
         {
             // Nothing to seed: a pre-v5 config has no custom schedule, and a null
             // ScheduledPrefillServiceConfigDto.CustomSchedule already means "keep running on the
-            // plain interval", which is exactly the behaviour that config had. The step exists only
+            // plain interval", which is exactly the behavior that config had. The step exists only
             // to stamp the version, because Validate rejects anything that is not CurrentVersion.
             config = new ScheduledPrefillConfigDto
             {
@@ -987,6 +987,74 @@ public static class ScheduledPrefillConfigFactory
         };
     }
 
+    /// <summary>
+    /// The Xbox daemon refuses a Top count above this (<c>PrefillRun.Capture</c> accepts 1 through 100);
+    /// the Steam and Epic daemons take any positive count.
+    /// </summary>
+    private const int XboxTopCountLimit = 100;
+
+    /// <summary>
+    /// Refuses a Top count the platform's daemon cannot run. Called where a count is entered: the schedule
+    /// save endpoints and <see cref="Core.Services.PrefillDaemonServiceBase.PrefillAsync"/>.
+    /// </summary>
+    public static void RefuseTopCountAboveLimit(PrefillPlatform serviceId, int? topCount)
+    {
+        if (serviceId == PrefillPlatform.Xbox && topCount > XboxTopCountLimit)
+        {
+            throw new Middleware.ValidationException($"Xbox prefills at most {XboxTopCountLimit} top games.")
+            {
+                StageKey = "errors.prefill.topCountAboveLimit",
+                Context = new Dictionary<string, object?> { ["max"] = XboxTopCountLimit }
+            };
+        }
+    }
+
+    /// <summary>
+    /// Lowers an Xbox Top schedule stored above <see cref="XboxTopCountLimit"/> before that limit was enforced
+    /// to the limit, so such a config still loads: a throw here would replace every schedule with the defaults
+    /// on load. A new count above the limit never reaches this, since <see cref="RefuseTopCountAboveLimit"/>
+    /// refuses it where it is entered. Returns <paramref name="config"/> unchanged when nothing is above it.
+    /// </summary>
+    private static ScheduledPrefillConfigDto ReconcileTopCountAboveLimit(ScheduledPrefillConfigDto config)
+    {
+        if (!config.Xbox.Schedules.Any(schedule => schedule.TopCount > XboxTopCountLimit))
+        {
+            return config;
+        }
+
+        var schedules = config.Xbox.Schedules.Select(schedule => schedule.TopCount > XboxTopCountLimit
+            ? new ScheduledPrefillSchedule
+            {
+                Id = schedule.Id,
+                Name = schedule.Name,
+                Enabled = schedule.Enabled,
+                IntervalHours = schedule.IntervalHours,
+                CustomSchedule = schedule.CustomSchedule,
+                Preset = schedule.Preset,
+                TopCount = XboxTopCountLimit,
+                SelectedAppIds = [.. schedule.SelectedAppIds],
+                OperatingSystems = [.. schedule.OperatingSystems],
+                Force = schedule.Force,
+                MaxConcurrency = schedule.MaxConcurrency,
+                NotificationMode = schedule.NotificationMode,
+                NotificationDisplayMode = schedule.NotificationDisplayMode
+            }
+            : schedule).ToList();
+
+        return new ScheduledPrefillConfigDto
+        {
+            Version = config.Version,
+            MaxServiceRuntime = config.MaxServiceRuntime,
+            StallTimeout = config.StallTimeout,
+            PersistenceMode = config.PersistenceMode,
+            Steam = config.Steam,
+            Epic = config.Epic,
+            Xbox = CopyServiceWithSchedules(config.Xbox, schedules),
+            BattleNet = config.BattleNet,
+            Riot = config.Riot
+        };
+    }
+
     public static ScheduledPrefillServiceConfigDto CopyServiceWithSchedules(
         ScheduledPrefillServiceConfigDto service,
         List<ScheduledPrefillSchedule> schedules)
@@ -1047,6 +1115,7 @@ public static class ScheduledPrefillConfigFactory
 
         config = ReconcileUnsupportedPresets(config);
         config = ReconcileUnsupportedOperatingSystems(config);
+        config = ReconcileTopCountAboveLimit(config);
 
         if (config.Version != CurrentVersion)
         {

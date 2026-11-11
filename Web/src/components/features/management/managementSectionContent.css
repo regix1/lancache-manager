@@ -183,7 +183,7 @@
 
 /* Expanded detail well under a list row (corruption chunks, sample URLs,
    cache paths). A translucent step back toward the card surface reads as a
-   recessed area on every theme without hard-coding a colour. */
+   recessed area on every theme without hard-coding a color. */
 .mgmt-row-detail {
   padding: 0.75rem;
   background: var(--theme-bg-primary-emphasis);
@@ -191,7 +191,7 @@
 }
 
 /* ── Corrupt cache file detail ──────────────────────────────────────────────
-   One suspect slice: an identity line, evidence count, and a labelled key/value
+   One suspect slice: an identity line, evidence count, and a labeled key/value
    grid so exact-path evidence reads as grouped, scannable facts. */
 .mgmt-evidence {
   display: flex;
@@ -605,6 +605,6 @@
   margin-left: auto;
 }
 
-/* Two-column labelled facts (single column below 640px). Short pairs render
+/* Two-column labeled facts (single column below 640px). Short pairs render
    inline (label: value); wide cells stack their label above a block value so
    multi-line cache paths keep their own lines. */

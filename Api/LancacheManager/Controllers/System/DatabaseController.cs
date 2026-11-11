@@ -17,18 +17,15 @@ public class DatabaseController : ControllerBase
 {
     private readonly DatabaseService _dbService;
     private readonly ILogger<DatabaseController> _logger;
-    private readonly IOperationConflictChecker _conflictChecker;
-    private readonly IOperationQueue _operationQueue;
+    private readonly IOperationWaitlist _operationQueue;
 
     public DatabaseController(
         DatabaseService dbService,
         ILogger<DatabaseController> logger,
-        IOperationConflictChecker conflictChecker,
-        IOperationQueue operationQueue)
+        IOperationWaitlist operationQueue)
     {
         _dbService = dbService;
         _logger = logger;
-        _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
     }
 
@@ -49,30 +46,27 @@ public class DatabaseController : ControllerBase
     /// </remarks>
     [HttpDelete]
     [ProducesResponseType(typeof(DatabaseResetStartResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ResetDatabaseAsync(CancellationToken cancellationToken)
     {
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         Task<Guid?> StartDatabaseResetAsync() => Task.FromResult<Guid?>(_dbService.StartFullResetAsync());
 
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.DatabaseReset,
-            ConflictScope.Bulk(),
-            cancellationToken);
-        if (conflict != null)
+        // The queue checks and starts under one lock, so a second reset sent at the same moment parks.
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.DatabaseReset, ConflictScope.Bulk(), "Database Reset",
+            StartDatabaseResetAsync, cancellationToken, DatabaseResetRequestKey.EveryTable);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.DatabaseReset, ConflictScope.Bulk(), "Database Reset",
-                StartDatabaseResetAsync, cancellationToken));
+            return Accepted(queueResponse);
         }
 
-        var operationId = (await StartDatabaseResetAsync())!.Value;
-        _logger.LogInformation("Started full database reset operation: {OperationId}, Started: {Started}", operationId, true);
+        _logger.LogInformation("Started full database reset operation: {OperationId}, Started: {Started}", queueResponse.OperationId, true);
 
         return Accepted(new DatabaseResetStartResponse
         {
             Message = "Database reset started",
-            OperationId = operationId,
+            OperationId = queueResponse.OperationId,
             Status = OperationStatus.Running
         });
     }
@@ -87,7 +81,7 @@ public class DatabaseController : ControllerBase
     /// <param name="request">The table names to clear; an empty or missing list is rejected.</param>
     [HttpDelete("tables")]
     [ProducesResponseType(typeof(SelectedTablesResetResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ResetSelectedTablesAsync([FromBody] ResetTablesRequest request, CancellationToken cancellationToken)
     {
         if (request.Tables == null || request.Tables.Count == 0)
@@ -96,30 +90,27 @@ public class DatabaseController : ControllerBase
         }
 
         // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        // _dbService.StartResetAsync has no internal single-flight guard of its own (unlike the
-        // full-reset path above), so without this check a second selected-tables reset - or one
-        // overlapping a full reset - would just register a second tracked operation unchecked.
+        // Neither reset path has a single-flight guard of its own; the queue checks and starts under
+        // one lock, so a second reset parks behind the first.
         Task<Guid?> StartSelectedTablesResetAsync() => Task.FromResult<Guid?>(_dbService.StartResetAsync(request.Tables));
 
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.DatabaseReset,
-            ConflictScope.Bulk(),
-            cancellationToken);
-        if (conflict != null)
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.DatabaseReset, ConflictScope.Bulk(), "Database Reset",
+            StartSelectedTablesResetAsync, cancellationToken,
+            // Only a reset of the same tables joins this one; a full reset or other tables wait on their own card.
+            DatabaseResetRequestKey.ForTables(request.Tables));
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.DatabaseReset, ConflictScope.Bulk(), "Database Reset",
-                StartSelectedTablesResetAsync, cancellationToken));
+            return Accepted(queueResponse);
         }
 
-        var operationId = (await StartSelectedTablesResetAsync())!.Value;
         _logger.LogInformation("Started selective database reset operation: {OperationId}, Tables: {Tables}",
-            operationId, string.Join(", ", request.Tables));
+            queueResponse.OperationId, string.Join(", ", request.Tables));
 
         return Accepted(new SelectedTablesResetResponse
         {
             Message = "Database reset started for selected tables",
-            OperationId = operationId,
+            OperationId = queueResponse.OperationId,
             Tables = request.Tables,
             Status = OperationStatus.Running
         });

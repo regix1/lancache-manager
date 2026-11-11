@@ -21,6 +21,12 @@ public interface IOperationConflictChecker
     Task<OperationConflictResponse?> CheckAsync(OperationType newType, ConflictScope newScope, CancellationToken ct);
 
     /// <summary>
+    /// Checks only for another log processing run. For the live ingest and the log position reset, which
+    /// never wait behind any other job.
+    /// </summary>
+    Task<OperationConflictResponse?> CheckForLogPassAsync(CancellationToken ct);
+
+    /// <summary>
     /// Keeps a run that registers one operation per step in the check as one operation over all of
     /// <paramref name="scopes"/>, also between its steps, until the returned handle is disposed.
     /// A conflict names <paramref name="currentOperationId"/>, the step running now (empty before the

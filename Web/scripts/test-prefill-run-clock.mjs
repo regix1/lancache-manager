@@ -107,7 +107,7 @@ const render = (setting, state, timestamp = startedAt) => {
       cachedApps: 0,
       failedApps: 0,
       skippedApps: 0,
-      cancelledApps: state === 'cancelled' ? 1 : 0,
+      canceledApps: state === 'canceled' ? 1 : 0,
       bytesTransferred: 10
     },
     recovering: state === 'reconnecting',
@@ -131,7 +131,7 @@ const render = (setting, state, timestamp = startedAt) => {
 
 test('every run state renders its start using the selected reader clock and time format', () => {
   setServerTimezone('Europe/Berlin');
-  for (const state of ['downloading', 'reconnecting', 'completed', 'cancelled', 'failed']) {
+  for (const state of ['downloading', 'reconnecting', 'completed', 'canceled', 'failed']) {
     for (const setting of ['server-24h', 'server-12h', 'local-24h', 'local-12h', 'utc']) {
       const expected = new Date(startedAt).toLocaleString(undefined, {
         dateStyle: 'medium',
@@ -147,11 +147,11 @@ test('every run state renders its start using the selected reader clock and time
 
 test('run dates cross midnight with the selected zone without changing the recorded instant', () => {
   setServerTimezone('Europe/Berlin');
-  const utc = render('utc', 'cancelled');
-  const server = render('server-24h', 'cancelled');
+  const utc = render('utc', 'canceled');
+  const server = render('server-24h', 'canceled');
   assert.notEqual(utc, server);
-  assert.equal(render('utc', 'cancelled'), utc);
-  assert.equal(render('server-24h', 'cancelled'), server);
+  assert.equal(render('utc', 'canceled'), utc);
+  assert.equal(render('server-24h', 'canceled'), server);
 });
 
 test('a card says reconnecting once, and the older card says a cached or finished game once', () => {
@@ -177,7 +177,7 @@ test('a card says reconnecting once, and the older card says a cached or finishe
       cachedApps: 0,
       failedApps: 0,
       skippedApps: 0,
-      cancelledApps: 0,
+      canceledApps: 0,
       bytesTransferred: 0
     },
     recovering: true,
@@ -233,7 +233,7 @@ test('on a multi-game run the percent beside the bytes is that game, and the bar
       cachedApps: 0,
       failedApps: 0,
       skippedApps: 0,
-      cancelledApps: 0,
+      canceledApps: 0,
       bytesTransferred: 0,
       currentItem: {
         appId: '3',
@@ -266,8 +266,8 @@ test('on a multi-game run the percent beside the bytes is that game, and the bar
 });
 
 test('missing and invalid run starts use the shared timestamp placeholders', () => {
-  assert.equal(render('utc', 'cancelled', ''), 'common.notAvailable');
-  assert.equal(render('utc', 'cancelled', 'invalid'), 'common.time.invalidDate');
+  assert.equal(render('utc', 'canceled', ''), 'common.notAvailable');
+  assert.equal(render('utc', 'canceled', 'invalid'), 'common.time.invalidDate');
 });
 
 test('a signed-out run tells only a Steam account that it may sign in again by itself', () => {
@@ -286,7 +286,7 @@ test('a signed-out run tells only a Steam account that it may sign in again by i
         cachedApps: 0,
         failedApps: 0,
         skippedApps: 0,
-        cancelledApps: 1,
+        canceledApps: 1,
         bytesTransferred: 0
       },
       recovering: false,

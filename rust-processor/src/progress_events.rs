@@ -6,9 +6,9 @@
 //! Event format:
 //! - Start: {"event":"started","operationId":"<uuid>","status":"running","stageKey":"...","context":{...}}
 //! - Progress: {"event":"progress","operationId":"<uuid>","percentComplete":<0-100>,"status":"running","stageKey":"...","context":{...}}
-//! - Complete: {"event":"complete","operationId":"<uuid>","success":true/false,"status":"completed/failed","stageKey":"...","context":{...},"cancelled":false,"errorDetail":null|"<full anyhow chain>"}
+//! - Complete: {"event":"complete","operationId":"<uuid>","success":true/false,"status":"completed/failed","stageKey":"...","context":{...},"canceled":false,"errorDetail":null|"<full anyhow chain>"}
 //!
-//! `errorDetail` is ALWAYS present on the complete/failed/cancelled envelope: it is
+//! `errorDetail` is ALWAYS present on the complete/failed/canceled envelope: it is
 //! `null` on success and cancel, and carries the full `anyhow` context chain
 //! (`format!("{e:#}")`) on failure. The C# host reads it into its failure path.
 
@@ -59,7 +59,7 @@ struct CompleteEvent {
     status: &'static str,
     stage_key: String,
     context: serde_json::Value,
-    cancelled: bool,
+    canceled: bool,
     /// Full `anyhow` error chain (`format!("{e:#}")`) for the failed terminal.
     /// ALWAYS present in the envelope: `null` on success/cancel, a string on failure.
     /// Intentionally NO `skip_serializing_if`, so the C# host can always read the field.
@@ -157,7 +157,7 @@ impl ProgressReporter {
             status: "completed",
             stage_key: stage_key.to_string(),
             context,
-            cancelled: false,
+            canceled: false,
             error_detail: None,
         };
 
@@ -194,7 +194,7 @@ impl ProgressReporter {
             status: "failed",
             stage_key: stage_key.to_string(),
             context,
-            cancelled: false,
+            canceled: false,
             error_detail,
         };
 
@@ -204,12 +204,12 @@ impl ProgressReporter {
         }
     }
 
-    /// Emit a complete event (cancelled)
+    /// Emit a complete event (canceled)
     ///
     /// # Arguments
     /// * `stage_key` - Semantic i18n stage key
     /// * `context` - Interpolation variables as JSON object
-    pub fn emit_cancelled(&self, stage_key: &str, context: serde_json::Value) {
+    pub fn emit_canceled(&self, stage_key: &str, context: serde_json::Value) {
         if !self.enabled {
             return;
         }
@@ -218,10 +218,10 @@ impl ProgressReporter {
             event: "complete",
             operation_id: self.operation_id.clone(),
             success: false,
-            status: "cancelled",
+            status: "canceled",
             stage_key: stage_key.to_string(),
             context,
-            cancelled: true,
+            canceled: true,
             // Cancellation is a distinct terminal, NOT a failure: no error chain.
             error_detail: None,
         };
@@ -253,7 +253,7 @@ impl ProgressReporter {
 ///   `std::process::exit(1)`. This function does NOT return on the error path.
 ///
 /// Cancellation is NOT failure: a cooperative cancel returns `Ok(())` from the closure
-/// after calling [`ProgressReporter::emit_cancelled`], never an `Err`.
+/// after calling [`ProgressReporter::emit_canceled`], never an `Err`.
 ///
 /// # Sync `fn main`
 /// ```ignore
@@ -322,7 +322,7 @@ pub fn finish_or_exit(
 /// their own continuous wire shape (e.g. `speed_tracker`'s `DownloadSpeedSnapshot`
 /// stream) whose consumer parses the line directly, so wrapping it here would change
 /// the wire format. Use `ProgressReporter`'s methods instead when emitting a tracked
-/// started/progress/complete/failed/cancelled operation.
+/// started/progress/complete/failed/canceled operation.
 pub fn emit_json_line<T: Serialize>(value: &T) {
     match serde_json::to_string(value) {
         Ok(json) => {
@@ -351,7 +351,7 @@ mod tests {
             status: "completed",
             stage_key: "signalr.gameRemove.complete".to_string(),
             context: json!({ "gameAppId": 570 }),
-            cancelled: false,
+            canceled: false,
             error_detail: None,
         };
 
@@ -360,7 +360,7 @@ mod tests {
         assert_eq!(value["operationId"], "op-1");
         assert_eq!(value["success"], true);
         assert_eq!(value["status"], "completed");
-        assert_eq!(value["cancelled"], false);
+        assert_eq!(value["canceled"], false);
         assert!(value.get("errorDetail").is_some());
         assert!(value["errorDetail"].is_null());
     }
@@ -374,30 +374,30 @@ mod tests {
             status: "failed",
             stage_key: "signalr.gameRemove.error.fatal".to_string(),
             context: json!({}),
-            cancelled: false,
+            canceled: false,
             error_detail: Some("outer: inner".to_string()),
         };
 
         let value: serde_json::Value = serde_json::to_value(&event).unwrap();
         assert_eq!(value["errorDetail"], "outer: inner");
-        assert_eq!(value["cancelled"], false);
+        assert_eq!(value["canceled"], false);
     }
 
     #[test]
-    fn complete_cancelled_envelope_has_error_detail_null() {
+    fn complete_canceled_envelope_has_error_detail_null() {
         let event = CompleteEvent {
             event: "complete",
             operation_id: "op-3".to_string(),
             success: false,
-            status: "cancelled",
-            stage_key: "signalr.gameRemove.cancelled".to_string(),
+            status: "canceled",
+            stage_key: "signalr.gameRemove.canceled".to_string(),
             context: json!({}),
-            cancelled: true,
+            canceled: true,
             error_detail: None,
         };
 
         let value: serde_json::Value = serde_json::to_value(&event).unwrap();
-        assert_eq!(value["cancelled"], true);
+        assert_eq!(value["canceled"], true);
         assert!(value["errorDetail"].is_null());
     }
 

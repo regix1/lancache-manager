@@ -44,11 +44,10 @@ public sealed class GameImagesControllerCacheContractTests
         // execution lock.
         var tracker = NewTracker();
 
-        var queue = new RecordingOperationQueue(new QueuedOperationResponse
+        var queue = new RecordingOperationWaitlist(new OperationStartResponse
         {
             OperationId = Guid.NewGuid(),
-            Queued = true,
-            Status = "waiting"
+            Status = OperationStartStatus.Waiting
         });
 
         var fetchServices = new BlockingServiceProvider(passStarted, releasePass);
@@ -58,7 +57,7 @@ public sealed class GameImagesControllerCacheContractTests
             conflict: null,
             queue);
 
-        var result = await controller.ClearImageCacheAsync(CancellationToken.None);
+        var result = await controller.ClearImageCacheAsync();
 
         var accepted = Assert.IsType<AcceptedResult>(result);
         var body = Assert.IsType<ImageCacheClearResponse>(accepted.Value);
@@ -86,12 +85,11 @@ public sealed class GameImagesControllerCacheContractTests
         using var passStarted = new ManualResetEventSlim(false);
         using var releasePass = new ManualResetEventSlim(true);
 
-        var queuedId = Guid.NewGuid();
-        var queue = new RecordingOperationQueue(new QueuedOperationResponse
+        var waitingId = Guid.NewGuid();
+        var queue = new RecordingOperationWaitlist(new OperationStartResponse
         {
-            OperationId = queuedId,
-            Queued = true,
-            Status = "waiting"
+            OperationId = waitingId,
+            Status = OperationStartStatus.Waiting
         });
 
         var conflict = new OperationConflictResponse
@@ -110,11 +108,11 @@ public sealed class GameImagesControllerCacheContractTests
             .GetValue(controller)!;
         fetchService.SetNotificationMode(NotificationMode.Hidden);
 
-        var result = await controller.ClearImageCacheAsync(CancellationToken.None);
+        var result = await controller.ClearImageCacheAsync();
 
         var accepted = Assert.IsType<AcceptedResult>(result);
-        var body = Assert.IsType<QueuedOperationResponse>(accepted.Value);
-        Assert.Equal(queuedId, body.OperationId);
+        var body = Assert.IsType<OperationStartResponse>(accepted.Value);
+        Assert.Equal(waitingId, body.OperationId);
 
         Assert.Equal(OperationType.GameImageFetch, queue.Type);
         Assert.Equal(ConflictScope.Bulk(), queue.Scope);
@@ -130,6 +128,45 @@ public sealed class GameImagesControllerCacheContractTests
     }
 
     /// <summary>
+    /// The conflict check and the start run under the queue's lock, so a cache clear sent at the same
+    /// moment cannot start beside the re-fetch. The route checks nothing outside the queue: a conflict
+    /// the queue answers is parked on a waiting card with the click's notice, and nothing starts.
+    /// </summary>
+    [Fact]
+    public async Task ClearImageCache_ParksTheConflictTheQueueAnswersAndChecksNothingElseAsync()
+    {
+        using var passStarted = new ManualResetEventSlim(false);
+        using var releasePass = new ManualResetEventSlim(true);
+        var tracker = NewTracker();
+        var waitingId = Guid.NewGuid();
+        var queue = new RecordingOperationWaitlist(new OperationStartResponse
+        {
+            OperationId = waitingId,
+            Status = OperationStartStatus.Waiting
+        });
+        var controller = CreateController(
+            new BlockingServiceProvider(passStarted, releasePass), tracker, conflict: null, queue);
+        queue.StartConflict = new OperationConflictResponse
+        {
+            StageKey = "errors.conflict.globalOperationActive",
+            Error = "blocked",
+            ActiveOperationId = Guid.NewGuid(),
+            ActiveOperationType = nameof(OperationType.CacheClearing)
+        };
+
+        var accepted = Assert.IsType<AcceptedResult>(await controller.ClearImageCacheAsync());
+
+        Assert.Equal(waitingId, Assert.IsType<OperationStartResponse>(accepted.Value).OperationId);
+        Assert.Equal(OperationType.GameImageFetch, queue.GatedType);
+        Assert.Equal(ConflictScope.Bulk(), queue.GatedScope);
+        Assert.Equal(OperationType.GameImageFetch, queue.Type);
+        Assert.Equal("Game Image Fetch", queue.DisplayName);
+        Assert.Equal(RunTrigger.Manual, Assert.IsType<RunNotice>(queue.Notice).Trigger);
+        Assert.False(passStarted.IsSet);
+        await WaitForPassesToFinishAsync(tracker);
+    }
+
+    /// <summary>
     /// Refresh banners deletes every stored row before it starts the re-fetch. A pass that holds the
     /// execution lock but has not registered its tracker operation yet conflicts with nothing, so the
     /// re-fetch is not parked; the running pass starts one more on its way out, which reads the table
@@ -138,7 +175,8 @@ public sealed class GameImagesControllerCacheContractTests
     [Fact]
     public async Task ClearImageCache_WhileAFetchPassRuns_ArmsTheRefetchRatherThanQueueingItAsync()
     {
-        var passes = new CountingServiceProvider();
+        var queue = new RecordingOperationWaitlist(new OperationStartResponse());
+        var passes = new CountingServiceProvider(queue);
         var tracker = NewTracker();
         var images = CreateDefaultProxy<IImageCacheService>();
 
@@ -147,11 +185,10 @@ public sealed class GameImagesControllerCacheContractTests
             .StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
         Assert.True(passes.WaitForFirstPass(), "the first pass never started");
 
-        var queue = new RecordingOperationQueue(new QueuedOperationResponse());
         var controller = CreateController(passes, tracker, null, queue, images);
 
         var accepted = Assert.IsType<AcceptedResult>(
-            await controller.ClearImageCacheAsync(CancellationToken.None));
+            await controller.ClearImageCacheAsync());
         Assert.IsType<ImageCacheClearResponse>(accepted.Value);
 
         // Not parked: nothing conflicts yet, so the request arms the running pass's follow-up.
@@ -161,6 +198,11 @@ public sealed class GameImagesControllerCacheContractTests
         // emptied and refills it.
         passes.ReleaseFirstPass();
         Assert.True(passes.WaitForSecondPass(), "the cleared cache was never re-fetched");
+
+        // The start still ran under the queue's lock, so a clear sent at the same moment could not
+        // start beside it.
+        Assert.Equal(OperationType.GameImageFetch, queue.GatedType);
+        Assert.Equal(ConflictScope.Bulk(), queue.GatedScope);
     }
 
     /// <summary>
@@ -172,7 +214,8 @@ public sealed class GameImagesControllerCacheContractTests
     [Fact]
     public async Task ClearImageCache_WhileAFetchPassRuns_ParksTheRefetchBehindItAsync()
     {
-        var passes = new CountingServiceProvider();
+        var queue = new RecordingOperationWaitlist(new OperationStartResponse());
+        var passes = new CountingServiceProvider(queue);
         var tracker = NewTracker();
         var images = CreateDefaultProxy<IImageCacheService>();
         var conflict = new OperationConflictResponse
@@ -182,46 +225,40 @@ public sealed class GameImagesControllerCacheContractTests
             ActiveOperationId = Guid.NewGuid(),
             ActiveOperationType = nameof(OperationType.GameImageFetch)
         };
-        var queue = new RecordingOperationQueue(new QueuedOperationResponse());
         var controller = CreateController(passes, tracker, conflict, queue, images);
 
         var accepted = Assert.IsType<AcceptedResult>(
-            await controller.ClearImageCacheAsync(CancellationToken.None));
+            await controller.ClearImageCacheAsync());
 
-        Assert.IsType<QueuedOperationResponse>(accepted.Value);
+        Assert.IsType<OperationStartResponse>(accepted.Value);
         Assert.Equal(OperationType.GameImageFetch, queue.Type);
         Assert.Equal("Game Image Fetch", queue.DisplayName);
     }
 
     /// <summary>
     /// Someone presses Refresh banners and closes the tab, so the request is aborted. Clearing the
-    /// rows takes no cancellation token, so it finishes; the conflict check is what runs next and it
-    /// throws on an aborted request while walking the active operations
-    /// (OperationConflictChecker.cs:49). Without cover, every banner is deleted with nothing started
-    /// and nothing armed.
+    /// rows and starting the re-fetch through the queue both outlive the caller, so the deleted
+    /// banners are still refilled: here by the running pass's follow-up.
     /// </summary>
     [Fact]
     public async Task ClearImageCache_WhenTheCallerHasGoneAway_StillArmsTheRefetchAsync()
     {
-        var passes = new CountingServiceProvider();
+        var queue = new RecordingOperationWaitlist(new OperationStartResponse());
+        var passes = new CountingServiceProvider(queue);
         var tracker = NewTracker();
         var images = CreateDefaultProxy<IImageCacheService>();
 
         // A pass is already running, so the follow-up is the only thing that can refill the table.
-        // It is also what makes the throw reachable: the checker only tests the token once it has an
-        // active operation to walk.
         Assert.NotNull(await CreateFetchService(passes, tracker, images)
             .StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
         Assert.True(passes.WaitForFirstPass(), "the first pass never started");
 
-        var controller = CreateController(
-            passes, tracker, conflict: null, new RecordingOperationQueue(new QueuedOperationResponse()), images);
+        var controller = CreateController(passes, tracker, conflict: null, queue, images);
 
-        using var callerGone = new CancellationTokenSource();
-        await callerGone.CancelAsync();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => controller.ClearImageCacheAsync(callerGone.Token));
+        var accepted = Assert.IsType<AcceptedResult>(
+            await GameImageFetchFollowUpPassTests.ClearAsAbortedRequestAsync(controller));
+        Assert.IsType<ImageCacheClearResponse>(accepted.Value);
+        Assert.Equal(OperationType.GameImageFetch, queue.GatedType);
 
         passes.ReleaseFirstPass();
         Assert.True(passes.WaitForSecondPass(), "the deleted rows were left with nothing to refill them");
@@ -272,7 +309,7 @@ public sealed class GameImagesControllerCacheContractTests
             new BlockingServiceProvider(new ManualResetEventSlim(false), new ManualResetEventSlim(true)),
             CreateDefaultProxy<IUnifiedOperationTracker>(),
             conflict: null,
-            new RecordingOperationQueue(new QueuedOperationResponse()),
+            new RecordingOperationWaitlist(new OperationStartResponse()),
             imageCacheService,
             context);
 
@@ -335,7 +372,7 @@ public sealed class GameImagesControllerCacheContractTests
             new BlockingServiceProvider(new ManualResetEventSlim(false), new ManualResetEventSlim(true)),
             CreateDefaultProxy<IUnifiedOperationTracker>(),
             conflict: null,
-            new RecordingOperationQueue(new QueuedOperationResponse()),
+            new RecordingOperationWaitlist(new OperationStartResponse()),
             imageCacheService,
             context);
 
@@ -385,7 +422,7 @@ public sealed class GameImagesControllerCacheContractTests
             new BlockingServiceProvider(new ManualResetEventSlim(false), new ManualResetEventSlim(true)),
             CreateDefaultProxy<IUnifiedOperationTracker>(),
             conflict: null,
-            new RecordingOperationQueue(new QueuedOperationResponse()),
+            new RecordingOperationWaitlist(new OperationStartResponse()),
             CreateDefaultProxy<IImageCacheService>(),
             context);
 
@@ -507,7 +544,7 @@ public sealed class GameImagesControllerCacheContractTests
             new BlockingServiceProvider(new ManualResetEventSlim(false), new ManualResetEventSlim(true)),
             CreateDefaultProxy<IUnifiedOperationTracker>(),
             conflict: null,
-            new RecordingOperationQueue(new QueuedOperationResponse()),
+            new RecordingOperationWaitlist(new OperationStartResponse()),
             imageCacheService);
     }
 
@@ -544,32 +581,20 @@ public sealed class GameImagesControllerCacheContractTests
         IServiceProvider fetchServiceProvider,
         IUnifiedOperationTracker tracker,
         OperationConflictResponse? conflict,
-        IOperationQueue queue,
+        RecordingOperationWaitlist queue,
         IImageCacheService? imageCacheService = null,
         AppDbContext? context = null)
     {
+        // The queue answers the conflict its checker finds under the queue's lock.
+        queue.StartConflict = conflict;
         var images = imageCacheService ?? CreateDefaultProxy<IImageCacheService>();
         var fetchService = CreateFetchService(fetchServiceProvider, tracker, images);
-
-        var conflictChecker = CreateProxy<IOperationConflictChecker>((method, args) =>
-        {
-            if (method.Name != nameof(IOperationConflictChecker.CheckAsync))
-            {
-                return DefaultReturn(method.ReturnType);
-            }
-
-            // The real checker throws on an aborted request while walking the active operations
-            // (OperationConflictChecker.cs:49). Tests passing CancellationToken.None never see it.
-            ((CancellationToken)args![2]!).ThrowIfCancellationRequested();
-            return Task.FromResult(conflict);
-        });
 
         return new GameImagesController(
             NullLogger<GameImagesController>.Instance,
             images,
             fetchService,
             context!,
-            conflictChecker,
             queue)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
@@ -618,7 +643,7 @@ public sealed class GameImagesControllerCacheContractTests
     /// is running right now" is an observable state rather than a timing guess, and a later pass
     /// arriving is what proves the refused request was not simply dropped.
     /// </summary>
-    private sealed class CountingServiceProvider : IServiceProvider, IServiceScopeFactory, IServiceScope
+    private sealed class CountingServiceProvider(IOperationWaitlist queue) : IServiceProvider, IServiceScopeFactory, IServiceScope
     {
         private readonly ManualResetEventSlim _firstPassStarted = new(false);
         private readonly ManualResetEventSlim _releaseFirstPass = new(false);
@@ -653,8 +678,11 @@ public sealed class GameImagesControllerCacheContractTests
         {
         }
 
+        // The follow-up pass a finishing pass starts goes through the queue.
         public object? GetService(Type serviceType)
-            => serviceType == typeof(IServiceScopeFactory) ? this : null;
+            => serviceType == typeof(IServiceScopeFactory) ? this
+                : serviceType == typeof(IOperationWaitlist) ? queue
+                : null;
     }
 
     /// <summary>
@@ -745,32 +773,50 @@ public sealed class GameImagesControllerCacheContractTests
             => Handler!(targetMethod!, args);
     }
 
-    private sealed class RecordingOperationQueue(QueuedOperationResponse response) : IOperationQueue
+    private sealed class RecordingOperationWaitlist(OperationStartResponse response) : IOperationWaitlist
     {
         public OperationType? Type { get; private set; }
         public ConflictScope? Scope { get; private set; }
         public string? DisplayName { get; private set; }
         public RunNotice? Notice { get; private set; }
+        public OperationType? GatedType { get; private set; }
+        public ConflictScope? GatedScope { get; private set; }
 
-        public Task<QueuedOperationResponse> EnqueueAsync(
+        /// <summary>The conflict the gated start answers with instead of running the start.</summary>
+        public OperationConflictResponse? StartConflict { get; set; }
+
+        public Task<OperationStartResponse> EnqueueAsync(
             OperationType type,
             ConflictScope scope,
             string displayName,
             Func<Task<Guid?>> start,
             CancellationToken ct,
+            OperationRequestKey requestKey,
             bool reportRefusal = false,
             RunNotice? notice = null,
-            string? target = null,
-            StructuralScanMode? scanMode = null,
-            int? scanThreshold = null,
-            int? scanLookbackDays = null,
-            DetectionScanType? detectionScanType = null)
+            string? target = null)
         {
             Type = type;
             Scope = scope;
             DisplayName = displayName;
             Notice = notice;
             return Task.FromResult(response);
+        }
+
+        public async Task<OperationConflictResponse?> StartUnlessBusyAsync(
+            OperationType type, ConflictScope scope, Func<Task<Guid?>> start, CancellationToken ct, OperationRequestKey requestKey)
+        {
+            // The queue's lock wait throws on an aborted request, as the conflict check it holds does.
+            ct.ThrowIfCancellationRequested();
+            GatedType = type;
+            GatedScope = scope;
+            if (StartConflict != null)
+            {
+                return StartConflict;
+            }
+
+            await start();
+            return null;
         }
     }
 }

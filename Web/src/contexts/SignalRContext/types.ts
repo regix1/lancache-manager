@@ -4,6 +4,7 @@ import type { SessionType } from '../../services/auth.service';
 import type { CorruptionDetectionMethod, CorruptionScanCoverage } from '../../types';
 import type { ClockPreferences, UserPreferences } from '@/types/userPreferences';
 import type { NotificationDisplayMode } from '@components/features/management/schedules/types';
+import type { StageContext } from '@contexts/notifications/types';
 import type {
   StructuralBaselineStatus,
   StructuralEffectiveScanMode,
@@ -385,7 +386,7 @@ export interface LogProcessingCompleteEvent extends OperationEvent {
   success: boolean;
   /** @deprecated use stageKey instead */
   message: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   entriesProcessed?: number;
   linesProcessed?: number;
   elapsed?: number;
@@ -430,7 +431,7 @@ export interface LogRemovalCompleteEvent {
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message: string;
-  cancelled: boolean;
+  canceled: boolean;
   service: string;
   filesProcessed?: number;
   linesProcessed?: number;
@@ -463,7 +464,7 @@ export interface GameRemovalCompleteEvent extends OperationEvent {
   success: boolean;
   /** @deprecated use stageKey instead */
   message?: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   /** The run completed but a failed datasource still holds the files, so the entry stays listed. */
   entityKept?: boolean;
   gameAppId: number | null;
@@ -496,7 +497,7 @@ export interface ServiceRemovalCompleteEvent extends OperationEvent {
   stageKey: string;
   /** @deprecated use stageKey instead */
   message: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   /** The run completed but a failed datasource still holds the files, so the entry stays listed. */
   entityKept?: boolean;
   serviceName: string;
@@ -529,7 +530,7 @@ export interface CorruptionRemovalCompleteEvent extends OperationEvent {
   success: boolean;
   /** @deprecated use stageKey instead */
   message: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   service: string;
   detectionMethod?: CorruptionDetectionMethod;
   error?: string;
@@ -592,7 +593,7 @@ export interface CorruptionDetectionCompleteEvent extends OperationEvent {
   success: boolean;
   /** @deprecated use stageKey instead */
   message?: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   error?: string;
   status?: OperationStatus;
   totalServicesWithCorruption?: number;
@@ -627,7 +628,7 @@ export interface GameDetectionCompleteEvent extends OperationEvent {
   success: boolean;
   /** @deprecated use stageKey instead */
   message: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   error?: string;
   status?: OperationStatus;
   totalGamesDetected?: number;
@@ -652,14 +653,14 @@ export interface DatabaseResetProgressEvent extends OperationEvent {
  * `SignalRNotifications.DatabaseResetComplete` record). Emitted exactly once via
  * `OperationInfo.OnTerminalEmit` on the normal success/error path AND the universal
  * force-kill/cancel path. It sits with its two siblings above; it satisfies the completion
- * config's `{ success; stageKey?; context?; message?; cancelled? }` constraint.
+ * config's `{ success; stageKey?; context?; message?; canceled? }` constraint.
  */
 export interface DatabaseResetCompleteEvent {
   operationId: string;
   success: boolean;
   stageKey?: string;
   status?: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   error?: string;
   context?: Record<string, string | number | boolean>;
 }
@@ -681,9 +682,11 @@ export interface CacheClearProgressEvent extends OperationEvent {
 
 export interface CacheClearCompleteEvent extends OperationEvent {
   success: boolean;
+  /** Sent on every ending: the success sentence, the cancel, or the failure the clear ended on. */
+  stageKey: string;
   /** @deprecated use stageKey instead */
   message: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   error?: string;
   status?: OperationStatus;
   filesDeleted?: number;
@@ -725,15 +728,13 @@ export interface MappingCompleteEvent {
   percentComplete: number;
   error: string | null;
   context: MappingStageContext | null;
-  cancelled: boolean;
+  canceled: boolean;
   status: OperationStatus;
 }
 
 export interface DepotMappingStartedEvent extends MappingStartedEvent {
-  /** @deprecated use stageKey instead */
-  message?: string;
   isLoggedOn?: boolean;
-  status?: OperationStatus;
+  status: OperationStatus;
   scanMode?: 'incremental' | 'full' | 'github';
   totalApps?: number;
   processedApps?: number;
@@ -745,8 +746,6 @@ export interface DepotMappingStartedEvent extends MappingStartedEvent {
 
 export interface DepotMappingProgressEvent extends MappingProgressEvent {
   progressPercent?: number;
-  /** @deprecated use stageKey instead */
-  message?: string;
   isLoggedOn?: boolean;
   scanMode?: 'incremental' | 'full' | 'github';
   processedBatches?: number;
@@ -765,8 +764,6 @@ export interface DepotMappingProgressEvent extends MappingProgressEvent {
 }
 
 export interface DepotMappingCompleteEvent extends MappingCompleteEvent {
-  /** @deprecated use stageKey instead */
-  message: string;
   scanMode?: 'incremental' | 'full' | 'github';
   totalMappings?: number;
   downloadsUpdated?: number;
@@ -929,13 +926,15 @@ export interface DataImportProgressEvent extends OperationEvent {
 
 export interface DataImportCompleteEvent extends OperationEvent {
   success: boolean;
+  /** Sent on every ending: the success summary, the cancel, or the failure the run ended on. */
+  stageKey: string;
   /**
    * True when the user stopped the import rather than it failing. The completion handler reads
-   * this to pick the cancelled status, which is why a stopped import reads grey and not red.
+   * this to pick the canceled status, which is why a stopped import reads gray and not red.
    */
-  cancelled?: boolean;
-  /** @deprecated use stageKey instead */
-  message: string;
+  canceled?: boolean;
+  /** @deprecated use stageKey instead; absent when the import wrote no summary of its own */
+  message?: string;
   recordsImported?: number;
   recordsSkipped?: number;
   recordsErrors?: number;
@@ -995,7 +994,7 @@ export interface EpicMappingProgressEvent extends MappingProgressEvent {
   gamesDiscovered?: number;
   /** @deprecated use stageKey instead */
   message?: string;
-  cancelled?: boolean;
+  canceled?: boolean;
 }
 
 export type EpicMappingCompleteEvent = MappingCompleteEvent;
@@ -1017,7 +1016,7 @@ export interface XboxMappingProgressEvent extends MappingProgressEvent {
   gamesDiscovered?: number;
   /** @deprecated use stageKey instead */
   message?: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   /** True only on the final success/failure/cancel event; interim progress ticks are false. */
   isTerminal?: boolean;
 }
@@ -1109,8 +1108,8 @@ export interface ScheduledPrefillCompletedEvent {
    * exception, whose message comes from .NET and has no key.
    */
   stageKey?: string | null;
-  /** The run was stopped (the user stopped the active prefill, or cancelled the run itself). */
-  cancelled?: boolean;
+  /** The run was stopped (the user stopped the active prefill, or canceled the run itself). */
+  canceled?: boolean;
   /** "skipped" when the service did nothing (no container, needs login); the card closes as skipped. */
   status?: string | null;
 }
@@ -1138,9 +1137,9 @@ export interface ScheduledRunCompleteEvent extends OperationEvent {
   success: boolean;
   /**
    * True when the user stopped the run rather than it failing. The completion handler reads this
-   * to pick the cancelled status, which is why a stopped scheduled run reads grey and not red.
+   * to pick the canceled status, which is why a stopped scheduled run reads gray and not red.
    */
-  cancelled?: boolean;
+  canceled?: boolean;
   percentComplete: number;
   error?: string;
   /**
@@ -1231,7 +1230,7 @@ export interface EvictionScanCompleteEvent extends OperationEvent {
   evicted: number;
   unEvicted: number;
   error?: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   /**
    * Terminal status. A run declined before it started reports success:true here, so this is the
    * only field separating it from one that finished its work.
@@ -1258,7 +1257,7 @@ export interface CacheSizeScanCompleteEvent extends OperationEvent {
   totalBytes: number;
   formattedSize?: string;
   error?: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   /**
    * Terminal status. A run declined before it started reports success:true here, so this is the
    * only field separating it from one that finished its work.
@@ -1268,6 +1267,12 @@ export interface CacheSizeScanCompleteEvent extends OperationEvent {
 
 /** How a run shows while it is live: a full card, a background row, or nothing at all. */
 export type RunVisibility = 'card' | 'background' | 'hidden';
+
+/** A locale key and the values its sentence names: a run's warning or a failed run's reason. */
+export interface RunWarning {
+  stageKey: string;
+  context: StageContext;
+}
 
 /**
  * One tracked operation as the server sees it, pushed as `OperationUpdated` on every state change
@@ -1318,7 +1323,9 @@ export interface OperationRun {
    */
   nextOperationId?: string | null;
   /** What the run left undone, each a locale key and the values its text names; empty when nothing. */
-  warnings?: { stageKey: string; context: Record<string, string | number> }[] | null;
+  warnings?: RunWarning[] | null;
+  /** A failed run's key and the values its sentence names; absent for every other run. */
+  failureReason?: RunWarning | null;
   /** A kept ending: the server keeps it until someone closes it. */
   retained?: boolean;
   /** The final row after someone closed a kept ending; the card leaves on every screen. */
@@ -1381,7 +1388,7 @@ export interface EvictionRemovalCompleteEvent extends OperationEvent {
   success: boolean;
   /** @deprecated use stageKey instead */
   message?: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   downloadsRemoved?: number;
   logEntriesRemoved?: number;
   error?: string;

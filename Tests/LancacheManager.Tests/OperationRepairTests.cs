@@ -272,7 +272,7 @@ public sealed class OperationRepairTests : IDisposable
             Assert.Equal("Full cache repair", repair.Name);
             Assert.Null(repair.Notice);
             Assert.Equal(OperationRepairPhase.Repairing, repair.Phase);
-            Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+            Assert.Equal(OperationStatus.Canceled, repair.Outcome);
             Assert.True(repair.CacheClearing!.FullRepair);
             Assert.Null(repair.Sources.Single().ReceiptPath);
         });
@@ -290,7 +290,7 @@ public sealed class OperationRepairTests : IDisposable
         await WaitForAsync(() => harness.Scans == 1);
         Assert.False(admitted.IsCompleted);
         var row = Assert.Single(harness.Repairs.Tracker.GetRuns().Runs, run => run.OperationId == alpha.Id);
-        Assert.Equal("cancelled", row.Status);
+        Assert.Equal("canceled", row.Status);
         Assert.True(row.Repairing);
         Assert.True(row.FullRepair);
         Assert.Equal(RunVisibility.Card, row.Visibility);
@@ -476,9 +476,9 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     [Fact]
-    public async Task AQueuedCorruptionScanPromotedBesideARetryWaitsForTheRepairAsync()
+    public async Task AWaitingCorruptionScanPromotedBesideARetryWaitsForTheRepairAsync()
     {
-        var root = Path.Combine(_root, "queued-scan-promoted-beside-retry");
+        var root = Path.Combine(_root, "waiting-scan-promoted-beside-retry");
         await using var harness = await DispatchHarness.CreateAsync(root, start: false);
         var path = RepairFilePath(Path.Combine(root, "state"));
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -513,31 +513,31 @@ public sealed class OperationRepairTests : IDisposable
             CacheScanGateHarness.Idle(),
             nginxLogRotationService: null!,
             stateService: null!);
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             harness.Repairs.Tracker,
             new OperationConflictChecker(
                 harness.Repairs.Tracker,
                 harness.Owner,
                 NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var startLock = (SemaphoreSlim)typeof(CorruptionDetectionService)
             .GetField("_startLock", BindingFlags.NonPublic | BindingFlags.Instance)!
             .GetValue(detection)!;
         await startLock.WaitAsync();
 
-        var queued = await queue.EnqueueAsync(
+        var waitingRun = await queue.EnqueueAsync(
             OperationType.CorruptionDetection,
             ConflictScope.Bulk(),
             "Corruption Detection",
             async () => await detection.StartDetectionAsync(),
-            CancellationToken.None);
-        Assert.True(queued.Queued);
+            CancellationToken.None, new CorruptionDetectionRequestKey(null, null, null));
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
 
         // The blocker ends, so promotion passes the conflict check and takes the waiter; its start
         // is held at the scan's own start lock.
         harness.HoldScans = true;
         harness.Repairs.Tracker.CompleteOperation(blocker, success: true);
-        var waiters = (ICollection)typeof(OperationQueueService)
+        var waiters = (ICollection)typeof(OperationWaitlistService)
             .GetField("_waiters", BindingFlags.NonPublic | BindingFlags.Instance)!
             .GetValue(queue)!;
         await WaitForAsync(() => waiters.Count == 0);
@@ -546,14 +546,14 @@ public sealed class OperationRepairTests : IDisposable
         Assert.True(await harness.Owner.RetryRepairAsync(fullRepair.Id));
         startLock.Release();
         await Task.Delay(TimeSpan.FromMilliseconds(500));
-        Assert.Equal(OperationStatus.Waiting, harness.Repairs.Tracker.GetOperation(queued.OperationId)!.Status);
+        Assert.Equal(OperationStatus.Waiting, harness.Repairs.Tracker.GetOperation(waitingRun.OperationId)!.Status);
         Assert.Empty(harness.Repairs.Tracker.GetActiveOperations(OperationType.CorruptionDetection));
 
         harness.ScanRelease.TrySetResult();
         await harness.WaitForCompletedAsync(fullRepair.Id);
         Assert.Equal(4, harness.Scans);
-        await WaitForAsync(() => harness.Repairs.Tracker.GetOperation(queued.OperationId)!.Status.IsTerminal());
-        Assert.Equal(OperationStatus.Completed, harness.Repairs.Tracker.GetOperation(queued.OperationId)!.Status);
+        await WaitForAsync(() => harness.Repairs.Tracker.GetOperation(waitingRun.OperationId)!.Status.IsTerminal());
+        Assert.Equal(OperationStatus.Completed, harness.Repairs.Tracker.GetOperation(waitingRun.OperationId)!.Status);
     }
 
     [Fact]
@@ -1138,9 +1138,9 @@ public sealed class OperationRepairTests : IDisposable
         await owner.FinishRepairAsync(
             repair.Id,
             success: false,
-            cancelled: true,
+            canceled: true,
             error: "requested cancellation").WaitAsync(TimeSpan.FromSeconds(5));
-        harness.Tracker.CompleteOperation(repair.Id, success: false, cancelled: true);
+        harness.Tracker.CompleteOperation(repair.Id, success: false, canceled: true);
         await WaitForAsync(() => state.LoadOperationRepairs().Single().Phase == OperationRepairPhase.Completed);
         await WaitForAsync(() => harness.Tracker.GetOperation(repair.Id)?.Repairing == false);
 
@@ -1158,7 +1158,7 @@ public sealed class OperationRepairTests : IDisposable
         // The changed or missing datasource abstains, and a mixed-evidence one only leaves the cache scan; this
         // canceled job left no log step to finish, so nothing of it is touched, nothing fails and nothing waits.
         var stored = Assert.Single(state.LoadOperationRepairs());
-        Assert.Equal(OperationStatus.Cancelled, stored.Outcome);
+        Assert.Equal(OperationStatus.Canceled, stored.Outcome);
         Assert.Null(stored.RetryAtUtc);
         Assert.True(Assert.Single(stored.Sources).NativeLaunchAuthorized);
         Assert.Equal(0, Volatile.Read(ref retries));
@@ -1295,7 +1295,7 @@ public sealed class OperationRepairTests : IDisposable
         await harness.Owner.StartWorkAsync(second.Id, "alpha", CancellationToken.None);
 
         await harness.Owner.FinishRepairAsync(first.Id, true, false, null);
-        await harness.Owner.FinishRepairAsync(second.Id, false, true, "cancelled");
+        await harness.Owner.FinishRepairAsync(second.Id, false, true, "canceled");
         await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1, Volatile.Read(ref active));
         releaseFirst.TrySetResult(true);
@@ -1307,7 +1307,7 @@ public sealed class OperationRepairTests : IDisposable
             harness.StateService.LoadOperationRepairs(),
             repair => Assert.Equal(OperationRepairPhase.Completed, repair.Phase));
         Assert.Contains(OperationStatus.Completed, outcomes);
-        Assert.Contains(OperationStatus.Cancelled, outcomes);
+        Assert.Contains(OperationStatus.Canceled, outcomes);
     }
 
     [Fact]
@@ -1395,15 +1395,15 @@ public sealed class OperationRepairTests : IDisposable
         Assert.Equal(repair.Id, harness.Owner.GetBlockingRepair()?.Id);
         Assert.Equal(OperationRepairPhase.Running, harness.Owner.GetBlockingRepair()?.Phase);
 
-        var queued = NewRemovalRepair(OperationType.ServiceRemoval, new CacheRepairTarget { Service = "steam" });
-        await harness.Owner.PrepareRepairAsync(queued, CancellationToken.None);
-        var queuedStart = harness.Owner.StartWorkAsync(queued.Id, "alpha", CancellationToken.None);
+        var waitingRun = NewRemovalRepair(OperationType.ServiceRemoval, new CacheRepairTarget { Service = "steam" });
+        await harness.Owner.PrepareRepairAsync(waitingRun, CancellationToken.None);
+        var waitingRunStart = harness.Owner.StartWorkAsync(waitingRun.Id, "alpha", CancellationToken.None);
 
         for (var failedRetry = 0; failedRetry < 2; failedRetry++)
         {
             Assert.True(await retryEntered.WaitAsync(TimeSpan.FromSeconds(5)));
             Assert.Equal(repair.Id, harness.Owner.GetBlockingRepair()?.Id);
-            Assert.False(queuedStart.IsCompleted);
+            Assert.False(waitingRunStart.IsCompleted);
             Assert.False(cleared.Task.IsCompleted);
             Assert.Equal(0, calls);
             retryRelease.Release();
@@ -1412,7 +1412,7 @@ public sealed class OperationRepairTests : IDisposable
         Assert.True(await retryEntered.WaitAsync(TimeSpan.FromSeconds(5)));
         retryRelease.Release();
         await cleared.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await queuedStart.WaitAsync(TimeSpan.FromSeconds(5));
+        await waitingRunStart.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.Equal([now.AddMinutes(1), now.AddMinutes(1), now.AddMinutes(1)], retryTimes);
         var stored = harness.StateService.LoadOperationRepairs().Single(item => item.Id == repair.Id);
@@ -1422,7 +1422,7 @@ public sealed class OperationRepairTests : IDisposable
         Assert.Equal(1, calls);
         Assert.Equal(
             OperationRepairPhase.Running,
-            harness.StateService.LoadOperationRepairs().Single(item => item.Id == queued.Id).Phase);
+            harness.StateService.LoadOperationRepairs().Single(item => item.Id == waitingRun.Id).Phase);
         Assert.Null(harness.Owner.GetBlockingRepair());
     }
 
@@ -1450,7 +1450,7 @@ public sealed class OperationRepairTests : IDisposable
         Task FinishAsOwnerAsync() => harness.Owner.FinishRepairAsync(
             repair.Id,
             success: false,
-            cancelled: false,
+            canceled: false,
             error: "owner failure",
             update: next => next.Removal!.FilesDeleted = 3);
         if (forceStopFirst)
@@ -1497,7 +1497,7 @@ public sealed class OperationRepairTests : IDisposable
         await harness.Owner.FinishRepairAsync(prepared.Id, false, true, null).WaitAsync(TimeSpan.FromSeconds(5));
         var skipped = Assert.Single(harness.StateService.LoadOperationRepairs());
         Assert.Equal(OperationRepairPhase.Completed, skipped.Phase);
-        Assert.Equal(OperationStatus.Cancelled, skipped.Outcome);
+        Assert.Equal(OperationStatus.Canceled, skipped.Outcome);
         Assert.NotNull(skipped.CompletedAt);
 
         var running = NewRemovalRepair(OperationType.ServiceRemoval, new CacheRepairTarget { Service = "steam" });
@@ -1513,7 +1513,7 @@ public sealed class OperationRepairTests : IDisposable
         await harness.Owner.RecordForceStopAsync(running.Id).WaitAsync(TimeSpan.FromSeconds(5));
         var stored = harness.StateService.LoadOperationRepairs().Single(item => item.Id == running.Id);
         Assert.Equal(OperationRepairPhase.Repairing, stored.Phase);
-        Assert.Equal(OperationStatus.Cancelled, stored.Outcome);
+        Assert.Equal(OperationStatus.Canceled, stored.Outcome);
         Assert.True(forceStopped.Contains(running.Id));
         Assert.True(Assert.IsType<OperationInfo>(harness.Tracker.GetOperation(running.Id)).Repairing);
 
@@ -1527,7 +1527,7 @@ public sealed class OperationRepairTests : IDisposable
         await WaitForAsync(() => harness.StateService.LoadOperationRepairs()
             .Single(item => item.Id == running.Id).Phase == OperationRepairPhase.Completed);
         Assert.Equal(
-            OperationStatus.Cancelled,
+            OperationStatus.Canceled,
             harness.StateService.LoadOperationRepairs().Single(item => item.Id == running.Id).Outcome);
         Assert.Equal(1, calls);
     }
@@ -2045,15 +2045,15 @@ public sealed class OperationRepairTests : IDisposable
         var ended = Assert.IsType<OperationInfo>(tracker.GetOperation(operationId));
         await emitted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1, ended.CompletedFlag);
-        Assert.Equal(OperationStatus.Cancelled, ended.Status);
+        Assert.Equal(OperationStatus.Canceled, ended.Status);
 
         // The owner's own late completion changes nothing.
         tracker.CompleteOperation(operationId, success: true);
-        Assert.Equal(OperationStatus.Cancelled, ended.Status);
+        Assert.Equal(OperationStatus.Canceled, ended.Status);
     }
 
     [Fact]
-    public async Task QueuedPromotionKeepsOperationIdentityAndTransfersTerminalOwnershipAsync()
+    public async Task WaitingPromotionKeepsOperationIdentityAndTransfersTerminalOwnershipAsync()
     {
         var processManager = new ProcessManager(NullLogger<ProcessManager>.Instance);
         var tracker = new UnifiedOperationTracker(
@@ -2071,7 +2071,7 @@ public sealed class OperationRepairTests : IDisposable
             new CancellationTokenSource(),
             initialStatus: OperationStatus.Waiting);
 
-        Assert.True(tracker.BeginQueuedOperation(
+        Assert.True(tracker.BeginWaitingOperation(
             operationId,
             state: null,
             onTerminalCleanup: null,
@@ -2089,10 +2089,10 @@ public sealed class OperationRepairTests : IDisposable
 
         Assert.True(await cancellation.ForceKillAsync(operationId));
         Assert.Equal(1, promoted.CompletedFlag);
-        Assert.Equal(OperationStatus.Cancelled, promoted.Status);
+        Assert.Equal(OperationStatus.Canceled, promoted.Status);
         Assert.Equal(1, emitted);
 
-        tracker.CompleteOperation(operationId, success: false, cancelled: true);
+        tracker.CompleteOperation(operationId, success: false, canceled: true);
         Assert.Equal(1, emitted);
     }
 
@@ -2226,14 +2226,14 @@ public sealed class OperationRepairTests : IDisposable
         await harness.Owner.PrepareRepairAsync(pass, CancellationToken.None);
         await harness.Owner.StartWorkAsync(pass.Id, "alpha", CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
 
-        var queued = NewRemovalRepair(OperationType.ServiceRemoval, new CacheRepairTarget { Service = "steam" });
-        await harness.Owner.PrepareRepairAsync(queued, CancellationToken.None);
-        var queuedStart = harness.Owner.StartWorkAsync(queued.Id, "alpha", CancellationToken.None);
-        Assert.False(queuedStart.IsCompleted);
+        var waitingRun = NewRemovalRepair(OperationType.ServiceRemoval, new CacheRepairTarget { Service = "steam" });
+        await harness.Owner.PrepareRepairAsync(waitingRun, CancellationToken.None);
+        var waitingRunStart = harness.Owner.StartWorkAsync(waitingRun.Id, "alpha", CancellationToken.None);
+        Assert.False(waitingRunStart.IsCompleted);
         release.TrySetResult(true);
-        await queuedStart.WaitAsync(TimeSpan.FromSeconds(5));
+        await waitingRunStart.WaitAsync(TimeSpan.FromSeconds(5));
         await harness.Owner.FinishRepairAsync(pass.Id, true, false, null);
-        await harness.Owner.FinishRepairAsync(queued.Id, true, false, null);
+        await harness.Owner.FinishRepairAsync(waitingRun.Id, true, false, null);
         await WaitForAsync(() => harness.Owner.GetBlockingRepair() is null);
 
         var failed = NewRemovalRepair(OperationType.GameRemoval, new CacheRepairTarget { SteamAppId = 570 });
@@ -2293,7 +2293,7 @@ public sealed class OperationRepairTests : IDisposable
             Assert.IsType<NotFoundObjectResult>(await controller.RetryRepairAsync(repair.Id));
 
             await owner.FinishRepairAsync(repair.Id, false, true, null);
-            harness.Tracker.CompleteOperation(repair.Id, success: false, cancelled: true);
+            harness.Tracker.CompleteOperation(repair.Id, success: false, canceled: true);
             await WaitForAsync(() => harness.Tracker.GetOperation(repair.Id)?.RepairError is not null);
 
             Assert.Equal("Injected repair failure.", harness.Tracker.GetOperation(repair.Id)!.RepairError);
@@ -2362,7 +2362,7 @@ public sealed class OperationRepairTests : IDisposable
         await retryHarness.Owner.PrepareRepairAsync(retried, CancellationToken.None);
         await retryHarness.Owner.StartWorkAsync(retried.Id, "alpha", CancellationToken.None);
         await retryHarness.Owner.FinishRepairAsync(retried.Id, false, true, null);
-        retryHarness.Tracker.CompleteOperation(retried.Id, success: false, cancelled: true);
+        retryHarness.Tracker.CompleteOperation(retried.Id, success: false, canceled: true);
         await WaitForAsync(() => retryHarness.Tracker.GetOperation(retried.Id)?.RepairError is not null);
 
         Assert.IsType<NoContentResult>(await retryController.RetryRepairAsync(retried.Id));
@@ -2490,7 +2490,7 @@ public sealed class OperationRepairTests : IDisposable
         var repair = NewCacheClearingRepair(Path.Combine(_root, "cache", "restored-stopped"));
         repair.Phase = OperationRepairPhase.Repairing;
         repair.Outcome = OperationStatus.Completed;
-        repair.RunCancelled = true;
+        repair.RunCanceled = true;
         state.SaveOperationRepairs([repair]);
         var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2505,7 +2505,7 @@ public sealed class OperationRepairTests : IDisposable
 
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
-        Assert.Equal("cancelled", row.Status);
+        Assert.Equal("canceled", row.Status);
 
         release.TrySetResult(true);
         await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);
@@ -2526,12 +2526,12 @@ public sealed class OperationRepairTests : IDisposable
         await harness.Owner.FinishRepairAsync(
             scan.Id,
             success: true,
-            cancelled: false,
+            canceled: false,
             error: null,
             update: repair => repair.RunContinues = true);
 
         // The checkpoint tail failed after the scan's results were saved.
-        await harness.Owner.FinishRepairAsync(scan.Id, success: false, cancelled: false, error: "Database unavailable");
+        await harness.Owner.FinishRepairAsync(scan.Id, success: false, canceled: false, error: "Database unavailable");
 
         var stored = harness.StateService.LoadOperationRepairs().Single(repair => repair.Id == scan.Id);
         Assert.Equal(OperationStatus.Completed, stored.Outcome);
@@ -2657,6 +2657,83 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     [Fact]
+    public async Task ARestoredFailedLogRemovalKeepsItsKeyAndTheValuesItNamesAsync()
+    {
+        var state = CreateStateService(_root);
+        state.SetSetupCompleted(true);
+        var repair = new OperationRepair
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.LogRemoval,
+            Name = "Log removal",
+            StartedAt = DateTime.UtcNow,
+            Sources = [Source("alpha")],
+            LogRemoval = new LogRemovalRepair { Service = "steam", Datasource = "alpha" }
+        };
+        repair.Phase = OperationRepairPhase.Repairing;
+        repair.Outcome = OperationStatus.Failed;
+        repair.Error = "signalr.logRemoval.error.fatal";
+        repair.FailureReason = new RunWarning(
+            "signalr.logRemoval.error.fatal",
+            new Dictionary<string, object?> { ["errorDetail"] = "disk gone" });
+        state.SaveOperationRepairs([repair]);
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await RepairHarness.CreateAsync(
+            _root,
+            stateService: CreateStateService(_root),
+            apply: async (_, cancellationToken) =>
+            {
+                entered.TrySetResult(true);
+                await release.Task.WaitAsync(cancellationToken);
+            });
+
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        // The restored card words the failure as the live one did: the key, and the text its sentence names.
+        var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
+        Assert.Equal("failed", row.Status);
+        Assert.Equal("signalr.logRemoval.error.fatal", row.Message);
+        Assert.Equal("signalr.logRemoval.error.fatal", row.FailureReason?.StageKey);
+        Assert.Equal("disk gone", row.FailureReason?.Context.GetValueOrDefault("errorDetail")?.ToString());
+
+        release.TrySetResult(true);
+        await WaitForAsync(() => !harness.Tracker.GetRuns().Runs.Single(run => run.OperationId == repair.Id).Repairing);
+    }
+
+    [Fact]
+    public async Task ACancelThatFindsTheOperationGoneIsRefusedByKeyAsync()
+    {
+        var tracker = new UnifiedOperationTracker(
+            new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance);
+        var card = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
+        // The reaper evicts the operation between the route's lookup and its cancel.
+        var evicted = CacheScanGateHarness.CreateProxy<IUnifiedOperationTracker>((method, args) =>
+            method.Name == nameof(IUnifiedOperationTracker.CancelOperation)
+                ? OperationCancelResult.NotFound
+                : method.Invoke(tracker, args));
+        var controller = new OperationsController(evicted,
+            new OperationCancellationService(evicted, new ProcessManager(NullLogger<ProcessManager>.Instance),
+                OperationConflictTestServices.Owner, NullLogger<OperationCancellationService>.Instance),
+            OperationConflictTestServices.Owner)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
+                {
+                    RequestServices = new ServiceCollection()
+                        .AddSingleton<IConfiguration>(new ConfigurationBuilder().Build())
+                        .BuildServiceProvider()
+                }
+            }
+        };
+
+        var refusal = Assert.IsType<BadRequestObjectResult>((await controller.CancelOperation(card)).Result);
+
+        // The browser's cancel-failed toast words the reason from this key.
+        Assert.Equal("errors.operations.notCancelable", Assert.IsType<ErrorResponse>(refusal.Value).StageKey);
+    }
+
+    [Fact]
     public async Task ARestoredLogProcessingRunThatFailedForADatasourceKeepsTheDatasourceAndItsErrorAsync()
     {
         var state = CreateStateService(_root);
@@ -2714,7 +2791,7 @@ public sealed class OperationRepairTests : IDisposable
         // A force stop saves the outcome as canceled; the owner's later save, after its step returned, marks
         // the run's own work as done.
         repair.Phase = OperationRepairPhase.Repairing;
-        repair.Outcome = OperationStatus.Cancelled;
+        repair.Outcome = OperationStatus.Canceled;
         repair.Error = null;
         repair.RunCompleted = true;
         repair.Warnings =
@@ -2741,7 +2818,7 @@ public sealed class OperationRepairTests : IDisposable
 
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var row = Assert.Single(harness.Tracker.GetRuns().Runs, run => run.OperationId == repair.Id);
-        Assert.Equal("cancelled", row.Status);
+        Assert.Equal("canceled", row.Status);
         var warning = Assert.Single(row.Warnings);
         Assert.Equal(
             clear
@@ -2772,7 +2849,7 @@ public sealed class OperationRepairTests : IDisposable
     [Theory]
     [InlineData(OperationStatus.Completed)]
     [InlineData(OperationStatus.Failed)]
-    [InlineData(OperationStatus.Cancelled)]
+    [InlineData(OperationStatus.Canceled)]
     public async Task GameDetectionRepairRefreshesOnlyAnUnfinishedRunAsync(OperationStatus outcome)
     {
         await using var harness = await DispatchHarness.CreateAsync(Path.Combine(_root, "detection-" + outcome));
@@ -2790,7 +2867,7 @@ public sealed class OperationRepairTests : IDisposable
         await harness.Owner.FinishRepairAsync(
             detection.Id,
             outcome == OperationStatus.Completed,
-            outcome == OperationStatus.Cancelled,
+            outcome == OperationStatus.Canceled,
             outcome == OperationStatus.Failed ? "failed" : null);
         await harness.WaitForCompletedAsync(detection.Id);
 
@@ -2894,14 +2971,14 @@ public sealed class OperationRepairTests : IDisposable
         Assert.True(harness.CorruptionContexts.Opened >= 2);
         Assert.False(File.Exists(harness.CachedScanFile));
 
-        // A removal queued behind the repair starts once it ends.
-        var queued = harness.NewRemoval(OperationType.GameRemoval);
-        await harness.Owner.PrepareRepairAsync(queued, CancellationToken.None);
-        await harness.Owner.StartWorkAsync(queued.Id, "alpha", CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        // A removal waiting behind the repair starts once it ends.
+        var waitingRun = harness.NewRemoval(OperationType.GameRemoval);
+        await harness.Owner.PrepareRepairAsync(waitingRun, CancellationToken.None);
+        await harness.Owner.StartWorkAsync(waitingRun.Id, "alpha", CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Theory]
-    [InlineData("cancelled")]
+    [InlineData("canceled")]
     [InlineData("failed")]
     [InlineData("source not accepted")]
     [InlineData("log step not kept")]
@@ -2915,7 +2992,7 @@ public sealed class OperationRepairTests : IDisposable
             variant == "structural" ? CorruptionDetectionMethod.Structural : CorruptionDetectionMethod.RepeatedMiss);
         var outcome = variant switch
         {
-            "cancelled" => OperationStatus.Cancelled,
+            "canceled" => OperationStatus.Canceled,
             "failed" => OperationStatus.Failed,
             _ => OperationStatus.Completed
         };
@@ -3020,16 +3097,16 @@ public sealed class OperationRepairTests : IDisposable
     }
 
     [Fact]
-    public async Task CancelledClearWithoutTrafficStillScansAsync()
+    public async Task CanceledClearWithoutTrafficStillScansAsync()
     {
-        await using var harness = await DispatchHarness.CreateAsync(Path.Combine(_root, "cancelled-clear"));
+        await using var harness = await DispatchHarness.CreateAsync(Path.Combine(_root, "canceled-clear"));
         var clear = NewCacheClearingRepair(Path.Combine(harness.Root, "alpha-cache"));
         var source = clear.Sources.Single();
         source.LogRoot = Path.Combine(harness.Root, "alpha-logs");
         source.KeyScheme = harness.Capabilities.GetKeySchemeWireValue(harness.Datasources.GetDatasource("alpha")!);
         source.ReceiptPath = null;
 
-        await harness.RunAsync(clear, OperationStatus.Cancelled);
+        await harness.RunAsync(clear, OperationStatus.Canceled);
         await harness.WaitForCompletedAsync(clear.Id);
 
         Assert.Equal(1, harness.Scans);
@@ -3107,7 +3184,7 @@ public sealed class OperationRepairTests : IDisposable
         await harness.Owner.FinishRepairAsync(repair.Id, false, true, null);
         await WaitForAsync(() => applied is not null);
         Assert.Equal(5, applied!.Removal!.FilesDeleted);
-        Assert.Equal(OperationStatus.Cancelled, applied.Outcome);
+        Assert.Equal(OperationStatus.Canceled, applied.Outcome);
     }
 
     [Fact]
@@ -3238,7 +3315,7 @@ public sealed class OperationRepairTests : IDisposable
         await harness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
         await harness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
         await harness.Owner.FinishRepairAsync(repair.Id, false, true, null);
-        harness.Tracker.CompleteOperation(repair.Id, success: false, cancelled: true);
+        harness.Tracker.CompleteOperation(repair.Id, success: false, canceled: true);
 
         await WaitForAsync(() => harness.Tracker.GetOperation(repair.Id)?.RepairError is not null);
         // The repair card shows the reason in the reader's language, not the English log text.
@@ -3294,7 +3371,7 @@ public sealed class OperationRepairTests : IDisposable
 
         state.FailNextRepairWrite = true;
         await harness.Owner.FinishRepairAsync(prepared.Id, false, true, null).WaitAsync(TimeSpan.FromSeconds(5));
-        harness.Tracker.CompleteOperation(prepared.Id, success: false, cancelled: true);
+        harness.Tracker.CompleteOperation(prepared.Id, success: false, canceled: true);
 
         // The reaper leaves a row whose outcome has not landed.
         OperationWaitingBlockerTests.Reap(harness.Tracker, prepared.Id);
@@ -3362,7 +3439,7 @@ public sealed class OperationRepairTests : IDisposable
 
         Assert.Null(harness.Owner.GetBlockingRepair());
         Assert.Empty(PrivateDictionary(harness.Owner, "_pendingOutcomes"));
-        Assert.Equal(OperationStatus.Cancelled, Assert.Single(state.LoadOperationRepairs()).Outcome);
+        Assert.Equal(OperationStatus.Canceled, Assert.Single(state.LoadOperationRepairs()).Outcome);
     }
 
     [Fact]
@@ -3384,7 +3461,7 @@ public sealed class OperationRepairTests : IDisposable
         await harness.Owner.FinishRepairAsync(
                 repair.Id,
                 success: false,
-                cancelled: true,
+                canceled: true,
                 error: null,
                 update: next => next.Removal!.FilesDeleted = 7)
             .WaitAsync(TimeSpan.FromSeconds(5));
@@ -3626,7 +3703,7 @@ public sealed class OperationRepairTests : IDisposable
         await harness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
         await harness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
         await harness.Owner.FinishRepairAsync(repair.Id, false, true, null);
-        harness.Tracker.CompleteOperation(repair.Id, success: false, cancelled: true);
+        harness.Tracker.CompleteOperation(repair.Id, success: false, canceled: true);
         await WaitForAsync(() => harness.Tracker.GetOperation(repair.Id)?.RepairError is not null);
 
         Assert.True(harness.Tracker.CloseRun(repair.Id));
@@ -4554,7 +4631,7 @@ public sealed class OperationRepairTests : IDisposable
             await Owner.FinishRepairAsync(
                 repair.Id,
                 outcome == OperationStatus.Completed,
-                outcome == OperationStatus.Cancelled,
+                outcome == OperationStatus.Canceled,
                 outcome == OperationStatus.Failed ? "failed" : null);
         }
 

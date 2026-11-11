@@ -3,8 +3,8 @@ import { UNKNOWN_COLOR_VAR, getServiceColorVar } from '@utils/serviceColors';
 import type { ColorToken } from '@utils/eventColors';
 
 /**
- * Colour token for AccordionSection's iconColor prop. Cache-domains lists many services
- * outside the app's known colour map (nvidia, apple, ...); those fall back to the muted
+ * Color token for AccordionSection's iconColor prop. Cache-domains lists many services
+ * outside the app's known color map (nvidia, apple, ...); those fall back to the muted
  * text property, which is not a brand accent, so use the theme accent for them instead.
  */
 export function getServiceAccentColor(service: string): ColorToken {

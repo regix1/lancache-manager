@@ -13,7 +13,7 @@ function isCacheRemovalType(type: NotificationType): boolean {
 }
 
 /**
- * True while any cache-entity removal is running OR queued (purple waiting card):
+ * True while any cache-entity removal is running OR waiting (purple waiting card):
  * a single game/service remove, an evicted-item remove, an unmapped-file remove,
  * the batched evicted Remove All, or a bulk Remove All run whose own items are
  * cache removals. These
@@ -32,7 +32,7 @@ export function useCacheRemovalActive(): boolean {
     () =>
       runs.some(
         (n) =>
-          (n.status === 'running' || n.status === 'waiting' || n.status === 'cancelling') &&
+          (n.status === 'running' || n.status === 'waiting' || n.status === 'canceling') &&
           isCacheRemovalType(n.type)
       ) ||
       notifications.some(

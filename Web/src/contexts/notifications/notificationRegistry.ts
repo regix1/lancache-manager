@@ -29,7 +29,7 @@ import type {
 import { corruptionNotificationDetails, formatCorruptionProgress } from './corruptionProgress';
 import {
   ACTIVE_PROGRESS_PERCENT_CAP,
-  GENERIC_CANCELLED_I18N_KEY,
+  GENERIC_CANCELED_I18N_KEY,
   GENERIC_COMPLETION_I18N_KEY,
   GENERIC_FAILURE_I18N_KEY,
   REMOVING_GAME_I18N_KEY
@@ -82,9 +82,7 @@ import {
   stageKeyMessage
 } from './registryEntries';
 import {
-  blankStringValues,
   datasourceFailureValues,
-  hasUnresolvedInterpolation,
   translateRecoveryStage,
   translateStageKeyMessage
 } from '@utils/stageKeyMessage';
@@ -225,61 +223,37 @@ function scheduledPrefillDetails(
 }
 
 /**
- * The one sentence a service's card shows while it runs. The progress event and the run-status
- * response both describe a service the same way, so both compose their line here.
- *
- * The backend names the sentence with `stageKey` and sends the English it composed as `message` /
- * `needsLoginReason`. A daemon's own text arrives with no key and passes through as it did before.
- */
-/**
- * Translate a scheduled-prefill stage key, falling back to the English sentence sent beside it when
- * the key's placeholders cannot be filled.
- *
- * Two producers send the key WITHOUT the values it interpolates: the run-status endpoint recovery
- * rebuilds a card from (`ScheduledPrefillRunServiceStatus` carries Message and StageKey but no
- * context) and the per-service terminal event (`ScheduledPrefillCompleted` likewise). Translating
- * `signalr.scheduledPrefill.runningWithCounts` without them put a literal
- * "Prefill in progress ({{completed}} of {{total}} games)" on the card. The English beside the key
- * is that same line already filled in, so it is what the reader gets instead.
+ * Translate a scheduled-prefill stage key with the values its sentence names. The progress event,
+ * the run-status response recovery rebuilds a card from, and the per-service terminal event each
+ * send the key beside those values.
  */
 function scheduledPrefillSentence(
   stageKey: string | null | undefined,
   stageContext: Record<string, string | number | boolean | null> | null | undefined,
-  english: string | null | undefined,
   fallbackKey?: string
 ): string {
-  const key = stageKey ?? english;
-  const translated = translateStageKeyMessage(key, stageContext ?? undefined, fallbackKey);
-  // A game name may hold `{{` or `}}`, so only a token with no value behind it counts as unfilled.
-  const blanked = translateStageKeyMessage(
-    key,
-    blankStringValues(stageContext ?? undefined),
-    fallbackKey
-  );
-  if (!hasUnresolvedInterpolation(blanked)) {
-    return translated;
-  }
-
-  return translateStageKeyMessage(english, undefined, fallbackKey);
+  return translateStageKeyMessage(stageKey, stageContext ?? undefined, fallbackKey);
 }
 
+/**
+ * The one sentence a service's card shows while it runs. The progress event and the run-status
+ * response both describe a service the same way, so both compose their line here.
+ */
 function scheduledPrefillServiceMessage(service: {
   serviceId: string;
   scheduleName?: string | null;
   stage: string;
-  message?: string | null;
   stageKey?: string | null;
   stageContext?: Record<string, string | number | boolean | null> | null;
   needsLoginReason?: string | null;
 }): string {
   const serviceLabel = scheduledPrefillServiceLabel(service.serviceId, service.scheduleName);
-  const sentence = (english: string | null | undefined): string =>
-    scheduledPrefillSentence(service.stageKey, service.stageContext, english);
+  const sentence = scheduledPrefillSentence(service.stageKey, service.stageContext);
 
   if (service.stage === 'skipped') {
     return i18n.t('management.schedules.services.scheduledPrefill.events.skipped', {
       service: serviceLabel,
-      reason: sentence(service.message)
+      reason: sentence
     });
   }
 
@@ -289,7 +263,7 @@ function scheduledPrefillServiceMessage(service: {
     return service.needsLoginReason
       ? i18n.t('management.schedules.services.scheduledPrefill.events.needsLoginWithReason', {
           service: serviceLabel,
-          reason: sentence(service.needsLoginReason)
+          reason: sentence
         })
       : i18n.t('management.schedules.services.scheduledPrefill.events.needsLogin', {
           service: serviceLabel
@@ -298,7 +272,7 @@ function scheduledPrefillServiceMessage(service: {
 
   return i18n.t('management.schedules.services.scheduledPrefill.events.serviceProgress', {
     service: serviceLabel,
-    message: sentence(service.message)
+    message: sentence
   });
 }
 
@@ -396,8 +370,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           datasourceFailureValues(event.datasource, event.databaseError),
           GENERIC_FAILURE_I18N_KEY
         ),
-      // A cancel carries no reason, so the card always reads the one cancelled key.
-      getCancelledMessage: () => i18n.t(GENERIC_CANCELLED_I18N_KEY)
+      // A cancel carries no reason, so the card always reads the one canceled key.
+      getCanceledMessage: () => i18n.t(GENERIC_CANCELED_I18N_KEY)
     }
   }),
 
@@ -478,8 +452,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         ...operationIdDetails(event),
         service: event.service
       }),
-      // Not the shared three-status pattern: this pipeline does report a cancelled terminal,
-      // and the shared getter folds cancelled into failed, which would paint a stopped run red.
+      // Not the shared three-status pattern: this pipeline does report a canceled terminal,
+      // and the shared getter folds canceled into failed, which would paint a stopped run red.
       getStatus: (event: LogRemovalProgressEvent) =>
         event.status === 'completed'
           ? 'completed'
@@ -495,13 +469,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         ...existing?.details,
         linesProcessed: event.linesProcessed
       }),
-      // The server sends a failure's reason in message; the event has no error field. A restart
-      // that cut the run short sends that reason as a key.
+      // A failure's stage key is the run's failure key, with the values its sentence names in context.
       getFailureMessage: (event: LogRemovalCompleteEvent) =>
-        translateStageKeyMessage(event.message),
-      // A cancel's message is a fixed English sentence from the server, and its stage key is the last
-      // progress stage, so the card reads the generic key.
-      getCancelledMessage: () => i18n.t(GENERIC_CANCELLED_I18N_KEY)
+        translateStageKeyMessage(event.stageKey, event.context),
+      getCanceledMessage: () => i18n.t(GENERIC_CANCELED_I18N_KEY)
     }
   }),
 
@@ -531,7 +502,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           gameName: event.gameName,
           ...(event.service != null && { service: event.service }),
           stageKey: event.stageKey,
-          cancelling: false
+          canceling: false
         };
         if (event.gameAppId !== null) {
           return { ...base, gameAppId: event.gameAppId };
@@ -926,7 +897,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getFailureMessage: (event: CacheClearCompleteEvent) => formatCacheClearFailureMessage(event),
       // Without this the card falls through to the server's own English sentence, which no
       // locale ever translates.
-      getCancelledMessage: () => i18n.t('signalr.cacheClear.cancelled')
+      getCanceledMessage: () => i18n.t('signalr.cacheClear.canceled')
     }
   }),
 
@@ -989,7 +960,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getFailureMessage: (event: DataImportCompleteEvent) => formatDataImportFailureMessage(event),
       // Without this the card falls through to the server's own English sentence, which no
       // locale ever translates.
-      getCancelledMessage: () => i18n.t('signalr.dataImport.cancelled')
+      getCanceledMessage: () => i18n.t('signalr.dataImport.canceled')
     }
   }),
 
@@ -1051,7 +1022,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       ),
       getDetailMessage: detectionErrorDetail,
       getFailureMessage: errorOrStageKeyMessage(GENERIC_FAILURE_I18N_KEY),
-      getCancelledMessage: stageKeyMessage('signalr.evictionScan.cancelled')
+      getCanceledMessage: stageKeyMessage('signalr.evictionScan.canceled')
     }
   }),
 
@@ -1113,7 +1084,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         'signalr.cacheSizeScan.complete'
       ),
       getFailureMessage: errorOrStageKeyMessage(GENERIC_FAILURE_I18N_KEY),
-      getCancelledMessage: stageKeyMessage('signalr.cacheSizeScan.cancelled')
+      getCanceledMessage: stageKeyMessage('signalr.cacheSizeScan.canceled')
     }
   }),
 
@@ -1202,8 +1173,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
                 serviceId: event.serviceId ?? '',
                 scheduleName: event.scheduleName ?? existing?.details?.scheduleName,
                 stage: 'skipped',
-                message: event.error,
-                stageKey: event.stageKey
+                stageKey: event.stageKey,
+                stageContext: event.stageContext
               })
             : // A finished service's last progress line IS its result sentence, and it is the only
               // place the reason lives: the terminal event sends no stageKey and no error on success,
@@ -1217,12 +1188,12 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
               })),
       // A stopped service is its own terminal, not a failure: the user caused it, so it must not
       // read as an error (and must not show its last progress line as the result).
-      getCancelledMessage: (event: ScheduledPrefillCompletedEvent) =>
-        i18n.t('management.schedules.services.scheduledPrefill.events.cancelled', {
+      getCanceledMessage: (event: ScheduledPrefillCompletedEvent) =>
+        i18n.t('management.schedules.services.scheduledPrefill.events.canceled', {
           service: scheduledPrefillServiceLabel(event.serviceId ?? '', event.scheduleName)
         }),
       getSuccessDetails: scheduledPrefillDetails,
-      getCancelledDetails: scheduledPrefillDetails,
+      getCanceledDetails: scheduledPrefillDetails,
       // The bytes line is a LIVE counter for the game downloading right now, so a finished card
       // kept showing a number that had stopped moving. The result sentence above already carries
       // the run's total, so the terminal drops the line rather than restating it.
@@ -1232,8 +1203,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           service: scheduledPrefillServiceLabel(event.serviceId ?? '', event.scheduleName),
           reason: scheduledPrefillSentence(
             event.stageKey,
-            undefined,
-            event.error,
+            event.stageContext,
             GENERIC_FAILURE_I18N_KEY
           )
         })
@@ -1323,7 +1293,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   // ========== Scheduled service runs (standard, built by factory) ==========
   buildScheduledRunEntry({
     type: 'log_rotation',
-    cancellable: true,
+    cancelable: true,
     serviceKey: 'logRotation',
     eventPrefix: 'LogRotation',
     i18nBase: 'signalr.scheduledRun.logRotation',
@@ -1332,7 +1302,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   }),
   buildScheduledRunEntry({
     type: 'game_image_fetch',
-    cancellable: true,
+    cancelable: true,
     serviceKey: 'gameImageFetch',
     eventPrefix: 'GameImageFetch',
     i18nBase: 'signalr.scheduledRun.gameImageFetch',
@@ -1341,7 +1311,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   }),
   buildScheduledRunEntry({
     type: 'cache_snapshot',
-    cancellable: true,
+    cancelable: true,
     serviceKey: 'cacheSnapshot',
     eventPrefix: 'CacheSnapshot',
     i18nBase: 'signalr.scheduledRun.cacheSnapshot',
@@ -1350,7 +1320,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   }),
   buildScheduledRunEntry({
     type: 'operation_history_cleanup',
-    cancellable: true,
+    cancelable: true,
     serviceKey: 'operationHistoryCleanup',
     eventPrefix: 'OperationHistoryCleanup',
     i18nBase: 'signalr.scheduledRun.operationHistoryCleanup',
@@ -1359,7 +1329,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
   }),
   buildScheduledRunEntry({
     type: 'dashboard_cache_warmer',
-    cancellable: true,
+    cancelable: true,
     serviceKey: 'dashboardCacheWarmer',
     eventPrefix: 'DashboardCacheWarmer',
     i18nBase: 'signalr.scheduledRun.dashboardCacheWarmer',
@@ -1380,7 +1350,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     eventPrefix: 'DepotMapping',
     i18nBase: 'signalr.depotMapping',
     cancelTooltipKey: CANCEL_TOOLTIP.depotMapping,
-    defaultMessage: 'Starting depot mapping...',
+    defaultMessage: 'Starting Steam game mapping...',
     recoveryCases: [
       { stageKey: 'signalr.depotMapping.starting', context: {} },
       {
@@ -1392,11 +1362,18 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       { stageKey: 'signalr.depotMapping.importing', context: {} },
       { stageKey: 'signalr.depotMapping.applyingToDownloads', context: {} },
       { stageKey: 'signalr.depotMapping.finalized', context: { updated: 1 } },
-      { stageKey: 'signalr.depotMapping.cancelled', context: {} },
+      { stageKey: 'signalr.depotMapping.canceled', context: {} },
       { stageKey: 'signalr.depotMapping.failed', context: {} },
       { stageKey: 'signalr.depotMapping.github.downloading', context: {} },
       { stageKey: 'signalr.depotMapping.github.complete', context: {} },
       { stageKey: 'signalr.depotMapping.github.failed', context: {} },
+      { stageKey: 'signalr.depotMapping.github.httpFailed', context: {} },
+      { stageKey: 'signalr.depotMapping.github.emptyFile', context: {} },
+      { stageKey: 'signalr.depotMapping.github.invalidJson', context: {} },
+      { stageKey: 'signalr.depotMapping.github.noMappings', context: {} },
+      { stageKey: 'signalr.depotMapping.github.olderSnapshot', context: {} },
+      { stageKey: 'signalr.depotMapping.github.timedOut', context: {} },
+      { stageKey: 'signalr.depotMapping.github.networkError', context: {} },
       { stageKey: 'signalr.depotMapping.github.prefillNamesNotRestored', context: {} }
     ]
   }),
@@ -1423,7 +1400,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       { stageKey: 'signalr.epicMapping.mappingDone', context: { count: 1 } },
       { stageKey: 'signalr.epicMapping.completed', context: {} },
       { stageKey: 'signalr.epicMapping.skippedNotSignedIn', context: {} },
-      { stageKey: 'signalr.epicMapping.cancelled', context: {} },
+      { stageKey: 'signalr.epicMapping.canceled', context: {} },
       { stageKey: 'signalr.epicMapping.failed', context: {} }
     ]
   }),
@@ -1445,7 +1422,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       { stageKey: 'signalr.xboxMapping.backfilling', context: {} },
       { stageKey: 'signalr.xboxMapping.completed', context: {} },
       { stageKey: 'signalr.xboxMapping.skippedNotSignedIn', context: {} },
-      { stageKey: 'signalr.xboxMapping.cancelled', context: {} },
+      { stageKey: 'signalr.xboxMapping.canceled', context: {} },
       { stageKey: 'signalr.xboxMapping.failed', context: {} }
     ]
   }),
@@ -1466,7 +1443,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       { stageKey: 'signalr.battleNetMapping.saving', context: {} },
       { stageKey: 'signalr.battleNetMapping.completed', context: {} },
       { stageKey: 'signalr.battleNetMapping.skippedNothingResolved', context: {} },
-      { stageKey: 'signalr.battleNetMapping.cancelled', context: {} },
+      { stageKey: 'signalr.battleNetMapping.canceled', context: {} },
       { stageKey: 'signalr.battleNetMapping.failed', context: {} }
     ]
   }),
@@ -1486,7 +1463,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       { stageKey: 'signalr.riotMapping.resolving', context: {} },
       { stageKey: 'signalr.riotMapping.completed', context: {} },
       { stageKey: 'signalr.riotMapping.skippedNothingResolved', context: {} },
-      { stageKey: 'signalr.riotMapping.cancelled', context: {} },
+      { stageKey: 'signalr.riotMapping.canceled', context: {} },
       { stageKey: 'signalr.riotMapping.failed', context: {} }
     ]
   }),
@@ -1533,7 +1510,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         progress: data.percentComplete ?? 0,
         // The reset is marked as processing before its operationId is registered, so this can be
         // missing; the result then fills the one live reset run.
-        // `?? undefined` normalises null→undefined (backend field is `string?`).
+        // `?? undefined` normalizes null→undefined (backend field is `string?`).
         details: { operationId: data.operationId ?? undefined }
       })
     } satisfies SimpleRecoveryConfig<DatabaseResetStatusResponse>,
@@ -1559,11 +1536,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         event.stageKey
           ? i18n.t(event.stageKey, event.context ?? {})
           : i18n.t(GENERIC_FAILURE_I18N_KEY),
-      getCancelledMessage: (event: DatabaseResetCompleteEvent) =>
+      getCanceledMessage: (event: DatabaseResetCompleteEvent) =>
         event.stageKey
           ? i18n.t(event.stageKey, event.context ?? {})
-          : i18n.t('signalr.dbReset.cancelled'),
-      getCancelledDetails: operationIdDetails
+          : i18n.t('signalr.dbReset.canceled'),
+      getCanceledDetails: operationIdDetails
     }
   }),
 

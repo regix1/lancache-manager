@@ -110,7 +110,7 @@ public sealed class ApiKeyHeaderScopeTests
     /// scrape is public; on, it takes the key in the header and refuses without it.
     /// </summary>
     [Fact]
-    public async Task MetricsStillHonoursItsOwnSetting()
+    public async Task MetricsStillHonorsItsOwnSetting()
     {
         using var host = new EndpointAuthorizationHost();
         using var isolationClient = host.Application.CreateClient();

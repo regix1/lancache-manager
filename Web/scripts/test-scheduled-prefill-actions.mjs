@@ -99,7 +99,7 @@ const cacheStatusUrl = await compileToUrl('../src/components/features/prefill/ca
 const { completeCacheApps, groupCacheApps, markCacheAppsUnknown } = await import(cacheStatusUrl);
 globalThis.HTMLInputElement = class HTMLInputElement {};
 
-test('Run Now clears only optimistic state when no follow-up was queued', async () => {
+test('Run Now clears only its early state when no follow-up is waiting', async () => {
   const file = process.env.SCHEDULE_ACTION_SOURCE
     ? ts.createSourceFile(
         'SchedulesSection.tsx',
@@ -120,7 +120,7 @@ test('Run Now clears only optimistic state when no follow-up was queued', async 
       node.name.getText(file) === 'handleRunNow' &&
       node.initializer.getText(file).includes('ApiService.triggerSchedule')
   );
-  for (const followUpQueued of [false, true, undefined]) {
+  for (const followUpWaiting of [false, true, undefined]) {
     const notifications = [];
     const pending = new Set();
     let completed = { other: 'completed' };
@@ -133,18 +133,17 @@ test('Run Now clears only optimistic state when no follow-up was queued', async 
       setTimeout: () => undefined,
       ApiService: {
         triggerSchedule: async () => ({
-          alreadyRunning: true,
           status: 'alreadyRunning',
-          followUpQueued
+          followUpWaiting
         })
       },
       addNotification: (notification) => notifications.push(notification),
       getErrorMessage: (error) => error.message
     });
     await run('scheduledPrefill');
-    assert.equal(pending.has('scheduledPrefill'), followUpQueued !== false);
+    assert.equal(pending.has('scheduledPrefill'), followUpWaiting !== false);
     assert.equal(completed.other, 'completed');
-    assert.equal(completed.scheduledPrefill, followUpQueued === false ? undefined : 'navigate');
+    assert.equal(completed.scheduledPrefill, followUpWaiting === false ? undefined : 'navigate');
     assert.deepEqual(notifications, []);
   }
 });
@@ -219,24 +218,12 @@ const runNowOnce = async (key, answer) => {
 test('a Run Now draws no popup of its own for any answer the server accepts', async () => {
   for (const [key, answer, stillPending] of [
     ['cacheReconciliation', { status: 'started' }, true],
-    [
-      'gameDetection',
-      { status: 'alreadyRunning', alreadyRunning: true, followUpQueued: false },
-      false
-    ],
-    [
-      'depotMapping',
-      { status: 'alreadyRunning', alreadyRunning: true, followUpQueued: true },
-      true
-    ],
-    [
-      'scheduledPrefill',
-      { status: 'alreadyRunning', alreadyRunning: true, followUpQueued: true },
-      true
-    ],
+    ['gameDetection', { status: 'alreadyRunning', followUpWaiting: false }, false],
+    ['depotMapping', { status: 'alreadyRunning', followUpWaiting: true }, true],
+    ['scheduledPrefill', { status: 'alreadyRunning', followUpWaiting: true }, true],
     [
       'cacheReconciliation',
-      { status: 'skipped', skippedReason: 'management.schedules.queuedUntilCacheFree' },
+      { status: 'skipped', skippedReason: 'management.schedules.waitingUntilCacheFree' },
       false
     ],
     ['gameDetection', { status: 'skipped', skippedReason: 'management.schedules.other' }, false]
@@ -1641,7 +1628,7 @@ test('A to B to A late reads cannot replace the active draft or its loading stat
   assert.equal(f.state.Config.name, 'Typed');
   assert.equal(f.state.Loading, false);
 });
-test('missing exact ID never opens the first record and cancelled reopen restores the confirmed seed', async () => {
+test('missing exact ID never opens the first record and canceled reopen restores the confirmed seed', async () => {
   const f = modalSession();
   f.open({
     opening: 1,
@@ -2070,7 +2057,7 @@ test('Activity lists running and recent runs across services and cancels the exa
         }
       ]
     ]),
-    cancellingRunIds: [],
+    cancelingRunIds: [],
     runErrors: {},
     loadPersistentContainers: async () => undefined,
     handleCancelPersistentDownload: (...args) => calls.push(args),
@@ -2608,7 +2595,7 @@ test('a persistence read that started before the write stored does not present t
     if (save) await save;
   }
 });
-test('summary failure retains its populated rows and drains a queued refresh', async () => {
+test('summary failure retains its populated rows and drains a pending refresh', async () => {
   const reads = [],
     snapshots = [[{ name: 'Existing' }]];
   const refresh = arrow(detailSource, 'refreshSchedule', {

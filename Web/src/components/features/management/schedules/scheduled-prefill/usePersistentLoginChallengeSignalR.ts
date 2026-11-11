@@ -10,6 +10,7 @@ import type { CredentialChallenge } from '@hooks/usePrefillSteamAuth';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import ApiService from '@services/api.service';
 import type { PrefillLoginEnding } from '@/types';
+import { getErrorMessage } from '@utils/error';
 import { SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS } from './constants';
 import { getPersistentServiceId } from './scheduledPrefillPlatformUi';
 import {
@@ -60,6 +61,53 @@ function sessionMatches(
   const pinnedSessionId = getPersistentLoginSessionId(serviceId);
   const requestedSessionId = getPersistentLoginStartRequest(serviceId)?.sessionId;
   return (pinnedSessionId ?? requestedSessionId) === eventSessionId;
+}
+
+// Sends the device-confirmation ack ('confirm') once per challenge id. A failed send frees the id, so
+// the next push or reconnect read of the same challenge sends it again, and shows the error in the
+// sign-in while that challenge still waits. A send that succeeds while that challenge still waits
+// clears the error a failed send of it wrote, since the approval wait goes on; any other failure
+// written since stays.
+function acknowledgeDeviceConfirmation(
+  serviceId: PersistentPrefillServiceId,
+  challenge: CredentialChallenge,
+  sessionId: string
+): void {
+  if (
+    challenge.credentialType !== 'device-confirmation' ||
+    acknowledgedDeviceConfirmationIds.has(challenge.challengeId)
+  )
+    return;
+  acknowledgedDeviceConfirmationIds.add(challenge.challengeId);
+  void ApiService.providePersistentCredential(serviceId, challenge, 'confirm', sessionId).then(
+    () => {
+      const state = getPersistentLoginState(serviceId);
+      // A sign-in whose clock is gone keeps its error: it no longer waits on this approval.
+      if (
+        state.pendingChallenge?.challengeId !== challenge.challengeId ||
+        state.loginDeadline === null ||
+        state.confirmationErrorChallengeId !== challenge.challengeId
+      )
+        return;
+      updatePersistentLoginState(serviceId, (current) => ({
+        ...current,
+        error: null,
+        confirmationErrorChallengeId: null
+      }));
+    },
+    (error: unknown) => {
+      acknowledgedDeviceConfirmationIds.delete(challenge.challengeId);
+      if (
+        getPersistentLoginState(serviceId).pendingChallenge?.challengeId !== challenge.challengeId
+      )
+        return;
+      updatePersistentLoginState(serviceId, (current) => ({
+        ...current,
+        error: getErrorMessage(error),
+        confirmationErrorChallengeId: challenge.challengeId
+      }));
+    }
+  );
 }
 
 function writeLoginWaitKey(
@@ -158,25 +206,14 @@ export function usePersistentLoginChallengeSignalR({
         )
           return;
 
-        // Auto-send the device-confirmation acknowledgement here, decoupled from the sequential
+        // Auto-send the device-confirmation acknowledgment here, decoupled from the sequential
         // handleAuthenticate chain (which breaks when the manager's WaitForChallenge serves a stale
         // 'password' challenge again after the password was submitted, so it never reaches the
         // device-confirmation step and never sends this ack - the daemon then sits blocked, never
         // polls Steam for the phone approval, and the login times out to NotAuthenticated). The
         // guest/mapping flow has always auto-sent 'confirm' from its own challenge push for exactly
         // this reason. Sent once per challenge id; the daemon no-ops a duplicate.
-        if (
-          event.challenge.credentialType === 'device-confirmation' &&
-          !acknowledgedDeviceConfirmationIds.has(event.challenge.challengeId)
-        ) {
-          acknowledgedDeviceConfirmationIds.add(event.challenge.challengeId);
-          void ApiService.providePersistentCredential(
-            serviceId,
-            event.challenge,
-            'confirm',
-            event.sessionId
-          ).catch(() => undefined);
-        }
+        acknowledgeDeviceConfirmation(serviceId, event.challenge, event.sessionId);
       };
 
       // AuthStateChanged: Authenticated is the reliable, event-driven completion signal (the daemon
@@ -241,9 +278,10 @@ export function usePersistentLoginChallengeSignalR({
           if (getPersistentLoginSessionId(serviceId) !== sessionId) return;
           if (isPersistentLoginAuthenticatedResponse(response))
             markPersistentLoginAuthenticated(serviceId);
-          else if (isPersistentLoginCredentialChallenge(response))
-            applyPersistentLoginChallenge(serviceId, response, messages, sessionId);
-          else if (typeof response === 'object' && 'loginEnding' in response)
+          else if (isPersistentLoginCredentialChallenge(response)) {
+            if (applyPersistentLoginChallenge(serviceId, response, messages, sessionId))
+              acknowledgeDeviceConfirmation(serviceId, response, sessionId);
+          } else if (typeof response === 'object' && 'loginEnding' in response)
             endPersistentLoginOnEnding(
               serviceId,
               response.loginEnding,

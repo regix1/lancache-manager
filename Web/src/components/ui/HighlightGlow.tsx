@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { flashHighlight, type HighlightGlowVariant } from '@utils/highlightGlow';
+import { glideScroll } from '@utils/scrollGlide';
 
 interface HighlightGlowProps {
   children: React.ReactNode;
@@ -21,7 +22,7 @@ const resolveTarget = (host: HTMLElement): HTMLElement | null => {
   return host.firstElementChild instanceof HTMLElement ? host.firstElementChild : null;
 };
 
-// Longest reasonable time to wait for a smooth scrollIntoView to actually bring the
+// Longest reasonable time to wait for the glide to actually bring the
 // target into view before flashing anyway - covers cases where IntersectionObserver
 // never reports a change (e.g. threshold never quite crossed).
 const SCROLL_SETTLE_TIMEOUT_MS = 800;
@@ -50,27 +51,47 @@ const HighlightGlow: React.FC<HighlightGlowProps> = ({
       return;
     }
 
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const page = document.scrollingElement as HTMLElement;
+    // The page position that centers the target. Near the page end the page stops at the bottom, so
+    // a target less than half a viewport from the end rests below center by that shortfall.
+    const centerTop = (): number => {
+      const rect = target.getBoundingClientRect();
+      return Math.min(
+        Math.max(0, page.scrollHeight - window.innerHeight),
+        Math.max(0, page.scrollTop + rect.top + rect.height / 2 - window.innerHeight / 2)
+      );
+    };
+    let glideTarget = centerTop();
+    let stopGlide = glideScroll(page, glideTarget);
 
-    // Cards above the target can still be loading when the scroll starts, and their growth
-    // pushes the target off center. Re-center on every page size change until the user scrolls,
+    // Cards above the target can still be loading when the glide starts, and their growth pushes
+    // the target off center. Re-center whenever that moves the center, until the user scrolls,
     // clicks or presses a key, or the page stays the same size for SCROLL_SETTLE_TIMEOUT_MS.
-    // Near the page end the browser stops at the bottom, so a target less than half a viewport
-    // from the end rests below center by that shortfall, at most half the viewport minus half the target.
     const stopSettling = (): void => {
+      // A wheel, a pointer press or any key means the user took over. The glide only skips its next
+      // frame, so the browser applies their input to the page exactly as it would to a still page.
+      stopGlide();
       resizeObserver.disconnect();
       window.clearTimeout(settleTimer);
-      for (const type of USER_SCROLL_EVENTS) window.removeEventListener(type, stopSettling);
+      for (const type of USER_SCROLL_EVENTS) window.removeEventListener(type, stopSettling, true);
     };
     let settleTimer = window.setTimeout(stopSettling, SCROLL_SETTLE_TIMEOUT_MS);
+    // The observer fires on observe() and for every card that loads anywhere on the page; a fresh
+    // glide on each would restart the travel even when the center did not move.
     const resizeObserver = new ResizeObserver(() => {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const center = centerTop();
+      if (Math.abs(center - glideTarget) > 0.5) {
+        stopGlide();
+        glideTarget = center;
+        stopGlide = glideScroll(page, glideTarget);
+      }
       window.clearTimeout(settleTimer);
       settleTimer = window.setTimeout(stopSettling, SCROLL_SETTLE_TIMEOUT_MS);
     });
     resizeObserver.observe(document.documentElement);
+    // Capture phase, so input inside a control that stops the event still ends the jump.
     for (const type of USER_SCROLL_EVENTS) {
-      window.addEventListener(type, stopSettling, { passive: true });
+      window.addEventListener(type, stopSettling, { capture: true, passive: true });
     }
 
     let started = false;
@@ -80,7 +101,7 @@ const HighlightGlow: React.FC<HighlightGlowProps> = ({
       flashHighlight(target, variant);
     };
 
-    // scrollIntoView only kicks off an async smooth scroll - flashing immediately
+    // The glide takes several frames to arrive - flashing immediately
     // would burn most of the pulse while the target is still off-screen. Wait for
     // it to actually enter the viewport; IntersectionObserver reports the current
     // state immediately on observe(), so this also covers the already-visible

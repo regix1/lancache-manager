@@ -25,13 +25,13 @@ import {
   getPersistentLoginStartPromise,
   finishPersistentLoginStep,
   isPersistentLoginAuthenticatedResponse,
-  isPersistentLoginCancelled,
+  isPersistentLoginCanceled,
   isPersistentLoginCredentialChallenge,
   isPersistentLoginSuspended,
   markPersistentLoginAuthenticated,
   resetPersistentLoginSessionReplaced,
   resetPersistentLoginState,
-  setPersistentLoginCancelled,
+  setPersistentLoginCanceled,
   setPersistentLoginStartPromise,
   updatePersistentLoginState,
   usePersistentLoginStoreState,
@@ -85,7 +85,7 @@ interface PersistentPrefillAuthState extends SteamLoginFlowState {
   authenticated: boolean;
   /** True once a challenge has been obtained for the current attempt (drives modal visibility). */
   hasChallenge: boolean;
-  /** True if the user hid the auth modal without cancelling; the flow stays alive/resumable. */
+  /** True if the user hid the auth modal without canceling; the flow stays alive/resumable. */
   dismissed: boolean;
 }
 
@@ -93,7 +93,7 @@ export interface PersistentPrefillAuthActions extends SteamAuthActions {
   start: () => Promise<CredentialChallenge | null>;
   submit: (credential: string) => Promise<boolean>;
   cancel: () => Promise<void>;
-  /** Hides the auth modal without cancelling the daemon login (default close behavior). */
+  /** Hides the auth modal without canceling the daemon login (default close behavior). */
   dismissModal: () => void;
   /** Reveals the auth modal for an already-pending login again, without starting a new one. */
   resumeModal: () => void;
@@ -184,6 +184,7 @@ export function usePersistentPrefillAuth(
       updatePersistentLoginState(service, (current) => ({
         ...current,
         error: message,
+        confirmationErrorChallengeId: null,
         loading: false
       }));
       onError?.(message);
@@ -256,7 +257,7 @@ export function usePersistentPrefillAuth(
         if (isPersistentLoginSuspended() || getPersistentLoginEpoch(service) !== attemptEpoch) {
           return { status: 'pending' };
         }
-        if (isPersistentLoginCancelled(service)) {
+        if (isPersistentLoginCanceled(service)) {
           finishPersistentLoginStep(service, submitted.actionId);
           return { status: 'pending' };
         }
@@ -321,7 +322,7 @@ export function usePersistentPrefillAuth(
         !armPersistentLoginTimeout(service, Date.now() + loginAttemptTimeoutMs(service), messages)
       )
         return null;
-      setPersistentLoginCancelled(service, false);
+      setPersistentLoginCanceled(service, false);
       const submitted = beginPersistentLoginStep(service, 'start');
       if (!submitted) return getPersistentLoginState(service).pendingChallenge;
       const loginId = createUuid();
@@ -375,7 +376,7 @@ export function usePersistentPrefillAuth(
         if (!epochStale && settled.step?.actionId !== submitted.actionId) {
           return settled.pendingChallenge;
         }
-        if (epochStale || isPersistentLoginCancelled(service)) {
+        if (epochStale || isPersistentLoginCanceled(service)) {
           if (!epochStale) {
             // Same attempt, an explicit cancel racing this response (cancel() sets the flag before
             // its own reset runs): stop the spinner this attempt still owns. A stale epoch writes
@@ -469,7 +470,7 @@ export function usePersistentPrefillAuth(
   }, [service]);
 
   const cancel = useCallback(async (): Promise<void> => {
-    setPersistentLoginCancelled(service, true);
+    setPersistentLoginCanceled(service, true);
     // One shared ending for every way a login stops (see endPersistentLogin): it reads the pinned
     // sessionId live rather than from the `stored` snapshot closed over here - a cancel fired from
     // the same synchronous flow that just started a login must still see the id written moments

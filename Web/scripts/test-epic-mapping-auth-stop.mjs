@@ -16,7 +16,7 @@ const toUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toS
 const reactStubSource = `
 let slots = null;
 let cursor = 0;
-let queued = [];
+let pendingEffects = [];
 
 export const useRef = (initial) => {
   if (!slots[cursor]) {
@@ -57,7 +57,7 @@ export const useEffect = (run, deps) => {
   slot.ran = true;
   slot.deps = deps;
   if (changed) {
-    queued.push(() => { slot.cleanup?.(); slot.cleanup = run(); });
+    pendingEffects.push(() => { slot.cleanup?.(); slot.cleanup = run(); });
   }
 };
 
@@ -67,10 +67,10 @@ export const createComponent = () => {
     render(body) {
       slots = componentSlots;
       cursor = 0;
-      queued = [];
+      pendingEffects = [];
       const result = body();
-      const effects = queued;
-      queued = [];
+      const effects = pendingEffects;
+      pendingEffects = [];
       slots = null;
       effects.forEach((run) => run());
       return result;
@@ -119,7 +119,7 @@ export default {
     if (globalThis.__server.checkGate) {
       await globalThis.__server.checkGate;
     }
-    throw globalThis.__server.checkError ?? Object.assign(new Error('Request cancelled'), { name: 'AbortError' });
+    throw globalThis.__server.checkError ?? Object.assign(new Error('Request canceled'), { name: 'AbortError' });
   },
   cancelEpicMappingLogin: async () => {
     if (globalThis.__server.cancelFailing) {
@@ -299,7 +299,7 @@ test('a sign-in stopped from another tab ends with its reason', async () => {
   await reachCodeForm(epic);
   server.endings['attempt-a'] = {
     attemptId: 'attempt-a',
-    status: 'cancelled',
+    status: 'canceled',
     stageKey: 'errors.integration.attemptExpired'
   };
 
@@ -426,7 +426,7 @@ test('a failed read of a stopped sign-in keeps the form until the server announc
   server.statusFailing = false;
   server.endings['attempt-a'] = {
     attemptId: 'attempt-a',
-    status: 'cancelled',
+    status: 'canceled',
     stageKey: 'errors.integration.attemptExpired'
   };
   globalThis.__emit('IntegrationLoginEnded', { attemptId: 'someone-else' });
@@ -516,7 +516,7 @@ test('a sign-in ending pushed before the wait starts listening is read without a
   server.statusFailing = false;
   server.endings['attempt-a'] = {
     attemptId: 'attempt-a',
-    status: 'cancelled',
+    status: 'canceled',
     stageKey: 'errors.integration.attemptExpired'
   };
 

@@ -67,7 +67,7 @@ const AuthenticateTab: React.FC = () => {
         // The server answers every credential refusal the same way on purpose, so this names all
         // three fields rather than the one that was wrong. Telling them apart is what lets somebody
         // work out which usernames exist.
-        setAuthError(result.message || t('auth.errors.failed'));
+        setAuthError(result.message);
       }
     } catch (err: unknown) {
       setAuthError(getErrorMessage(err));

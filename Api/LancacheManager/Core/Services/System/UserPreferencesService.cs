@@ -96,7 +96,7 @@ public class UserPreferencesService
     /// <summary>
     /// Save or update user preferences and return what was stored. The stored preferences are not always
     /// the ones that were sent: the clock columns are settled against each other and a refresh rate the
-    /// server does not recognise is dropped. Returns null when nothing was saved.
+    /// server does not recognize is dropped. Returns null when nothing was saved.
     /// </summary>
     public async Task<UserPreferencesDto?> SavePreferencesAsync(
         Guid sessionId,
@@ -295,7 +295,7 @@ public class UserPreferencesService
         });
 
     /// <summary>
-    /// Applies every write in one SaveChanges, so no reader and no normalisation step ever sees part of a
+    /// Applies every write in one SaveChanges, so no reader and no normalization step ever sees part of a
     /// caller's choice landed and the rest still missing.
     /// </summary>
     /// <returns>

@@ -178,8 +178,8 @@ public sealed class RemovalLogStepTests
             var terminal = await harness.WaitForTerminalAsync(operationId);
             var repair = await harness.WaitForCompletedRepairAsync(operationId);
 
-            Assert.Equal(OperationStatus.Cancelled, terminal.Status);
-            Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+            Assert.Equal(OperationStatus.Canceled, terminal.Status);
+            Assert.Equal(OperationStatus.Canceled, repair.Outcome);
             var alpha = repair.Sources.Single(source => source.Datasource == "alpha");
             var beta = repair.Sources.Single(source => source.Datasource == "beta");
             Assert.True(alpha.LogRewriteStarted && alpha.LogPositionsKept);
@@ -192,7 +192,7 @@ public sealed class RemovalLogStepTests
                 harness.ReadMessages(),
                 message => message.Value is string text && text.Contains("One or more errors", StringComparison.Ordinal));
             Assert.True(Assert.IsType<SignalRNotifications.GameRemovalComplete>(
-                await harness.WaitForCompleteMessageAsync()).Cancelled);
+                await harness.WaitForCompleteMessageAsync()).Canceled);
         }
         finally
         {
@@ -245,7 +245,7 @@ public sealed class RemovalLogStepTests
         var repair = await harness.WaitForCompletedRepairAsync(operationId);
         await held!.DisposeAsync();
 
-        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+        Assert.Equal(OperationStatus.Canceled, terminal.Status);
         var alpha = repair.Sources.Single(source => source.Datasource == "alpha");
         Assert.True(alpha.NativeCompletionAccepted);
         Assert.False(alpha.LogRewriteStarted);
@@ -381,9 +381,9 @@ public sealed class RemovalLogStepTests
             var terminal = await harness.WaitForTerminalAsync(operationId);
             var repair = await harness.WaitForCompletedRepairAsync(operationId);
 
-            Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+            Assert.Equal(OperationStatus.Canceled, terminal.Status);
             Assert.False(pass.Task.IsCompleted);
-            Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+            Assert.Equal(OperationStatus.Canceled, repair.Outcome);
             var alpha = repair.Sources.Single(source => source.Datasource == "alpha");
             Assert.False(alpha.LogRewriteStarted);
             Assert.DoesNotContain(rust.Launches, launch => launch.Purge);
@@ -705,8 +705,8 @@ public sealed class RemovalLogStepTests
         var terminal = await harness.WaitForTerminalAsync(operationId);
         var repair = await harness.WaitForCompletedRepairAsync(operationId);
 
-        Assert.Equal(OperationStatus.Cancelled, terminal.Status);
-        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        Assert.Equal(OperationStatus.Canceled, terminal.Status);
+        Assert.Equal(OperationStatus.Canceled, repair.Outcome);
         Assert.DoesNotContain(
             harness.ReadMessages(),
             message => message.Value is string text && text.Contains("One or more errors", StringComparison.Ordinal));
@@ -836,8 +836,8 @@ public sealed class RemovalLogStepTests
         Assert.Equal("beta", warning.Context["datasources"]);
         Assert.True(entityKept);
         Assert.False(type == OperationType.GameRemoval
-            ? Assert.IsType<SignalRNotifications.GameRemovalComplete>(complete).Cancelled
-            : Assert.IsType<SignalRNotifications.ServiceRemovalComplete>(complete).Cancelled);
+            ? Assert.IsType<SignalRNotifications.GameRemovalComplete>(complete).Canceled
+            : Assert.IsType<SignalRNotifications.ServiceRemovalComplete>(complete).Canceled);
         await using (var check = rust.Contexts.CreateDbContext())
         {
             Assert.Equal(0, await check.Downloads.CountAsync(download => download.Datasource == "alpha" && download.Service == "steam"));
@@ -999,8 +999,8 @@ public sealed class RemovalLogStepTests
             var terminal = await harness.WaitForTerminalAsync(operationId);
             var repair = await harness.WaitForCompletedRepairAsync(operationId);
 
-            Assert.Equal(OperationStatus.Cancelled, terminal.Status);
-            Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+            Assert.Equal(OperationStatus.Canceled, terminal.Status);
+            Assert.Equal(OperationStatus.Canceled, repair.Outcome);
             var warning = Assert.Single(terminal.Warnings);
             Assert.Equal("common.notifications.warnings.datasourcesFailed", warning.StageKey);
             Assert.Equal("alpha", warning.Context["datasources"]);
@@ -1095,7 +1095,6 @@ public sealed class RemovalLogStepTests
             logger: NullLogger<GamesController>.Instance,
             pathResolver: null!,
             operationTracker: harness.Tracker,
-            conflictChecker: null!,
             operationQueue: null!,
             capabilityService: null!,
             cacheScanGate: CacheScanGateHarness.Idle());
@@ -1239,7 +1238,6 @@ public sealed class RemovalLogStepTests
             logger: NullLogger<GamesController>.Instance,
             pathResolver: null!,
             operationTracker: harness.Tracker,
-            conflictChecker: null!,
             operationQueue: null!,
             capabilityService: null!,
             cacheScanGate: CacheScanGateHarness.Idle());
@@ -1284,10 +1282,19 @@ public sealed class RemovalLogStepTests
 
         Assert.Equal(OperationStatus.Failed, terminal.Status);
         Assert.Equal(failureKey, complete.StageKey);
-        // A keyed refusal sends no English error, which the browser would show ahead of the key.
-        Assert.Equal(alphaLogs == "fault" ? "Injected read failure." : null, complete.Error);
-        // A card drawn from the run after a reload reads the refusal from the run's key.
-        Assert.Equal(alphaLogs == "fault" ? "Injected read failure." : failureKey, terminal.Message);
+        // No ending sends an error, which the browser would show ahead of the key.
+        Assert.Null(complete.Error);
+        if (alphaLogs == "fault")
+        {
+            // An error with no key of its own is worded by the removal's failed key, its text as the value.
+            Assert.Equal("Injected read failure.", complete.Context!["errorDetail"]?.ToString());
+            Assert.Equal("signalr.generic.failedWithDetail", terminal.Message);
+        }
+        else
+        {
+            // A card drawn from the run after a reload reads the refusal from the run's key.
+            Assert.Equal(failureKey, terminal.Message);
+        }
         var progress = harness.ReadMessages()
             .Select(message => message.Value)
             .OfType<SignalRNotifications.GameRemovalProgress>()

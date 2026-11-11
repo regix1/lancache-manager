@@ -130,10 +130,10 @@ public partial class EpicMappingService
             }
             catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)
             {
-                _logger.LogInformation("Epic catalog refresh cancelled");
+                _logger.LogInformation("Epic catalog refresh canceled");
                 await reporter.CompleteAsync(
                     success: false,
-                    cancelled: true,
+                    canceled: true,
                     context: CreateEpicContext());
             }
             catch (Exception ex)
@@ -310,7 +310,7 @@ public partial class EpicMappingService
         }
 
         _logger.LogInformation(
-            "Cancelling active Epic catalog refresh (operationId: {OperationId})",
+            "Canceling active Epic catalog refresh (operationId: {OperationId})",
             reporter.OperationId);
         // The tracker answers whether the run was still going, so a refresh that completed during this call is not
         // reported canceled.

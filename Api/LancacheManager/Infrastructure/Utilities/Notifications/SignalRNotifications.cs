@@ -58,14 +58,14 @@ public static class SignalRNotifications
         // Additive terminal fields (appended so positional callers are unaffected) — guarantee the
         // shared IOperationComplete contract on the failure/cancel paths.
         string? Error = null,
-        bool Cancelled = false,
+        bool Canceled = false,
         // The run completed but a failed datasource still holds the files, so the page keeps the entry listed.
         bool EntityKept = false
     ) : IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;
         OperationStatus IOperationComplete.Status =>
-            Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
+            Canceled ? OperationStatus.Canceled : Success ? OperationStatus.Completed : OperationStatus.Failed;
     }
 
     /// <summary>
@@ -107,14 +107,14 @@ public static class SignalRNotifications
         // Additive terminal fields (appended so positional callers are unaffected) — guarantee the
         // shared IOperationComplete contract on the failure/cancel paths.
         string? Error = null,
-        bool Cancelled = false,
+        bool Canceled = false,
         // The run completed but a failed datasource still holds the files, so the page keeps the entry listed.
         bool EntityKept = false
     ) : IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;
         OperationStatus IOperationComplete.Status =>
-            Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
+            Canceled ? OperationStatus.Canceled : Success ? OperationStatus.Completed : OperationStatus.Failed;
     }
 
     /// <summary>
@@ -157,11 +157,11 @@ public static class SignalRNotifications
         DateTime? Timestamp = null,
         Dictionary<string, object?>? Context = null,
         string? DetectionMethod = null,
-        bool Cancelled = false
+        bool Canceled = false
     ) : IOperationComplete
     {
-        OperationStatus IOperationComplete.Status => Cancelled
-            ? OperationStatus.Cancelled
+        OperationStatus IOperationComplete.Status => Canceled
+            ? OperationStatus.Canceled
             : (Success ? OperationStatus.Completed : OperationStatus.Failed);
     }
 
@@ -172,7 +172,7 @@ public static class SignalRNotifications
     /// <summary>
     /// Notification when log processing completes (success, failure, or cancellation).
     /// Mirrors the prior <c>SendOperationCompleteAsync</c> wire shape (OperationId / Success / Status /
-    /// Message / Cancelled + EntriesProcessed / LinesProcessed / Elapsed) so the frontend
+    /// Message / Canceled + EntriesProcessed / LinesProcessed / Elapsed) so the frontend
     /// <c>LogProcessingCompleteEvent</c> contract is unchanged. <c>StageKey</c> is additive/optional.
     /// Emitted from a single place via <c>OperationInfo.OnTerminalEmit</c>.
     /// </summary>
@@ -181,7 +181,7 @@ public static class SignalRNotifications
         bool Success,
         Models.OperationStatus Status,
         string Message,
-        bool Cancelled = false,
+        bool Canceled = false,
         long EntriesProcessed = 0,
         long LinesProcessed = 0,
         double? Elapsed = null,
@@ -199,7 +199,7 @@ public static class SignalRNotifications
     /// <summary>
     /// Notification when log removal completes (success, failure, or cancellation).
     /// Mirrors the prior <c>SendOperationCompleteAsync</c> wire shape (OperationId / Success / Status /
-    /// Message / Cancelled + Service / FilesProcessed / LinesProcessed / LinesRemoved /
+    /// Message / Canceled + Service / FilesProcessed / LinesProcessed / LinesRemoved /
     /// DatabaseRecordsDeleted / Datasource) so the frontend <c>LogRemovalCompleteEvent</c> contract is
     /// unchanged. <c>StageKey</c> is additive/optional. Emitted from a single place via
     /// <c>OperationInfo.OnTerminalEmit</c>.
@@ -210,7 +210,7 @@ public static class SignalRNotifications
         Models.OperationStatus Status,
         string Message,
         string Service,
-        bool Cancelled = false,
+        bool Canceled = false,
         int FilesProcessed = 0,
         long LinesProcessed = 0,
         long LinesRemoved = 0,
@@ -246,7 +246,7 @@ public static class SignalRNotifications
     /// Notification when game detection completes (success, failure, or cancellation).
     /// Property names/casing mirror the previous anonymous payload exactly (serialized camelCase via
     /// the global <c>JsonNamingPolicy.CamelCase</c>) so the frontend <c>GameDetectionCompleteEvent</c>
-    /// contract (status / cancelled / totalGamesDetected / totalServicesDetected / newGamesCount /
+    /// contract (status / canceled / totalGamesDetected / totalServicesDetected / newGamesCount /
     /// timestamp) is unchanged. Emitted from a single place via <c>OperationInfo.OnTerminalEmit</c>.
     /// </summary>
     public record GameDetectionComplete(
@@ -254,7 +254,7 @@ public static class SignalRNotifications
         Guid OperationId,
         string StageKey,
         Models.OperationStatus Status = Models.OperationStatus.Completed,
-        bool Cancelled = false,
+        bool Canceled = false,
         int? TotalGamesDetected = null,
         int? TotalServicesDetected = null,
         int? NewGamesCount = null,
@@ -282,8 +282,8 @@ public static class SignalRNotifications
     /// <summary>
     /// Notification when corruption detection completes (success, failure, or cancellation).
     /// One record for ALL terminal paths (replaces the prior anon success object + the separate
-    /// force-kill <c>CorruptionDetectionCancelled</c> record). Property names mirror the frontend
-    /// <c>CorruptionDetectionCompleteEvent</c> contract (status / cancelled / error /
+    /// force-kill <c>CorruptionDetectionCanceled</c> record). Property names mirror the frontend
+    /// <c>CorruptionDetectionCompleteEvent</c> contract (status / canceled / error /
     /// totalServicesWithCorruption / totalCorruptedChunks / corruptionCounts).
     /// </summary>
     public record CorruptionDetectionComplete(
@@ -291,7 +291,7 @@ public static class SignalRNotifications
         Guid OperationId,
         string StageKey,
         Models.OperationStatus Status = Models.OperationStatus.Completed,
-        bool Cancelled = false,
+        bool Canceled = false,
         string? Error = null,
         int TotalServicesWithCorruption = 0,
         int TotalCorruptedChunks = 0,
@@ -340,9 +340,9 @@ public static class SignalRNotifications
     /// <summary>
     /// Notification when cache clear completes (success, failure, or cancellation).
     /// Mirrors the prior <c>SendOperationCompleteAsync</c> wire shape (OperationId / Success / Status /
-    /// Message / Cancelled + FilesDeleted / DirectoriesProcessed / BytesDeleted / DatasourcesCleared /
+    /// Message / Canceled + FilesDeleted / DirectoriesProcessed / BytesDeleted / DatasourcesCleared /
     /// Duration / Error) so the frontend <c>CacheClearCompleteEvent</c> contract is unchanged.
-    /// <c>StageKey</c> is additive/optional. Emitted from a single place via
+    /// Every ending sends its <c>StageKey</c>, which the browser requires. Emitted from a single place via
     /// <c>OperationInfo.OnTerminalEmit</c>.
     /// </summary>
     public record CacheClearComplete(
@@ -350,7 +350,7 @@ public static class SignalRNotifications
         bool Success,
         Models.OperationStatus Status,
         string Message,
-        bool Cancelled = false,
+        bool Canceled = false,
         int FilesDeleted = 0,
         int DirectoriesProcessed = 0,
         long BytesDeleted = 0,
@@ -372,11 +372,11 @@ public static class SignalRNotifications
         // Additive terminal fields (appended so positional callers are unaffected) — guarantee the
         // shared IOperationComplete contract on the failure path.
         string? Error = null,
-        bool Cancelled = false
+        bool Canceled = false
     ) : IOperationComplete
     {
         OperationStatus IOperationComplete.Status =>
-            Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
+            Canceled ? OperationStatus.Canceled : Success ? OperationStatus.Completed : OperationStatus.Failed;
     }
 
     /// <summary>
@@ -391,7 +391,7 @@ public static class SignalRNotifications
         bool Success,
         string StageKey,
         Models.OperationStatus Status = Models.OperationStatus.Completed,
-        bool Cancelled = false,
+        bool Canceled = false,
         string? Error = null,
         Dictionary<string, object?>? Context = null
     ) : IOperationComplete;
@@ -410,7 +410,6 @@ public static class SignalRNotifications
         string StageKey,
         Dictionary<string, object?>? Context,
         Models.DepotScanMode ScanMode,
-        string Message,
         bool IsLoggedOn,
         DateTime Timestamp,
         string Status = "running",
@@ -431,7 +430,6 @@ public static class SignalRNotifications
         double PercentComplete,
         Dictionary<string, object?>? Context,
         Models.DepotScanMode ScanMode,
-        string? Message,
         bool IsLoggedOn,
         DateTime Timestamp,
         int TotalApps = 0,
@@ -452,19 +450,20 @@ public static class SignalRNotifications
     /// <summary>
     /// Notification when the Steam depot mapping scan completes (success, failure, or cancellation).
     /// Property names/casing mirror the previous anonymous payloads emitted on the
-    /// <c>DepotMappingComplete</c> SignalR event EXACTLY (serialized camelCase via the global
+    /// <c>DepotMappingComplete</c> SignalR event (serialized camelCase via the global
     /// <c>JsonNamingPolicy.CamelCase</c>): success carried
-    /// <c>success / message / totalMappings / downloadsUpdated / scanMode / isLoggedOn / timestamp</c>;
-    /// cancel carried <c>operationId / success / cancelled / message / isLoggedOn / timestamp</c>;
-    /// error carried <c>success / message / error / isLoggedOn / timestamp</c>. <c>OperationId</c> is
+    /// <c>success / totalMappings / downloadsUpdated / scanMode / isLoggedOn / timestamp</c>;
+    /// cancel carried <c>operationId / success / canceled / isLoggedOn / timestamp</c>;
+    /// error carried <c>success / error / isLoggedOn / timestamp</c>. <c>OperationId</c> is
     /// additive on the success/error paths (the prior anon omitted it there) and optional everywhere.
-    /// Emitted from a single place via <c>OperationInfo.OnTerminalEmit</c>.
+    /// The text a reader shows comes from <c>StageKey</c> and <c>Context</c>, so no English
+    /// <c>message</c> rides beside them. Emitted from a single place via <c>OperationInfo.OnTerminalEmit</c>.
     /// </summary>
     public record DepotMappingComplete(
         Guid? OperationId,
         bool Success,
-        string Message,
-        bool Cancelled = false,
+        OperationStatus Status,
+        bool Canceled = false,
         int? TotalMappings = null,
         int? DownloadsUpdated = null,
         Models.DepotScanMode? ScanMode = null,
@@ -480,9 +479,6 @@ public static class SignalRNotifications
     ) : IOperationComplete
     {
         public string ServiceKey => "depotMapping";
-
-        public OperationStatus Status =>
-            Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
     }
 
     /// <summary>
@@ -515,35 +511,36 @@ public static class SignalRNotifications
         string StageKey,
         double PercentComplete = 100.0,
         int GamesDiscovered = 0,
-        bool Cancelled = false,
+        bool Canceled = false,
         string? Error = null,
         Dictionary<string, object?>? Context = null,
         string? Message = null
     ) : IOperationComplete;
 
     /// <summary>
-    /// Notification when a data import completes (success, failure, or cancellation). Property
-    /// names/casing mirror the previous anonymous payloads emitted on the <c>DataImportComplete</c>
-    /// SignalR event EXACTLY (<c>operationId / success / message</c> on every path; the rich success
-    /// paths additionally carried <c>recordsImported / recordsSkipped / recordsErrors / totalRecords</c>).
-    /// Emitted from a single place via <c>OperationInfo.OnTerminalEmit</c>.
+    /// Notification when a data import completes (success, failure, or cancellation). The card reads
+    /// <c>StageKey</c> on every path, with the failure's values in <c>Context</c>; <c>Message</c> is the
+    /// import's own English summary when it wrote one and is absent otherwise (a force stop, a request
+    /// refused before the import began). Emitted from a single place via <c>OperationInfo.OnTerminalEmit</c>.
     /// </summary>
     public record DataImportComplete(
         Guid OperationId,
         bool Success,
-        string Message,
-        bool Cancelled = false,
+        string StageKey,
+        string? Message = null,
+        bool Canceled = false,
         ulong? RecordsImported = null,
         ulong? RecordsSkipped = null,
         ulong? RecordsErrors = null,
-        ulong? TotalRecords = null
+        ulong? TotalRecords = null,
+        Dictionary<string, object?>? Context = null
     ) : IOperationComplete
     {
         Guid? IOperationComplete.OperationId => OperationId;
         OperationStatus IOperationComplete.Status =>
-            Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
-        // No dedicated Error field: on failure the human-readable reason rides in Message.
-        string? IOperationComplete.Error => Success ? null : Message;
+            Canceled ? OperationStatus.Canceled : Success ? OperationStatus.Completed : OperationStatus.Failed;
+        // No dedicated Error field: on failure the reason is the stage key the run ended on.
+        string? IOperationComplete.Error => Success ? null : StageKey;
     }
 
     #endregion

@@ -52,7 +52,6 @@
     "changedWhileSaving": "The settings from when you clicked Save were saved. You changed a field while it was saving, so check it and save again.",
     "ownerSignIn": "Sign in as the existing primary administrator to change this installation's access.",
     "ownerSignInButton": "Sign in as primary administrator",
-    "ownerSignInFailed": "The primary administrator could not be verified.",
     "ownerSso": "Use the owner's single sign-on",
     "ownerPassword": "Use an existing primary administrator password",
     "httpsWarning": "Local HTTP is supported. Credentials and sessions travel unencrypted, so use HTTPS on networks you do not trust.",
@@ -373,7 +372,7 @@
       "cancelCacheClearing": "Cancel cache clearing",
       "cancelCorruptionRemoval": "Cancel corruption cleanup",
       "cancelCorruptionDetection": "Cancel corruption scan",
-      "cancelDepotMapping": "Cancel depot mapping",
+      "cancelDepotMapping": "Cancel Steam game mapping",
       "cancelGameDetection": "Cancel game detection",
       "cancelGameRemoval": "Cancel game removal",
       "cancelServiceRemoval": "Cancel service removal",
@@ -405,7 +404,7 @@
       "repairing": {
         "completed": "Completed, repairing cache data…",
         "failed": "Failed, repairing cache data…",
-        "cancelled": "Canceled, repairing cache data…",
+        "canceled": "Canceled, repairing cache data…",
         "skipped": "Skipped, repairing cache data…",
         "fullRepair": "Checking all cache data after an update or an unreadable repair file…"
       },
@@ -445,7 +444,7 @@
         "bulkItemsWarned": "Items that finished with a warning: {{count}}. Each one's card names what it left undone."
       },
       "retryRepairFailed": "Could not retry the repair",
-      "cancelling": "Cancelling...",
+      "canceling": "Canceling...",
       "operationWaiting": "Waiting for another process to complete...",
       "operationWaitingNamed": "{{name}}: waiting for another process to complete...",
       "operationWaitingOn": "Waiting for {{blocker}} to finish...",
@@ -459,7 +458,7 @@
         "incremental": "Incremental",
         "scanLimits": "threshold {{threshold}}, last {{days}} days"
       },
-      "operationWaitingCancelled": "Cancelled while waiting in queue",
+      "operationWaitingCanceled": "Canceled while waiting in queue",
       "willQueueBehindCurrent": "Will start after the current operation finishes",
       "corruptedChunksRemoved": "Corruption cleanup finished",
       "filesDeleted": "{{formattedCount}} file deleted",
@@ -482,8 +481,8 @@
         "waiting": "waiting",
         "completed": "completed",
         "failed": "failed",
-        "cancelled": "cancelled",
-        "cancelling": "cancelling",
+        "canceled": "canceled",
+        "canceling": "canceling",
         "pending": "pending",
         "skipped": "skipped",
         "repairing": "repairing"
@@ -2021,7 +2020,8 @@
           "hostLabel": "Host",
           "autoTooltip": "Try every strategy and verify with a heartbeat",
           "bridgeTooltip": "Query the lancache-dns container's bridge IP",
-          "hostTooltip": "Query the host's DNS via the bridge gateway or localhost"
+          "hostTooltip": "Query the host's DNS via the bridge gateway or localhost",
+          "saveFailed": "Could not save the DNS resolver choice: {{error}}"
         },
         "lastChecked": "Last checked {{time}}",
         "emptyTitle": "Check your cache setup",
@@ -2150,7 +2150,6 @@
         "sweepProgress": "Checking {{completed}} of {{total}} domains…",
         "sweepCurrentService": "Now checking {{service}}",
         "sweepFailed": "The check failed: {{error}}",
-        "sweepDidNotFinish": "The check did not finish.",
         "heartbeatOk": "The cache at {{ip}} answered (served by {{host}}).",
         "heartbeatOkNoHost": "The cache at {{ip}} answered.",
         "heartbeatFailed": "The cache did not answer: {{error}}",
@@ -2267,7 +2266,8 @@
         "footerNotLoaded": "Domain list not loaded yet.",
         "footerError": "Domain list problem: {{error}}",
         "refreshList": "Refresh list",
-        "refreshFailed": "Refresh failed: {{error}}"
+        "refreshFailed": "Refresh failed: {{error}}",
+        "reloadFailed": "The domain list could not be reloaded: {{error}}"
       },
       "authRequired": "Authentication Required",
       "authRequiredDesc": "Please authenticate to access this section.",
@@ -2317,14 +2317,14 @@
         "gameCacheRemoveAllProgress": "Removing {{current}} of {{total}} - {{label}}",
         "gameCacheRemoveAllComplete": "Removed {{count}} cached items",
         "gameCacheRemoveAllCompleteWithFailures": "Removed {{count}} cached items, but {{failed}} failed",
-        "gameCacheRemoveAllCancelled": "Bulk removal cancelled after {{count}} items",
-        "gameCacheRemoveAllCancelledWithFailures": "Bulk removal cancelled after {{count}} items, with {{failed}} failures",
+        "gameCacheRemoveAllCanceled": "Bulk removal canceled after {{count}} items",
+        "gameCacheRemoveAllCanceledWithFailures": "Bulk removal canceled after {{count}} items, with {{failed}} failures",
         "evictionRemoveSelectedStarting": "Removing 0 of {{total}} evicted items...",
         "evictionRemoveSelectedProgress": "Removing {{current}} of {{total}} - {{label}}",
         "evictionRemoveSelectedComplete": "Removed {{count}} evicted items",
         "evictionRemoveSelectedCompleteWithFailures": "Removed {{count}} evicted items, but {{failed}} failed",
-        "evictionRemoveSelectedCancelled": "Evicted removal cancelled after {{count}} items",
-        "evictionRemoveSelectedCancelledWithFailures": "Evicted removal cancelled after {{count}} items, with {{failed}} failures",
+        "evictionRemoveSelectedCanceled": "Evicted removal canceled after {{count}} items",
+        "evictionRemoveSelectedCanceledWithFailures": "Evicted removal canceled after {{count}} items, with {{failed}} failures",
         "gameCacheRemoveAllConfirmTitle": "Remove all cached games & services?",
         "gameCacheRemoveAllConfirmMessage": "This will permanently delete cache files, log entries, and database records for all {{count}} currently-cached games and services. Items are removed one at a time. The operation cannot be undone.",
         "gameCacheRemoveAllConfirmWarning": "This is irreversible. Any client that re-downloads these games will have to pull the full payload from upstream, not the cache.",
@@ -2883,8 +2883,8 @@
       "selectItem": "Select {{name}}",
       "batchComplete": "Removed {{count}} of {{total}} service logs",
       "batchCompleteWithFailures": "Removed {{count}} service logs, but {{failed}} failed",
-      "batchCancelled": "Log removal cancelled after {{count}} service logs",
-      "batchCancelledWithFailures": "Log removal cancelled after {{count}} service logs, with {{failed}} failures"
+      "batchCanceled": "Log removal canceled after {{count}} service logs",
+      "batchCanceledWithFailures": "Log removal canceled after {{count}} service logs, with {{failed}} failures"
     },
     "corruption": {
       "help": {
@@ -3559,7 +3559,8 @@
         "connected": "Connection successful",
         "connectedNoTable": "Connection successful, but Downloads table not found",
         "completed": "Import completed: {{imported}} imported, {{skipped}} skipped, {{errors}} errors",
-        "cancelledWithCount": "Import cancelled: {{imported}} imported before cancellation"
+        "canceledWithCount": "Import canceled: {{imported}} imported before cancellation",
+        "connectionFailed": "Connection failed: {{detail}}"
       }
     },
     "themes": {
@@ -3832,11 +3833,11 @@
       "resetToDefaults": "Reset to Defaults",
       "runAll": "Run All",
       "runAllTriggered": "Triggered {{count}} services",
-      "runAllTriggeredWithQueued": "Started {{count}} services, {{queued}} already running will run again next",
-      "queuedUntilCacheFree": "This run is queued and starts on its own as soon as the cache can be scanned.",
-      "queuedUntilCacheFreeNamed": "{{name}} is queued and starts on its own as soon as the cache can be scanned.",
+      "runAllTriggeredWithFollowUps": "Started {{count}} services, {{followUps}} already running will run again next",
+      "waitingUntilCacheFree": "This run is waiting and starts on its own as soon as the cache can be scanned.",
+      "waitingUntilCacheFreeNamed": "{{name}} is waiting and starts on its own as soon as the cache can be scanned.",
       "runAllTriggeredWithSkipped": "Started {{count}} services, {{skipped}} waiting for the cache. {{reason}}",
-      "runAllTriggeredWithSkippedAndQueued": "Started {{count}} services, {{queued}} already running will run again next, {{skipped}} waiting for the cache. {{reason}}",
+      "runAllTriggeredWithSkippedAndFollowUps": "Started {{count}} services, {{followUps}} already running will run again next, {{skipped}} waiting for the cache. {{reason}}",
       "runAllFailed": "Failed to run all schedules",
       "runAllConfirmTitle": "Run all schedules now?",
       "runAllConfirmBody": "Request all {{count}} scheduled services to run. Scheduled Prefill will not queue another run while active; other services may retain a follow-up. Runs can take a long time and put the cache and network under load.",
@@ -3845,10 +3846,9 @@
       "resetConfirmBody": "Every schedule goes back to its default run interval, and any custom schedule, startup setting and notification setting you changed is cleared. This cannot be undone.",
       "resetConfirmButton": "Reset to Defaults",
       "runNowTriggered": "{{service}} triggered manually",
-      "runNowAlreadyRunning": "{{service}} is already running",
-      "runNowAlreadyRunning": "{{service}} is already running. No additional run was queued.",
-      "runAllAlreadyRunning_one": "{{count}} service is already running. No additional run was queued for it.",
-      "runAllAlreadyRunning_other": "{{count}} services are already running. No additional runs were queued for them.",
+      "runNowAlreadyRunning": "{{service}} is already running. No additional run was started.",
+      "runAllAlreadyRunning_one": "{{count}} service is already running. No additional run was started for it.",
+      "runAllAlreadyRunning_other": "{{count}} services are already running. No additional runs were started for them.",
       "runNowFailed": "Failed to trigger {{service}}",
       "runNowServiceDisabled": "This service is turned off in the server configuration, so it cannot run.",
       "runNowProgramMissing": "The scan program this service needs is missing on the server, so it cannot run.",
@@ -3910,7 +3910,7 @@
         "status": {
           "completed": "Completed",
           "failed": "Failed",
-          "cancelled": "Cancelled",
+          "canceled": "Canceled",
           "skipped": "Skipped"
         },
         "triggers": {
@@ -4065,7 +4065,7 @@
         },
         "scheduledPrefill": {
           "displayName": "Scheduled Prefill",
-          "description": "Runs saved schedules automatically. Each platform runs one schedule at a time; overlapping attempts are skipped, not queued.",
+          "description": "Runs saved schedules automatically. Each platform runs one schedule at a time; overlapping attempts are skipped, not kept to run later.",
           "summary": "Runs selected prefill services on their own schedule.",
           "gain": "Game content can be warmed into the cache before users need it, including account libraries when login is configured.",
           "loss": "Disabled services or services needing login will be skipped until their configuration is completed.",
@@ -4345,6 +4345,7 @@
             },
             "validation": {
               "topCount": "{{service}} needs a top count of at least 1.",
+              "topCountMax": "{{service}} prefills at most {{max}} top games. Set the top count to {{max}} or less.",
               "operatingSystems": "{{service}} needs at least one target platform.",
               "maxConcurrency": "{{service}} connections must be between {{min}} and {{max}}.",
               "unsupportedPreset": "{{service}} does not support the {{preset}} preset. Choose a different preset."
@@ -4443,7 +4444,7 @@
             "started": "{{service}} started",
             "progress": "Scheduled prefill {{stage}}",
             "completed": "{{service}} completed",
-            "cancelled": "{{service}} stopped",
+            "canceled": "{{service}} stopped",
             "failed": "{{service}} failed: {{reason}}",
             "skipped": "{{service}} skipped: {{reason}}",
             "needsLogin": "{{service}} needs login before scheduled prefill can continue",
@@ -4472,7 +4473,7 @@
           "gain": "Owned Xbox games are mapped to their cached downloads on a schedule, so titles downloaded on a real Xbox or PC are named without starting a prefill",
           "loss": "Newly acquired Xbox games may not appear in the game list until the next scheduled refresh or a daemon login",
           "signInWaitingLabel": "Xbox sign-in",
-          "signInWaitingHelp": "Waiting for you to approve the device code. Run Now stays unavailable until the sign-in finishes, is cancelled, or expires."
+          "signInWaitingHelp": "Waiting for you to approve the device code. Run Now stays unavailable until the sign-in finishes, is canceled, or expires."
         },
         "logRotation": {
           "displayName": "Log Rotation",
@@ -4661,7 +4662,7 @@
         "expired": "Expired",
         "orphaned": "Orphaned",
         "cleaned": "Cleaned",
-        "cancelled": "Cancelled",
+        "canceled": "Canceled",
         "error": "Error"
       },
       "historyStatusBadges": {
@@ -4669,7 +4670,7 @@
         "inProgress": "In Progress",
         "failed": "Failed",
         "error": "Error",
-        "cancelled": "Cancelled",
+        "canceled": "Canceled",
         "cached": "Cached"
       },
       "labels": {
@@ -4963,12 +4964,12 @@
       "progressLine": "{{done}} of {{total}} · {{speed}} · {{percent}}",
       "completed": "Completed",
       "failed": "Failed",
-      "cancelled": "Cancelled",
+      "canceled": "Canceled",
       "items": "{{count}} of {{total}} items processed",
       "processedLabel": "Processed",
       "skipped": "Skipped",
       "transferredLabel": "Transferred",
-      "outcomes": "{{completed}} successful, {{failed}} failed, {{skipped}} skipped, {{cancelled}} cancelled",
+      "outcomes": "{{completed}} successful, {{failed}} failed, {{skipped}} skipped, {{canceled}} canceled",
       "resultsLabel": "Results",
       "overlap": "Items already being downloaded by another run were skipped.",
       "historyIncomplete": "Some item history could not be recovered. The available totals are shown.",
@@ -4987,7 +4988,7 @@
       "downloads": "Downloads",
       "active": "Active downloads",
       "noActive": "No active downloads",
-      "noHistory": "Completed, cancelled and failed runs will appear here.",
+      "noHistory": "Completed, canceled and failed runs will appear here.",
       "capacity_one": "{{count}} of {{limit}} simultaneous download active",
       "capacity_other": "{{count}} of {{limit}} simultaneous downloads active",
       "capacityHelp": "Saved schedules use a slot only while downloading."
@@ -5012,6 +5013,7 @@
       "sessionReplaced": "This login session was replaced by a newer one. Please try logging in again.",
       "credentialRejected": "The daemon rejected this credential. Please try logging in again.",
       "loginTimedOut": "Login timed out. Please try again.",
+      "loginDisconnected": "The prefill daemon disconnected during the saved sign-in. Please try again.",
       "loginTimedOutTitle": "Login timed out",
       "loginTimedOutBody_one": "The code was not entered within {{count}} minute. Log in again.",
       "loginTimedOutBody_other": "The code was not entered within {{count}} minutes. Log in again.",
@@ -5070,9 +5072,9 @@
       "battlenetFeature2": "World of Warcraft, Diablo, Overwatch and more",
       "battlenetFeature3": "Force re-download and cache management",
       "battlenetNoLogin": "No account login required",
-      "riotDescription": "Prefill public Riot CDN content for titles such as League of Legends and VALORANT.",
+      "riotDescription": "Prefill public Riot CDN content for titles such as League of Legends, Teamfight Tactics and VALORANT.",
       "riotFeature1": "Prefill all products or select specific titles",
-      "riotFeature2": "League of Legends and VALORANT content",
+      "riotFeature2": "League of Legends, Teamfight Tactics and VALORANT content",
       "riotFeature3": "Force re-download and cache management",
       "riotNoLogin": "No account login required",
       "xboxDescription": "Prefill your Xbox and Microsoft Store library, pre-downloading game content for the titles in your account.",
@@ -5177,7 +5179,7 @@
       "etaMinutesSeconds": "{{minutes}}m {{seconds}}s",
       "etaHoursMinutes": "{{hours}}h {{minutes}}m",
       "failedCount": "({{count}} failed)",
-      "cancelling": "Cancelling..."
+      "canceling": "Canceling..."
     },
     "duration": {
       "zero": "0s",
@@ -5377,7 +5379,7 @@
       "failedClearCache": "Failed to clear cache",
       "commandFailed": "Command failed",
       "alreadyRunning": "A prefill is already running for this session",
-      "cancellingPrefill": "Cancelling prefill operation...",
+      "cancelingPrefill": "Canceling prefill operation...",
       "failedCancelPrefill": "Failed to cancel prefill",
       "selectedGames": "Selected {{count}} game for prefill",
       "selectedGames_other": "Selected {{count}} games for prefill",
@@ -5386,7 +5388,7 @@
       "platformsChanged": "Target platforms set to {{platforms}}",
       "connectionsChanged": "Download connections set to {{value}}",
       "endingSession": "Ending session...",
-      "loginCancelled": "Login cancelled",
+      "loginCanceled": "Login canceled",
       "removedFromCache": "Removed {{game}} from the cached list",
       "clearedAllFromCache": "Cleared this service's cached game records",
       "removeFromCacheSharedFiles": "Nothing was removed for {{game}} because its files are shared with another game",
@@ -5499,7 +5501,7 @@
         "combined": "Combined",
         "separate": "Separate",
         "combinedTooltip": "Add every IP together and show one row for this nickname",
-        "separateTooltip": "Show one row per IP, each labelled with this nickname"
+        "separateTooltip": "Show one row per IP, each labeled with this nickname"
       },
       "placeholders": {
         "name": "e.g., Gaming PC, Living Room, Server",
@@ -5585,13 +5587,10 @@
         "continueButton_other": "Continue as Guest ({{count}} hours)"
       },
       "databaseReset": {
+        "canceled": "Database Reset Canceled",
         "complete": "Database Reset Complete",
         "inProgress": "Database Reset In Progress",
-        "canLoginNow": "You can now log in.",
-        "pleaseWait": "Please wait...",
-        "completed": "Database reset completed",
-        "failed": "Database reset failed",
-        "resetting": "Resetting database..."
+        "notFinished": "Database Reset Did Not Finish"
       },
       "help": {
         "title": "Where to find your API key:",
@@ -5603,7 +5602,6 @@
       },
       "errors": {
         "apiKeyRequired": "API key is required",
-        "authenticationFailed": "Authentication failed",
         "guestModeDisabled": "Guest mode is currently disabled by the administrator.",
         "guestModeNoData": "Guest mode is not available. No data has been loaded yet.",
         "failedToStartGuest": "Failed to start guest mode",
@@ -6301,13 +6299,13 @@
         },
         "waiting": {
           "label": "Waiting Primary",
-          "description": "Waiting state primary color (border for queued items)",
-          "affects": ["Waiting icons", "Queued badges", "Waiting borders"]
+          "description": "Waiting state primary color (border for waiting items)",
+          "affects": ["Waiting icons", "Waiting badges", "Waiting borders"]
         },
         "waitingBg": {
           "label": "Waiting Background",
-          "description": "Waiting state background (queued item background)",
-          "affects": ["Waiting badges", "Queued rows", "Waiting banners"]
+          "description": "Waiting state background (waiting item background)",
+          "affects": ["Waiting badges", "Waiting rows", "Waiting banners"]
         },
         "waitingText": {
           "label": "Waiting Text",
@@ -7144,7 +7142,7 @@
       "preparing": "Preparing...",
       "timeEstimate": "This typically takes 1-5 minutes depending on your connection.",
       "continue": "Continue",
-      "cancelling": "Cancelling...",
+      "canceling": "Canceling...",
       "cancelUseGithub": "Cancel and Use GitHub Instead"
     },
     "depotInit": {
@@ -7216,8 +7214,8 @@
       "failedToProcess": "Log processing failed",
       "failedToProcessDatasource": "Failed to start processing",
       "cancel": "Cancel processing",
-      "cancelling": "Cancelling...",
-      "cancelled": "Processing cancelled",
+      "canceling": "Canceling...",
+      "canceled": "Processing canceled",
       "cancelFailed": "Failed to cancel processing",
       "formatHint": "No downloads were read from your logs. The log format may not be recognized. Open the datasource details in Management to see what happened."
     },
@@ -7244,7 +7242,7 @@
       "imported": "Imported: {{formattedCount}}",
       "skipped": "Skipped: {{formattedCount}}",
       "errors": "Errors: {{formattedCount}}",
-      "importFailed": "Import failed: {{error}}"
+      "importFailed": "Import failed: {{detail}}"
     },
     "platformSetup": {
       "title": "Platform Setup",
@@ -7550,13 +7548,19 @@
     },
     "downloadHistoryUpgrade": {
       "indexing": "Rebuilding the duplicate check index",
-      "merging": "Merging split download rows"
+      "merging": "Merging split download rows",
+      "failed": "Download history upgrade failed: {{errorDetail}}",
+      "failedWithRemaining": "Download history upgrade failed: {{errorDetail}}. Rows still waiting to merge: {{count}}. It tries again at the next start.",
+      "failedBeforeMerge": "Download history upgrade failed before the merge started: {{errorDetail}}. It tries again at the next start."
     },
     "generic": {
       "unknown": "Operation in progress...",
+      "starting": "Starting...",
+      "canceling": "Canceling...",
       "failed": "Operation failed",
+      "failedWithDetail": "Operation failed: {{errorDetail}}",
       "complete": "Operation complete",
-      "cancelled": "Operation cancelled",
+      "canceled": "Operation canceled",
       "skipped": "Operation skipped",
       "nothingToDo": "Nothing to do",
       "interruptedByRestart": "Operation interrupted by application restart",
@@ -7566,9 +7570,19 @@
     "cacheClear": {
       "initializing": "Initializing cache clear...",
       "starting": "Starting cache deletion...",
+      "clearing": "Clearing cache...",
       "progress": "Clearing cache ({{processed}}/{{totalDirs}}) - {{activeCount}} active",
       "forDatasource": "{{datasource}}: {{message}}",
-      "cancelled": "Cache clear cancelled",
+      "canceled": "Cache clear canceled",
+      "cleared": "Successfully cleared {{directories}} cache directories",
+      "clearedAcross": "Successfully cleared {{directories}} cache directories across {{count}} datasources ({{datasources}})",
+      "completed": "Cache clear completed",
+      "datasourceNotFound": "Datasource {{datasource}} was not found",
+      "noDatasources": "No enabled datasource is configured for cache clearing",
+      "datasourceBlocked": "The cache folder for {{datasource}} is missing or read-only",
+      "pathMissing": "No datasource has a cache folder that exists",
+      "cleanerMissing": "The cache cleaner program was not found",
+      "failedAfterClearing": "Cache clear failed after clearing {{datasources}}: {{errorDetail}}",
       "error": {
         "dirNotFound": "Cache directory does not exist: {{cachePath}}",
         "fatal": "Cache clear failed: {{errorDetail}}"
@@ -7617,8 +7631,9 @@
       "completeStructuralFull": "Full structural scan complete: {{count}} invalid cache files found and the incremental baseline was refreshed.",
       "completeStructuralIncremental": "Incremental structural scan complete: {{count}} invalid cache files found.",
       "completeStructuralBaseline": "Initial incremental baseline complete: {{count}} invalid cache files found.",
-      "cancelled": "Corruption scan cancelled",
-      "failed": "Corruption scan failed: {{errorDetail}}"
+      "canceled": "Corruption scan canceled",
+      "failed": "Corruption scan failed: {{errorDetail}}",
+      "capabilityRefused": "The scan did not run because a datasource cannot match cache files to downloads, or no datasource is enabled. The server log names the reason."
     },
     "corruptionRemove": {
       "starting": "Starting corruption cleanup for {{service}}",
@@ -7637,15 +7652,15 @@
       "completeStructural": "Processed {{count}} invalid cache files for {{service}} ({{files}} deleted, {{alreadyMissing}} already missing, {{healed}} now valid)",
       "success": "Successfully removed verified flagged cache files for {{service}}",
       "successStructural": "Successfully removed revalidated invalid cache files for {{service}}",
-      "cancelled": "Operation was cancelled.",
+      "canceled": "Operation was canceled.",
       "allComplete": "Corruption cleanup completed across {{serviceCount}} services: {{count}} flagged files removed ({{files}} cache files, {{logLines}} log lines, {{logEntries}} database entries)",
       "allCompleteStructural": "Invalid cache-file removal completed across {{serviceCount}} services: {{files}} files deleted, {{alreadyMissing}} already missing, {{healed}} now valid",
       "allCompleteWithFailures": "Corruption cleanup completed with {{failedCount}} of {{serviceCount}} services failing. Removed {{count}} flagged files ({{files}} cache files, {{logLines}} log lines)",
       "allCompleteWithFailuresStructural": "Invalid cache-file removal completed with {{failedCount}} of {{serviceCount}} services failing. Deleted {{files}} files; {{alreadyMissing}} were already missing and {{healed}} are now valid",
       "allStoppedWithFailures": "Corruption cleanup stopped after {{completedCount}} of {{serviceCount}} services, with {{failedCount}} failing. Removed {{count}} flagged files ({{files}} cache files, {{logLines}} log lines)",
       "allStoppedWithFailuresStructural": "Invalid cache-file removal stopped after {{completedCount}} of {{serviceCount}} services, with {{failedCount}} failing. Deleted {{files}} files; {{alreadyMissing}} were already missing and {{healed}} are now valid",
-      "allCancelled": "Corruption cleanup cancelled after {{completedCount}} of {{serviceCount}} services",
-      "allCancelledStructural": "Invalid cache-file removal cancelled after {{completedCount}} of {{serviceCount}} services",
+      "allCanceled": "Corruption cleanup canceled after {{completedCount}} of {{serviceCount}} services",
+      "allCanceledStructural": "Invalid cache-file removal canceled after {{completedCount}} of {{serviceCount}} services",
       "error": {
         "fatal": "Corruption cleanup failed: {{errorDetail}}"
       },
@@ -7657,7 +7672,7 @@
       "starting": "Starting database reset...",
       "complete": "Database reset completed successfully",
       "completeWithActiveLogins": "Database reset completed, but some prefill sign-ins are still active",
-      "cancelled": "Database reset was cancelled",
+      "canceled": "Database reset was canceled",
       "failed": "Database reset failed: {{errorDetail}}",
       "startingTables": "Starting reset of {{count}} table(s)...",
       "noTablesSelected": "No valid tables selected for reset",
@@ -7678,27 +7693,37 @@
       "starting": "Starting data import…",
       "progress": "Importing: {{processed}} of {{total}} records",
       "completedDetail": "{{imported}} imported, {{skipped}} skipped, {{errors}} errors",
-      "cancelled": "Data import cancelled"
+      "canceled": "Data import canceled",
+      "allRecordsFailed": "Import failed: all {{count}} record(s) had errors",
+      "failed": "Data import failed: {{errorDetail}}"
     },
     "depotMapping": {
-      "starting": "Starting depot mapping...",
+      "starting": "Starting Steam game mapping...",
       "batchProgress": "{{processedBatches}} / {{totalBatches}} batches",
+      "reconnecting": "Reconnecting to Steam (attempt {{reconnectAttempt}} of {{maxReconnectAttempts}})...",
       "github": {
-        "downloading": "Downloading depot mappings from GitHub...",
-        "complete": "GitHub depot data imported",
-        "prefillNamesNotRestored": "Depot mappings were imported, but names for games known only from prefill could not be restored. Run the import again.",
-        "failed": "[GitHub Mode] {{errorDetail}}"
+        "downloading": "Downloading Steam game mappings from GitHub...",
+        "complete": "Steam game mappings imported from GitHub",
+        "prefillNamesNotRestored": "Steam game mappings were imported, but names for games known only from prefill could not be restored. Run the import again.",
+        "failed": "Steam game mapping import failed: {{errorDetail}}",
+        "httpFailed": "GitHub answered the Steam game mapping download with HTTP {{errorDetail}}",
+        "emptyFile": "The downloaded Steam game mapping file was empty",
+        "invalidJson": "The downloaded Steam game mapping file was not valid JSON",
+        "noMappings": "The downloaded file held no Steam game mappings",
+        "olderSnapshot": "The downloaded Steam game mappings are older than the ones already saved",
+        "timedOut": "The Steam game mapping download timed out",
+        "networkError": "Network error while downloading Steam game mappings: {{errorDetail}}"
       },
-      "cancelled": "Depot mapping scan cancelled",
-      "saving": "Saving depot mappings...",
-      "resolvingOrphans": "Resolving orphaned depot mappings...",
-      "importing": "Importing depot mappings...",
-      "applyingToDownloads": "Applying depot mappings to downloads...",
-      "finalized": "Depot mapping complete",
-      "completed": "Depot mapping complete",
-      "failed": "Depot mapping failed",
-      "skippedSetupIncomplete": "Depot mapping did not run: setup is not finished yet",
-      "skippedSteamUnreachable": "Depot mapping did not run: could not reach Steam",
+      "canceled": "Steam game mapping canceled",
+      "saving": "Saving Steam game mappings...",
+      "resolvingOrphans": "Resolving orphaned Steam game mappings...",
+      "importing": "Importing Steam game mappings...",
+      "applyingToDownloads": "Applying Steam game mappings to downloads...",
+      "finalized": "Steam game mapping complete",
+      "completed": "Steam game mapping complete",
+      "failed": "Steam game mapping failed",
+      "skippedSetupIncomplete": "Steam game mapping did not run: setup is not finished yet",
+      "skippedSteamUnreachable": "Steam game mapping did not run: could not reach Steam",
       "scan": {
         "skippedFullRequired": "Scheduled scan skipped - full scan required"
       }
@@ -7716,7 +7741,7 @@
       "completed": "Epic catalog refresh completed",
       "resolvedWithoutSignIn": "Epic downloads named from the stored catalog - not signed in to Epic",
       "skippedNotSignedIn": "Epic catalog refresh skipped - not signed in to Epic",
-      "cancelled": "Epic catalog refresh cancelled",
+      "canceled": "Epic catalog refresh canceled",
       "failed": "Epic catalog refresh failed: {{errorDetail}}",
       "mappingFailed": "Epic game mapping failed"
     },
@@ -7730,7 +7755,7 @@
       "keySaveFailed": "Failed to save the Steam Web API key",
       "keyRemoved": "Steam Web API key removed",
       "keyRemoveFailed": "Failed to remove the Steam Web API key",
-      "cancelled": "Steam Web API key check cancelled"
+      "canceled": "Steam Web API key check canceled"
     },
     "xboxMapping": {
       "starting": "Starting Xbox catalog resolve...",
@@ -7739,7 +7764,7 @@
       "backfilling": "Backfilling Xbox game mappings...",
       "completed": "Xbox catalog resolve completed",
       "skippedNotSignedIn": "Xbox catalog resolve skipped - not signed in to Xbox",
-      "cancelled": "Xbox catalog resolve cancelled",
+      "canceled": "Xbox catalog resolve canceled",
       "failed": "Xbox catalog resolve failed: {{errorDetail}}"
     },
     "battleNetMapping": {
@@ -7748,7 +7773,7 @@
       "saving": "Saving Battle.net game mappings...",
       "completed": "Battle.net game mapping completed",
       "skippedNothingResolved": "Battle.net game mapping skipped - no downloads matched a known game",
-      "cancelled": "Battle.net game mapping cancelled",
+      "canceled": "Battle.net game mapping canceled",
       "failed": "Battle.net game mapping failed"
     },
     "riotMapping": {
@@ -7756,14 +7781,14 @@
       "resolving": "Resolving Riot downloads to game names...",
       "completed": "Riot game mapping completed",
       "skippedNothingResolved": "Riot game mapping skipped - no downloads matched a known game",
-      "cancelled": "Riot game mapping cancelled",
+      "canceled": "Riot game mapping canceled",
       "failed": "Riot game mapping failed"
     },
     "xbox": {
       "mapping": {
         "authenticating": "Waiting for Microsoft sign-in...",
         "completed": "Xbox login complete",
-        "cancelled": "Xbox login cancelled",
+        "canceled": "Xbox login canceled",
         "failed": "Xbox login failed",
         "errors": {
           "noXboxProfile": "This Microsoft account has no Xbox profile. Sign in once at xbox.com to create one, then try again.",
@@ -7784,7 +7809,7 @@
       },
       "noUrls": "No URLs found for this game",
       "complete": "Removed {{files}} cache files ({{gb}} GB), {{logEntries}} log entries for Epic game '{{gameName}}'",
-      "cancelled": "Epic game removal for '{{gameName}}' was cancelled.",
+      "canceled": "Epic game removal for '{{gameName}}' was canceled.",
       "error": {
         "fatal": "Epic game removal failed: {{errorDetail}}"
       },
@@ -7822,9 +7847,12 @@
       "updatingStatus": "Updating game status...",
       "finalizingRemoval": "Finalizing removal...",
       "complete": "Eviction removal complete.",
-      "cancelled": "Eviction removal cancelled.",
+      "canceled": "Eviction removal canceled.",
       "failed": "Eviction removal failed.",
-      "refreshingDetection": "Refreshing cache detection data..."
+      "refreshingDetection": "Refreshing cache detection data...",
+      "error": {
+        "fatal": "Eviction removal failed: {{errorDetail}}"
+      }
     },
     "evictionScan": {
       "detectingGames": "Running a full game detection...",
@@ -7835,7 +7863,7 @@
       "postProcessing": "Updating detection records...",
       "refreshingSummary": "Refreshing detection summary of cached files...",
       "complete": "Scan complete: {{totalProcessed}} processed, {{totalEvicted}} evicted, {{totalUnEvicted}} un-evicted",
-      "cancelled": "Eviction scan cancelled",
+      "canceled": "Eviction scan canceled",
       "stoppedBySystem": "The scan stopped before it finished, most likely because the container ran out of memory. Give the container more memory and run the scan again.",
       "repairStopped": "The cache check after this job stopped before it finished, most likely because the container ran out of memory. Give the container more memory, then press Retry.",
       "repairFailed": "The cache check after this job failed. The server log has the reason. Press Retry.",
@@ -7852,7 +7880,9 @@
       "counting": "Counting cache files...",
       "calibrating": "Measuring deletion speed (test {{step}} of {{totalSteps}})...",
       "complete": "Cache file scan completed: {{totalFiles}} files, {{totalSize}}",
-      "cancelled": "Cache file scan cancelled",
+      "canceled": "Cache file scan canceled",
+      "rootUnavailable": "The cache folder {{cachePath}} is unavailable or was replaced",
+      "failed": "Cache file scan failed. See the server log.",
       "error": {
         "fatal": "Cache size scan failed: {{errorDetail}}"
       }
@@ -7897,7 +7927,7 @@
         "noNewGames": "No new games detected ({{totalGamesDetected}} total with cache files)",
         "full": "Detected {{totalGamesDetected}} games with cache files"
       },
-      "cancelled": "Game detection cancelled",
+      "canceled": "Game detection canceled",
       "refreshingSummary": "Refreshing detection summary of cached files...",
       "scan": {
         "skippedIncremental": "Skipping cache file scan (incremental mode)...",
@@ -7932,6 +7962,9 @@
         "gamesAndServices": "Loaded {{gamesCount}} games and {{servicesCount}} services from cache",
         "gamesOnly": "Loaded {{gamesCount}} games from cache"
       },
+      "mappingsFound": "Found {{count}} new game mapping(s) for unknown games, refreshing...",
+      "rescanningWithMappings": "Scanning again with {{count}} new mapping(s)...",
+      "staleCleanedUp": "Ended: this detection was left over from an earlier start",
       "error": {
         "fatal": "Game cache detection failed: {{errorDetail}}"
       }
@@ -7946,7 +7979,7 @@
       "finalizing": "Finalizing removal...",
       "noUrls": "No URLs found for this game",
       "complete": "Removed {{files}} cache files ({{gb}} GB), {{logEntries}} log entries for game '{{gameName}}' (AppID {{gameAppId}})",
-      "cancelled": "Game removal for '{{gameName}}' was cancelled.",
+      "canceled": "Game removal for '{{gameName}}' was canceled.",
       "error": {
         "fatal": "Game removal failed: {{errorDetail}}"
       },
@@ -7986,7 +8019,7 @@
     "logProcessor": {
       "starting": "Starting log processing...",
       "complete": "Processing complete",
-      "cancelled": "Log processing cancelled",
+      "canceled": "Log processing canceled",
       "error": {
         "fatal": "Log processing failed: {{errorDetail}}"
       }
@@ -8015,7 +8048,9 @@
       "processingDatasource": "Removing {{service}} entries from datasource '{{datasourceName}}'...",
       "cleaningDatabase": "Cleaning up database records for {{service}}...",
       "error": {
-        "fatal": "Log removal failed: {{errorDetail}}"
+        "fatal": "Log removal failed: {{errorDetail}}",
+        "exitCode": "Removing {{service}} entries from {{datasource}} failed (exit code {{exitCode}})",
+        "noEnding": "Log removal stopped without finishing"
       }
     },
     "logService": {
@@ -8029,7 +8064,7 @@
       },
       "progress": "Counting log entries...",
       "complete": "Service count complete",
-      "cancelled": "Service count was cancelled",
+      "canceled": "Service count was canceled",
       "error": {
         "fatal": "Service count failed: {{errorDetail}}"
       }
@@ -8043,7 +8078,7 @@
       "complete": "Removed {{files}} cache files ({{gb}} GB), {{logEntries}} log entries, {{dbRecords}} database records for service '{{service}}'",
       "finalizing": "Finalizing removal...",
       "success": "Successfully removed {{name}} service from cache",
-      "cancelled": "Service removal for {{name}} was cancelled.",
+      "canceled": "Service removal for {{name}} was canceled.",
       "error": {
         "default": "Error removing {{name}}: {{errorDetail}}",
         "fatal": "Service removal failed: {{errorDetail}}"
@@ -8090,7 +8125,7 @@
       "skippedNoDaemon": "No daemon registered for this service",
       "skippedNoContainer": "No running persistent container. Start the persistent container before scheduling.",
       "skippedContainerBusy": "The persistent container is busy",
-      "skippedOverlap": "Another schedule is using this platform. This attempt was skipped and was not queued.",
+      "skippedOverlap": "Another schedule is using this platform. This attempt was skipped and will not run later.",
       "needsPersistentContainer": "No running persistent container. Start and log in the persistent container before scheduling.",
       "needsPersistentLogin": "The persistent container is running but not logged in. Log in, then run again, or wait for the next scheduled attempt.",
       "reusingContainer": "Reusing persistent container",
@@ -8119,6 +8154,10 @@
       "runAllNeedLogin": "All due services need login",
       "runAllSkipped": "All enabled services were skipped"
     },
+    "prefill": {
+      "daemonInitialized": "Prefill service ready",
+      "daemonNotInitialized": "Prefill service not ready"
+    },
     "prefillSession": {
       "superseded": "Superseded by new prefill operation",
       "stopped": "Session stopped",
@@ -8134,13 +8173,16 @@
     },
     "statusCheck": {
       "dnsTimeout": "DNS query timed out",
-      "noARecords": "No A records returned"
+      "noARecords": "No A records returned",
+      "failed": "The check failed: {{errorDetail}}",
+      "canceled": "The check was canceled."
     }
   },
   "errors": {
     "unmappedRemoval": {
       "noFullScan": "Run a full detection scan first.",
       "downloadInProgress": "A client download is writing to the cache. Try again once it finishes.",
+      "trackerNotReported": "The download tracker has not reported yet, so it cannot tell whether the cache is being written to. Try again in a few seconds.",
       "trackerStopped": "Download tracking stopped, for example while a log action ran, so the removal could not tell whether a client was reading the cache. Try again once tracking is back.",
       "logsBehind": "Log processing has not read every access log yet. If this keeps happening, the server log names a log file that could not be opened. Fix its permissions, then try again.",
       "logsMissing": "A log series that was read before is missing, or the log folder is empty. Mount or restore the log folder, then try again. If the folder is mounted and only access.log is gone, nginx creates it again when it reopens its logs: run Log Rotation under Schedules, or restart the LANCache container, then try again. If you removed a per-service log on purpose, Delete Log File under Log Removal clears it, and also deletes the log files still there.",
@@ -8215,7 +8257,7 @@
       "bulkActive": "A bulk operation is in flight. Wait for it to complete.",
       "globalOperationActive": "A global operation (cache clear or database reset) is in progress. All other operations are blocked.",
       "cacheFileScanActive": "A cache file scan is in progress. Wait for it to finish before starting cache operations.",
-      "heavyOperationActive": "Another data operation is running. This one has been queued and will start when it finishes.",
+      "heavyOperationActive": "Another data operation is running. This one is waiting and will start when it finishes.",
       "downloadHistoryUpgradeActive": "The one-time download history upgrade is running. Try again when it finishes.",
       "evictionResetBusy": "Eviction data is being updated. Try again when it finishes."
     },
@@ -8247,6 +8289,11 @@
       "nothingRemovable": "This stored corruption scan has no removable candidates",
       "scopeNothingRemovable": "This stored corruption scope has no removable candidates",
       "datasourceGone": "One or more corruption candidates belong to a datasource that is no longer configured"
+    },
+    "dataImport": {
+      "invalidSource": "The source database connection string is not valid",
+      "targetMissing": "This server has no database connection string",
+      "sameDatabase": "You cannot import from the database this server is using"
     },
     "datasources": {
       "invalidCacheSize": "Cache size must be a byte count or a size such as 2000g, 500G, 2t, or 1.5T.",
@@ -8281,10 +8328,15 @@
     "login": {
       "invalidCredentials": "Invalid API key, username or password."
     },
+    "guest": {
+      "disabled": "Guest access is turned off.",
+      "setupIncomplete": "Guest sessions open once setup is finished.",
+      "noAdministrator": "Guest sessions open once an administrator account exists.",
+      "sessionFailed": "The guest session could not be started."
+    },
     "logs": {
       "startFailed": "Failed to start log processing",
       "startFailedForDatasource": "Failed to start log processing for '{{datasource}}'",
-      "removeFailed": "Failed to remove logs for service '{{service}}' from datasource '{{datasource}}'",
       "fileNotFound": "Log file not found: {{path}}",
       "directoryReadOnly": "The logs directory is read-only for '{{datasource}}'. Remove :ro from its volume mount in docker-compose.yml, then try again.",
       "processingActive": "Log processing is running. Try again when it finishes.",
@@ -8329,6 +8381,7 @@
       "noRunningSession": "No running persistent $t(errors.prefill.serviceNames.{{service}}) session",
       "sessionReplaced": "This persistent session was replaced by a newer one. Please start it again.",
       "loginCancelUnconfirmed": "The sign-in could not be canceled. Start the session again.",
+      "earlierSignInNotCanceled": "An earlier sign-in could not be canceled. Start the session again to recover.",
       "logoutBeforeSavedLogin": "Log out the current account before using your saved login.",
       "heldAccountNotLoggedOut": "The account from the canceled sign-in could not be logged out of the container. Try again.",
       "requestFailed": "The prefill daemon could not complete the request. Try again.",
@@ -8341,7 +8394,9 @@
       "ambiguousOperation": "Choose which prefill run to cancel.",
       "outcomeUnknown": "The outcome of this prefill could not be recovered.",
       "startUnavailable": "The container could not start the prefill. Try again.",
+      "topCountAboveLimit": "This platform prefills at most {{max}} top games. Set the top count to {{max}} or less.",
       "gameDownloadFailed": "This game did not finish downloading.",
+      "cacheDomainMissing": "LANCache returned no data for this game. Xbox games need the windowsupdates and xboxlive cache-domain groups. Enable them in LANCache, reload it, then run the prefill again.",
       "signInLost": "The service account was signed out before this finished. An always-on container may sign in again by itself with its saved login. If it is still signed out, log in again, then run it again.",
       "loginRequired": "The service account is signed out. Log in again, then run it again.",
       "gameDetailsUnavailable": "The service did not return details for this game.",
@@ -8351,7 +8406,16 @@
       "banSavedCleanupIncomplete": "The ban was saved, but prefill cleanup is incomplete. Retry this action.",
       "validityDatesNotSaved": "The validity was saved, but the re-login dates were not updated. Save again to finish.",
       "lancacheIpUnresolved": "The LANCache address set in Prefill__LancacheIp could not be resolved to an IP address. Check that setting, then try again.",
-      "shuttingDown": "LANCache Manager is shutting down, so no new prefill session can start. Try again after it restarts."
+      "shuttingDown": "LANCache Manager is shutting down, so no new prefill session can start. Try again after it restarts.",
+      "noDaemon": "No prefill daemon is registered for $t(errors.prefill.serviceNames.{{service}}).",
+      "sessionNotFound": "No persistent session was found with this id. Reload the page and try again.",
+      "persistentContainerBusy": "The persistent $t(errors.prefill.serviceNames.{{service}}) container is busy. Try again shortly.",
+      "sessionChanged": "The persistent prefill session changed. Try again.",
+      "runNoLongerActive": "The requested prefill run is no longer active.",
+      "loginIdInvalid": "This sign-in request has no valid id. Reload the page and try again.",
+      "loginIdentityRequired": "The cancel request does not name a sign-in. Reload the page and try again.",
+      "sessionIdRequired": "The request does not name a prefill session. Reload the page and try again.",
+      "credentialRequired": "Enter the requested sign-in detail before sending it."
     },
     "rateLimit": {
       "tooManyRequests": "Too many requests from this address. Wait for the limit to reset and try again."
@@ -8373,7 +8437,7 @@
       "signInInProgress": "A Steam sign-in is already in progress.",
       "signInLost": "Steam is no longer signed in. Log in again, then try again.",
       "gameDetailsUnavailable": "Steam did not return game details. Try again.",
-      "signInCancelled": "Sign-in was cancelled.",
+      "signInCanceled": "Sign-in was canceled.",
       "signInOwnerChanged": "This Steam sign-in was started by another account. Start a new sign-in from your account.",
       "serversBusy": "Steam's servers are busy right now. This is temporary, please wait a moment and try again.",
       "mobileConfirmationRequired": "Mobile confirmation required",
@@ -8386,6 +8450,9 @@
     },
     "validation": {
       "failed": "Validation failed"
+    },
+    "operations": {
+      "notCancelable": "This job can no longer be canceled."
     }
   }
 }

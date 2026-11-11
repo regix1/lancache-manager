@@ -29,8 +29,7 @@ public class GamesController : ControllerBase
     private readonly ILogger<GamesController> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly IOperationConflictChecker _conflictChecker;
-    private readonly IOperationQueue _operationQueue;
+    private readonly IOperationWaitlist _operationQueue;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly CacheScanGate _cacheScanGate;
 
@@ -42,8 +41,7 @@ public class GamesController : ControllerBase
         ILogger<GamesController> logger,
         IPathResolver pathResolver,
         IUnifiedOperationTracker operationTracker,
-        IOperationConflictChecker conflictChecker,
-        IOperationQueue operationQueue,
+        IOperationWaitlist operationQueue,
         DatasourceCapabilityService capabilityService,
         CacheScanGate cacheScanGate)
     {
@@ -56,7 +54,6 @@ public class GamesController : ControllerBase
         _logger = logger;
         _pathResolver = pathResolver;
         _operationTracker = operationTracker;
-        _conflictChecker = conflictChecker;
         _operationQueue = operationQueue;
     }
 
@@ -117,7 +114,7 @@ public class GamesController : ControllerBase
     /// </remarks>
     /// <param name="scope">Must be <see cref="CacheRemovalScope.CacheFiles"/>; any other value is refused.</param>
     [HttpDelete("{appId}")]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(GameRemovalStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveGameFromCacheAsync(long appId, CancellationToken cancellationToken, [FromQuery] string? scope = null)
     {
@@ -160,24 +157,20 @@ public class GamesController : ControllerBase
                 _cacheManagementService.RemoveGameFromCacheAsync(appId, ct, onProgress, opId),
             onSuccess: async (long _) => await _gameCacheDetectionService.RemoveGameFromCacheAsync(appId));
 
-        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.GameRemoval,
-            ConflictScope.SteamGame(appId),
-            cancellationToken);
-        if (conflict != null)
+        // Wait-queue model: the queue checks and starts under one lock, so two requests sent
+        // together cannot both start; a conflicting one is parked (visible waiting card), never 409'd.
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.GameRemoval, ConflictScope.SteamGame(appId), $"Game Removal ({gameName})",
+            async () => await StartCoreAsync(), cancellationToken, OperationRequestKey.Plain, target: gameName);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.GameRemoval, ConflictScope.SteamGame(appId), $"Game Removal ({gameName})",
-                async () => await StartCoreAsync(), cancellationToken, target: gameName));
+            return Accepted(queueResponse);
         }
-
-        var operationId = await StartCoreAsync();
 
         return Accepted(new GameRemovalStartResponse
         {
             Message = $"Started removal of game {appId} from cache",
-            OperationId = operationId,
+            OperationId = queueResponse.OperationId,
             AppId = appId.ToString(),
             GameName = gameName,
             Status = OperationStatus.Running
@@ -194,7 +187,7 @@ public class GamesController : ControllerBase
     /// </remarks>
     /// <param name="scope">Must be <see cref="CacheRemovalScope.CacheFiles"/>; any other value is refused.</param>
     [HttpDelete("epic/{gameName}")]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(GameRemovalStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveEpicGameFromCacheAsync(string gameName, CancellationToken cancellationToken, [FromQuery] string? scope = null)
     {
@@ -239,25 +232,21 @@ public class GamesController : ControllerBase
                 _cacheManagementService.RemoveEpicGameFromCacheAsync(gameName, ct, onProgress, opId),
             onSuccess: null);
 
-        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.GameRemoval,
-            ConflictScope.EpicGame(epicAppId, gameName),
-            cancellationToken);
-        if (conflict != null)
+        // Wait-queue model: the queue checks and starts under one lock, so two requests sent
+        // together cannot both start; a conflicting one is parked (visible waiting card), never 409'd.
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.GameRemoval, ConflictScope.EpicGame(epicAppId, gameName),
+            $"Epic Game Removal ({gameName})",
+            async () => await StartCoreAsync(), cancellationToken, OperationRequestKey.Plain, target: gameName);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.GameRemoval, ConflictScope.EpicGame(epicAppId, gameName),
-                $"Epic Game Removal ({gameName})",
-                async () => await StartCoreAsync(), cancellationToken, target: gameName));
+            return Accepted(queueResponse);
         }
-
-        var operationId = await StartCoreAsync();
 
         return Accepted(new GameRemovalStartResponse
         {
             Message = $"Started removal of Epic game {gameName} from cache",
-            OperationId = operationId,
+            OperationId = queueResponse.OperationId,
             AppId = string.Empty,
             GameName = gameName,
             Status = OperationStatus.Running
@@ -275,7 +264,7 @@ public class GamesController : ControllerBase
     /// </remarks>
     /// <param name="scope">Must be <see cref="CacheRemovalScope.CacheFiles"/>; any other value is refused.</param>
     [HttpDelete("named/{service}/{gameName}")]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(GameRemovalStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveNamedGameFromCacheAsync(string service, string gameName, CancellationToken cancellationToken, [FromQuery] string? scope = null)
     {
@@ -321,25 +310,21 @@ public class GamesController : ControllerBase
                 _cacheManagementService.RemoveNamedGameFromCacheAsync(service, gameName, ct, onProgress, opId),
             onSuccess: null);
 
-        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.GameRemoval,
-            ConflictScope.NamedGame(service, gameName),
-            cancellationToken);
-        if (conflict != null)
+        // Wait-queue model: the queue checks and starts under one lock, so two requests sent
+        // together cannot both start; a conflicting one is parked (visible waiting card), never 409'd.
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.GameRemoval, ConflictScope.NamedGame(service, gameName),
+            $"Game Removal ({gameName})",
+            async () => await StartCoreAsync(), cancellationToken, OperationRequestKey.Plain, target: gameName);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.GameRemoval, ConflictScope.NamedGame(service, gameName),
-                $"Game Removal ({gameName})",
-                async () => await StartCoreAsync(), cancellationToken, target: gameName));
+            return Accepted(queueResponse);
         }
-
-        var operationId = await StartCoreAsync();
 
         return Accepted(new GameRemovalStartResponse
         {
             Message = $"Started removal of game {gameName} from cache",
-            OperationId = operationId,
+            OperationId = queueResponse.OperationId,
             AppId = string.Empty,
             GameName = gameName,
             Status = OperationStatus.Running
@@ -376,7 +361,7 @@ public class GamesController : ControllerBase
         var isNamed = isNameKeyed && !isEpic;
         var startingStageKey = isEpic ? "signalr.epicRemove.starting" : (isNamed ? "signalr.namedRemove.starting" : "signalr.gameRemove.starting");
         var completeStageKey = isEpic ? "signalr.epicRemove.complete" : (isNamed ? "signalr.namedRemove.complete" : "signalr.gameRemove.complete");
-        var cancelledStageKey = isEpic ? "signalr.epicRemove.cancelled" : "signalr.gameRemove.cancelled";
+        var canceledStageKey = isEpic ? "signalr.epicRemove.canceled" : "signalr.gameRemove.canceled";
         var errorStageKey = isEpic ? "signalr.epicRemove.error.fatal" : "signalr.gameRemove.error.fatal";
 
         // Register with unified operation tracker for centralized cancellation and tracking.
@@ -484,18 +469,18 @@ public class GamesController : ControllerBase
                         bytesFreed: (long)report.TotalBytesFreed,
                         logEntriesRemoved: report.LogEntriesRemoved),
                     EntityKept: report.EntityKept),
-                BuildCancelled: id => new GameRemovalComplete(
+                BuildCanceled: id => new GameRemovalComplete(
                     Success: false,
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
                     EpicAppId: isEpic ? epicAppId : null,
-                    StageKey: cancelledStageKey,
+                    StageKey: canceledStageKey,
                     GameName: displayName,
                     Context: RemovalContext(displayName, appId, epicAppId),
                     // Without this the card reads as a failure: success:false alone is
                     // indistinguishable from a genuine error, so the UI paints it red and
                     // announces it as an alert. A run the user stopped is not a fault.
-                    Cancelled: true),
+                    Canceled: true),
                 BuildErrorProgress: (id, ex) => new GameRemovalProgress(
                     OperationId: id,
                     GameAppId: isNameKeyed ? null : appId,
@@ -514,8 +499,9 @@ public class GamesController : ControllerBase
                     StageKey: ex is ApiException { StageKey: { } refusalKey } ? refusalKey : errorStageKey,
                     GameName: displayName,
                     Context: RemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message),
-                    // The browser shows an error ahead of the stage key, so a keyed refusal sends none.
-                    Error: ex is ApiException { StageKey: not null } ? null : ex.Message),
+                    // The browser shows an error ahead of the stage key, so none is sent: the error key
+                    // names the text as its errorDetail value.
+                    Error: null),
                 ExecuteAsync: (opId, ct, onProgress) => removeFunc(
                     opId,
                     ct,
@@ -561,9 +547,9 @@ public class GamesController : ControllerBase
                         report.CacheFilesDeleted,
                         report.TotalBytesFreed);
                 },
-                LogCancelled: _ =>
+                LogCanceled: _ =>
                 {
-                    _logger.LogInformation("Game removal cancelled for {EntityKey}", entityKey);
+                    _logger.LogInformation("Game removal canceled for {EntityKey}", entityKey);
                 },
                 LogFailure: (_, ex) =>
                 {
@@ -584,7 +570,7 @@ public class GamesController : ControllerBase
     /// incremental scan that only looks at what changed since the last detection.
     /// </param>
     [HttpPost("detect")]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(GameDetectionStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> DetectGamesAsync([FromQuery] bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
@@ -595,7 +581,7 @@ public class GamesController : ControllerBase
         }
 
         // Asked before the conflict check below, because that check parks a conflicting request
-        // and answers 202. A person waiting on this response needs the refusal now, not a queued
+        // and answers 202. A person waiting on this response needs the refusal now, not a waiting
         // card that fails later.
         var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
         if (downloadDenial != null)
@@ -619,40 +605,27 @@ public class GamesController : ControllerBase
             RequestedScanType = scanType
         };
 
-        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
         // StartDetectionAsync returns null only for the already-running race; capability
         // refusals remain failures so queue promotion cannot misclassify them as an active scan.
         Task<Guid?> StartDetectionCoreAsync() =>
             _gameCacheDetectionService.StartDetectionAsync(notice, incremental);
 
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.GameDetection,
-            ConflictScope.Bulk(),
-            cancellationToken);
-        if (conflict != null)
+        // The queue checks and starts under one lock, so a clear and a detection sent at the same
+        // moment cannot both start; a conflicting detection is parked (visible waiting card), never 409'd.
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
+            StartDetectionCoreAsync, cancellationToken, new GameDetectionRequestKey(scanType), notice: notice);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
-                StartDetectionCoreAsync, cancellationToken, notice: notice, detectionScanType: scanType));
+            return Accepted(queueResponse);
         }
 
-        var operationId = await StartDetectionCoreAsync();
-
-        if (operationId == null)
-        {
-            // Race: detection started between our checker call and StartDetectionAsync - park it
-            // (the queue re-checks under its gate and deduplicates against the now-active op).
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection",
-                StartDetectionCoreAsync, cancellationToken, notice: notice, detectionScanType: scanType));
-        }
-
-        _logger.LogInformation("Started game detection operation: {OperationId} (forceRefresh={ForceRefresh}, incremental={Incremental})", operationId, forceRefresh, incremental);
+        _logger.LogInformation("Started game detection operation: {OperationId} (forceRefresh={ForceRefresh}, incremental={Incremental})", queueResponse.OperationId, forceRefresh, incremental);
 
         return Accepted(new GameDetectionStartResponse
         {
             Message = forceRefresh ? "Full scan started" : "Incremental scan started",
-            OperationId = operationId.Value,
+            OperationId = queueResponse.OperationId,
             Status = OperationStatus.Running
         });
     }

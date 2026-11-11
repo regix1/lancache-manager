@@ -59,6 +59,7 @@ internal sealed class RunVisibilityJsonConverter : JsonStringEnumConverter<RunVi
 /// <param name="FailedDatasource">The datasource a failed log processing run stopped on, which its error key's text
 /// names; null for every other run.</param>
 /// <param name="DatabaseError">The database error that stopped that datasource; null when there was none.</param>
+/// <param name="FailureReason">A failed run's key and the values its sentence names; null for every other run.</param>
 public sealed record OperationRun(
     Guid OperationId, string OperationType, string Name, string? Target, string? ScheduleKey, string Status,
     RunVisibility Visibility, double PercentComplete, string Message, string? Error, string? BlockedByName,
@@ -68,7 +69,8 @@ public sealed record OperationRun(
     bool LatestRunSucceeded, Guid? ScheduleId,
     PrefillPlatform? ServiceId, bool LiveIngest, bool IntegrationLogin, Guid? OwnerSessionId,
     long? CompletedRevision, DateTime StartedAt, long Revision, string? ScanMode, bool BlockedByFullRepair,
-    int? ScanThreshold, int? ScanLookbackDays, bool WaitingForDownload, string? FailedDatasource, string? DatabaseError);
+    int? ScanThreshold, int? ScanLookbackDays, bool WaitingForDownload, string? FailedDatasource, string? DatabaseError,
+    RunWarning? FailureReason);
 
 /// <summary>
 /// Every tracked run plus the revision read before they were listed, so the browser drops a run
@@ -78,6 +80,6 @@ public sealed record OperationRunsSnapshot(IReadOnlyList<OperationRun> Runs, lon
 
 /// <summary>
 /// One thing a run left undone, as the browser words it: a locale key and the values its text
-/// names (a folder, a file count, a list of datasources).
+/// names (a folder, a file count, a list of datasources). It also carries a failed run's reason.
 /// </summary>
 public sealed record RunWarning(string StageKey, IReadOnlyDictionary<string, object?> Context);

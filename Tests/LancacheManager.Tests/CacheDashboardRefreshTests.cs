@@ -246,7 +246,7 @@ public sealed class CacheDashboardRefreshTests
             notificationSource,
             StringComparison.Ordinal);
         Assert.Contains(
-            "SignalRNotifications.CacheClearComplete { Success: true, Cancelled: false }",
+            "SignalRNotifications.CacheClearComplete { Success: true, Canceled: false }",
             notificationSource,
             StringComparison.Ordinal);
         Assert.True(invalidationIndex >= 0 && invalidationIndex < broadcastIndex);
@@ -271,7 +271,7 @@ public sealed class CacheDashboardRefreshTests
             notificationSource,
             StringComparison.Ordinal);
         Assert.Contains(
-            "data is EvictionRemovalComplete { Success: true, Cancelled: false }",
+            "data is EvictionRemovalComplete { Success: true, Canceled: false }",
             notificationSource,
             StringComparison.Ordinal);
 

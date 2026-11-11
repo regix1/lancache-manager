@@ -165,7 +165,7 @@ public sealed class RateLimitCoverageContractTests
     /// <summary>
     /// Creating the first account is anonymous and takes the API key, and the claim window it sits
     /// behind is measured in minutes. Without a limiter one address can spend that whole window
-    /// guessing, so the window is not on its own the defence.
+    /// guessing, so the window is not on its own the defense.
     /// </summary>
     [Fact]
     public async Task FirstAdminCreationIsThrottledPerCallerAddress()

@@ -104,17 +104,17 @@ public sealed class ScheduledPrefillServiceRunState
             if (_completed) return null;
             _run ??= run;
             _session ??= session;
-            if (ordinaryProgress && (_snapshot.Stage == "cancelling" || _snapshot.Stage == "recovering" && !resume
+            if (ordinaryProgress && (_snapshot.Stage == "canceling" || _snapshot.Stage == "recovering" && !resume
                 || _run?.Recovering == true || _session?.Recovering == true || _run?.CancelRequested == true))
                 return null;
 
-            if (!terminal && !started && stage is ("recovering" or "cancelling") && _snapshot.Stage == stage)
+            if (!terminal && !started && stage is ("recovering" or "canceling") && _snapshot.Stage == stage)
                 return null;
 
             if (terminal && string.IsNullOrEmpty(message))
             {
-                message = stage == "cancelled" ? "Prefill stopped" : _snapshot.Message;
-                stageKey = stage == "cancelled" ? "signalr.scheduledPrefill.stopped" : _snapshot.StageKey;
+                message = stage == "canceled" ? "Prefill stopped" : _snapshot.Message;
+                stageKey = stage == "canceled" ? "signalr.scheduledPrefill.stopped" : _snapshot.StageKey;
                 stageContext = _snapshot.StageContext?.ToDictionary(pair => pair.Key, pair => pair.Value);
             }
 

@@ -71,13 +71,13 @@ public class DaemonSessionDto
 
     /// <summary>
     /// Operating system parsed from the creating request's user agent. Null when the request sent no
-    /// user agent or the agent could not be recognised.
+    /// user agent or the agent could not be recognized.
     /// </summary>
     public string? OperatingSystem { get; set; }
 
     /// <summary>
     /// Browser parsed from the creating request's user agent. Null when the request sent no user
-    /// agent or the agent could not be recognised.
+    /// agent or the agent could not be recognized.
     /// </summary>
     public string? Browser { get; set; }
 

@@ -140,10 +140,10 @@ public sealed class DatabaseResetRepairAdmissionTests
                 tracker,
                 harness.Owner,
                 NullLogger<OperationConflictChecker>.Instance);
-            var queue = new OperationQueueService(
+            var queue = new OperationWaitlistService(
                 tracker,
                 conflictChecker,
-                NullLogger<OperationQueueService>.Instance);
+                NullLogger<OperationWaitlistService>.Instance);
 
             var configuration = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
@@ -204,7 +204,6 @@ public sealed class DatabaseResetRepairAdmissionTests
             var controller = new DatabaseController(
                 databaseService,
                 NullLogger<DatabaseController>.Instance,
-                conflictChecker,
                 queue);
 
             Task<IActionResult> InvokeResetAsync() => fullReset
@@ -241,13 +240,12 @@ public sealed class DatabaseResetRepairAdmissionTests
                 Assert.Equal(true, conflict.Context!["repairPending"]);
             }
 
-            static QueuedOperationResponse AssertQueued(IActionResult result)
+            static OperationStartResponse AssertWaiting(IActionResult result)
             {
                 var accepted = Assert.IsType<AcceptedResult>(result);
-                var queued = Assert.IsType<QueuedOperationResponse>(accepted.Value);
-                Assert.True(queued.Queued);
-                Assert.Equal("waiting", queued.Status);
-                return queued;
+                var waiting = Assert.IsType<OperationStartResponse>(accepted.Value);
+                Assert.Equal(OperationStartStatus.Waiting, waiting.Status);
+                return waiting;
             }
 
             bool ResetStarted() => notificationCalls.Invocations.Any(call =>
@@ -277,9 +275,8 @@ public sealed class DatabaseResetRepairAdmissionTests
                 Assert.Null(tracker.GetOperation(repairId));
                 Assert.Contains(harness.Owner.GetPendingRepairs(), item => item.Id == repairId);
                 await AssertRepairBlockAsync();
-                var first = AssertQueued(await InvokeResetAsync());
+                var first = AssertWaiting(await InvokeResetAsync());
                 waitingId = first.OperationId;
-                Assert.False(first.AlreadyRunning);
                 Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(first.OperationId)!.Status);
                 Assert.False(ResetStarted());
                 Assert.False(resetContexts.Entered.IsCompleted);
@@ -291,9 +288,9 @@ public sealed class DatabaseResetRepairAdmissionTests
                 Assert.NotNull(tracker.GetOperation(repairId));
                 Assert.Contains(harness.Owner.GetPendingRepairs(), item => item.Id == repairId);
                 await AssertRepairBlockAsync();
-                var repeated = AssertQueued(await InvokeResetAsync());
+                // The same reset joins the waiting card: same id, still waiting.
+                var repeated = AssertWaiting(await InvokeResetAsync());
                 Assert.Equal(first.OperationId, repeated.OperationId);
-                Assert.True(repeated.AlreadyRunning);
                 Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(first.OperationId)!.Status);
                 Assert.False(ResetStarted());
                 Assert.False(resetContexts.Entered.IsCompleted);
@@ -302,7 +299,7 @@ public sealed class DatabaseResetRepairAdmissionTests
                 finish = harness.Owner.FinishRepairAsync(
                     repairId,
                     success: false,
-                    cancelled: false,
+                    canceled: false,
                     error: "signalr.generic.interruptedByRestart");
                 releaseApply.TrySetResult();
                 await finish.WaitAsync(waitLimit);
@@ -325,7 +322,7 @@ public sealed class DatabaseResetRepairAdmissionTests
                 {
                     Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(reset.Id));
                     var terminal = await resetEnded.Task.WaitAsync(waitLimit);
-                    Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+                    Assert.Equal(OperationStatus.Canceled, terminal.Status);
                     await cacheManager.ExecuteWithLockAsync(() => Task.FromResult(true))
                         .WaitAsync(waitLimit);
                     await AssertCheckpointsAsync();
@@ -345,7 +342,7 @@ public sealed class DatabaseResetRepairAdmissionTests
                     .FirstOrDefault(item => item.Status != OperationStatus.Waiting)?.Id;
                 if (resetId is { } runningId
                     && tracker.GetOperation(runningId) is { Status: not OperationStatus.Completed
-                        and not OperationStatus.Failed and not OperationStatus.Cancelled })
+                        and not OperationStatus.Failed and not OperationStatus.Canceled })
                 {
                     tracker.CancelOperation(runningId);
                 }
@@ -375,6 +372,137 @@ public sealed class DatabaseResetRepairAdmissionTests
                         .WaitAsync(waitLimit);
                 }
                 tracker.OperationTerminal -= OnTerminal;
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    // Two tabs reset at the same moment. One reset runs and the other waits behind it, so the tables are
+    // not wiped twice side by side.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TwoResetsSentTogetherStartOnce(bool fullReset)
+    {
+        var waitLimit = TimeSpan.FromSeconds(10);
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "lcm-reset-together-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+
+        try
+        {
+            await using var database = await TestDatabase.CreateAsync();
+            var state = StateTestMethods.CreateStateService(Path.Combine(root, "state"));
+            state.SetSetupCompleted(true);
+            var resetContexts = new ResetContexts(database.Options);
+            await using var harness = await OperationRepairTests.RepairHarness.CreateAsync(
+                root,
+                stateService: state);
+            var tracker = harness.Tracker;
+            var checker = new OperationConflictChecker(
+                tracker,
+                harness.Owner,
+                NullLogger<OperationConflictChecker>.Instance);
+            // On code that checks outside the queue's lock, two resets both act on "nothing running".
+            var conflicts = new SecondCallerBarrier(checker);
+            var queue = new OperationWaitlistService(
+                tracker,
+                conflicts,
+                NullLogger<OperationWaitlistService>.Instance);
+
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["LanCache:DataSources:0:Name"] = "alpha",
+                    ["LanCache:DataSources:0:CachePath"] = Path.Combine(root, "cache"),
+                    ["LanCache:DataSources:0:LogPath"] = Path.Combine(root, "logs"),
+                    ["LanCache:DataSources:0:Enabled"] = "false",
+                    ["LanCache:DataSources:0:SchemeOverride"] = DatasourceSchemeOverrideValues.Monolithic
+                })
+                .Build();
+            var paths = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+            ((PathResolverProxy)(object)paths).Root = root;
+            var datasources = new DatasourceService(
+                configuration,
+                paths,
+                NullLogger<DatasourceService>.Instance);
+            var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
+            var cacheManager = new CacheManagementService(
+                configuration,
+                NullLogger<CacheManagementService>.Instance,
+                paths,
+                rustProcessHelper: null!,
+                nginxLogRotationService: null!,
+                datasources,
+                state,
+                database.Factory,
+                gameCacheDetectionService: null!,
+                tracker,
+                notifications,
+                DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
+                checker,
+                new DatasourceCapabilityService(datasources),
+                CacheScanGateHarness.Idle(),
+                harness.Owner,
+                null!);
+            await using var serviceContext = database.Factory.CreateDbContext();
+            await using var resetServices = new ServiceCollection()
+                .AddSingleton(harness.Owner)
+                .AddSingleton(new PrefillSessionService(database.Factory, NullLogger<PrefillSessionService>.Instance))
+                .BuildServiceProvider();
+            var databaseService = new DatabaseService(
+                serviceContext,
+                notifications,
+                NullLogger<DatabaseService>.Instance,
+                paths,
+                resetContexts,
+                steamKit2Service: null!,
+                xboxCatalogMappingService: null!,
+                epicMappingService: null!,
+                serviceProvider: resetServices,
+                cacheManager,
+                state,
+                datasources,
+                tracker);
+            var controller = new DatabaseController(
+                databaseService,
+                NullLogger<DatabaseController>.Instance,
+                queue);
+
+            Task<IActionResult> ResetAsync() => fullReset
+                ? controller.ResetDatabaseAsync(CancellationToken.None)
+                : controller.ResetSelectedTablesAsync(
+                    new ResetTablesRequest { Tables = ["EvictionScanCheckpoints"] },
+                    CancellationToken.None);
+
+            var answers = await Task.WhenAll(ResetAsync(), ResetAsync());
+            try
+            {
+                // The started reset waits here for its database context, so it is still running below.
+                await resetContexts.Entered.WaitAsync(waitLimit);
+                CorruptionRemovalContractTests.AssertStartedOnce(tracker, answers, OperationType.DatabaseReset);
+            }
+            finally
+            {
+                foreach (var waiting in tracker.GetWaitingOperations().Where(operation => operation.Type == OperationType.DatabaseReset).ToList())
+                    tracker.CancelOperation(waiting.Id);
+                foreach (var reset in tracker.GetActiveOperations(OperationType.DatabaseReset).ToList())
+                    tracker.CancelOperation(reset.Id);
+                resetContexts.Release();
+                for (var attempt = 0; attempt < 400 && tracker.GetActiveOperations(OperationType.DatabaseReset).Any(); attempt++)
+                    await Task.Delay(25);
+                if (fullReset)
+                {
+                    await cacheManager.ExecuteWithLockAsync(() => Task.FromResult(true))
+                        .WaitAsync(waitLimit);
+                }
             }
         }
         finally

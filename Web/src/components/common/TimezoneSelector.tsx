@@ -156,7 +156,7 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
             opt.value === adminDefault
               ? `${opt.label} (${t('common.timezoneSelector.defaultLabel')})`
               : opt.label,
-          // A greyed row that still describes its clock face reads as broken. The row the reader
+          // A grayed row that still describes its clock face reads as broken. The row the reader
           // cannot pick says why instead.
           description: isAllowed ? opt.description : t('common.timezoneSelector.notAllowed'),
           disabled: !isAllowed

@@ -91,7 +91,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   // The server refuses a log action for the whole time an unmapped removal runs or is being stopped.
   const isUnmappedRemovalRunning = useOperationBusy({
     types: ['unmapped_file_removal'],
-    status: ['running', 'cancelling']
+    status: ['running', 'canceling']
   });
   const unmappedRemovalReason = isUnmappedRemovalRunning
     ? t('management.storage.unmappedRemovalRunning')
@@ -241,7 +241,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const logResetRunningPollRef = useRef(0);
   const logResetRunningAppliedRef = useRef(0);
 
-  // Check if processing is running or queued behind another operation
+  // Check if processing is running or waiting behind another operation
   const isProcessing = useOperationBusy({
     types: ['log_processing'],
     status: ['running', 'waiting']

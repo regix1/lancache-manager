@@ -18,7 +18,7 @@ import {
  * (Game Cache Detector, Evicted Items). It must stay true while a cache-domain
  * removal (single, evicted, or a cache bulk run) is active, and false while an
  * unrelated batch (log removal) runs - a log batch's bulk_removal card must not
- * grey out buttons that have nothing to do with it. No component render is
+ * gray out buttons that have nothing to do with it. No component render is
  * needed: the hook is a pure `useMemo` over the server's `runs` (single removals) and the
  * drawn `notifications` (the browser's own bulk cards), so `useMemo` and `useNotifications` are
  * stubbed to plain functions and the hook is called
@@ -90,25 +90,25 @@ test('a running evicted batch gates the controls', async () => {
   assert.equal(active, true);
 });
 
-test('a single running, queued or cancelling removal still gates the controls', async () => {
+test('a single running, waiting or canceling removal still gates the controls', async () => {
   for (const type of [
     'game_removal',
     'service_removal',
     'eviction_removal',
     'unmapped_file_removal'
   ]) {
-    for (const status of ['running', 'waiting', 'cancelling']) {
+    for (const status of ['running', 'waiting', 'canceling']) {
       const active = await activeFor([], [{ id: 'x', type, status, details: {} }]);
       assert.equal(active, true, `${type} ${status} should gate`);
     }
   }
 });
 
-test('a cancelling removal still holds the cache lock for every removal-running check', async () => {
+test('a canceling removal still holds the cache lock for every removal-running check', async () => {
   const { REMOVAL_TYPES } = await import(
     await compileToUrl('../src/contexts/notifications/constants.ts')
   );
-  const runs = [{ id: 'x', type: 'game_removal', status: 'cancelling', details: {} }];
+  const runs = [{ id: 'x', type: 'game_removal', status: 'canceling', details: {} }];
   const isAnyRemovalRunning = bindLifted(
     liftHookCallback(
       'src/contexts/notifications/NotificationsContext.tsx',
@@ -148,7 +148,7 @@ const steamRun = (status) => ({
 test('an entity stays busy while its removal runs or unwinds, and not while it waits', async () => {
   const dota = { kind: 'steamGame', gameAppId: 570 };
   assert.equal(await entityBusyFor(dota, [steamRun('running')]), true);
-  assert.equal(await entityBusyFor(dota, [steamRun('cancelling')]), true);
+  assert.equal(await entityBusyFor(dota, [steamRun('canceling')]), true);
   // A waiting removal's record holds only the queue's park state: it names no game yet.
   assert.equal(await entityBusyFor(dota, [steamRun('waiting')]), false);
   assert.equal(
@@ -214,7 +214,7 @@ test('a service stays busy while its removal runs, from the service name the run
     details: { operationId: 'op', service }
   });
   assert.equal(await entityBusyFor(steam, [run('running', 'steam')]), true);
-  assert.equal(await entityBusyFor(steam, [run('cancelling', 'steam')]), true);
+  assert.equal(await entityBusyFor(steam, [run('canceling', 'steam')]), true);
   assert.equal(await entityBusyFor(steam, [run('running', 'epicgames')]), false);
 });
 
@@ -307,7 +307,7 @@ test('the log row that shows a spinner is the service the running log removal na
   });
 
   assert.equal(activeRow([run('running')]), 'steam');
-  assert.equal(activeRow([run('waiting')]), null, 'a queued removal has not started on a row');
+  assert.equal(activeRow([run('waiting')]), null, 'a waiting removal has not started on a row');
   assert.equal(activeRow([]), null);
 });
 

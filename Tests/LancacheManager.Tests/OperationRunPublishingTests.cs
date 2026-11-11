@@ -44,12 +44,12 @@ public sealed class OperationRunPublishingTests
             initialStatus: OperationStatus.Waiting, notice: notice);
         notice.PendingId = id;
 
-        Assert.True(tracker.BeginQueuedOperation(id, new Dictionary<string, object?>(), null, null));
+        Assert.True(tracker.BeginWaitingOperation(id, new Dictionary<string, object?>(), null, null));
         tracker.CancelOperation(id);
 
         // Its worker owns the terminal now, so the cancel must leave it unwinding rather than end it.
         Assert.False(tracker.CancelParkedOperation(id));
-        Assert.Equal(OperationStatus.Cancelling, tracker.GetOperation(id)!.Status);
+        Assert.Equal(OperationStatus.Canceling, tracker.GetOperation(id)!.Status);
         Assert.Contains(tracker.GetActiveOperations(), op => op.Id == id);
     }
 
@@ -66,7 +66,7 @@ public sealed class OperationRunPublishingTests
             tracker.SetBlockedByName(id, "Game Removal");
         }
 
-        Assert.True(tracker.BeginQueuedOperation(id, new Dictionary<string, object?>(), null, null));
+        Assert.True(tracker.BeginWaitingOperation(id, new Dictionary<string, object?>(), null, null));
 
         Assert.Null(tracker.GetOperation(id)!.BlockedByName);
         Assert.Null(Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == id).BlockedByName);
@@ -108,7 +108,7 @@ public sealed class OperationRunPublishingTests
         tracker.SetBlockedByName(waiting, "Cache File Scan");
         tracker.SetBlockedByName(waiting, "Cache File Scan");
         tracker.RefreshRun(waiting);
-        tracker.BeginQueuedOperation(waiting, new Dictionary<string, object?>(), null, null);
+        tracker.BeginWaitingOperation(waiting, new Dictionary<string, object?>(), null, null);
         tracker.UpdateProgress(waiting, 50, "Halfway");
         tracker.UpdateMetadata(waiting, _ => { });
         tracker.RegisterOperation(OperationType.ScheduledPrefill, "Scheduled Prefill", new CancellationTokenSource(),
@@ -118,7 +118,7 @@ public sealed class OperationRunPublishingTests
         tracker.RecordHandoff(waiting, restored);
         tracker.CancelOperation(restored);
         tracker.ForceKillOperation(restored);
-        tracker.CompleteOperation(restored, success: false, cancelled: true);
+        tracker.CompleteOperation(restored, success: false, canceled: true);
         tracker.CompleteOperation(waiting, success: false, error: "Disk read failed");
         tracker.UpdateKeptEnding(waiting, 2, latestRunSucceeded: false);
         Assert.True(tracker.CloseRun(waiting));
@@ -127,7 +127,7 @@ public sealed class OperationRunPublishingTests
 
         Assert.Equal(Enumerable.Range(1, 11).Select(revision => (long)revision), rows.Select(row => row.Revision));
         Assert.Equal(
-            new[] { "waiting", "waiting", "waiting", "running", "running", "cancelling", "cancelling", "cancelled", "failed", "failed", "failed" },
+            new[] { "waiting", "waiting", "waiting", "running", "running", "canceling", "canceling", "canceled", "failed", "failed", "failed" },
             rows.Select(row => row.Status));
         Assert.Equal("Cache File Scan", rows[1].BlockedByName);
         Assert.True(rows[^1].Closed);
@@ -244,14 +244,14 @@ public sealed class OperationRunPublishingTests
         Assert.DoesNotContain(runs, run => run.OperationId == succeeded);
     }
 
-    // Only red and amber endings stay until closed; a cancelled card leaves on its own like a
+    // Only red and amber endings stay until closed; a canceled card leaves on its own like a
     // success.
     [Fact]
-    public void SkippedCardsAreKeptAndCancelledRunsAreNot()
+    public void SkippedCardsAreKeptAndCanceledRunsAreNot()
     {
         var tracker = CreateTracker();
-        var card = Ended(tracker, OperationType.EvictionScan, new RunNotice(NotificationMode.All, RunTrigger.Scheduled), cancelled: true);
-        var background = Ended(tracker, OperationType.EvictionScan, new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled), cancelled: true);
+        var card = Ended(tracker, OperationType.EvictionScan, new RunNotice(NotificationMode.All, RunTrigger.Scheduled), canceled: true);
+        var background = Ended(tracker, OperationType.EvictionScan, new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled), canceled: true);
         var skippedCard = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
         tracker.CompleteOperation(skippedCard, success: true, skipped: true);
 
@@ -268,7 +268,7 @@ public sealed class OperationRunPublishingTests
         var phase = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
             parentOperationId: parent);
         tracker.CompleteOperation(phase, success: false, error: "Detection failed");
-        var statusCheck = Ended(tracker, OperationType.StatusCheck, null, cancelled: false);
+        var statusCheck = Ended(tracker, OperationType.StatusCheck, null, canceled: false);
 
         Assert.False(Run(tracker, phase).Retained);
         Assert.False(Run(tracker, statusCheck).Retained);
@@ -325,7 +325,7 @@ public sealed class OperationRunPublishingTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void ASetWarningKeepsAnEndedRunAndReplacesOneWithTheSameKey(bool cancelled)
+    public void ASetWarningKeepsAnEndedRunAndReplacesOneWithTheSameKey(bool canceled)
     {
         var tracker = CreateTracker();
         var id = tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear", new CancellationTokenSource());
@@ -336,10 +336,10 @@ public sealed class OperationRunPublishingTests
             "common.notifications.warnings.cacheFilesKept",
             new Dictionary<string, object?> { ["fileCount"] = 2, ["path"] = "/cache/aa/bb/first" }));
 
-        tracker.CompleteOperation(id, success: !cancelled, cancelled: cancelled);
+        tracker.CompleteOperation(id, success: !canceled, canceled: canceled);
 
         var ended = Run(tracker, id);
-        Assert.Equal(cancelled ? "cancelled" : "completed", ended.Status);
+        Assert.Equal(canceled ? "canceled" : "completed", ended.Status);
         var warning = Assert.Single(ended.Warnings);
         Assert.Equal("common.notifications.warnings.cacheFilesKept", warning.StageKey);
         Assert.Equal(2, warning.Context["fileCount"]);
@@ -796,7 +796,7 @@ public sealed class OperationRunPublishingTests
             initialStatus: OperationStatus.Waiting, notice: new RunNotice(NotificationMode.All, RunTrigger.Manual));
         var successor = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
             notice: new RunNotice(NotificationMode.Silent, RunTrigger.Scheduled));
-        tracker.CompleteOperation(successor, success: false, cancelled: true);
+        tracker.CompleteOperation(successor, success: false, canceled: true);
         var before = SentRows(recorder).Count;
 
         tracker.RecordHandoff(waiting, successor);
@@ -816,7 +816,7 @@ public sealed class OperationRunPublishingTests
         var notice = new RunNotice(NotificationMode.Manual, RunTrigger.Scheduled);
         var waiting = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
             initialStatus: OperationStatus.Waiting, notice: notice);
-        tracker.CompleteOperation(waiting, success: false, cancelled: true);
+        tracker.CompleteOperation(waiting, success: false, canceled: true);
 
         // The duplicate-request path raises a waiting notice's trigger without the operation lock.
         notice.Trigger = RunTrigger.Manual;
@@ -846,19 +846,19 @@ public sealed class OperationRunPublishingTests
         var queue = CreateQueue(tracker);
         var blocker = tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var started = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var queued = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection", async () =>
+        var waitingRun = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection", async () =>
         {
             await Task.Yield();
             var id = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
             started.TrySetResult(id);
             return id;
-        }, CancellationToken.None);
-        Assert.True(queued.Queued);
+        }, CancellationToken.None, new GameDetectionRequestKey(DetectionScanType.Full));
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
 
         tracker.CompleteOperation(blocker, success: true);
         var promoted = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(queued.OperationId, SentRows(recorder).First(row => row.OperationId == promoted).PreviousOperationId);
+        Assert.Equal(waitingRun.OperationId, SentRows(recorder).First(row => row.OperationId == promoted).PreviousOperationId);
     }
 
     [Fact]
@@ -881,11 +881,11 @@ public sealed class OperationRunPublishingTests
     {
         var (tracker, recorder) = CreateRecordingTracker();
         var queue = CreateQueue(tracker);
-        var gate = Assert.IsType<SemaphoreSlim>(typeof(OperationQueueService)
+        var gate = Assert.IsType<SemaphoreSlim>(typeof(OperationWaitlistService)
             .GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(queue));
         var blocker = tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
-        var queued = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
-            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
+        var waitingRun = await queue.EnqueueAsync(OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, OperationRequestKey.Plain);
         Guid duplicate;
         int duplicateRow;
         await gate.WaitAsync();
@@ -897,7 +897,7 @@ public sealed class OperationRunPublishingTests
         }
         finally { gate.Release(); }
 
-        var ending = await WaitForRowAsync(recorder, row => row.OperationId == queued.OperationId && row.Status == "completed");
+        var ending = await WaitForRowAsync(recorder, row => row.OperationId == waitingRun.OperationId && row.Status == "completed");
 
         Assert.Equal(duplicate, ending.NextOperationId);
         var between = SentRows(recorder).Skip(duplicateRow).TakeWhile(row => row.Revision < ending.Revision);
@@ -933,34 +933,34 @@ public sealed class OperationRunPublishingTests
         var blocker = tracker.RegisterOperation(OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var queued = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection", async () =>
+        var waitingRun = await queue.EnqueueAsync(OperationType.GameDetection, ConflictScope.Bulk(), "Game Detection", async () =>
         {
             entered.TrySetResult();
             return await release.Task;
-        }, CancellationToken.None);
+        }, CancellationToken.None, new GameDetectionRequestKey(DetectionScanType.Full));
         tracker.CompleteOperation(blocker, success: true);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(queued.OperationId));
+        Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(waitingRun.OperationId));
         // The cancel callback runs on the thread pool; before the fix it ended the waiting run here.
         await Task.Delay(300);
-        Assert.False(tracker.GetOperation(queued.OperationId)!.Status.IsTerminal());
+        Assert.False(tracker.GetOperation(waitingRun.OperationId)!.Status.IsTerminal());
 
         var duplicate = tracker.RegisterOperation(OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
         release.SetResult(startsDuplicate ? duplicate : null);
         await queue.EnqueueAsync(OperationType.LogProcessing, ConflictScope.Bulk(), "Promotion barrier",
-            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None);
+            () => Task.FromResult<Guid?>(Guid.NewGuid()), CancellationToken.None, OperationRequestKey.Plain);
 
-        var ending = SentRows(recorder).Last(row => row.OperationId == queued.OperationId);
+        var ending = SentRows(recorder).Last(row => row.OperationId == waitingRun.OperationId);
         if (startsDuplicate)
         {
             Assert.Equal("completed", ending.Status);
             Assert.Equal(duplicate, ending.NextOperationId);
-            Assert.Equal(OperationStatus.Cancelling, tracker.GetOperation(duplicate)!.Status);
+            Assert.Equal(OperationStatus.Canceling, tracker.GetOperation(duplicate)!.Status);
         }
         else
         {
-            Assert.Equal("cancelled", ending.Status);
+            Assert.Equal("canceled", ending.Status);
             Assert.Null(ending.NextOperationId);
             Assert.Equal(OperationStatus.Running, tracker.GetOperation(duplicate)!.Status);
         }
@@ -1048,7 +1048,7 @@ public sealed class OperationRunPublishingTests
         Assert.Equal(OperationStatus.Completed, joined.Status);
         Assert.Equal(kept, joined.NextOperationId);
         Assert.Equal(OperationStatus.Running, tracker.GetOperation(kept)!.Status);
-        Assert.False(tracker.GetOperation(kept)!.Cancelled);
+        Assert.False(tracker.GetOperation(kept)!.Canceled);
 
         // A handoff, unlike a join, carries the cancel on to the run it names.
         var handedKept = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
@@ -1057,7 +1057,7 @@ public sealed class OperationRunPublishingTests
         tracker.RecordHandoff(handedCard, handedKept);
         tracker.CompleteOperation(handedCard, success: true);
         tracker.CancelOperation(handedCard);
-        Assert.True(tracker.GetOperation(handedKept)!.Cancelled);
+        Assert.True(tracker.GetOperation(handedKept)!.Canceled);
     }
 
     [Fact]
@@ -1190,7 +1190,7 @@ public sealed class OperationRunPublishingTests
         Assert.Equal(keptCard, tracker.GetOperation(droppedCard)!.NextOperationId);
         Assert.Equal(OperationCancelResult.AlreadyFinished, tracker.CancelOperation(droppedCard));
         Assert.Equal(OperationStatus.Waiting, tracker.GetOperation(keptCard)!.Status);
-        Assert.False(kept.Cancelled);
+        Assert.False(kept.Canceled);
 
         // Handing the dropped card on with Attach lets its cancel reach the kept card.
         var attachedKept = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
@@ -1201,7 +1201,7 @@ public sealed class OperationRunPublishingTests
         attached.Attach(tracker, attachedDropped);
         attached.Attach(tracker, attachedKept);
         tracker.CancelOperation(attachedDropped);
-        Assert.True(tracker.GetOperation(attachedKept)!.Cancelled);
+        Assert.True(tracker.GetOperation(attachedKept)!.Canceled);
     }
 
     [Fact]
@@ -1237,10 +1237,10 @@ public sealed class OperationRunPublishingTests
         Assert.Equal(RunTrigger.RunAll, kept.Trigger);
     }
 
-    private static Guid Ended(UnifiedOperationTracker tracker, OperationType type, RunNotice? notice, bool cancelled)
+    private static Guid Ended(UnifiedOperationTracker tracker, OperationType type, RunNotice? notice, bool canceled)
     {
         var id = tracker.RegisterOperation(type, type.ToString(), new CancellationTokenSource(), notice: notice);
-        tracker.CompleteOperation(id, success: false, error: cancelled ? null : "Failed", cancelled: cancelled);
+        tracker.CompleteOperation(id, success: false, error: canceled ? null : "Failed", canceled: canceled);
         return id;
     }
 
@@ -1267,7 +1267,7 @@ public sealed class OperationRunPublishingTests
     }
 
     // Bounded waits used as failure detectors: rows sent from another thread's drain arrive
-    // shortly after the call that queued them returns.
+    // shortly after the call that sent them returns.
     private static async Task<List<OperationRun>> WaitForRowsAsync(RecordingNotificationProxy recorder, int count)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
@@ -1282,10 +1282,10 @@ public sealed class OperationRunPublishingTests
         return SentRows(recorder).First(match);
     }
 
-    private static OperationQueueService CreateQueue(UnifiedOperationTracker tracker) => new(
+    private static OperationWaitlistService CreateQueue(UnifiedOperationTracker tracker) => new(
         tracker,
         OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
-        NullLogger<OperationQueueService>.Instance);
+        NullLogger<OperationWaitlistService>.Instance);
 
     private static UnifiedOperationTracker CreateTracker() =>
         new(new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance);

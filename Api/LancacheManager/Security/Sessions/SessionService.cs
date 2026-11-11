@@ -449,7 +449,7 @@ public class SessionService
 
     /// <summary>
     /// Returns the cached auth-disabled admin session if it still exists and is valid in the database,
-    /// else null (signalling the caller to create a fresh one). Keeps a revoked/deleted shared session
+    /// else null (signaling the caller to create a fresh one). Keeps a revoked/deleted shared session
     /// from being handed back out as a live credential.
     /// </summary>
     private async Task<(string RawToken, UserSession Session)?> TryReuseAuthDisabledAdminSessionAsync()

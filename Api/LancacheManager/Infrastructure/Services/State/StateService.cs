@@ -761,7 +761,7 @@ public class StateService : IStateService
     /// Generic load-from-JSON helper shared by both operation-list getters.
     /// Must be called <em>inside</em> the caller's lock — it does not acquire any lock itself.
     /// Returns the cached list (populating it on first call) and invokes <paramref name="cleanup"/>
-    /// after a successful deserialisation.
+    /// after a successful deserialization.
     /// When the whole-list deserialize fails, the rows are re-bound one at a time and only the invalid
     /// ones are dropped, so a single unreadable record no longer discards the caller's whole history.
     /// <paramref name="cleanup"/> still runs on that path: the salvaged list is a complete load of every
@@ -902,7 +902,7 @@ public class StateService : IStateService
     }
 
     /// <summary>
-    /// Drops cache clear operations that finished (completed, failed or cancelled) longer ago
+    /// Drops cache clear operations that finished (completed, failed or canceled) longer ago
     /// than <see cref="_cacheClearOperationRetention"/>. Rows that have not reached a terminal
     /// state are kept regardless of age: they are either still running or waiting to be
     /// reconciled on the next startup, and they have no end time to measure against.
@@ -1454,7 +1454,7 @@ public class StateService : IStateService
 
     /// <summary>
     /// Drops operation history rows that reached a terminal state (completed, failed or
-    /// cancelled) longer ago than <see cref="_operationStateRetention"/>. This record has no end
+    /// canceled) longer ago than <see cref="_operationStateRetention"/>. This record has no end
     /// timestamp, so UpdatedAt stands in for when the operation finished. Non-terminal rows are
     /// kept regardless of age so an operation interrupted by a restart can still be resumed.
     /// This is a backstop only: <c>OperationStateService</c> expires its in-memory states after
@@ -2805,7 +2805,7 @@ public class StateService : IStateService
 
     public void SetRefreshRate(string rate)
     {
-        // Validate the rate is a valid option; fall back to STANDARD when unrecognised.
+        // Validate the rate is a valid option; fall back to STANDARD when unrecognized.
         var parsed = RefreshRateExtensions.TryParseWire(rate) ?? RefreshRate.Standard;
         UpdateState(state => state.RefreshRate = parsed);
     }
@@ -2829,7 +2829,7 @@ public class StateService : IStateService
 
     public void SetDefaultGuestRefreshRate(string rate)
     {
-        // Validate the rate is a valid option; fall back to STANDARD when unrecognised.
+        // Validate the rate is a valid option; fall back to STANDARD when unrecognized.
         var parsed = RefreshRateExtensions.TryParseWire(rate) ?? RefreshRate.Standard;
         UpdateState(state => state.DefaultGuestRefreshRate = parsed);
     }

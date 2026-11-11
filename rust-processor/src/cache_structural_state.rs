@@ -992,7 +992,7 @@ async fn initialize_schema(connection: &mut PgConnection) -> Result<()> {
     // version this binary did not understand was one file an admin could delete. Here it is a
     // single row covering the whole database, and refusing on a mismatch would stop every scan
     // on every cache root with nothing in the app able to clear it. All of this is derived
-    // state that the next scan rebuilds from the cache itself, so a version we do not recognise
+    // state that the next scan rebuilds from the cache itself, so a version we do not recognize
     // is discarded rather than refused.
     sqlx::query("CREATE TABLE IF NOT EXISTS structural_state_version(version BIGINT PRIMARY KEY)")
         .execute(&mut *transaction)

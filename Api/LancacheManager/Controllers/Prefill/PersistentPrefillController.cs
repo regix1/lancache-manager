@@ -59,7 +59,7 @@ public class PersistentPrefillController : ControllerBase
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, request.Service);
         if (daemon is null)
         {
-            return BadRequest(ApiResponse.Error($"No daemon registered for service '{request.Service}'"));
+            return BadRequest(NoDaemonRefusal(request.Service));
         }
 
         DaemonSession session = await daemon.StartPersistentSessionAsync(
@@ -80,7 +80,7 @@ public class PersistentPrefillController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.SessionId))
         {
-            return BadRequest(ApiResponse.Required("sessionId"));
+            return BadRequest(SessionIdRequiredRefusal());
         }
 
         foreach (var daemon in PrefillDaemonServiceBase.ResolveAllDaemons(_serviceProvider))
@@ -93,7 +93,11 @@ public class PersistentPrefillController : ControllerBase
             }
         }
 
-        return NotFound(ApiResponse.Error($"No persistent session found with id {request.SessionId}"));
+        return NotFound(new ErrorResponse
+        {
+            Error = $"No persistent session found with id {request.SessionId}",
+            StageKey = "errors.prefill.sessionNotFound"
+        });
     }
 
     /// <summary>
@@ -151,7 +155,8 @@ public class PersistentPrefillController : ControllerBase
 
                 results.Add(new PersistentPrefillSessionDto
                 {
-                    Runs = daemon.GetRuns(session.Id),
+                    // From the session this loop holds: a stop during the status read above removes its id.
+                    Runs = DaemonSessionDto.FromSession(session).Runs,
                     DaemonInstanceId = session.Capabilities?.DaemonInstanceId,
                     Features = capabilities?.Features?.ToArray() ?? [],
                     MaxConcurrentRuns = capabilities?.MaxConcurrentRuns,
@@ -176,7 +181,7 @@ public class PersistentPrefillController : ControllerBase
     /// Lists the owned games for the running persistent session of a platform.
     /// </summary>
     /// <remarks>
-    /// Also returns up-to-date cached app ids. This is the AccountHolder analogue of the user-scoped
+    /// Also returns up-to-date cached app ids. This is the AccountHolder analog of the user-scoped
     /// <c>GET {service}/sessions/{id}/games</c> route: that route enforces
     /// <c>ValidateSessionOwnership</c> (session.UserId == caller), which always 403s for persistent
     /// system-owned sessions whose owner is the derived system user, not the admin's session id.
@@ -298,7 +303,7 @@ public class PersistentPrefillController : ControllerBase
 
         if (!daemon!.PersistentChangeGate.TryEnterChange(out var change))
         {
-            return Conflict(ApiResponse.Error($"The persistent {request.Service} container is busy."));
+            return Conflict(ContainerBusyRefusal(request.Service));
         }
 
         await using (change!)
@@ -316,7 +321,7 @@ public class PersistentPrefillController : ControllerBase
                 || claimedSession!.LoginOperationId.HasValue
                 || claimedSession.Runs.Values.Any(run => run.TerminalCompletedFlag != 2))
             {
-                return Conflict(ApiResponse.Error($"The persistent {request.Service} container is busy."));
+                return Conflict(ContainerBusyRefusal(request.Service));
             }
 
             await daemon.SetSelectedAppsAsync(claimedSession.Id, request.AppIds, cancellationToken);
@@ -350,7 +355,7 @@ public class PersistentPrefillController : ControllerBase
 
         if (!daemon!.PersistentChangeGate.TryEnterChange(out var change))
         {
-            return Conflict(ApiResponse.Error($"The persistent {request.Service} container is busy."));
+            return Conflict(ContainerBusyRefusal(request.Service));
         }
 
         await using (change!)
@@ -366,19 +371,27 @@ public class PersistentPrefillController : ControllerBase
             if (!ReferenceEquals(claimedDaemon, daemon)
                 || !ReferenceEquals(claimedSession, session))
             {
-                return Conflict(ApiResponse.Error("The persistent prefill session changed."));
+                return Conflict(new ErrorResponse
+                {
+                    Error = "The persistent prefill session changed.",
+                    StageKey = "errors.prefill.sessionChanged"
+                });
             }
 
             if (request.RunId.HasValue
                 && !claimedSession!.Runs.Values.Any(run =>
                     run.PrefillRunId == request.RunId.Value && run.TerminalCompletedFlag != 2))
             {
-                return Conflict(ApiResponse.Error("The requested prefill run is no longer active."));
+                return Conflict(new ErrorResponse
+                {
+                    Error = "The requested prefill run is no longer active.",
+                    StageKey = "errors.prefill.runNoLongerActive"
+                });
             }
         }
 
         // Sent after the gate is released: a Start that added its run after the check above holds that run's work
-        // while it waits for this gate, so cancelling it under the gate would leave both waiting on each other.
+        // while it waits for this gate, so canceling it under the gate would leave both waiting on each other.
         try
         {
             if (request.RunId.HasValue)
@@ -426,7 +439,7 @@ public class PersistentPrefillController : ControllerBase
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, service);
         if (daemon is null)
         {
-            return BadRequest(ApiResponse.Error($"No daemon registered for service '{service}'"));
+            return BadRequest(NoDaemonRefusal(service));
         }
 
         var caller = await IntegrationLease.ResolveCallerAsync(HttpContext);
@@ -437,7 +450,7 @@ public class PersistentPrefillController : ControllerBase
     /// Starts or resumes the interactive login flow for the running persistent session.
     /// </summary>
     /// <remarks>
-    /// Returns the initial credential challenge. AccountHolder analogue of the user route
+    /// Returns the initial credential challenge. AccountHolder analog of the user route
     /// <c>POST {service}/sessions/{id}/login</c>, which enforces <c>ValidateSessionOwnership</c> and
     /// always 403s for system-owned persistent sessions. Safe to bypass ownership here because this
     /// controller is <c>[Authorize(Policy = "AccountHolder")]</c> and hard-restricted to persistent
@@ -451,7 +464,11 @@ public class PersistentPrefillController : ControllerBase
     {
         if (request.LoginId == Guid.Empty)
         {
-            return BadRequest(ApiResponse.Error("loginId must be a non-empty UUID."));
+            return BadRequest(new ErrorResponse
+            {
+                Error = "loginId must be a non-empty UUID.",
+                StageKey = "errors.prefill.loginIdInvalid"
+            });
         }
         var (daemon, session, error) = ResolveRunningPersistentSession(
             request.Service,
@@ -509,12 +526,22 @@ public class PersistentPrefillController : ControllerBase
                 });
             }
 
+            // The answer names its reason by the key the run's ending picks for the same state (the failure's own key,
+            // else the refused sign-in), so the card words it in the reader's language; the text stays as its error.
             if (!string.IsNullOrEmpty(session.LastLoginFailureMessage))
             {
-                return BadRequest(ApiResponse.Error(session.LastLoginFailureMessage));
+                return BadRequest(new ErrorResponse
+                {
+                    Error = session.LastLoginFailureMessage,
+                    StageKey = session.LastLoginFailureKey is { } failureKey ? failureKey : "prefill.auth.signInRefused"
+                });
             }
 
-            return BadRequest(ApiResponse.Error("Login timeout - daemon may not be ready"));
+            return BadRequest(new ErrorResponse
+            {
+                Error = "Login timeout - daemon may not be ready",
+                StageKey = "prefill.persistent.loginTimedOut"
+            });
         }
 
         // Stamp the resolved sessionId on the challenge so the frontend pins the flow to this session. The id
@@ -527,7 +554,7 @@ public class PersistentPrefillController : ControllerBase
     /// Provides an encrypted credential in response to a login challenge.
     /// </summary>
     /// <remarks>
-    /// For the running persistent session. AccountHolder analogue of
+    /// For the running persistent session. AccountHolder analog of
     /// <c>POST {service}/sessions/{id}/credential</c>. Reuses the user route's
     /// <see cref="ProvideCredentialRequest"/> payload (Challenge + Credential) and delegates to
     /// <see cref="PrefillDaemonServiceBase.ProvideCredentialAsync(string, CredentialChallenge, string, CancellationToken)"/>.
@@ -542,7 +569,7 @@ public class PersistentPrefillController : ControllerBase
         // credential can never be resolved against whichever session happens to be active now.
         if (string.IsNullOrWhiteSpace(request.SessionId))
         {
-            return BadRequest(ApiResponse.Required("sessionId"));
+            return BadRequest(SessionIdRequiredRefusal());
         }
 
         var (daemon, session, error) = ResolveRunningPersistentSession(request.Service, request.SessionId);
@@ -553,7 +580,11 @@ public class PersistentPrefillController : ControllerBase
 
         if (request.Challenge == null || string.IsNullOrEmpty(request.Credential))
         {
-            return BadRequest(ApiResponse.Required("Challenge and credential"));
+            return BadRequest(new ErrorResponse
+            {
+                Error = "Challenge and credential is required",
+                StageKey = "errors.prefill.credentialRequired"
+            });
         }
 
         try
@@ -588,7 +619,7 @@ public class PersistentPrefillController : ControllerBase
     /// Reads the current credential challenge or login state, without waiting.
     /// </summary>
     /// <remarks>
-    /// Of the running persistent session. AccountHolder analogue of
+    /// Of the running persistent session. AccountHolder analog of
     /// <c>GET {service}/sessions/{id}/challenge</c>. Every new challenge and every sign-in ending is pushed over SignalR,
     /// so the browser reads this once after a page reload and once when its hub connection comes back. With
     /// <c>loginAttempt</c>, answers how that sign-in ended once it ended other than signed in.
@@ -605,7 +636,7 @@ public class PersistentPrefillController : ControllerBase
         // reader pinned to session A can never be served session B's challenge after a stop/start race.
         if (string.IsNullOrWhiteSpace(sessionId))
         {
-            return BadRequest(ApiResponse.Required("sessionId"));
+            return BadRequest(SessionIdRequiredRefusal());
         }
 
         var (daemon, session, error) = ResolveRunningPersistentSession(service, sessionId);
@@ -649,7 +680,7 @@ public class PersistentPrefillController : ControllerBase
     /// Cancels a pending interactive login and resets auth state.
     /// </summary>
     /// <remarks>
-    /// For the running persistent session. AccountHolder analogue of the user cancel-login flow.
+    /// For the running persistent session. AccountHolder analog of the user cancel-login flow.
     /// Delegates to <see cref="PrefillDaemonServiceBase.CancelLoginAsync(string, CancellationToken, long?, Guid?, string?)"/>.
     /// </remarks>
     [HttpPost("cancel-login")]
@@ -660,12 +691,16 @@ public class PersistentPrefillController : ControllerBase
     {
         if (request.LoginId == Guid.Empty || (request.LoginId is null && request.LoginAttempt is null))
         {
-            return BadRequest(ApiResponse.Error("A non-empty loginId or loginAttempt is required."));
+            return BadRequest(new ErrorResponse
+            {
+                Error = "A non-empty loginId or loginAttempt is required.",
+                StageKey = "errors.prefill.loginIdentityRequired"
+            });
         }
         // sessionId is REQUIRED - no fallback defaults.
         if (string.IsNullOrWhiteSpace(request.SessionId))
         {
-            return BadRequest(ApiResponse.Required("sessionId"));
+            return BadRequest(SessionIdRequiredRefusal());
         }
 
         var (daemon, session, error) = ResolveRunningPersistentSession(request.Service);
@@ -683,17 +718,17 @@ public class PersistentPrefillController : ControllerBase
             _logger.LogInformation(
                 "Ignoring cancel-login for persistent {Service}: pinned session {Expected} is no longer active (current {Actual})",
                 request.Service, request.SessionId, session.Id);
-            return Ok(new MessageOnlyResponse { Message = "Login already cancelled" });
+            return Ok(new MessageOnlyResponse { Message = "Login already canceled" });
         }
 
         // Same idempotent no-op for a cancel meant for an older login attempt on this session: that
-        // attempt has already ended, and a newer one must never be cancelled by it.
+        // attempt has already ended, and a newer one must never be canceled by it.
         if (!await daemon!.CancelLoginAsync(session.Id, cancellationToken, request.LoginAttempt, request.LoginId, request.StopReason))
         {
-            return Ok(new MessageOnlyResponse { Message = "Login already cancelled" });
+            return Ok(new MessageOnlyResponse { Message = "Login already canceled" });
         }
 
-        return Ok(new MessageOnlyResponse { Message = "Login cancelled" });
+        return Ok(new MessageOnlyResponse { Message = "Login canceled" });
     }
 
     /// <summary>
@@ -701,7 +736,7 @@ public class PersistentPrefillController : ControllerBase
     /// </summary>
     /// <remarks>
     /// The daemon forgets its stored account while the same container keeps running. The caller must
-    /// identify that container by its current session id. AccountHolder analogue of the other
+    /// identify that container by its current session id. AccountHolder analog of the other
     /// persistent-session routes. Delegates to
     /// <see cref="PrefillDaemonServiceBase.LogoutPersistentSessionAsync(string, CancellationToken)"/>.
     /// A daemon refusal or unconfirmed round-trip is a typed conflict and leaves the current container
@@ -715,7 +750,7 @@ public class PersistentPrefillController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(request.SessionId))
         {
-            return BadRequest(ApiResponse.Required("sessionId"));
+            return BadRequest(SessionIdRequiredRefusal());
         }
 
         var (daemon, session, error) = ResolveRunningPersistentSession(request.Service, request.SessionId);
@@ -853,7 +888,7 @@ public class PersistentPrefillController : ControllerBase
         var daemon = PrefillDaemonServiceBase.ResolveDaemon(_serviceProvider, service);
         if (daemon is null)
         {
-            return (null, null, BadRequest(ApiResponse.Error($"No daemon registered for service '{service}'")));
+            return (null, null, BadRequest(NoDaemonRefusal(service)));
         }
 
         var session = daemon.GetActivePersistentSession();
@@ -895,6 +930,28 @@ public class PersistentPrefillController : ControllerBase
 
         return (daemon, session, null);
     }
+
+    // The refusals below name their reason by key with the values its sentence names, so the browser words them in the
+    // reader's language; the English sentence stays as the error for older readers.
+    private static ErrorResponse NoDaemonRefusal(PrefillPlatform service) => new()
+    {
+        Error = $"No daemon registered for service '{service}'",
+        StageKey = "errors.prefill.noDaemon",
+        Context = new() { ["service"] = service }
+    };
+
+    private static ErrorResponse SessionIdRequiredRefusal() => new()
+    {
+        Error = "sessionId is required",
+        StageKey = "errors.prefill.sessionIdRequired"
+    };
+
+    private static ErrorResponse ContainerBusyRefusal(PrefillPlatform service) => new()
+    {
+        Error = $"The persistent {service} container is busy.",
+        StageKey = "errors.prefill.persistentContainerBusy",
+        Context = new() { ["service"] = service }
+    };
 
     private static PrefillPlatform ParsePlatform(string platformName)
     {

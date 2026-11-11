@@ -25,11 +25,11 @@ public class EpicAuthCompleteResponse
 }
 
 /// <summary>
-/// Response for cancelling an in-progress Epic catalog refresh
+/// Response for canceling an in-progress Epic catalog refresh
 /// </summary>
 public class EpicRefreshCancelResponse
 {
-    public bool Cancelled { get; set; }
+    public bool Canceled { get; set; }
     public string Message { get; set; } = string.Empty;
 }
 

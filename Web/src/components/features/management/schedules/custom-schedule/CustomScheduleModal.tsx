@@ -449,7 +449,7 @@ function CustomScheduleModal({
       // because an hour of 3 is finished only if nothing follows: 3,9, 3-5 and 3/2 all carry on
       // from it, and moving on the 3 itself takes the box away mid-expression. A digit is the one
       // key that cannot belong here, since a second one would put the number out of range. The
-      // key is left to the browser rather than cancelled, so it lands in the box that arrives.
+      // key is left to the browser rather than canceled, so it lands in the box that arrives.
       if (
         /^\d$/.test(event.key) &&
         index + 1 < CRON_POSITIONS.length &&
@@ -523,7 +523,7 @@ function CustomScheduleModal({
   }, [canSave, candidate, onApply]);
 
   // The hourly shape fires at the same minute past every Nth hour, so its field is a minute
-  // rather than a clock time and says so instead of labelling a lone number "Time".
+  // rather than a clock time and says so instead of labeling a lone number "Time".
   const timeFieldLabel = t(
     `${BASE_KEY}.repeat.${draft.repeat === 'hourly' ? 'atMinute' : 'atTime'}`
   );

@@ -14,7 +14,7 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// Replays random orders of cancel, force stop, restart, failed outcome saves, log steps, live import
-/// passes, manual log batches and queued removals against the real repair lifecycle, log file lock
+/// passes, manual log batches and waiting removals against the real repair lifecycle, log file lock
 /// and removal owner. An iteration is two runs: a removal run drives a real game or service removal
 /// over two datasources that hold history rows, and a restart run drives a removal record step by
 /// step through stops and restarts of the repair owner over one state directory. Every event is
@@ -189,7 +189,7 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
     {
         foreach (var operationId in ended)
         {
-            if (tracker.GetOperation(operationId) is { Status: OperationStatus.Cancelled }
+            if (tracker.GetOperation(operationId) is { Status: OperationStatus.Canceled }
                 && !canceled.Contains(operationId))
             {
                 throw Invariant(2, $"card {operationId} ended canceled without a cancel");
@@ -197,7 +197,7 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
         }
         foreach (var repair in repairs)
         {
-            if (repair.Outcome == OperationStatus.Cancelled && !canceled.Contains(repair.Id))
+            if (repair.Outcome == OperationStatus.Canceled && !canceled.Contains(repair.Id))
             {
                 throw Invariant(2, $"repair {repair.Id} stored a cancel its job never got");
             }
@@ -369,7 +369,7 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
     /// <summary>
     /// A real game or service removal over alpha and beta with history rows on both. Beta's cache
     /// step may wait for a release and the first purge may run until a cancel, so events land inside
-    /// both steps; a queued removal of the same target parks behind the first one and its repair. Each
+    /// both steps; a waiting removal of the same target parks behind the first one and its repair. Each
     /// purge that publishes removes the first line of its access.log.
     /// </summary>
     private sealed class RemovalRun(Random random, EventLog events)
@@ -746,15 +746,15 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
                 {
                     await Task.Delay(25, _teardown.Token);
                 }
-                // The fake serves one removal's two cache steps, so the queued removal does what the
+                // The fake serves one removal's two cache steps, so the waiting removal does what the
                 // queue orders: it starts its work behind any repair, then ends.
-                var queued = await StartRemovalAsync(async (operationId, cancellationToken, _) =>
+                var waiting = await StartRemovalAsync(async (operationId, cancellationToken, _) =>
                 {
                     await _harness.Owner.StartWorkAsync(operationId, "alpha", cancellationToken);
                     return (0, 0L);
                 });
-                events.Add($"queued {_type} {queued} starts");
-                while (!Ended(queued))
+                events.Add($"waiting {_type} {waiting} starts");
+                while (!Ended(waiting))
                 {
                     await Task.Delay(25, _teardown.Token);
                 }
@@ -1042,7 +1042,7 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
                 case RestartEvent.Cancel:
                     _canceled.Add(_job);
                     events.Add($"cancel {_job}: {_cancellation.Cancel(_job)}");
-                    await EndJobAsync(OperationStatus.Cancelled);
+                    await EndJobAsync(OperationStatus.Canceled);
                     return;
                 case RestartEvent.ForceStop:
                     _canceled.Add(_job);
@@ -1075,7 +1075,7 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
                     {
                         throw Invariant(2, $"the force stop ended {_job}, whose job had saved its outcome");
                     }
-                    _harness.Repairs.Tracker.CompleteOperation(_job, savedSuccess, savedError, cancelled: false);
+                    _harness.Repairs.Tracker.CompleteOperation(_job, savedSuccess, savedError, canceled: false);
                     return;
                 case RestartEvent.Restart:
                     await RestartAsync();
@@ -1107,14 +1107,14 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
             await _harness.Owner.FinishRepairAsync(
                     _job,
                     outcome == OperationStatus.Completed,
-                    outcome == OperationStatus.Cancelled,
+                    outcome == OperationStatus.Canceled,
                     error)
                 .WaitAsync(Bound);
             _harness.Repairs.Tracker.CompleteOperation(
                 _job,
                 outcome == OperationStatus.Completed,
                 error,
-                cancelled: outcome == OperationStatus.Cancelled);
+                canceled: outcome == OperationStatus.Canceled);
         }
 
         // The job stops working: a log step it left open is owed a reset by its repair, and its lock goes.
@@ -1267,12 +1267,12 @@ public sealed class RepairOrderStressTests(ITestOutputHelper output)
                 var repair = harness.NewRemoval(_type);
                 repair.Id = harness.Repairs.Tracker.RegisterOperation(
                     _type,
-                    "Queued removal",
+                    "Waiting removal",
                     new CancellationTokenSource(),
                     Metrics(_type),
                     ownerCompletes: true);
                 AddCard(repair.Id);
-                events.Add($"queued {_type} {repair.Id} starts");
+                events.Add($"waiting {_type} {repair.Id} starts");
                 await harness.Owner.PrepareRepairAsync(repair, teardown);
                 await harness.Owner.StartWorkAsync(repair.Id, "alpha", teardown);
                 await harness.Owner.FinishRepairAsync(repair.Id, true, false, null);

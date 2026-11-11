@@ -12,7 +12,7 @@ import {
 /**
  * Run All fans a trigger out across every schedule. Each service's own lifecycle or retained-run
  * notice is the acknowledgment owner, so the HTTP response never adds an aggregate success,
- * queued, held or skipped toast beside those notices. The button still waits for the request,
+ * waiting, held or skipped toast beside those notices. The button still waits for the request,
  * refreshes schedules, flashes the rows and clears its pending state; a real request failure raises
  * one "Failed to run all schedules" popup with the reason on its second line.
  *
@@ -53,14 +53,14 @@ const runAll = async ({ response, failure } = {}) => {
   return { calls, notices, errors, running, confirmations, shownErrors };
 };
 
-test('result fixtures without unqueued active work rely only on per-service acknowledgments', async () => {
+test('result fixtures without follow-up runs rely only on per-service acknowledgments', async () => {
   for (const response of [
     { triggeredCount: 4, alreadyRunningCount: 0, skippedCount: 0 },
     {
       triggeredCount: 1,
       alreadyRunningCount: 0,
       skippedCount: 3,
-      skippedReason: 'management.schedules.queuedUntilCacheFree'
+      skippedReason: 'management.schedules.waitingUntilCacheFree'
     }
   ]) {
     const result = await runAll({ response });
@@ -192,7 +192,7 @@ test('the four readers of the scan gate share one request', () => {
   assert.equal(
     method.parameters.length,
     0,
-    'a shared promise cannot honour one caller’s AbortSignal without cancelling the others'
+    'a shared promise cannot honor one caller’s AbortSignal without canceling the others'
   );
 
   const body = method.body.getText(service);

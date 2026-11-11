@@ -135,7 +135,7 @@ enum SkipReason {
     SpecialFile,
     ForeignPath,
     IoError,
-    Cancelled,
+    Canceled,
 }
 
 impl SkipReason {
@@ -155,7 +155,7 @@ impl SkipReason {
             Self::SpecialFile => "special_file",
             Self::ForeignPath => "foreign_path",
             Self::IoError => "io_error",
-            Self::Cancelled => "cancelled",
+            Self::Canceled => "canceled",
         }
     }
 }
@@ -199,7 +199,7 @@ pub enum InspectionOutcome {
 #[derive(Debug)]
 pub struct StructuralScanResult {
     pub report: CorruptionReport,
-    pub cancelled: bool,
+    pub canceled: bool,
     pub scan_summary: StructuralScanSummary,
     #[allow(dead_code)]
     pipeline: PipelineTelemetry,
@@ -412,7 +412,7 @@ impl ConcurrencyLimiter {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         loop {
-            if stop.load(Ordering::Acquire) || cancel::is_cancelled() {
+            if stop.load(Ordering::Acquire) || cancel::is_canceled() {
                 return None;
             }
             if state.in_flight < state.limit {
@@ -1716,9 +1716,9 @@ fn inspect_path_with_layout_and_access<F: FnOnce()>(
         }
     };
     after_read();
-    if cancel::is_cancelled() {
+    if cancel::is_canceled() {
         return Ok(Inspection {
-            outcome: InspectionOutcome::Skip(SkipReason::Cancelled.as_str()),
+            outcome: InspectionOutcome::Skip(SkipReason::Canceled.as_str()),
             bytes_read,
             sparse: sparse(&before),
             verified_fingerprint: None,
@@ -2096,7 +2096,7 @@ fn inspection_worker(
         // each one walks a run of siblings and its cached handle keeps hitting.
         //
         // It also has to come before the task is announced as started and before the start
-        // gate: announcing first lets a worker cancelled while parked exit with the task still
+        // gate: announcing first lets a worker canceled while parked exit with the task still
         // counted active, and taking the gate first lets a parked worker hold a read lock that
         // `request_pipeline_stop` needs for writing.
         let Some(permit) = limiter.acquire(stop) else {
@@ -2108,7 +2108,7 @@ fn inspection_worker(
         let start_guard = start_gate
             .read()
             .map_err(|_| anyhow::anyhow!("structural inspection start gate was poisoned"))?;
-        if stop.load(Ordering::Acquire) || cancel::is_cancelled() {
+        if stop.load(Ordering::Acquire) || cancel::is_canceled() {
             break;
         }
         if let Some(observer) = observer {
@@ -2263,11 +2263,11 @@ fn emit_inspection_checkpoint(
         inspected_total,
         config,
         worker_count,
-        status != "cancelled",
+        status != "canceled",
     );
     if status == "completed" {
         details.eta_seconds = Some(0);
-    } else if status == "cancelled" {
+    } else if status == "canceled" {
         details.eta_seconds = None;
     }
     update_progress(
@@ -2347,7 +2347,7 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
     let mut scheduled = 0usize;
     let mut merged = 0usize;
     let mut warning_count = 0usize;
-    let mut cancelled = false;
+    let mut canceled = false;
 
     std::thread::scope(|scope| -> Result<()> {
         let mut handles = Vec::with_capacity(config.inspection_parallelism);
@@ -2405,7 +2405,7 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                 state.maintain_lease()?;
             }
             if fatal_error.is_none() && cancellation_requested() {
-                cancelled = true;
+                canceled = true;
                 request_pipeline_stop(&stop, &start_gate, observer)?;
                 pending_tasks.clear();
                 traversal_complete = true;
@@ -2449,7 +2449,7 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                     traversal_complete = true;
                 }
             }
-            if fatal_error.is_some() || cancelled {
+            if fatal_error.is_some() || canceled {
                 break;
             }
 
@@ -2655,7 +2655,7 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
                 )
             });
         }
-        if !cancelled && fatal_error.is_none() && completed != scheduled {
+        if !canceled && fatal_error.is_none() && completed != scheduled {
             fatal_error.get_or_insert_with(|| {
                 anyhow::anyhow!(
                     "structural inspection task accounting mismatch: scheduled={scheduled} completed={completed}"
@@ -2699,14 +2699,14 @@ fn run_parallel_inspection<F: FnMut() -> bool>(
         inspection_elapsed_seconds,
         final_files_per_second,
     };
-    Ok((cancelled, telemetry))
+    Ok((canceled, telemetry))
 }
 
 fn build_report(
     scan_started_utc: DateTime<Utc>,
     mut candidates: Vec<CorruptionCandidate>,
     coverage: StructuralCoverage,
-    cancelled: bool,
+    canceled: bool,
 ) -> CorruptionReport {
     candidates.sort_by(|left, right| left.exact_paths.cmp(&right.exact_paths));
     let mut service_counts = BTreeMap::new();
@@ -2715,7 +2715,7 @@ fn build_report(
     }
     CorruptionReport {
         contract_version: CORRUPTION_CONTRACT_VERSION,
-        cancelled,
+        canceled,
         detection_method: DetectionMethod::Structural,
         scan_started_utc: scan_started_utc.to_rfc3339_opts(SecondsFormat::AutoSi, true),
         settings: CorruptionSettings {
@@ -2732,8 +2732,8 @@ fn build_report(
     }
 }
 
-fn require_complete_traversal(traversal_errors: usize, cancelled: bool) -> Result<()> {
-    if traversal_errors > 0 && !cancelled {
+fn require_complete_traversal(traversal_errors: usize, canceled: bool) -> Result<()> {
+    if traversal_errors > 0 && !canceled {
         bail!("structural cache traversal was incomplete ({traversal_errors} enumeration errors)");
     }
     Ok(())
@@ -2744,7 +2744,7 @@ pub fn scan(
     scan_started_utc: DateTime<Utc>,
     progress_path: Option<&Path>,
 ) -> Result<StructuralScanResult> {
-    scan_with_cancellation(root, scan_started_utc, progress_path, cancel::is_cancelled)
+    scan_with_cancellation(root, scan_started_utc, progress_path, cancel::is_canceled)
 }
 
 pub fn scan_with_state(
@@ -2756,7 +2756,7 @@ pub fn scan_with_state(
 ) -> Result<StructuralScanResult> {
     let config = StructuralScanConfig::production(root);
     let clock = RealScanClock::new();
-    let mut cancellation_requested = cancel::is_cancelled;
+    let mut cancellation_requested = cancel::is_canceled;
     scan_with_runtime_options(
         root,
         scan_started_utc,
@@ -2878,7 +2878,7 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
     };
 
     let mut total = 0usize;
-    let mut cancelled = false;
+    let mut canceled = false;
     let mut traversal_errors = 0usize;
     let mut coverage = StructuralCoverage::default();
     // Emit the enumerating stage immediately so the UI leaves any prior scanningHeaders/0%
@@ -2906,7 +2906,7 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
     )?;
     for entry in count_walk(root) {
         if cancellation_requested() {
-            cancelled = true;
+            canceled = true;
             break;
         }
         if let Some(state) = state.as_mut() {
@@ -2973,7 +2973,7 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
         &scan_summary,
     )?;
     let mut pipeline = PipelineTelemetry::default();
-    if !cancelled {
+    if !canceled {
         let result = run_parallel_inspection(
             root,
             scan_started_utc,
@@ -2989,7 +2989,7 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
             &mut traversal_errors,
             cancellation_requested,
         )?;
-        cancelled = result.0;
+        canceled = result.0;
         pipeline = result.1;
     }
     // The count pass is an estimate on a live cache. Terminal discovery is the exact set the
@@ -2998,7 +2998,7 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
     scan_summary.files_processed = coverage.files_seen;
     scan_summary.invalid_files = candidates.len();
     if let Some(state) = state.as_mut() {
-        if cancelled || traversal_errors > 0 {
+        if canceled || traversal_errors > 0 {
             state.interrupt()?;
             scan_summary.baseline_status = "incomplete".to_string();
         } else {
@@ -3009,9 +3009,9 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
             scan_summary.baseline_status = "ready".to_string();
         }
     }
-    require_complete_traversal(traversal_errors, cancelled)?;
-    let report = build_report(scan_started_utc, candidates, coverage.clone(), cancelled);
-    if cancelled && pipeline.worker_count == 0 {
+    require_complete_traversal(traversal_errors, canceled)?;
+    let report = build_report(scan_started_utc, candidates, coverage.clone(), canceled);
+    if canceled && pipeline.worker_count == 0 {
         let details = progress_details(
             &mut count_telemetry,
             clock.elapsed(),
@@ -3023,7 +3023,7 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
         );
         update_progress(
             progress_path,
-            "cancelled",
+            "canceled",
             "counting",
             total,
             0,
@@ -3038,14 +3038,14 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
                 elapsed_seconds: pipeline.inspection_elapsed_seconds,
                 files_per_second: pipeline.final_files_per_second,
             },
-            eta_seconds: if cancelled { None } else { Some(0) },
+            eta_seconds: if canceled { None } else { Some(0) },
             worker_count: pipeline.worker_count,
             task_queue_capacity: config.task_queue_capacity,
             result_queue_capacity: config.result_queue_capacity,
         };
         update_progress(
             progress_path,
-            if cancelled { "cancelled" } else { "completed" },
+            if canceled { "canceled" } else { "completed" },
             "scanning",
             coverage.files_seen,
             total,
@@ -3057,7 +3057,7 @@ fn scan_with_runtime_options<F: FnMut() -> bool>(
     }
     Ok(StructuralScanResult {
         report,
-        cancelled,
+        canceled,
         scan_summary,
         pipeline,
     })
@@ -3106,7 +3106,7 @@ fn revalidate_for_removal_with_layout(
     let inspection = inspect_path_with_layout(root, &path, path_digest, now, Utc::now(), layout)?;
     match inspection.outcome {
         InspectionOutcome::Consistent => Ok(RemovalDisposition::Healed),
-        InspectionOutcome::Skip("cancelled") => Ok(RemovalDisposition::Cancelled),
+        InspectionOutcome::Skip("canceled") => Ok(RemovalDisposition::Canceled),
         InspectionOutcome::Skip(reason) => bail!(
             "structural candidate {} is no longer safely actionable: {reason}",
             path.display()
@@ -3140,7 +3140,7 @@ fn revalidate_for_removal_with_layout(
 pub enum RemovalDisposition {
     Missing,
     Healed,
-    Cancelled,
+    Canceled,
     Ready {
         path: PathBuf,
         evidence: StructuralEvidence,
@@ -3433,7 +3433,7 @@ mod tests {
 
     /// Drives the controller with a synthetic device: `rate_for` decides how many files a
     /// given concurrency sustains, so a spinning disk that saturates at 8 and an NVMe that
-    /// keeps scaling can both be modelled exactly.
+    /// keeps scaling can both be modeled exactly.
     fn drive_controller(
         controller: &mut ConcurrencyController,
         limiter: &ConcurrencyLimiter,
@@ -3699,7 +3699,7 @@ mod tests {
         let mut candidates = Vec::new();
         let mut scan_summary = StructuralScanSummary::stateless_full();
         let mut traversal_errors = 0;
-        let (cancelled, telemetry) = run_parallel_inspection(
+        let (canceled, telemetry) = run_parallel_inspection(
             &root,
             started,
             None,
@@ -3716,7 +3716,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!cancelled);
+        assert!(!canceled);
         assert_eq!(coverage.files_seen, 256);
         // The limiter must actually have been resized under the running workers. Assert on the
         // peak, not the final limit: throughput here is bounded by the harness rather than by
@@ -3942,8 +3942,8 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!result.cancelled);
-        assert!(!result.report.cancelled);
+        assert!(!result.canceled);
+        assert!(!result.report.canceled);
         assert!(observer.max_active.load(Ordering::SeqCst) > 1);
         assert!(observer.max_active.load(Ordering::SeqCst) <= parallelism);
         assert_eq!(result.report.coverage.as_ref().unwrap().files_seen, 16);
@@ -4156,8 +4156,8 @@ mod tests {
         )
         .unwrap();
 
-        assert!(result.cancelled);
-        assert!(result.report.cancelled);
+        assert!(result.canceled);
+        assert!(result.report.canceled);
         assert!(observer.cancellation_seen.load(Ordering::SeqCst));
         assert_eq!(
             observer.scheduled_after_cancellation.load(Ordering::SeqCst),
@@ -4173,7 +4173,7 @@ mod tests {
         assert!(result.pipeline.completed <= parallelism);
         let progress: serde_json::Value =
             serde_json::from_slice(&std::fs::read(progress_path).unwrap()).unwrap();
-        assert_eq!(progress["status"], "cancelled");
+        assert_eq!(progress["status"], "canceled");
         assert_eq!(
             progress["filesProcessed"].as_u64(),
             Some(result.pipeline.merged as u64)
@@ -4183,7 +4183,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn cancelled_incremental_flushes_staging_and_resumes_without_promotion() {
+    fn canceled_incremental_flushes_staging_and_resumes_without_promotion() {
         let _env = crate::db::lock_test_env();
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("cache");
@@ -4204,7 +4204,7 @@ mod tests {
             observer.active.load(Ordering::SeqCst) == parallelism
                 && !observer.cancellation_seen.load(Ordering::SeqCst)
         };
-        let cancelled = scan_with_runtime_options(
+        let canceled = scan_with_runtime_options(
             &root,
             fixed_scan_started(),
             None,
@@ -4215,10 +4215,10 @@ mod tests {
             &mut cancel_when_workers_are_held,
         )
         .unwrap();
-        assert!(cancelled.cancelled);
-        assert!(!cancelled.scan_summary.state_committed);
-        assert_eq!(cancelled.scan_summary.baseline_status, "incomplete");
-        assert_eq!(cancelled.scan_summary.files_inspected, parallelism);
+        assert!(canceled.canceled);
+        assert!(!canceled.scan_summary.state_committed);
+        assert_eq!(canceled.scan_summary.baseline_status, "incomplete");
+        assert_eq!(canceled.scan_summary.files_inspected, parallelism);
 
         let resumed = durable_scan(
             &root,
@@ -4789,8 +4789,8 @@ mod tests {
             )
         });
         let parallel_elapsed = parallel_started.elapsed();
-        let (cancelled, telemetry) = parallel_result.unwrap();
-        assert!(!cancelled);
+        let (canceled, telemetry) = parallel_result.unwrap();
+        assert!(!canceled);
         assert_eq!(parallel_coverage, serial_coverage);
         assert!(parallel_candidates.is_empty());
         assert!(telemetry.task_queue_high_water <= worker_count);
@@ -5176,7 +5176,7 @@ mod tests {
     }
 
     #[test]
-    fn root_failure_is_fatal_and_count_pass_is_cancellable() {
+    fn root_failure_is_fatal_and_count_pass_is_cancelable() {
         let temp = tempfile::tempdir().unwrap();
         assert!(
             scan_with_cancellation(&temp.path().join("missing"), Utc::now(), None, || false)
@@ -5196,8 +5196,8 @@ mod tests {
             next >= 2
         })
         .unwrap();
-        assert!(result.cancelled);
-        assert!(result.report.cancelled);
+        assert!(result.canceled);
+        assert!(result.report.canceled);
         assert!(checks.get() >= 2);
     }
 

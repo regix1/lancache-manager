@@ -361,7 +361,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
     const cellValue = hourlyMetricValue(hourData, metric);
     // The current hour keeps whatever fill its activity earned and is marked by the ring
     // alone. Filling it would paint the same blue the busiest intensity step uses, so the
-    // legend would teach one colour for "now" and the grid would spend it on "most active".
+    // legend would teach one color for "now" and the grid would spend it on "most active".
     const markerClass = isCurrentHour ? 'peak-legend-swatch--now' : '';
 
     return (

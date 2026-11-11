@@ -44,7 +44,7 @@ public partial class XboxCatalogMappingService : ConfigurableScheduledService
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
 
     // Service-lifetime token: links the fire-and-forget on-authentication refresh to shutdown so a
-    // catalog poll in flight is cancelled cleanly when the host stops (instead of CancellationToken.None,
+    // catalog poll in flight is canceled cleanly when the host stops (instead of CancellationToken.None,
     // which would keep polling the daemon during teardown).
     private readonly CancellationTokenSource _shutdownCts = new();
 

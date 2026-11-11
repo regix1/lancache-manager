@@ -1221,7 +1221,7 @@ public partial class XboxScheduledRefreshProgressTests
     [Theory]
     [InlineData(OperationStatus.Waiting, "waiting")]
     [InlineData(OperationStatus.Completed, "completed")]
-    [InlineData(OperationStatus.Cancelled, "cancelled")]
+    [InlineData(OperationStatus.Canceled, "canceled")]
     [InlineData(OperationStatus.Failed, "failed")]
     public void AuthStateStatusKeepsItsWireSpelling(OperationStatus status, string expected)
     {

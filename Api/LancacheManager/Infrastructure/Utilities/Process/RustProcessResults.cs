@@ -22,7 +22,7 @@ public class ProcessExecutionResult
     /// <param name="context">Optional user-safe descriptor (e.g. datasource/service name); never stderr.</param>
     /// <param name="cancellationToken">
     /// The token the run was launched with. A killed child and a crashed one both exit non-zero, so
-    /// the exit code cannot tell them apart; the token can, and cancelling it is what stops the run.
+    /// the exit code cannot tell them apart; the token can, and canceling it is what stops the run.
     /// </param>
     public void EnsureSuccess(string tool, string? context = null, CancellationToken cancellationToken = default)
     {
@@ -31,7 +31,7 @@ public class ProcessExecutionResult
             return;
         }
 
-        // A cancelled run is not a failed run. The child can die and WaitForExit return normally
+        // A canceled run is not a failed run. The child can die and WaitForExit return normally
         // before the next token check, so classify here rather than reporting a process failure.
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -43,7 +43,7 @@ public class ProcessExecutionResult
 /// Strongly-typed envelope for the JSON lines Rust's progress_events.rs ProgressReporter emits
 /// over stdout (event types "started"/"progress"/"complete" — see that file's header comment for
 /// the exact wire shape). PercentComplete is only populated on "progress" events; Success/
-/// Cancelled are only populated on "complete" events — the other event types leave them null.
+/// Canceled are only populated on "complete" events — the other event types leave them null.
 /// Context is a free-form JSON object whose shape varies by StageKey (Rust declares it as
 /// serde_json::Value, genuinely heterogeneous even within one binary's stream), so it stays a
 /// JsonElement rather than being forced into a fixed shape; callers that need specific fields out
@@ -72,8 +72,8 @@ public class RustProgressEvent
     [System.Text.Json.Serialization.JsonPropertyName("success")]
     public bool? Success { get; set; }
 
-    [System.Text.Json.Serialization.JsonPropertyName("cancelled")]
-    public bool? Cancelled { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("canceled")]
+    public bool? Canceled { get; set; }
 
     /// <summary>
     /// The full failure reason for "failed"/"complete" events that carry one — Rust's

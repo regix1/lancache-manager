@@ -61,14 +61,14 @@ public sealed class CorruptionDetectionPersistenceTests
     }
 
     [Fact]
-    public void StatusReportsACancellingScanAsRunning()
+    public void StatusReportsACancelingScanAsRunning()
     {
         var tracker = new UnifiedOperationTracker(
             new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
         var id = tracker.RegisterOperation(
             OperationType.CorruptionDetection, "Corruption detection", new CancellationTokenSource());
-        tracker.GetOperation(id)!.Status = OperationStatus.Cancelling;
+        tracker.GetOperation(id)!.Status = OperationStatus.Canceling;
         var detection = (CorruptionDetectionService)RuntimeHelpers.GetUninitializedObject(
             typeof(CorruptionDetectionService));
         typeof(CorruptionDetectionService)
@@ -81,7 +81,7 @@ public sealed class CorruptionDetectionPersistenceTests
 
         var status = Assert.IsType<CorruptionDetectionStatusResponse>(result.Value);
         Assert.True(status.IsRunning);
-        Assert.Equal(OperationStatus.Cancelling, status.Status);
+        Assert.Equal(OperationStatus.Canceling, status.Status);
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public sealed class CorruptionDetectionPersistenceTests
     {
         var valid = JsonSerializer.Serialize(StructuralReport("default", StructuralCandidate("structural" )).Report);
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<CorruptionReport>(
-            valid.Replace("\"cancelled\":false,", string.Empty, StringComparison.Ordinal)));
+            valid.Replace("\"canceled\":false,", string.Empty, StringComparison.Ordinal)));
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<CorruptionReport>(
             valid.Replace("\"total\":1", "\"unexpected\":true,\"total\":1", StringComparison.Ordinal)));
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<CorruptionReport>(
@@ -275,10 +275,10 @@ public sealed class CorruptionDetectionPersistenceTests
     }
 
     [Fact]
-    public async Task CancelledReport_CannotValidateOrPersistAsCompletedAsync()
+    public async Task CanceledReport_CannotValidateOrPersistAsCompletedAsync()
     {
         var report = StructuralReport("default", StructuralCandidate("structural"));
-        report.Report.Cancelled = true;
+        report.Report.Canceled = true;
 
         var validationError = Assert.Throws<InvalidDataException>(() =>
             CorruptionDetectionService.ValidateAndAttachDatasource(
@@ -288,7 +288,7 @@ public sealed class CorruptionDetectionPersistenceTests
                 LookbackDays,
                 CorruptionDetectionMethod.Structural,
                 ScanStartedWire));
-        Assert.Contains("cancelled", validationError.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("canceled", validationError.Message, StringComparison.OrdinalIgnoreCase);
 
         await using var database = await TestDatabase.CreateAsync();
         var service = NewService(database.Factory);
@@ -302,7 +302,7 @@ public sealed class CorruptionDetectionPersistenceTests
                 ScanStartedUtc.AddSeconds(1),
                 [report],
                 StructuralScanMode.Full));
-        Assert.Contains("cancelled", persistenceError.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("canceled", persistenceError.Message, StringComparison.OrdinalIgnoreCase);
 
         await using var context = database.Factory.CreateDbContext();
         Assert.Empty(await context.CachedCorruptionScans.ToListAsync());

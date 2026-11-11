@@ -51,7 +51,7 @@ public sealed record DaemonRunSnapshot
     public int CompletedApps { get; init; }
     public int CachedApps { get; init; }
     public int FailedApps { get; init; }
-    public int CancelledApps { get; init; }
+    public int CanceledApps { get; init; }
     public int SkippedApps { get; init; }
     public long BytesTransferred { get; init; }
 }

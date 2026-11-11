@@ -41,6 +41,30 @@ public class RetroGroupedPagingTests
     }
 
     /// <summary>
+    /// The ungrouped page is the default retro view, and the browser hides a row's title when the
+    /// row reports no name of its own, so each row says whether its game resolved a name.
+    /// </summary>
+    [Fact]
+    public async Task EachUngroupedRowSaysWhetherItsGameHasAName()
+    {
+        var day = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc);
+        var response = await GetGroupedPageAsync(
+            new RetroDownloadQuery(),
+            [
+                NewDownload(1, "steam", "10.0.0.1", 1001, 730, "Counter-Strike 2", day.AddHours(10), 100, 0),
+                NewDownload(2, "steam", "10.0.0.2", 1002, 620, null, day.AddHours(11), 100, 0)
+            ]);
+
+        var named = Assert.Single(response.Items, i => i.Id == "depot-1001-10.0.0.1");
+        Assert.Equal("Counter-Strike 2", named.AppName);
+        Assert.True(named.HasRealGameName);
+
+        var unnamed = Assert.Single(response.Items, i => i.Id == "depot-1002-10.0.0.2");
+        Assert.Equal("Unknown/Other", unnamed.AppName);
+        Assert.False(unnamed.HasRealGameName);
+    }
+
+    /// <summary>
     /// The retro view's own grouping. MergeAcrossServices is off, so one title logged under two
     /// services stays two service-scoped rows and no row carries a group type.
     /// </summary>
@@ -573,10 +597,10 @@ public class RetroGroupedPagingTests
     }
 
     /// <summary>
-    /// A Steam group whose depots never mapped to a title still knows which app it is, so the row
-    /// is named by that app id rather than by the unidentified-content placeholder. The group keeps
-    /// reporting that no member resolved a real name, so the views that hide an unresolved title
-    /// still hide it.
+    /// A Steam group whose depots never mapped to a title still knows which app it is. The row
+    /// sends that app id and reports that no member resolved a name, and the browser draws the
+    /// "Steam App N" label from both in the reader's language, so the server sends no English
+    /// label in place of the placeholder.
     /// </summary>
     [Fact]
     public async Task ASteamGroupWithNoTitleIsNamedByItsAppId()
@@ -594,8 +618,36 @@ public class RetroGroupedPagingTests
 
         var row = Assert.Single(response.Items);
         Assert.Equal("game-appid-620", row.Id);
-        Assert.Equal("Steam App 620", row.AppName);
+        Assert.Equal(620L, row.SteamAppId);
         Assert.False(row.HasRealGameName);
+        Assert.Equal("Unknown/Other", row.AppName);
+    }
+
+    /// <summary>
+    /// An unnamed Steam group has no title to sort by: the browser draws its label in the reader's
+    /// language, and the placeholder it carries on the wire is not that label. The alphabetical
+    /// sort puts those groups after the named ones, in app id order.
+    /// </summary>
+    [Fact]
+    public async Task AnUnnamedSteamGroupSortsAfterTheNamedGroupsByAppId()
+    {
+        var day = new DateTime(2026, 8, 31, 0, 0, 0, DateTimeKind.Utc);
+        var response = await GetGroupedPageAsync(
+            new RetroDownloadQuery
+            {
+                GroupByGame = true,
+                MergeAcrossServices = true,
+                Sort = "alphabetical"
+            },
+            [
+                NewDownload(1, "steam", "10.0.0.1", 1001, 620, null, day.AddHours(10), 100, 0),
+                NewDownload(2, "steam", "10.0.0.1", 1002, 610, null, day.AddHours(11), 100, 0),
+                NewDownload(3, "steam", "10.0.0.1", 1003, 700, "Zelda", day.AddHours(12), 100, 0),
+                NewDownload(4, "steam", "10.0.0.1", 1004, 710, "Tetris", day.AddHours(13), 100, 0)
+            ]);
+
+        Assert.Equal<long?>([710, 700, 610, 620], response.Items.Select(i => i.SteamAppId));
+        Assert.Equal(["Tetris", "Zelda", "Unknown/Other", "Unknown/Other"], response.Items.Select(i => i.AppName));
     }
 
     /// <summary>

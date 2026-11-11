@@ -19,7 +19,7 @@ interface ClientAddressChipProps {
 }
 
 /**
- * One client address as a chip, labelled with its hostname where it has one and showing the raw
+ * One client address as a chip, labeled with its hostname where it has one and showing the raw
  * address on hover. The nickname is deliberately left out of the label: every surface that renders
  * these chips already carries the nickname as its own heading, so repeating it says nothing.
  */

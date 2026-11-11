@@ -361,7 +361,7 @@ fn run_purge(
 
     // Cooperative cancellation: if cancel arrived during the purge, flush partial progress
     // with real counts and return Ok so main() exits 0 without writing a failed status.
-    if cancel::is_cancelled() {
+    if cancel::is_canceled() {
         eprintln!(
             "Cancellation confirmed — flushing partial progress ({} lines removed so far).",
             lines_removed

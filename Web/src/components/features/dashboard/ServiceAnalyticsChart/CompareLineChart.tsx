@@ -235,7 +235,7 @@ function positionTooltip(el: HTMLDivElement, anchor: TooltipAnchor): void {
   }
 
   // Vertical clamp so the tooltip never spills above or below the viewport. The
-  // transform centres the box on this coordinate, so the clamp runs on the top
+  // transform centers the box on this coordinate, so the clamp runs on the top
   // edge and the half height goes back on afterwards.
   const halfHeight = tooltipHeight / 2;
   const clampedY =

@@ -418,7 +418,7 @@ test('an authoritative empty manager membership clears the pane and settles the 
 test('normal selection and Force retain their existing request options', async () => {
   const bodies = [];
   const signalR = {
-    isCancelling: { current: true },
+    isCanceling: { current: true },
     session: { maxConcurrentRuns: 2 },
     refreshRuns: async () => undefined
   };
@@ -984,7 +984,7 @@ test('scheduled picker accepts only the current session cache result', async () 
   assert.deepEqual(picker.state().selection.outdatedAppIds, ['B']);
 });
 
-test('failed scheduled load drains queued authentication and clears only its load error', async () => {
+test('failed scheduled load drains pending authentication and clears only its load error', async () => {
   let reject;
   const calls = [];
   const picker = scheduled(async (...args) => {

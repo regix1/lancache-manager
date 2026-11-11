@@ -96,18 +96,15 @@ public partial class CacheManagementService
             throw CacheScanGate.TrackerStopped();
         }
 
-        if (_cacheScanGate.CheckDownloadInProgress() is { } reason)
+        if (_cacheScanGate.CheckDownloadRefusal() is { } downloadRefusal)
         {
-            throw new DownloadInProgressException(reason)
-            {
-                StageKey = "errors.unmappedRemoval.downloadInProgress"
-            };
+            throw downloadRefusal;
         }
     }
 
     /// <summary>
     /// Registers the unmapped removal and runs it in the background; returns its operation id. The card
-    /// always ends Completed, Failed with a reason key, or Cancelled.
+    /// always ends Completed, Failed with a reason key, or Canceled.
     /// </summary>
     internal Task<Guid?> StartUnmappedFileRemovalAsync(UnmappedFilesLimits limits)
     {
@@ -223,7 +220,7 @@ public partial class CacheManagementService
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("[UnmappedRemoval] Run canceled");
-                _operationTracker.CompleteOperation(operationId, false, cancelled: true);
+                _operationTracker.CompleteOperation(operationId, false, canceled: true);
             }
             catch (Exception ex)
             {

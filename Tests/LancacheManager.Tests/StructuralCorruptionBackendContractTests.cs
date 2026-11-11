@@ -82,16 +82,16 @@ public sealed class StructuralCorruptionBackendContractTests : IDisposable
     }
 
     [Theory]
-    [InlineData("cancelled", true)]
-    [InlineData("CANCELLED", true)]
+    [InlineData("canceled", true)]
+    [InlineData("CANCELED", true)]
     [InlineData("completed", false)]
     [InlineData("scanning", false)]
     [InlineData("", false)]
-    public void OnlyTerminalCancelledProgressStopsPersistence(string status, bool expected)
+    public void OnlyTerminalCanceledProgressStopsPersistence(string status, bool expected)
     {
         var progress = new CorruptionDetectionProgressData { Status = status };
 
-        Assert.Equal(expected, CorruptionDetectionService.IsCancelledProgress(progress));
+        Assert.Equal(expected, CorruptionDetectionService.IsCanceledProgress(progress));
     }
 
     /// <summary>

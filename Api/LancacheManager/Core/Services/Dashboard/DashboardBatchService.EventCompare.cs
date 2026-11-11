@@ -68,10 +68,10 @@ public partial class DashboardBatchService
             var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode)
                 .ApplyEventFilter([evt.Id], taggedIds)
                 .Where(d => (d.EndTimeUtc >= start || d.StartTimeUtc >= start) && d.StartTimeUtc <= end)
-                .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+                .ApplyClientFilters([], statsExcludedOnlyIps, []);
 
             var spans = await query
-                .ApplyPrefillFilter(prefillRules)
+                .ApplyClientFilters([], [], prefillRules)
                 .Select(d => new HourOfDayBuckets.Span(d.StartTimeUtc, d.EndTimeUtc, d.CacheHitBytes, d.CacheMissBytes))
                 .ToListAsync(ct);
             var present = SparklineBuckets.Spread(spans, bucketMinutes, start, end);

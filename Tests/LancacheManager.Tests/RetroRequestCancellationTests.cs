@@ -21,21 +21,21 @@ public sealed class RetroRequestCancellationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task CancelledRequestStopsBeforeTheDownloadsQuery(bool grouped)
+    public async Task CanceledRequestStopsBeforeTheDownloadsQuery(bool grouped)
     {
         await using var database = await TestDatabase.CreateAsync();
         await SeedAsync(database);
         var commands = new RecordingCommandInterceptor();
-        using var cancelled = new CancellationTokenSource();
-        cancelled.Cancel();
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
 
         await using (var context = Context(database, commands))
         {
             var controllerLog = new RecordingLogger<DownloadsController>();
-            var controller = Controller(context, controllerLog, cancelled.Token);
+            var controller = Controller(context, controllerLog, canceled.Token);
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                () => controller.GetRetroDownloadsAsync(Query(grouped), cancelled.Token));
+                () => controller.GetRetroDownloadsAsync(Query(grouped), canceled.Token));
             Assert.DoesNotContain(commands.Commands, IsDownloadsCommand);
             Assert.Equal(0, controllerLog.ErrorCount);
         }
@@ -44,12 +44,12 @@ public sealed class RetroRequestCancellationTests
         await using (var context = Context(database, commands))
         {
             var controllerLog = new RecordingLogger<DownloadsController>();
-            var controller = Controller(context, controllerLog, cancelled.Token);
+            var controller = Controller(context, controllerLog, canceled.Token);
             var middlewareLog = new RecordingLogger<GlobalExceptionMiddleware>();
             var http = new DefaultHttpContext
             {
-                RequestAborted = cancelled.Token,
-                TraceIdentifier = "retro-cancelled"
+                RequestAborted = canceled.Token,
+                TraceIdentifier = "retro-canceled"
             };
             var body = new MemoryStream();
             http.Response.Body = body;

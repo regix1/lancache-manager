@@ -9,7 +9,7 @@
  * and then plays its 300 ms fade.
  *
  * One card per run, keyed by the server's operation id. A run that hands its work to another
- * operation (a queued run promoted onto a new id, a held scan continuing as a new run) merges into
+ * operation (a waiting run promoted onto a new id, a held scan continuing as a new run) merges into
  * that operation's entry, so the card keeps its id and its place while `details.operationId`
  * follows the work.
  */
@@ -37,7 +37,7 @@ import type {
   UnifiedNotification
 } from './types';
 import {
-  GENERIC_CANCELLED_I18N_KEY,
+  GENERIC_CANCELED_I18N_KEY,
   GENERIC_COMPLETION_I18N_KEY,
   GENERIC_FAILURE_I18N_KEY,
   GENERIC_SKIPPED_I18N_KEY,
@@ -164,10 +164,10 @@ const OPERATION_STATUSES: readonly OperationStatus[] = [
   'pending',
   'running',
   'waiting',
-  'cancelling',
+  'canceling',
   'completed',
   'failed',
-  'cancelled',
+  'canceled',
   'skipped'
 ];
 // Every visibility a row may carry, for the wire check.
@@ -229,6 +229,11 @@ export function readOperationRun(value: unknown): OperationRun | null {
             isNonEmptyString(warning.stageKey) &&
             isPlainRecord(warning.context)
         ))) &&
+    (value.failureReason === undefined ||
+      value.failureReason === null ||
+      (isPlainRecord(value.failureReason) &&
+        isNonEmptyString(value.failureReason.stageKey) &&
+        isPlainRecord(value.failureReason.context))) &&
     isOptionalId(value.previousOperationId) &&
     isOptionalId(value.parentOperationId) &&
     isOptionalId(value.nextOperationId) &&
@@ -344,11 +349,11 @@ const runWaitingMessage = (run: OperationRun): string => {
   const titleKey =
     (run.scheduleKey ? scheduleTitleKey(run.scheduleKey) : null) ?? NOTIFICATION_TITLE_KEYS[type];
   // The parenthesis comes from typed fields, never from the name: the run's target, a structural
-  // scan's mode, or "all" for a queued clear or removal sent with no target (every request of those
+  // scan's mode, or "all" for a waiting clear or removal sent with no target (every request of those
   // kinds names one target or none, and none means all of them). A running job held at its log
   // step draws this line too, and one restored after a restart has lost its target, so "all" is
   // only said of a run still waiting in the queue.
-  const queued = run.status === 'waiting';
+  const isWaiting = run.status === 'waiting';
   let qualifier: string | null = run.target ?? null;
   const mode =
     run.scanMode === 'full'
@@ -366,9 +371,9 @@ const runWaitingMessage = (run: OperationRun): string => {
       : null;
   // The server sends a mode or limits, never both, so a row carries at most one of the two.
   if (!qualifier && (mode || limits)) qualifier = mode ?? limits;
-  else if (!qualifier && queued && (type === 'cache_clearing' || type === 'eviction_removal'))
+  else if (!qualifier && isWaiting && (type === 'cache_clearing' || type === 'eviction_removal'))
     qualifier = i18n.t('common.notifications.runQualifiers.all');
-  else if (!qualifier && queued && type === 'corruption_removal')
+  else if (!qualifier && isWaiting && type === 'corruption_removal')
     qualifier = i18n.t('common.notifications.runQualifiers.allServices');
   return waitingCardMessage({
     name: titleKey ? titledName(titleKey, qualifier) : run.name,
@@ -445,7 +450,7 @@ function mergeEntries(predecessor: RunEntry, successor: RunEntry): RunEntry {
       cancelRequested: predecessor.cancel.cancelRequested || successor.cancel.cancelRequested,
       cancelSent: predecessor.cancel.cancelSent || successor.cancel.cancelSent,
       cancelPending: predecessor.cancel.cancelPending || successor.cancel.cancelPending,
-      cancelling: predecessor.cancel.cancelling || successor.cancel.cancelling
+      canceling: predecessor.cancel.canceling || successor.cancel.canceling
     }
   };
 }
@@ -467,21 +472,21 @@ function findBulkCardOwningType(
 }
 
 /**
- * The batch card whose own in-flight item IS this queued operation.
+ * The batch card whose own in-flight item IS this waiting operation.
  *
  * Declaring an item type is not the same as having started the work: a batch shares its types
  * with a second batch and with every removal a user starts from a page, so the type alone cannot
- * decide whose queued operation this is. A batch publishes its current item's operation id while
+ * decide whose waiting operation this is. A batch publishes its current item's operation id while
  * that item is in flight, and a card carrying a DIFFERENT id is reporting other work - folding
- * the queued operation into it would relabel a card that has nothing to do with the event and
- * leave the queued operation with no card of its own to cancel from.
+ * the waiting operation into it would relabel a card that has nothing to do with the event and
+ * leave the waiting operation with no card of its own to cancel from.
  *
  * A batch that has not published an id yet is claimed only while its item's request is still on
  * the wire. The queue announces a parked operation from inside that request, so the push really
  * can beat the response home, and that one round trip is the whole reason the type-level answer
  * survives at all. Once the request is answered an empty id means the batch has nothing to claim -
  * it is between items, or its item was deduplicated onto a removal whose id it refused - and a
- * queued operation of the same type belongs to somebody else for as long as that lasts.
+ * waiting operation of the same type belongs to somebody else for as long as that lasts.
  */
 function findBulkCardOwningOperation(
   type: NotificationType,
@@ -500,12 +505,12 @@ function findBulkCardOwningOperation(
 /** A run that ended, completed or canceled, with a warning: its card names what it left undone, so it is never folded away. */
 function endedWithWarning(run: OperationRun): boolean {
   return (
-    (run.status === 'completed' || run.status === 'cancelled') && (run.warnings?.length ?? 0) > 0
+    (run.status === 'completed' || run.status === 'canceled') && (run.warnings?.length ?? 0) > 0
   );
 }
 
 /**
- * A run that waits for another job: queued behind it, or started and held at its log step until the live
+ * A run that waits for another job: parked behind it, or started and held at its log step until the live
  * import's pass ends. Both draw the purple waiting card and name what they wait for.
  */
 function waitsForAnotherJob(run: OperationRun): boolean {
@@ -678,8 +683,8 @@ export function applyRun(
     connectionRecovering: undefined,
     // A repairing card hidden in this tab stays hidden; any other row draws a hidden card again.
     hiddenHere: row.repairing === true && hiddenRepairingRuns().includes(id) ? true : undefined,
-    // A parked run being cancelled has no worker to describe it, so it keeps its waiting sentence.
-    ...(base.run.status === 'waiting' && row.status === 'cancelling'
+    // A parked run being canceled has no worker to describe it, so it keeps its waiting sentence.
+    ...(base.run.status === 'waiting' && row.status === 'canceling'
       ? { parkedMessage: runWaitingMessage(base.run) }
       : {})
   };
@@ -722,7 +727,7 @@ export function applyRun(
       HIDDEN_REPAIRING_RUNS_KEY,
       hiddenRepairs.filter((hidden) => hidden !== id)
     );
-  const leavesOnItsOwn = row.status === 'completed' || row.status === 'cancelled';
+  const leavesOnItsOwn = row.status === 'completed' || row.status === 'canceled';
   if (!repairFailed && (row.fullRepair === true || (wasHiddenRepair && !row.retained))) {
     // The startup repair's record carries a placeholder ending that is never shown, and a repair
     // hidden here does not come back when it finishes.
@@ -1206,8 +1211,8 @@ function drawRun(entry: RunEntry): UnifiedNotification {
     ? 'repairing'
     : repairFailed
       ? 'failed'
-      : live && (entry.cancel.cancelRequested || entry.cancel.cancelling)
-        ? 'cancelling'
+      : live && (entry.cancel.cancelRequested || entry.cancel.canceling)
+        ? 'canceling'
         : run.status;
   const kept = run.retained === true && !live;
   // What an ended run left undone, worded by the locale key the server chose for each. A completed
@@ -1247,7 +1252,7 @@ function drawRun(entry: RunEntry): UnifiedNotification {
               {
                 completed: 'common.notifications.repairing.completed',
                 failed: 'common.notifications.repairing.failed',
-                cancelled: 'common.notifications.repairing.cancelled',
+                canceled: 'common.notifications.repairing.canceled',
                 skipped: 'common.notifications.repairing.skipped'
               }[run.status]
             )
@@ -1264,31 +1269,34 @@ function drawRun(entry: RunEntry): UnifiedNotification {
               ? i18n.t('prefill.auth.waitingForSignIn', { service: platform })
               : failedSignIn
                 ? i18n.t('common.errors.signInFailed', { platform })
-                : status === 'cancelling'
+                : status === 'canceling'
                   ? // The last progress line no longer describes a run being stopped, nor does the
                     // line of the work this card took over; a parked run keeps its waiting sentence.
-                    (entry.parkedMessage ?? i18n.t('common.notifications.cancelling'))
+                    (entry.parkedMessage ?? i18n.t('common.notifications.canceling'))
                   : (detail.message ??
                     (run.status === 'skipped'
                       ? // A skip's row message is the reason the server kept, which the live card prints as is.
                         translateStageKeyMessage(run.message, undefined, GENERIC_SKIPPED_I18N_KEY)
-                      : isTerminalNotificationStatus(run.status)
-                        ? // An ended run no event described says how it ended, never "in progress".
-                          translateRecoveryStage(
-                            run.message,
-                            datasourceFailureValues(run.failedDatasource, run.databaseError),
-                            {
-                              completed: GENERIC_COMPLETION_I18N_KEY,
-                              failed: GENERIC_FAILURE_I18N_KEY,
-                              cancelled: GENERIC_CANCELLED_I18N_KEY
-                            }[run.status]
-                          )
-                        : (entry.carriedMessage ??
-                          translateRecoveryStage(
-                            run.message,
-                            undefined,
-                            'signalr.generic.unknown'
-                          )))),
+                      : run.status === 'failed' && run.failureReason
+                        ? // A failure whose message is its key carries the values its sentence names.
+                          i18n.t(run.failureReason.stageKey, run.failureReason.context)
+                        : isTerminalNotificationStatus(run.status)
+                          ? // An ended run no event described says how it ended, never "in progress".
+                            translateRecoveryStage(
+                              run.message,
+                              datasourceFailureValues(run.failedDatasource, run.databaseError),
+                              {
+                                completed: GENERIC_COMPLETION_I18N_KEY,
+                                failed: GENERIC_FAILURE_I18N_KEY,
+                                canceled: GENERIC_CANCELED_I18N_KEY
+                              }[run.status]
+                            )
+                          : (entry.carriedMessage ??
+                            translateRecoveryStage(
+                              run.message,
+                              undefined,
+                              'signalr.generic.unknown'
+                            )))),
     detailMessage: lines.length > 0 ? lines.join(' ') : undefined,
     progress:
       'progress' in detail
@@ -1302,12 +1310,14 @@ function drawRun(entry: RunEntry): UnifiedNotification {
     error:
       run.status === 'failed'
         ? (detail.error ??
-          (run.error
-            ? translateStageKeyMessage(
-                run.error,
-                datasourceFailureValues(run.failedDatasource, run.databaseError)
-              )
-            : undefined))
+          (run.failureReason
+            ? i18n.t(run.failureReason.stageKey, run.failureReason.context)
+            : run.error
+              ? translateStageKeyMessage(
+                  run.error,
+                  datasourceFailureValues(run.failedDatasource, run.databaseError)
+                )
+              : undefined))
         : undefined,
     details: {
       ...(run.serviceId ? { service: run.serviceId } : {}),
@@ -1322,7 +1332,7 @@ function drawRun(entry: RunEntry): UnifiedNotification {
       parentOperationId: run.parentOperationId ?? undefined,
       // A cancel reaches only a live run; an ended one's X never force-stops it.
       ...(live ? entry.cancel : {}),
-      cancelled: status === 'cancelled' || undefined,
+      canceled: status === 'canceled' || undefined,
       connectionRecovering: entry.connectionRecovering,
       ...(repairFailed ? { repairFailed: true } : {}),
       ...(kept ? { closeOperationIds: [run.operationId] } : {}),

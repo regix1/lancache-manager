@@ -26,9 +26,19 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         _logger = logger;
     }
 
-    public async Task<OperationConflictResponse?> CheckAsync(
+    public Task<OperationConflictResponse?> CheckAsync(
         OperationType newType,
         ConflictScope newScope,
+        CancellationToken ct) =>
+        CheckCoreAsync(newType, newScope, logPassOnly: false, ct);
+
+    public Task<OperationConflictResponse?> CheckForLogPassAsync(CancellationToken ct) =>
+        CheckCoreAsync(OperationType.LogProcessing, ConflictScope.Bulk(), logPassOnly: true, ct);
+
+    private async Task<OperationConflictResponse?> CheckCoreAsync(
+        OperationType newType,
+        ConflictScope newScope,
+        bool logPassOnly,
         CancellationToken ct)
     {
         await _operationStateService.WaitForRecoveryOwnershipAsync(ct);
@@ -57,7 +67,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         {
             ct.ThrowIfCancellationRequested();
 
-            var verdict = Evaluate(newType, newScope, op);
+            var verdict = Evaluate(newType, newScope, op, logPassOnly);
             if (verdict != null)
             {
                 // A conflict is an expected policy result, and background services may probe this
@@ -149,11 +159,15 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
     /// Pure decision function for ONE active op. Returns the 409 body if the new op must be
     /// blocked, or <c>null</c> to let the caller continue checking other active ops.
     /// </summary>
-    private static OperationConflictResponse? Evaluate(OperationType newType, ConflictScope newScope, OperationInfo activeOp)
+    private static OperationConflictResponse? Evaluate(
+        OperationType newType,
+        ConflictScope newScope,
+        OperationInfo activeOp,
+        bool logPassOnly)
     {
-        // Every job that touches the log files takes turns with a log pass on the log file lock, so
-        // a new log pass starts at once and waits there; only another log pass can conflict with it.
-        if (newType == OperationType.LogProcessing && activeOp.Type != OperationType.LogProcessing) return null;
+        // The live ingest and the log position reset step aside only for another log pass; every other
+        // job's log step takes turns with them at the log file lock.
+        if (logPassOnly && activeOp.Type != OperationType.LogProcessing) return null;
 
         // These jobs share only the log files with a running log pass, and the log file lock orders
         // that, so they start at once and their log step waits for the datasource the batch is on.
@@ -197,6 +211,10 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
                     ["activeType"] = activeOp.Type.ToString()
                 });
         }
+
+        // A log run waits for a running global job like any other job; past that, every job that touches
+        // the log files takes turns with a log pass on the log file lock, so only another log pass conflicts.
+        if (newType == OperationType.LogProcessing && activeOp.Type != OperationType.LogProcessing) return null;
 
         // A corruption scan may traverse the full cache tree and structurally inspect open files.
         // Serialize it with every cache-mutating removal in both directions. This conservative
@@ -301,7 +319,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         }
 
         // Mirror: a log removal is active and the NEW op is a removal that would rewrite access.log
-        // underneath it → BLOCK (queued). Against an active log pass those removals returned at the
+        // underneath it → BLOCK (waits). Against an active log pass those removals returned at the
         // top. Anything else (scans/detections) → ALLOW.
         if (activeOp.Type == OperationType.LogRemoval || activeOp.Type == OperationType.LogProcessing)
         {

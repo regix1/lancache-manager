@@ -5,7 +5,7 @@ interface GitHubIconProps {
   className?: string;
 }
 
-/** The GitHub mark, drawn in the current text colour as GitHub's logo guidance requires. */
+/** The GitHub mark, drawn in the current text color as GitHub's logo guidance requires. */
 export const GitHubIcon: React.FC<GitHubIconProps> = ({ size = 24, className = '' }) => (
   <svg
     viewBox="0 0 24 24"

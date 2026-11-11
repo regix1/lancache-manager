@@ -48,7 +48,7 @@ public static class SteamAuthModeExtensions
 
     /// <summary>
     /// Parses a legacy string value into a <see cref="SteamAuthMode"/>. Case-insensitive.
-    /// Returns <c>null</c> if the value is null, whitespace, or unrecognised.
+    /// Returns <c>null</c> if the value is null, whitespace, or unrecognized.
     /// </summary>
     public static SteamAuthMode? TryParseWire(string? value)
     {

@@ -152,7 +152,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const isInitialLoad = useRef(true);
   const fetchInProgress = useRef(false);
   const liveRefetchPendingRef = useRef(false);
-  const liveFollowUpQueuedRef = useRef(false);
+  const liveFollowUpWantedRef = useRef(false);
   const [liveFollowUps, setLiveFollowUps] = useState(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
@@ -498,7 +498,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           fetchInProgress.current = false;
           if (liveRefetchPendingRef.current) {
             liveRefetchPendingRef.current = false;
-            liveFollowUpQueuedRef.current = true;
+            liveFollowUpWantedRef.current = true;
             setLiveFollowUps((count) => count + 1);
           }
         }
@@ -539,10 +539,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       // Shared with the Retro list through useRefreshThrottle, so every live surface answers on the
       // one refresh-rate setting and a finished download reaches them all at the same moment.
       scheduleLiveRefresh(() => {
-        // A batch already in flight, or a follow-up already queued, is not aborted: one follow-up
+        // A batch already in flight, or a follow-up already wanted, is not aborted: one follow-up
         // fetch starts after the latest request settles, so a build slower than the gap between
         // passes still lands, and the follow-up starts after this event's commit.
-        if (fetchInProgress.current || liveFollowUpQueuedRef.current) {
+        if (fetchInProgress.current || liveFollowUpWantedRef.current) {
           liveRefetchPendingRef.current = true;
           return;
         }
@@ -611,7 +611,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     };
 
     const handleCacheClearingComplete = (event: CacheClearCompleteEvent) => {
-      if (!event.success || event.cancelled) return;
+      if (!event.success || event.canceled) return;
       clearDetectionState();
       handleForcedRefreshEvent('CacheClearingComplete');
     };
@@ -624,7 +624,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     };
 
     const handleEvictionRemovalComplete = (event: EvictionRemovalCompleteEvent) => {
-      if (!event.success || event.cancelled) return;
+      if (!event.success || event.canceled) return;
       clearDetectionState();
       handleForcedRefreshEvent('EvictionRemovalComplete');
     };
@@ -692,7 +692,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
   useEffect(() => {
     if (liveFollowUps === 0) return;
-    liveFollowUpQueuedRef.current = false;
+    liveFollowUpWantedRef.current = false;
     if (currentTimeRangeRef.current !== 'live') return;
     void fetchAllData({ forceRefresh: true, trigger: 'signalr:follow-up' });
   }, [liveFollowUps, fetchAllData]);

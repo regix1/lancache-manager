@@ -180,7 +180,7 @@ public class PersistentLogoutTests
     {
         // Older daemon image: its pre-login command gate rejects "logout" outright while the session
         // hasn't finished authenticating (erase-on-stop regression diagnosis). Must still return
-        // forgotten=false (the frontend routes this to cancelling the in-flight login instead of a
+        // forgotten=false (the frontend routes this to canceling the in-flight login instead of a
         // stop+restart), but the log line must say so distinctly rather than reading as a genuine
         // daemon failure every single time an admin cancels a mid-challenge login.
         var client = new PreLoginRejectionDaemonClient();

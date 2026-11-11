@@ -121,7 +121,7 @@ interface ThreadLimitService {
 // ============================================================
 
 // Unsaved grant/revoke toggles in the session editor. Distinct from the thread limits
-// above: those are saved preferences on the session, these are queued permission changes
+// above: those are saved preferences on the session, these are pending permission changes
 // posted one call per service when the editor is saved.
 type PendingPrefillChanges = Record<GameServiceId, boolean | null>;
 
@@ -156,13 +156,14 @@ const loadPageSize = (): SessionPageSize => {
   return Number.isFinite(parsed) && isSessionPageSize(parsed) ? parsed : DEFAULT_PAGE_SIZE;
 };
 
-const sessionMatchesSearch = (session: Session, query: string): boolean => {
+const sessionMatchesSearch = (session: Session, query: string, deviceLabel: string): boolean => {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return true;
 
   const parsedUA = parseUserAgent(session.userAgent);
   const ip = session.ipAddress ? cleanIpAddress(session.ipAddress) : '';
   const haystack = [
+    deviceLabel,
     parsedUA.title,
     parsedUA.browser,
     parsedUA.os,
@@ -796,7 +797,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       prefillExpiresAt?: string;
       service?: string;
     }) => {
-      // An absent or unrecognised service id resolves to Steam, matching the events sent
+      // An absent or unrecognized service id resolves to Steam, matching the events sent
       // before the permission was split into one field per service.
       const service = prefillServiceConfig(data.service ?? '');
       setSessions((prev: Session[]) =>
@@ -1102,6 +1103,20 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const loadFailedWithoutSnapshot =
     loadError !== null && sessions.length === 0 && historySessions.length === 0;
 
+  // parseUserAgent keeps returning plain English: its strings are also the search haystack in
+  // sessionMatchesSearch, which matches against the raw user agent. An unknown browser or system
+  // comes back as null. Only the text that reaches the screen is translated, here, and that text
+  // joins the haystack so a search for the shown "Unknown" finds the row.
+  const deviceTitle = (userAgent: string | null): string => {
+    if (!userAgent) return t('activeSessions.device.unknownDevice');
+    const parsed = parseUserAgent(userAgent);
+    const browser =
+      parsed.browser === null ? t('activeSessions.device.unknownBrowser') : parsed.browser;
+    return parsed.os !== null
+      ? t('activeSessions.device.browserOnOs', { browser, os: parsed.os })
+      : browser;
+  };
+
   const typeFilteredSessions =
     activeFilterValue === 'all'
       ? activeSessions
@@ -1110,7 +1125,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         : activeSessions.filter((s: Session) => isGuestSession(s));
 
   const filteredActiveSessions = searchQuery.trim()
-    ? typeFilteredSessions.filter((s: Session) => sessionMatchesSearch(s, searchQuery))
+    ? typeFilteredSessions.filter((s: Session) =>
+        sessionMatchesSearch(s, searchQuery, deviceTitle(s.userAgent))
+      )
     : typeFilteredSessions;
 
   const pageSizeOptions = PAGE_SIZE_OPTIONS.map((size: SessionPageSize) => ({
@@ -1139,19 +1156,6 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // ============================================================
   // Render Helpers: Session Row (one responsive item — desktop + mobile)
   // ============================================================
-
-  // parseUserAgent keeps returning plain English: its strings are also the search haystack in
-  // sessionMatchesSearch, which matches against the raw user agent, and 'Unknown' is the
-  // sentinel the OS check reads. Only the text that reaches the screen is translated, here.
-  const deviceTitle = (userAgent: string | null): string => {
-    if (!userAgent) return t('activeSessions.device.unknownDevice');
-    const parsed = parseUserAgent(userAgent);
-    const browser =
-      parsed.browser === 'Unknown' ? t('activeSessions.device.unknownBrowser') : parsed.browser;
-    return parsed.os !== 'Unknown'
-      ? t('activeSessions.device.browserOnOs', { browser, os: parsed.os })
-      : browser;
-  };
 
   const sessionName = (session: Session): string => {
     const username = session.username?.trim();

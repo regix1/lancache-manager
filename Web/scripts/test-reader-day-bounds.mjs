@@ -74,7 +74,7 @@ test('a moment past midnight UTC bounds the UTC day it falls in', () => {
 });
 
 // The same instant is still August 7 in Denver, and this is the case the browser's own calendar
-// used to decide: an event labelled August 8 on the UTC clock selected August 7.
+// used to decide: an event labeled August 8 on the UTC clock selected August 7.
 test('the same moment bounds the previous day in a zone behind UTC', () => {
   const bounds = getDayBoundsInTimezone(new Date('2026-08-08T02:00:00Z'), 'America/Denver');
   assert.equal(bounds.start.toISOString(), '2026-08-07T06:00:00.000Z');

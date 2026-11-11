@@ -205,6 +205,7 @@ async function persistent(storage, service = 'Steam', rearm = false) {
         `export const useSignalR=()=>globalThis.loginTest.signal;`
       ),
       '@services/api.service': apiUrl,
+      '@utils/error': aliases['@utils/error'],
       './persistentLoginStore': storeUrl,
       './constants': moduleUrl(
         "export const SCHEDULED_PREFILL_ACCOUNT_SERVICE_IDS=['steam','epic','xbox'];"
@@ -1317,7 +1318,7 @@ test('a guest sign-in the app stopped shows the ending text, not the refusal', a
     flow.socket.handlers.get('SessionSubscribed')(
       subscribedSession({
         loginAttempt: 4,
-        status: 'cancelled',
+        status: 'canceled',
         stageKey: 'errors.integration.attemptExpired'
       })
     );
@@ -2189,6 +2190,181 @@ test('persistent approval keeps the whole-attempt deadline and acknowledges each
     assert.equal(flow.store.getPersistentLoginState('Steam').loginDeadline, started + 600000);
   } finally {
     flow?.close();
+    time.restore();
+  }
+});
+
+for (const resend of ['push', 'reconnect']) {
+  test(`a failed approval acknowledgment shows its error and is sent again on the next ${resend}`, async () => {
+    const time = clock();
+    const storage = new MemoryStorage();
+    let flow;
+    try {
+      flow = await persistent(storage);
+      flow.reply = {
+        ...flow.reply,
+        challengeId: `approval-${resend}`,
+        credentialType: 'device-confirmation'
+      };
+      await flow.start();
+      flow.provide = async () => {
+        throw new Error('boom');
+      };
+      flow.handlers.get('challenge:Steam')({ sessionId: 'session', challenge: flow.reply });
+      for (let tick = 0; tick < 10; tick++) await Promise.resolve();
+      const state = flow.store.getPersistentLoginState('Steam');
+      assert.equal(state.error, 'boom');
+      assert.equal(state.pendingChallenge.challengeId, `approval-${resend}`);
+
+      flow.provide = async () => undefined;
+      if (resend === 'push')
+        flow.handlers.get('challenge:Steam')({ sessionId: 'session', challenge: flow.reply });
+      else flow.reconnect();
+      for (let tick = 0; tick < 10; tick++) await Promise.resolve();
+      const acknowledgments = flow.calls.filter(
+        ([name, , challenge, credential]) =>
+          name === 'submit' &&
+          challenge.challengeId === `approval-${resend}` &&
+          credential === 'confirm'
+      );
+      assert.equal(acknowledgments.length, 2);
+      // The resent approval reached the daemon and the wait goes on, so the dialog and the card stop showing the failure.
+      const resent = flow.store.getPersistentLoginState('Steam');
+      assert.equal(resent.error, null);
+      assert.equal(resent.pendingChallenge.challengeId, `approval-${resend}`);
+      assert.notEqual(resent.loginDeadline, null);
+      assert.equal(flow.store.getPersistentLoginFailure(resent), null);
+      const dialog = flow.view();
+      assert.equal(dialog.opened, true);
+      assert.equal(dialog.error, null);
+    } finally {
+      flow?.close();
+      time.restore();
+    }
+  });
+}
+
+for (const earlier of ['sent once', 'resent after a failure']) {
+  test(`an approval acknowledgment ${earlier} keeps the failure the sign-in wrote meanwhile`, async () => {
+    const time = clock();
+    const storage = new MemoryStorage();
+    let flow;
+    try {
+      flow = await persistent(storage);
+      flow.reply = {
+        ...flow.reply,
+        challengeId: `approval-${earlier}`,
+        credentialType: 'device-confirmation'
+      };
+      await flow.start();
+      const push = () =>
+        flow.handlers.get('challenge:Steam')({ sessionId: 'session', challenge: flow.reply });
+      const acknowledgment = deferred();
+      if (earlier === 'resent after a failure') {
+        flow.provide = async () => {
+          throw new Error('boom');
+        };
+        push();
+        for (let tick = 0; tick < 10; tick++) await Promise.resolve();
+        assert.equal(flow.store.getPersistentLoginState('Steam').error, 'boom');
+        flow.provide = async () => {
+          throw new Error('refused');
+        };
+        assert.equal(await flow.render().actions.submit('confirm'), false);
+        flow.provide = () => acknowledgment.promise;
+        push();
+      } else {
+        let sends = 0;
+        flow.provide = async () => {
+          sends++;
+          if (sends === 1) return acknowledgment.promise;
+          throw new Error('refused');
+        };
+        push();
+        assert.equal(await flow.render().actions.submit('confirm'), false);
+      }
+      assert.equal(flow.store.getPersistentLoginState('Steam').error, 'refused');
+
+      acknowledgment.resolve();
+      for (let tick = 0; tick < 10; tick++) await Promise.resolve();
+      // The acknowledgment wrote no error of its own since that failure, so the failure stays on screen.
+      const state = flow.store.getPersistentLoginState('Steam');
+      assert.equal(state.error, 'refused');
+      assert.equal(state.pendingChallenge.challengeId, `approval-${earlier}`);
+      assert.equal(flow.store.getPersistentLoginFailure(state), 'refused');
+      assert.equal(flow.view().error, 'refused');
+    } finally {
+      flow?.close();
+      time.restore();
+    }
+  });
+}
+
+test('a failed guest approval acknowledgment shows its error and is sent again on the next push', async () => {
+  const time = clock();
+  const flow = guest();
+  try {
+    await flow.start();
+    const push = (sent = challenge('first')) =>
+      flow.socket.handlers.get('CredentialChallenge')({ sessionId: 'session', challenge: sent });
+    flow.provide = async () => {
+      throw new Error('boom');
+    };
+    const failed = push();
+    await time.advance(300);
+    await failed;
+    assert.equal(flow.render().state.error, 'boom');
+
+    flow.provide = async () => undefined;
+    const resent = push();
+    await time.advance(300);
+    await resent;
+    assert.equal(
+      flow.calls.filter(
+        ([name, , sent, credential]) =>
+          name === 'ProvideCredentialAsync' &&
+          sent.challengeId === 'first' &&
+          credential === 'confirm'
+      ).length,
+      2
+    );
+    // The resent approval reached the daemon and the wait goes on, so the dialog stops showing the failure.
+    const waiting = flow.render();
+    assert.equal(waiting.state.error, null);
+    assert.equal(waiting.state.waitingForMobileConfirmation, true);
+    assert.notEqual(waiting.loginDeadline, null);
+  } finally {
+    flow.unmount();
+    time.restore();
+  }
+});
+
+test('a guest approval acknowledgment resent after a failure keeps a later unreadable prompt error', async () => {
+  const time = clock();
+  const flow = guest();
+  try {
+    await flow.start();
+    const push = (sent = challenge('first')) =>
+      flow.socket.handlers.get('CredentialChallenge')({ sessionId: 'session', challenge: sent });
+    flow.provide = async () => {
+      throw new Error('boom');
+    };
+    const failed = push();
+    await time.advance(300);
+    await failed;
+    assert.equal(flow.render().state.error, 'boom');
+
+    const acknowledgment = deferred();
+    flow.provide = () => acknowledgment.promise;
+    const resent = push();
+    await time.advance(300);
+    void push({ ...challenge('other'), expiresAt: 'invalid' });
+    assert.equal(flow.render().state.error, 'prefill.auth.errors.noChallenge');
+    acknowledgment.resolve();
+    await resent;
+    assert.equal(flow.render().state.error, 'prefill.auth.errors.noChallenge');
+  } finally {
+    flow.unmount();
     time.restore();
   }
 });

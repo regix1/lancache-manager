@@ -1,5 +1,5 @@
 /* Sign-in service marks and buttons. Google, GitHub, Microsoft and Apple each publish the button
-   treatment their mark may sit on, so those colours are the published values rather than theme
+   treatment their mark may sit on, so those colors are the published values rather than theme
    tokens; the theme only decides whether the light or the dark treatment is shown. The shared
    Button keeps size, radius, focus ring, spinner and motion. */
 

@@ -208,7 +208,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
 
   // Which day counts as today, and which days are already gone, are read from the browser's own
   // calendar. The event modal and its two date pickers build their minimum date from a browser-local
-  // midnight, so reading today through the display timezone instead let the grid grey out and refuse
+  // midnight, so reading today through the display timezone instead let the grid gray out and refuse
   // a click on a day the modal was still happily accepting. currentMonth is itself a browser-local
   // date, so both sides of the comparison speak the same calendar and the numbers compare directly.
   // getEventsForDay keeps binning events with getDateInTimezone in the display timezone, because
@@ -681,8 +681,8 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                 // bar carries no text and the tooltip carries the name instead.
                 const showSpanLabel = !settings.compactMode && !isMobile;
 
-                // Every size on a bar lives in the stylesheet. Only the colour tiers cannot be
-                // derived from a colour variable in CSS, so those four ride in as properties.
+                // Every size on a bar lives in the stylesheet. Only the color tiers cannot be
+                // derived from a color variable in CSS, so those four ride in as properties.
                 const getSpanColors = (
                   colorToken: ColorToken,
                   isEnded: boolean

@@ -39,6 +39,15 @@
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
 }
 
+/* Dark themes separate a floating layer from what it floats over with a lighter fill and a
+   border, never a shadow; light themes keep the shadow. The doughnut chart's canvas tooltip
+   reads the same fill. */
+[data-theme='dark'] .tooltip-edge {
+  background-color: var(--theme-bg-surface);
+  border-color: var(--theme-card-border);
+  box-shadow: none;
+}
+
 /* ==============================================
  * TAB CONTENT
  * ============================================== */
@@ -93,7 +102,7 @@
 }
 
 /* Quiet secondary lines: device/location, last-seen, and inline status text. Tones carry the
-   only colour (revoked / expired / remaining) - no filled pills. */
+   only color (revoked / expired / remaining) - no filled pills. */
 .session-row__meta {
   display: flex;
   align-items: center;

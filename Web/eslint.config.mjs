@@ -39,11 +39,12 @@ const DIALOG_RULES = [
   }
 ];
 // A shared saving flag on a field grays out the whole form while one action runs. Scan locks
-// such as isScanBusy are operation locks and are not in the list.
+// such as isScanBusy are operation locks and are not in the list. Any other name that contains
+// "saving" or "submitting" is caught by pattern.
 const SAVE_FLAG_RULES = [
   {
     selector:
-      "JSXOpeningElement[name.name=/^(SettingRow|Checkbox|ToggleSwitch|TogglePill|EnhancedDropdown|MultiSelectDropdown|SearchInput|NumberInput|TextInput|PasswordField|SelectableCard|SegmentedControl|CredentialFields|PostgresConnectionFields|Slider|input|textarea|select)$/] > JSXAttribute[name.name='disabled'] Identifier[name=/^(busy|isSubmitting|saving|isSaving|savingHostnames|savingExcluded|cacheSizeSaving|authenticating|authLoading|loading|updating|actionPending|clearing|resetting|runningAll|removeBusy|isResetting|testing)$/]",
+      "JSXOpeningElement[name.name=/^(SettingRow|Checkbox|ToggleSwitch|TogglePill|EnhancedDropdown|MultiSelectDropdown|SearchInput|NumberInput|TextInput|PasswordField|SelectableCard|SegmentedControl|CredentialFields|PostgresConnectionFields|Slider|input|textarea|select)$/] > JSXAttribute[name.name='disabled'] Identifier[name=/^(busy|isSubmitting|saving|isSaving|savingHostnames|savingExcluded|cacheSizeSaving|authenticating|authLoading|loading|updating|actionPending|clearing|resetting|runningAll|removeBusy|isResetting|testing)$|[sS]aving|[sS]ubmitting/]",
     message:
       'Buttons never flicker: do not gray out a field from the shared saving or busy flag. Only the control whose action is running shows busy (Button loading), and its handler ignores a repeat click.'
   }

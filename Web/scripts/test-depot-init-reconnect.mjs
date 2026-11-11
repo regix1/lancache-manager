@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { bindLifted, compileToUrl, liftHookCallback, moduleUrl } from './transpile-module.mjs';
+import {
+  bindLifted,
+  compileToUrl,
+  liftConstArrow,
+  liftHookCallback,
+  moduleUrl,
+  translator
+} from './transpile-module.mjs';
 
 /**
  * The setup depot step learns that a cloud import finished only from DepotMappingComplete. A client
@@ -167,4 +174,151 @@ test('a mount into a live socket reads status once, with no reconnect read', asy
 
   assert.equal(step.calls.reads, 1);
   assert.equal(step.state.error, null, 'with no method chosen the check leaves the step alone');
+});
+
+const t = translator('zh');
+
+globalThis.testTranslator = { t };
+const i18nStub = moduleUrl('export default globalThis.testTranslator;');
+
+// The real constants module reads `import.meta.env` while it loads, which only vite supplies.
+// `apiError.ts` reads APP_EVENTS from it on the 401 branch alone, and nothing here sends a 401.
+const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
+  '@/i18n': i18nStub,
+  '@utils/constants': moduleUrl('export const APP_EVENTS = {};')
+});
+const { ApiError } = await import(apiErrorUrl);
+const { getErrorMessage } = await import(
+  await compileToUrl('../src/utils/error.ts', {
+    '@/i18n': i18nStub,
+    '../services/apiError': apiErrorUrl
+  })
+);
+
+const failedImportEvent = {
+  scanMode: 'github',
+  success: false,
+  stageKey: 'signalr.depotMapping.github.invalidJson',
+  context: {},
+  error: 'Downloaded depot mapping file was not valid JSON',
+  message: 'x'
+};
+
+/** The step's SignalR handlers and its download click, sharing one piece of state. */
+const buildLiveStep = () => {
+  const state = { error: null, downloadStatus: null, progress: 0 };
+  const handlers = {};
+  let rejectRequest;
+  const bindings = {
+    t,
+    signalR: {
+      on: (name, handler) => {
+        handlers[name] = handler;
+      },
+      off: () => undefined
+    },
+    setInitializing: () => undefined,
+    setSelectedMethod: () => undefined,
+    setProgress: (value) => {
+      state.progress = value;
+    },
+    setDownloadStatus: (value) => {
+      state.downloadStatus = value;
+    },
+    setError: (value) => {
+      state.error = typeof value === 'function' ? value(state.error) : value;
+    },
+    finishImport: () => undefined,
+    checkActiveOperation: () => undefined,
+    selectedMethodRef: { current: 'cloud' },
+    importRequestRef: { current: false },
+    ApiService: {
+      downloadPrecreatedDepotData: () =>
+        new Promise((_, reject) => {
+          rejectRequest = reject;
+        })
+    },
+    ApiError,
+    isAbortError: () => false,
+    getErrorMessage
+  };
+  bindLifted(
+    liftHookCallback(componentPath, 'useEffect', 'handleDepotMappingComplete'),
+    bindings
+  )();
+  const describeError = bindLifted(liftConstArrow(componentPath, 'describeError'), bindings);
+  const handleDownload = bindLifted(liftConstArrow(componentPath, 'handleDownload'), {
+    ...bindings,
+    describeError
+  });
+  const click = () => {
+    const done = handleDownload();
+    return { done, reject: (error) => rejectRequest(error) };
+  };
+  return { state, handlers, click };
+};
+
+const importFailedResponse = () =>
+  new ApiError({
+    message: 'Failed to download and import pre-created depot data from GitHub',
+    status: 503,
+    kind: 'http',
+    body: { stageKey: 'errors.depot.githubImportFailed' }
+  });
+
+test('a failed import event shows the Chinese sentence for its cause', () => {
+  const step = buildLiveStep();
+  step.handlers.DepotMappingComplete(failedImportEvent);
+
+  assert.equal(step.state.error, t('signalr.depotMapping.github.invalidJson'));
+});
+
+test('the started and progress events show the Chinese download sentence', () => {
+  const step = buildLiveStep();
+  step.handlers.DepotMappingStarted({
+    scanMode: 'github',
+    stageKey: 'signalr.depotMapping.github.downloading',
+    context: {},
+    message: 'Downloading depot mappings from GitHub...'
+  });
+  assert.equal(step.state.downloadStatus, t('signalr.depotMapping.github.downloading'));
+
+  step.state.downloadStatus = null;
+  step.handlers.DepotMappingProgress({
+    stageKey: 'signalr.depotMapping.github.downloading',
+    percentComplete: 40,
+    context: { status: 'Parsing JSON' },
+    message: 'Parsing JSON'
+  });
+  assert.equal(step.state.downloadStatus, t('signalr.depotMapping.github.downloading'));
+  assert.equal(step.state.progress, 40);
+});
+
+test('the failure event keeps its sentence when the request then reports the failure', async () => {
+  const step = buildLiveStep();
+  const request = step.click();
+  step.handlers.DepotMappingComplete(failedImportEvent);
+  request.reject(importFailedResponse());
+  await request.done;
+
+  assert.equal(step.state.error, t('signalr.depotMapping.github.invalidJson'));
+});
+
+test('a request failure followed by the failure event ends on the event sentence', async () => {
+  const step = buildLiveStep();
+  const request = step.click();
+  request.reject(importFailedResponse());
+  await request.done;
+  step.handlers.DepotMappingComplete(failedImportEvent);
+
+  assert.equal(step.state.error, t('signalr.depotMapping.github.invalidJson'));
+});
+
+test('a conflict with no event shows the conflict sentence', async () => {
+  const step = buildLiveStep();
+  const request = step.click();
+  request.reject(new ApiError({ message: 'conflict', status: 409, kind: 'conflict', body: null }));
+  await request.done;
+
+  assert.equal(step.state.error, t('errors.conflict.duplicate'));
 });

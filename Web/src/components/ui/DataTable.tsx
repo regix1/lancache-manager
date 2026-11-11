@@ -78,7 +78,7 @@ const ResizeHandle: React.FC<{
 
 // Written out in full rather than built from a prefix. These rules live in `@layer components`, so
 // Tailwind keeps them only if it finds the class name in the source: a name assembled at runtime is
-// never seen by the content scan and the rule is dropped from the build, which left every centred
+// never seen by the content scan and the rule is dropped from the build, which left every centered
 // column rendering its cells left-aligned while its header looked correct.
 function getAlignClass(
   align: 'left' | 'center' | 'right' | undefined,

@@ -190,7 +190,7 @@ public class ScheduledPrefillRunVisibilityTests
     [InlineData(ScheduledPrefillServiceRunResult.Unavailable, null, false)]
     [InlineData(ScheduledPrefillServiceRunResult.Ran, null, true)]
     [InlineData(ScheduledPrefillServiceRunResult.Failed, null, false)]
-    [InlineData(ScheduledPrefillServiceRunResult.Cancelled, null, false)]
+    [InlineData(ScheduledPrefillServiceRunResult.Canceled, null, false)]
     public async Task CompleteServiceRunAsync_NamesASkipOnTheWire(
         ScheduledPrefillServiceRunResult result, string? expectedStatus, bool expectedSuccess)
     {

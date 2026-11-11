@@ -14,13 +14,13 @@ A running instance serves an interactive reference at **`/scalar`**, on whatever
 
 `/scalar` requires a signed-in account. Signed in to the app already, it loads straight away, and those calls run on that same session, so there is nothing to fill in. If you are not signed in, it sends you to the sign-in screen.
 
-The API key field at the top of the page takes the API key, which is what opens the reference and the document behind it. The greyed-out value in that field is placeholder text, not a working key.
+The API key field at the top of the page takes the API key, which is what opens the reference and the document behind it. The grayed-out value in that field is placeholder text, not a working key.
 
 The raw OpenAPI document is at **`/openapi/v1.json`**, and also requires a signed-in account. Point Postman, Insomnia, or a client generator at it.
 
 !!! warning "`/swagger` and `/scaler` do not work"
 
-    This app uses Scalar, so there is no Swagger UI, and `/scaler` is a misspelling. Neither errors: unrecognised paths go to the single-page app, so you land on the dashboard and it looks as though the docs vanished. Check the spelling first.
+    This app uses Scalar, so there is no Swagger UI, and `/scaler` is a misspelling. Neither errors: unrecognized paths go to the single-page app, so you land on the dashboard and it looks as though the docs vanished. Check the spelling first.
 
 ## Authenticating
 

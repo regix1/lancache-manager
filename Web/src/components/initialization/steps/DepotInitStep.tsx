@@ -58,7 +58,8 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     if (err instanceof ApiError && err.kind === 'conflict') {
       const conflict = err.cause as OperationConflictBody | undefined;
       const duplicate = t('errors.conflict.duplicate');
-      return conflict?.stageKey ? t(conflict.stageKey, { defaultValue: duplicate }) : duplicate;
+      // apiError.ts:169 leaves `cause` unset for a 409 that names no stage key.
+      return conflict?.stageKey ? t(conflict.stageKey, conflict.context ?? undefined) : duplicate;
     }
     return getErrorMessage(err);
   };
@@ -126,7 +127,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       if (event.scanMode === 'github') {
         setInitializing(true);
         setSelectedMethod('cloud');
-        setDownloadStatus(event.message || t('initialization.depotInit.fetchingDesc'));
+        setDownloadStatus(t(event.stageKey, event.context ?? undefined));
         setProgress(0);
       }
     };
@@ -134,7 +135,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     const handleDepotMappingProgress = (event: DepotMappingProgressEvent) => {
       if (selectedMethodRef.current === 'cloud') {
         setProgress(event.percentComplete || 0);
-        setDownloadStatus(event.message || t('initialization.depotInit.processing'));
+        setDownloadStatus(t(event.stageKey, event.context ?? undefined));
       }
     };
 
@@ -143,7 +144,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         if (event.success) {
           finishImport();
         } else {
-          setError(event.error || event.message || t('initialization.depotInit.failedToDownload'));
+          setError(t(event.stageKey, event.context ?? undefined));
           setInitializing(false);
           setSelectedMethod(null);
           setDownloadStatus(null);
@@ -195,7 +196,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     } catch (err: unknown) {
       // Don't show error for user-initiated cancellation
       if (!isAbortError(err)) {
-        setError(describeError(err));
+        // The server sends the failed completion event before it answers the request, so the
+        // event's per-cause sentence is already shown and the request's generic text must not
+        // replace it.
+        setError((shown) => shown ?? describeError(err));
       }
       setInitializing(false);
       setSelectedMethod(null);

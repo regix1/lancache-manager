@@ -261,7 +261,7 @@ public sealed class DatabaseResetPrefillSessionsHttpTests
         var tracker = host.Application.Services.GetRequiredService<IUnifiedOperationTracker>();
         for (var attempt = 0; attempt < 400; attempt++)
         {
-            if (tracker.GetOperation(operationId) is { Status: OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Cancelled } operation)
+            if (tracker.GetOperation(operationId) is { Status: OperationStatus.Completed or OperationStatus.Failed or OperationStatus.Canceled } operation)
             {
                 return operation;
             }

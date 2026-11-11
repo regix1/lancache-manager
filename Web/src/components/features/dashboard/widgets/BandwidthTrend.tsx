@@ -201,14 +201,14 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
   const chartData: ChartData<'line'> = useMemo(() => {
     void themeRevision;
     // Saved and missed are the cache-hit and cache-miss series, so they read the chart's own
-    // hit/miss colours rather than the status green and amber. That is the vocabulary the rest
+    // hit/miss colors rather than the status green and amber. That is the vocabulary the rest
     // of the charts already use for these two words - the compare chart's hit/miss lines and
     // legend swatches read the same two tokens - and it leaves success and warning to mean a
-    // status. Served has no cache meaning, so it stays on the series colour.
+    // status. Served has no cache meaning, so it stays on the series color.
     // Only Total served carries an area wash. Hits and misses add up to it, so their areas sat
     // under its own and the three overlapping washes mixed into a muddy band; as plain lines they
     // read against one clean fill. pointBackgroundColor repeats each series' stroke so the hover
-    // dot is solid, and its ring in the well colour keeps it readable where two lines cross.
+    // dot is solid, and its ring in the well color keeps it readable where two lines cross.
     // Monotone curves never swing below zero beside a spike the way a plain tension curve does.
     const servedColor = getThemeColor('--theme-primary');
     const savedColor = getThemeColor('--theme-chart-cache-hit');
@@ -323,7 +323,7 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
         // instead of jumping a whole bucket at a time. Ticks stay on whole buckets, the only
         // positions that have a label. The bounds are always set, so the ticks land on fixed
         // multiples of their spacing and slide with the lines, rather than being counted from
-        // the left edge and relabelled on every step of a drag.
+        // the left edge and relabeled on every step of a drag.
         x: {
           ...scales.x,
           type: 'linear',

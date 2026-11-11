@@ -84,7 +84,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
 
   // Derive cache clearing state from notifications (standardized pattern)
   const isCacheClearing = useOperationBusy({ types: ['cache_clearing'] });
-  // Own-card gate: any running OR queued cache clear (all or per-datasource)
+  // Own-card gate: any running OR waiting cache clear (all or per-datasource)
   // disables every Clear button in this card; other cards' removals still enqueue.
   const isCacheClearActive = useOperationBusy({
     types: ['cache_clearing'],
@@ -169,7 +169,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     if (mockMode) return;
 
     const handleCacheClearingComplete = (event: CacheClearCompleteEvent) => {
-      if (!event.success || event.cancelled) return;
+      if (!event.success || event.canceled) return;
       // Clear the cached size so it refetches with new values
       clearCacheSize();
     };

@@ -261,6 +261,18 @@ internal static class CacheScanGateHarness
         snapshot.ClientSpeeds = [];
     }
 
+    /// <summary>
+    /// Raises the tracker's downloads-ended edge. The event is static and parameterless, so a test raises it
+    /// the way the tracker does.
+    /// </summary>
+    internal static void RaiseDownloadsEnded()
+    {
+        var field = typeof(RustSpeedTrackerService).GetField(
+            nameof(RustSpeedTrackerService.DownloadsEnded),
+            BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+        ((Action?)field!.GetValue(null))?.Invoke();
+    }
+
     internal static void SetEmptyInstance(object instance, string fieldName)
     {
         var field = FindField(instance, fieldName);

@@ -56,7 +56,7 @@ public partial class DashboardBatchService : IDashboardBatchService
 
     // One registered flight per view shares a fan-out across every reader, including readers that
     // captured a newer cache generation. The only unregistered build is the attempt-cap fallback,
-    // reached after two attached flights fault. A build cannot be cancelled while a reader remains
+    // reached after two attached flights fault. A build cannot be canceled while a reader remains
     // attached, so an attached reader never observes cancellation from another reader leaving.
     //
     // A reader returns only a result built from generations at or above the ones it captured. A
@@ -220,7 +220,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             // The token STRUCT is what travels, never the source: a build can take seconds, an
             // invalidation lands on a notification thread meanwhile and disposes the source it
             // displaced, and CancellationTokenSource.Token throws once disposed. A token handed out
-            // before that stays readable, reports itself already cancelled, and the entry is declined.
+            // before that stays readable, reports itself already canceled, and the entry is declined.
             var liveCacheEviction = Volatile.Read(ref _liveCacheEviction).Token;
             var detectionCacheEviction = Volatile.Read(ref _detectionCacheEviction).Token;
 
@@ -535,10 +535,10 @@ public partial class DashboardBatchService : IDashboardBatchService
     {
         // Exchange rather than a plain assignment: these run on SignalR notification threads, so
         // two invalidations can overlap and each must cancel exactly the source it took out.
-        // The evicted source is cancelled but never disposed: CancellationTokenSource.Token
+        // The evicted source is canceled but never disposed: CancellationTokenSource.Token
         // throws ObjectDisposedException once the source is disposed, and a request reads it
         // from the field it captured, so disposing here would fail any request that an
-        // invalidation overlaps. A cancelled source holds no timer and is collectable as-is.
+        // invalidation overlaps. A canceled source holds no timer and is collectable as-is.
         var evicted = Interlocked.Exchange(ref _liveCacheEviction, new CancellationTokenSource());
         Interlocked.Increment(ref _liveCacheGeneration);
         evicted.Cancel();
@@ -585,10 +585,8 @@ public partial class DashboardBatchService : IDashboardBatchService
 
         var query = context.Downloads.AsNoTracking();
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
-        query = query.ApplyHiddenClientFilter(hiddenClientIps);
         query = query.ApplyEvictedFilter(evictedMode);
-        query = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
-        query = query.ApplyPrefillFilter(prefillRules);
+        query = query.ApplyClientFilters(hiddenClientIps, statsExcludedOnlyIps, prefillRules);
         query = query.ApplyTimeRange(startTime, endTime);
 
         // The GROUP BY and its client-side duration fold are shared with GET /api/stats/clients, so
@@ -605,7 +603,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         }
 
         // Empty unless the hostname lookup is on and this reader may be shown names, in which case
-        // a row with no nickname is labelled with the machine's own name instead of its address.
+        // a row with no nickname is labeled with the machine's own name instead of its address.
         // Only the addresses that will be displayed are resolved, so the busiest clients are the
         // ones that get names. A reader who may not see them costs no query at all: the label is
         // decided here, not stripped from the response afterwards, because a name and a nickname
@@ -629,17 +627,13 @@ public partial class DashboardBatchService : IDashboardBatchService
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync(ct);
         var query = context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyClientFilters(hiddenClientIps, statsExcludedOnlyIps, prefillRules)
             .ApplyEvictedFilter(evictedMode);
 
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
         query = query.ApplyTimeRange(startTime, endTime);
 
-        var serviceStatsQuery = query
-            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps)
-            .ApplyPrefillFilter(prefillRules);
-
-        var serviceStats = await ServiceStatsQuery(serviceStatsQuery).ToListAsync(ct);
+        var serviceStats = await ServiceStatsQuery(query).ToListAsync(ct);
 
         // xboxlive and microsoft rows are folded into xbox before UTC marking
         return ServiceBreakdownMerger.MergeXboxRows(serviceStats).WithUtcMarking();
@@ -656,7 +650,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         DateTime? endDateTime = endTime.HasValue ? endTime.Value.FromUnixSeconds() : null;
 
         var downloadsQuery = context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyClientFilters(hiddenClientIps, [], [])
             .ApplyEvictedFilter(evictedMode);
 
         downloadsQuery = downloadsQuery.ApplyEventFilter(eventIdList, eventDownloadIds);
@@ -664,8 +658,8 @@ public partial class DashboardBatchService : IDashboardBatchService
         downloadsQuery = downloadsQuery.ApplyTimeRange(startTime, endTime);
 
         // Calculate period metrics (exclude stats-excluded IPs, and prefill rows when separated)
-        var addedToCacheQuery = downloadsQuery.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
-        var periodQuery = addedToCacheQuery.ApplyPrefillFilter(prefillRules);
+        var addedToCacheQuery = downloadsQuery.ApplyClientFilters([], statsExcludedOnlyIps, []);
+        var periodQuery = addedToCacheQuery.ApplyClientFilters([], [], prefillRules);
 
         // Combined period aggregates: hitBytes + missBytes + count in ONE query (was 3 round trips)
         var periodAgg = await periodQuery
@@ -695,12 +689,11 @@ public partial class DashboardBatchService : IDashboardBatchService
 
         // Combined all-time aggregates: hitBytes + missBytes in ONE query (was 2 round trips)
         var allTimeQuery = context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps)
-            .ApplyEvictedFilter(evictedMode)
-            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+            .ApplyClientFilters(hiddenClientIps, statsExcludedOnlyIps, [])
+            .ApplyEvictedFilter(evictedMode);
 
         var allTimeAgg = await allTimeQuery
-            .ApplyPrefillFilter(prefillRules)
+            .ApplyClientFilters([], [], prefillRules)
             .GroupBy(d => 1)
             .Select(g => new
             {
@@ -777,7 +770,7 @@ public partial class DashboardBatchService : IDashboardBatchService
     /// unbounded view flat: without it the aggregate scanned the whole table, which measured 4.2
     /// seconds over ten million rows and returned 415,720 rows to draw a panel of a hundred games.
     /// <para>
-    /// It bounds the list of games and no figure on it. Every game this slice names is then totalled
+    /// It bounds the list of games and no figure on it. Every game this slice names is then totaled
     /// over the reader's whole range, so a count is the game's real count however old its downloads
     /// are. A game is missing from the list only when the newest rows this many hold fewer than
     /// <see cref="RecentGameGroupLimit"/> games, which takes one game to have written thousands of
@@ -809,7 +802,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         List<string> hiddenClientIps, string evictedMode, List<ClientExclusionRule> hiddenPrefillRules)
     {
         var query = context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyClientFilters(hiddenClientIps, [], hiddenPrefillRules)
             .ApplyEmptySessionFilter()
             .ApplyEventFilter(eventIdList, eventDownloadIds)
             .ApplyTimeRange(startTime, endTime);
@@ -820,7 +813,7 @@ public partial class DashboardBatchService : IDashboardBatchService
             query = query.Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0);
         }
 
-        return query.ApplyEvictedFilter(evictedMode).ApplyPrefillFilter(hiddenPrefillRules);
+        return query.ApplyEvictedFilter(evictedMode);
     }
 
     /// <summary>
@@ -1636,12 +1629,12 @@ public partial class DashboardBatchService : IDashboardBatchService
             query = query.Where(d => d.StartTimeUtc <= endDateTime);
         }
 
-        var filteredQuery = query.ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+        var filteredQuery = query.ApplyClientFilters([], statsExcludedOnlyIps, []);
 
         // Rows, not a GROUP BY: spreading a download's bytes over the buckets it was active in
         // needs each row's own window, which no per-bucket aggregate carries.
         var spans = await filteredQuery
-            .ApplyPrefillFilter(prefillRules)
+            .ApplyClientFilters([], [], prefillRules)
             .Select(d => new HourOfDayBuckets.Span(d.StartTimeUtc, d.EndTimeUtc, d.CacheHitBytes, d.CacheMissBytes))
             .ToListAsync(ct);
 
@@ -1776,8 +1769,7 @@ public partial class DashboardBatchService : IDashboardBatchService
         }
 
         var filteredQuery = query
-            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps)
-            .ApplyPrefillFilter(prefillRules);
+            .ApplyClientFilters([], statsExcludedOnlyIps, prefillRules);
 
         // Rows, not a GROUP BY: spreading a download's bytes over the hours it was active needs
         // each row's own window, which no per-hour aggregate carries.
@@ -1921,13 +1913,13 @@ public partial class DashboardBatchService : IDashboardBatchService
     private static IQueryable<Download> BuildBaseDownloadsQuery(AppDbContext context, List<string> hiddenClientIps, string evictedMode)
     {
         return context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyClientFilters(hiddenClientIps, [], [])
             .ApplyEvictedFilter(evictedMode);
     }
 
     /// <summary>
     /// How a sparkline's trend is measured. Byte counts have no fixed upper bound, so they are
-    /// compared proportionally; a percentage ratio is already normalised to 0-100, so it is
+    /// compared proportionally; a percentage ratio is already normalized to 0-100, so it is
     /// compared by point difference instead.
     /// </summary>
     internal enum SparklineTrendScale
@@ -2006,7 +1998,7 @@ public partial class DashboardBatchService : IDashboardBatchService
     /// Classifies an exception from a sub-query as a cancellation. Covers direct
     /// OperationCanceledException/TaskCanceledException, cancellations wrapped in an
     /// AggregateException (e.g. from task combinators), and any exception observed after
-    /// the request token was cancelled.
+    /// the request token was canceled.
     /// </summary>
     internal static bool IsCancellation(Exception ex, CancellationToken ct)
     {
@@ -2041,10 +2033,10 @@ public partial class DashboardBatchService : IDashboardBatchService
         }
         catch (Exception ex) when (IsCancellation(ex, ct))
         {
-            // A cancelled request is not a failed sub-query; soft-nulling it here would let a
+            // A canceled request is not a failed sub-query; soft-nulling it here would let a
             // client abort masquerade as missing data.
-            _logger.LogInformation("sub-query '{Name}' cancelled", name);
-            throw new OperationCanceledException($"sub-query '{name}' was cancelled", ex, ct);
+            _logger.LogInformation("sub-query '{Name}' canceled", name);
+            throw new OperationCanceledException($"sub-query '{name}' was canceled", ex, ct);
         }
         catch (Exception ex)
         {
@@ -2068,8 +2060,8 @@ public partial class DashboardBatchService : IDashboardBatchService
         }
         catch (Exception ex) when (IsCancellation(ex, ct))
         {
-            _logger.LogInformation("sub-query '{Name}' cancelled", name);
-            throw new OperationCanceledException($"sub-query '{name}' was cancelled", ex, ct);
+            _logger.LogInformation("sub-query '{Name}' canceled", name);
+            throw new OperationCanceledException($"sub-query '{name}' was canceled", ex, ct);
         }
         catch (Exception ex)
         {

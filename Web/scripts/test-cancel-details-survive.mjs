@@ -6,7 +6,7 @@ import { compileToUrl, moduleUrl } from './transpile-module.mjs';
  * Exercises the real handleCancel compiled from product source.
  *
  * The server broadcasts the terminal canceled event before it answers the cancel request, so the
- * card already carries `details.cancelled` by the time the request settles. handleCancel's failure
+ * card already carries `details.canceled` by the time the request settles. handleCancel's failure
  * branch used to patch `details` from the card it captured at click time, and updateNotification
  * merges at the top level, so that patch replaced the whole nested object and dropped the flag the
  * canceled card reads and colors itself from. The user saw a red "Failed to cancel operation"
@@ -133,9 +133,9 @@ test('a cancel failure keeps the canceled flag the terminal event already wrote'
         // The terminal event lands first, exactly as the server orders them.
         queueMicrotask(() => {
           applyUpdate(notifications, 'n1', (n) => ({
-            status: 'cancelled',
-            message: 'Game detection cancelled',
-            details: { ...n.details, cancelled: true }
+            status: 'canceled',
+            message: 'Game detection canceled',
+            details: { ...n.details, canceled: true }
           }));
           reject(new Error('An unexpected error occurred'));
         });
@@ -146,12 +146,12 @@ test('a cancel failure keeps the canceled flag the terminal event already wrote'
 
   const after = notifications[0];
   assert.equal(
-    after.details.cancelled,
+    after.details.canceled,
     true,
     'the failure branch must not erase the canceled flag the card is drawn gray from'
   );
-  assert.equal(after.status, 'cancelled');
-  assert.equal(after.message, 'Game detection cancelled');
+  assert.equal(after.status, 'canceled');
+  assert.equal(after.message, 'Game detection canceled');
   assert.equal(
     after.details.cancelRequested,
     true,
@@ -160,7 +160,7 @@ test('a cancel failure keeps the canceled flag the terminal event already wrote'
   assert.deepEqual(
     toasts.map((t) => t.detail.message),
     [],
-    'the authoritative cancelled outcome makes the late transport failure irrelevant'
+    'the authoritative canceled outcome makes the late transport failure irrelevant'
   );
 });
 
@@ -174,7 +174,7 @@ test('a cancel the server accepts raises no failure toast', async () => {
   assert.deepEqual(toasts, [], 'a cancel that worked must not show a failure card');
   assert.deepEqual(removed, [], 'the card stays until its own run row ends it');
   assert.equal(notifications[0].details.cancelSent, true);
-  assert.equal(notifications[0].status, 'cancelling');
+  assert.equal(notifications[0].status, 'canceling');
 });
 
 test('a cancel answered after its card was merged into a newer run still settles that card', async () => {
@@ -203,7 +203,7 @@ test('a cancel answered after its card was merged into a newer run still settles
   const card = notifications[0];
   assert.equal(card.id, 'n0');
   assert.equal(card.details.cancelPending, false, 'the answer clears the pending cancel');
-  assert.equal(card.status, 'cancelling');
+  assert.equal(card.status, 'canceling');
   // What the background row's Force stop reads: requested and sent, no longer loading.
   assert.equal(card.details.cancelRequested, true);
   assert.equal(card.details.cancelSent, true);
@@ -278,10 +278,10 @@ test('a sign-in card is found by its own id when the answer lands', async () => 
   for (const service of ['steam', 'xbox']) {
     const accepted = await loadCancel(`login-accepted-${service}`);
     const acceptedCards = [signIn(service)];
-    accepted.api.setCancel(() => Promise.resolve({ message: 'Cancellation requested' }));
+    accepted.api.setCancel(() => Promise.resolve({ alreadyFinished: false }));
     await driveCancel(accepted.cancel, acceptedCards, acceptedCards[0]);
     assert.equal(acceptedCards[0].details.cancelPending, false, `${service}: pending cleared`);
-    assert.equal(acceptedCards[0].status, 'cancelling', `${service}: shows cancelling`);
+    assert.equal(acceptedCards[0].status, 'canceling', `${service}: shows canceling`);
     assert.deepEqual(accepted.toasts, []);
 
     const failed = await loadCancel(`login-failed-${service}`);
@@ -328,8 +328,8 @@ test('a canceled card draws gray, a warning amber, and only a failure red', asyn
     cancel.getNotificationVariant({
       id: 'n1',
       type: 'game_detection',
-      status: 'cancelled',
-      details: { cancelled: true }
+      status: 'canceled',
+      details: { canceled: true }
     }),
     'neutral',
     'a run the user stopped is gray'
@@ -338,7 +338,7 @@ test('a canceled card draws gray, a warning amber, and only a failure red', asyn
     cancel.getNotificationVariant({
       id: 'n1',
       type: 'game_detection',
-      status: 'cancelled',
+      status: 'canceled',
       details: {}
     }),
     'neutral',
@@ -367,7 +367,7 @@ test('a canceled card draws gray, a warning amber, and only a failure red', asyn
     'a run that succeeded with a warning reads amber'
   );
   assert.equal(
-    cancel.getNotificationVariant({ id: 'n1', type: 'game_detection', status: 'cancelling' }),
+    cancel.getNotificationVariant({ id: 'n1', type: 'game_detection', status: 'canceling' }),
     'info',
     'a status with no row of its own reads as running'
   );
@@ -378,9 +378,9 @@ test('a canceled run that left something undone stays gray and names it', async 
   const card = {
     id: 'n1',
     type: 'game_detection',
-    status: 'cancelled',
+    status: 'canceled',
     detailMessage: 'Cache files that could not be deleted: 3',
-    details: { cancelled: true, notificationType: 'warning' }
+    details: { canceled: true, notificationType: 'warning' }
   };
   assert.equal(cancel.getNotificationVariant(card), 'neutral');
   assert.equal(card.detailMessage, 'Cache files that could not be deleted: 3');

@@ -34,7 +34,7 @@ public class ScheduledRunReporterTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ExternalTerminalRejectsCheckpointWhilePreservingItsContext(bool cancelled)
+    public async Task ExternalTerminalRejectsCheckpointWhilePreservingItsContext(bool canceled)
     {
         var notifications = new CapturingNotificationService(blockedEventName: ProgressEventName);
         var tracker = CreateTracker();
@@ -42,17 +42,17 @@ public class ScheduledRunReporterTests
         await reporter.StartAsync("probe.starting");
         var progress = reporter.ReportAsync(35, "probe.running", new() { ["count"] = 3 });
         await notifications.WhenBlockedSendBeginsAsync().WaitAsync(TimeSpan.FromSeconds(10));
-        tracker.CompleteOperation(reporter.OperationId, false, "External terminal", cancelled: cancelled);
+        tracker.CompleteOperation(reporter.OperationId, false, "External terminal", canceled: canceled);
         var committed = false;
         var completing = reporter.CompleteAsync(true, context: new() { ["count"] = 99 }, commit: () => committed = true);
         notifications.ReleaseBlockedSend();
         await progress;
-        if (cancelled) await Assert.ThrowsAsync<OperationCanceledException>(() => completing);
+        if (canceled) await Assert.ThrowsAsync<OperationCanceledException>(() => completing);
         else await Assert.ThrowsAsync<InvalidOperationException>(() => completing);
         Assert.False(committed);
         var terminal = Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
         Assert.Equal(3, terminal.Context!["count"]);
-        Assert.Equal(cancelled, terminal.Cancelled);
+        Assert.Equal(canceled, terminal.Canceled);
     }
 
     [Fact]
@@ -74,11 +74,11 @@ public class ScheduledRunReporterTests
         Assert.False(active);
         var terminal = Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
         Assert.True(terminal.Success);
-        Assert.False(terminal.Cancelled);
+        Assert.False(terminal.Canceled);
     }
 
     [Fact]
-    public async Task CancelledParentPreventsCheckpointAndAllowsCancellationCompletion()
+    public async Task CanceledParentPreventsCheckpointAndAllowsCancellationCompletion()
     {
         var notifications = new CapturingNotificationService();
         var tracker = CreateTracker();
@@ -89,8 +89,8 @@ public class ScheduledRunReporterTests
         var committed = false;
         await Assert.ThrowsAsync<OperationCanceledException>(() => reporter.CompleteAsync(true, commit: () => committed = true));
         Assert.False(committed);
-        await reporter.CompleteAsync(false, cancelled: true);
-        Assert.True(Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName)).Cancelled);
+        await reporter.CompleteAsync(false, canceled: true);
+        Assert.True(Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName)).Canceled);
     }
 
     private const string StartedEventName = "ProbeRunStarted";
@@ -142,12 +142,12 @@ public class ScheduledRunReporterTests
         await reporter.StartAsync("probe.starting");
         if (!cancelBeforeStart) tracker.CancelOperation(pendingId);
         Assert.True(token.IsCancellationRequested);
-        Assert.True(notice.Cancelled);
+        Assert.True(notice.Canceled);
         Assert.Equal(reporter.OperationId, notice.OperationId);
         Assert.NotEqual(Guid.Empty, reporter.OperationId);
         Assert.Single(notifications.PayloadsFor<ScheduledRunStartedEvent>(StartedEventName));
-        await reporter.CompleteAsync(success: false, cancelled: true);
-        await reporter.CompleteAsync(success: false, cancelled: true);
+        await reporter.CompleteAsync(success: false, canceled: true);
+        await reporter.CompleteAsync(success: false, canceled: true);
         Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
     }
 
@@ -181,7 +181,8 @@ public class ScheduledRunReporterTests
         Assert.Same(notice, tracker.GetOperation(reporter.OperationId)!.Notice);
         await reporter.CompleteAsync(success: false, error: "Connection closed");
         var terminal = Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName));
-        Assert.Equal("Connection closed", terminal.Error);
+        Assert.Equal("signalr.generic.failed", terminal.Error);
+        Assert.Equal("Connection closed", tracker.GetOperation(reporter.OperationId)!.ErrorDetail);
         Assert.Equal(OperationStatus.Failed, terminal.Status);
         // The failure keeps the notice it was admitted with, so its kept row stays hidden.
         Assert.Equal(RunVisibility.Hidden, Assert.Single(tracker.GetRuns().Runs).Visibility);
@@ -276,11 +277,53 @@ public class ScheduledRunReporterTests
 
         Assert.False(payload.Success);
         Assert.Equal(60, payload.PercentComplete);
-        Assert.Equal("boom", payload.Error);
+        Assert.Equal("signalr.generic.failed", payload.Error);
     }
 
     [Fact]
-    public async Task CompleteAsync_CancellationCarriesCancelledStatusAndHighestSentPercentAsync()
+    public async Task CompleteAsync_TextFailureWithItsOwnKeyEndsOnTheKeyWithItsValuesAsync()
+    {
+        var notifications = new CapturingNotificationService();
+        var tracker = CreateTracker();
+        await using var reporter = CreateReporter(notifications, tracker);
+
+        await reporter.StartAsync("probe.starting");
+        await reporter.CompleteAsync(
+            success: false,
+            error: "boom",
+            stageKey: "signalr.epicMapping.failed",
+            context: new Dictionary<string, object?> { ["errorDetail"] = "boom" });
+
+        var run = tracker.GetOperation(reporter.OperationId)!;
+        Assert.Equal("signalr.epicMapping.failed", run.Message);
+        Assert.Equal("boom", run.ErrorDetail);
+        Assert.Equal("signalr.epicMapping.failed", run.FailureReason?.StageKey);
+        Assert.Equal("boom", run.FailureReason?.Context["errorDetail"]);
+
+        var complete = await notifications.WhenEventAsync(CompleteEventName).WaitAsync(TimeSpan.FromSeconds(5));
+        var ended = Assert.IsType<ScheduledRunCompleteEvent>(complete.Payload);
+        // The outcome key names the failure, and the browser words it with the event's context.
+        Assert.Equal("signalr.epicMapping.failed", ended.StageKey);
+        Assert.Null(ended.Error);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_TextFailureWithNoKeyEndsOnTheGenericFailedKeyAsync()
+    {
+        var notifications = new CapturingNotificationService();
+        var tracker = CreateTracker();
+        await using var reporter = CreateReporter(notifications, tracker);
+
+        await reporter.StartAsync("probe.starting");
+        await reporter.CompleteAsync(success: false, error: "boom");
+
+        var run = tracker.GetOperation(reporter.OperationId)!;
+        Assert.Equal("signalr.generic.failed", run.Message);
+        Assert.Equal("boom", run.ErrorDetail);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_CancellationCarriesCanceledStatusAndHighestSentPercentAsync()
     {
         var notifications = new CapturingNotificationService();
         var tracker = CreateTracker();
@@ -291,17 +334,17 @@ public class ScheduledRunReporterTests
         await reporter.CompleteAsync(
             success: false,
             error: "Stopped before finishing",
-            cancelled: true,
-            stageKey: "probe.cancelled");
+            canceled: true,
+            stageKey: "probe.canceled");
 
         var complete = await notifications.WhenEventAsync(CompleteEventName).WaitAsync(TimeSpan.FromSeconds(5));
         var payload = Assert.IsType<ScheduledRunCompleteEvent>(complete.Payload);
 
         Assert.False(payload.Success);
-        Assert.True(payload.Cancelled);
-        Assert.Equal(OperationStatus.Cancelled, payload.Status);
+        Assert.True(payload.Canceled);
+        Assert.Equal(OperationStatus.Canceled, payload.Status);
         Assert.Equal(35, payload.PercentComplete);
-        Assert.Equal("probe.cancelled", payload.StageKey);
+        Assert.Equal("probe.canceled", payload.StageKey);
     }
 
     [Fact]
@@ -325,7 +368,7 @@ public class ScheduledRunReporterTests
     }
 
     [Fact]
-    public async Task CompleteAsync_ParentTokenCancellationStillEmitsCancelledTerminalAsync()
+    public async Task CompleteAsync_ParentTokenCancellationStillEmitsCanceledTerminalAsync()
     {
         var notifications = new CapturingNotificationService();
         var tracker = CreateTracker();
@@ -341,11 +384,11 @@ public class ScheduledRunReporterTests
         await reporter.CompleteAsync(
             success: false,
             error: "Stopped before finishing",
-            cancelled: true);
+            canceled: true);
 
         var payload = notifications.PayloadsFor<ScheduledRunCompleteEvent>(CompleteEventName).Single();
-        Assert.True(payload.Cancelled);
-        Assert.Equal(OperationStatus.Cancelled, payload.Status);
+        Assert.True(payload.Canceled);
+        Assert.Equal(OperationStatus.Canceled, payload.Status);
         Assert.Equal(45, payload.PercentComplete);
     }
 

@@ -288,7 +288,7 @@ test('persistent session activity and schedule counts have separate owners', () 
   assert.equal(walk(tree, region)[0].children[0].props.inert, false);
 });
 
-test('login expiry is labelled inside details and only appears for a signed-in container', () => {
+test('login expiry is labeled inside details and only appears for a signed-in container', () => {
   for (const isAuthenticated of [false, true]) {
     const tree = render({
       container: {
@@ -313,7 +313,7 @@ test('login expiry is labelled inside details and only appears for a signed-in c
   }
 });
 
-test('a container whose sign-in state could not be read is not labelled as logged out', () => {
+test('a container whose sign-in state could not be read is not labeled as logged out', () => {
   const loginBadgeLabel = (patch) => {
     const tree = render({
       container: {

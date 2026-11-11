@@ -52,7 +52,6 @@
     "changedWhileSaving": "点击保存时的设置已保存。保存期间你更改了某个字段，请检查后再次保存。",
     "ownerSignIn": "请以现有主管理员身份登录，以更改此实例的访问设置。",
     "ownerSignInButton": "以主管理员身份登录",
-    "ownerSignInFailed": "无法验证主管理员。",
     "ownerSso": "使用所有者的单点登录",
     "ownerPassword": "使用现有主管理员密码",
     "httpsWarning": "支持本地 HTTP 访问。凭据和会话以未加密方式传输，因此在不可信网络上请使用 HTTPS。",
@@ -373,7 +372,7 @@
       "cancelCacheClearing": "取消缓存清理",
       "cancelCorruptionRemoval": "取消缓存损坏清理",
       "cancelCorruptionDetection": "取消损坏扫描",
-      "cancelDepotMapping": "取消仓库映射",
+      "cancelDepotMapping": "取消 Steam 游戏映射",
       "cancelGameDetection": "取消游戏检测",
       "cancelGameRemoval": "取消游戏移除",
       "cancelServiceRemoval": "取消服务移除",
@@ -405,7 +404,7 @@
       "repairing": {
         "completed": "已完成，正在修复缓存数据…",
         "failed": "已失败，正在修复缓存数据…",
-        "cancelled": "已取消，正在修复缓存数据…",
+        "canceled": "已取消，正在修复缓存数据…",
         "skipped": "已跳过，正在修复缓存数据…",
         "fullRepair": "正在更新后或修复文件无法读取后检查所有缓存数据…"
       },
@@ -445,7 +444,7 @@
         "bulkItemsWarned": "完成但带有警告的项目：{{count}} 个。每个项目的卡片会列出其未完成的内容。"
       },
       "retryRepairFailed": "无法重试修复",
-      "cancelling": "取消中...",
+      "canceling": "取消中...",
       "operationWaiting": "正在等待其他进程完成...",
       "operationWaitingNamed": "{{name}}：正在等待其他进程完成...",
       "operationWaitingOn": "正在等待 {{blocker}} 完成...",
@@ -459,7 +458,7 @@
         "incremental": "增量",
         "scanLimits": "阈值 {{threshold}}，回溯 {{days}} 天"
       },
-      "operationWaitingCancelled": "已在等待队列中取消",
+      "operationWaitingCanceled": "已在等待队列中取消",
       "willQueueBehindCurrent": "将在当前操作完成后开始",
       "corruptedChunksRemoved": "缓存损坏清理已完成",
       "filesDeleted": "已删除 {{formattedCount}} 个文件",
@@ -482,8 +481,8 @@
         "waiting": "等待中",
         "completed": "已完成",
         "failed": "失败",
-        "cancelled": "已取消",
-        "cancelling": "取消中",
+        "canceled": "已取消",
+        "canceling": "取消中",
         "pending": "待处理",
         "skipped": "已跳过",
         "repairing": "修复中"
@@ -2021,7 +2020,8 @@
           "hostLabel": "主机",
           "autoTooltip": "尝试每种策略并通过心跳验证",
           "bridgeTooltip": "查询 lancache-dns 容器的网桥 IP",
-          "hostTooltip": "通过网桥网关或 localhost 查询主机的 DNS"
+          "hostTooltip": "通过网桥网关或 localhost 查询主机的 DNS",
+          "saveFailed": "无法保存 DNS 解析器设置:{{error}}"
         },
         "lastChecked": "上次检查于 {{time}}",
         "emptyTitle": "DNS 拦截与缓存可达性",
@@ -2150,7 +2150,6 @@
         "sweepProgress": "已检查 {{completed}}/{{total}} 个域名…",
         "sweepCurrentService": "正在检查 {{service}}",
         "sweepFailed": "检查失败:{{error}}",
-        "sweepDidNotFinish": "检查未能完成。",
         "heartbeatOk": "位于 {{ip}} 的缓存服务器响应了心跳(由 {{host}} 提供)。",
         "heartbeatOkNoHost": "位于 {{ip}} 的缓存服务器响应了心跳。",
         "heartbeatFailed": "缓存服务器未响应心跳:{{error}}",
@@ -2267,7 +2266,8 @@
         "footerNotLoaded": "域名列表尚未加载。",
         "footerError": "域名列表问题:{{error}}",
         "refreshList": "刷新列表",
-        "refreshFailed": "刷新失败:{{error}}"
+        "refreshFailed": "刷新失败:{{error}}",
+        "reloadFailed": "无法重新加载域名列表:{{error}}"
       },
       "authRequired": "需要认证",
       "authRequiredDesc": "请先认证以访问此部分。",
@@ -2317,14 +2317,14 @@
         "gameCacheRemoveAllProgress": "正在移除 {{current}} / {{total}} - {{label}}",
         "gameCacheRemoveAllComplete": "已移除 {{count}} 个缓存项目",
         "gameCacheRemoveAllCompleteWithFailures": "已移除 {{count}} 个缓存项目，但有 {{failed}} 个失败",
-        "gameCacheRemoveAllCancelled": "批量移除在 {{count}} 个项目后被取消",
-        "gameCacheRemoveAllCancelledWithFailures": "批量移除在 {{count}} 个项目后被取消，其中 {{failed}} 个失败",
+        "gameCacheRemoveAllCanceled": "批量移除在 {{count}} 个项目后被取消",
+        "gameCacheRemoveAllCanceledWithFailures": "批量移除在 {{count}} 个项目后被取消，其中 {{failed}} 个失败",
         "evictionRemoveSelectedStarting": "正在移除 0 / {{total}} 个已淘汰项目...",
         "evictionRemoveSelectedProgress": "正在移除 {{current}} / {{total}} - {{label}}",
         "evictionRemoveSelectedComplete": "已移除 {{count}} 个已淘汰项目",
         "evictionRemoveSelectedCompleteWithFailures": "已移除 {{count}} 个已淘汰项目，但有 {{failed}} 个失败",
-        "evictionRemoveSelectedCancelled": "已在移除 {{count}} 个已淘汰项目后取消",
-        "evictionRemoveSelectedCancelledWithFailures": "已在移除 {{count}} 个已淘汰项目后取消，其中有 {{failed}} 个失败",
+        "evictionRemoveSelectedCanceled": "已在移除 {{count}} 个已淘汰项目后取消",
+        "evictionRemoveSelectedCanceledWithFailures": "已在移除 {{count}} 个已淘汰项目后取消，其中有 {{failed}} 个失败",
         "gameCacheRemoveAllConfirmTitle": "移除所有缓存的游戏与服务？",
         "gameCacheRemoveAllConfirmMessage": "这将永久删除所有 {{count}} 个当前缓存的游戏和服务的缓存文件、日志条目和数据库记录。项目逐个移除。此操作无法撤销。",
         "gameCacheRemoveAllConfirmWarning": "这是不可逆的。任何重新下载这些游戏的客户端都将必须从上游而非缓存获取完整负载。",
@@ -2883,8 +2883,8 @@
       "selectItem": "选择 {{name}}",
       "batchComplete": "已移除 {{total}} 个服务日志中的 {{count}} 个",
       "batchCompleteWithFailures": "已移除 {{count}} 个服务日志，但有 {{failed}} 个失败",
-      "batchCancelled": "已在移除 {{count}} 个服务日志后取消",
-      "batchCancelledWithFailures": "已在移除 {{count}} 个服务日志后取消，其中有 {{failed}} 个失败"
+      "batchCanceled": "已在移除 {{count}} 个服务日志后取消",
+      "batchCanceledWithFailures": "已在移除 {{count}} 个服务日志后取消，其中有 {{failed}} 个失败"
     },
     "corruption": {
       "help": {
@@ -3559,7 +3559,8 @@
         "connected": "连接成功",
         "connectedNoTable": "连接成功，但未找到 Downloads 表",
         "completed": "导入完成：已导入 {{imported}} 条，跳过 {{skipped}} 条，错误 {{errors}} 条",
-        "cancelledWithCount": "导入已取消：取消前已导入 {{imported}} 条"
+        "canceledWithCount": "导入已取消：取消前已导入 {{imported}} 条",
+        "connectionFailed": "连接失败：{{detail}}"
       }
     },
     "themes": {
@@ -3832,11 +3833,11 @@
       "resetToDefaults": "重置为默认值",
       "runAll": "全部运行",
       "runAllTriggered": "已触发 {{count}} 个服务",
-      "runAllTriggeredWithQueued": "已启动 {{count}} 个服务，另有 {{queued}} 个正在运行中，将在结束后再次运行",
-      "queuedUntilCacheFree": "本次运行已排队，缓存可以扫描后会自动开始。",
-      "queuedUntilCacheFreeNamed": "{{name}} 已排队，缓存可以扫描后会自动开始。",
+      "runAllTriggeredWithFollowUps": "已启动 {{count}} 个服务，另有 {{followUps}} 个正在运行中，将在结束后再次运行",
+      "waitingUntilCacheFree": "本次运行正在等待，缓存可以扫描后会自动开始。",
+      "waitingUntilCacheFreeNamed": "{{name}} 正在等待，缓存可以扫描后会自动开始。",
       "runAllTriggeredWithSkipped": "已启动 {{count}} 个服务，{{skipped}} 个正在等待缓存。{{reason}}",
-      "runAllTriggeredWithSkippedAndQueued": "已启动 {{count}} 个服务，另有 {{queued}} 个正在运行中，将在结束后再次运行，{{skipped}} 个正在等待缓存。{{reason}}",
+      "runAllTriggeredWithSkippedAndFollowUps": "已启动 {{count}} 个服务，另有 {{followUps}} 个正在运行中，将在结束后再次运行，{{skipped}} 个正在等待缓存。{{reason}}",
       "runAllFailed": "运行所有计划失败",
       "runAllConfirmTitle": "立即运行所有计划？",
       "runAllConfirmBody": "请求运行全部 {{count}} 个计划服务。计划预填充正在运行时不会安排额外运行；其他服务可能保留一次后续运行。任务可能耗时较长，并占用缓存和网络资源。",
@@ -3845,8 +3846,7 @@
       "resetConfirmBody": "每个计划都会恢复为默认运行间隔，您修改过的自定义计划、启动设置和通知设置都将被清除。此操作无法撤销。",
       "resetConfirmButton": "重置为默认值",
       "runNowTriggered": "{{service}} 已手动触发",
-      "runNowAlreadyRunning": "{{service}} 已在运行中",
-      "runNowAlreadyRunning": "{{service}} 已在运行中。未将额外运行加入队列。",
+      "runNowAlreadyRunning": "{{service}} 已在运行中。未启动额外运行。",
       "runAllAlreadyRunning_one": "{{count}} 个服务已在运行中。未为其安排额外运行。",
       "runAllAlreadyRunning_other": "{{count}} 个服务已在运行中。未为其安排额外运行。",
       "runNowFailed": "触发 {{service}} 失败",
@@ -3910,7 +3910,7 @@
         "status": {
           "completed": "已完成",
           "failed": "失败",
-          "cancelled": "已取消",
+          "canceled": "已取消",
           "skipped": "已跳过"
         },
         "triggers": {
@@ -4065,7 +4065,7 @@
         },
         "scheduledPrefill": {
           "displayName": "计划预填充",
-          "description": "自动运行已保存的计划。每个平台一次只能运行一个计划；重叠的尝试会被跳过，不会排队。",
+          "description": "自动运行已保存的计划。每个平台一次只能运行一个计划；重叠的尝试会被跳过，不会留待稍后运行。",
           "summary": "按计划自动运行所选预填充服务。",
           "gain": "可以在用户需要前将游戏内容预热到缓存中；配置登录后也支持账号游戏库。",
           "loss": "已禁用的服务或需要登录的服务会被跳过，直到配置完成。",
@@ -4345,6 +4345,7 @@
             },
             "validation": {
               "topCount": "{{service}} 的前 N 项数量必须至少为 1。",
+              "topCountMax": "{{service}} 最多预填充前 {{max}} 个游戏。请将前 N 项数量设为 {{max}} 或更少。",
               "operatingSystems": "{{service}} 需要至少一个目标平台。",
               "maxConcurrency": "{{service}} 的连接数必须介于 {{min}} 和 {{max}} 之间。",
               "unsupportedPreset": "{{service}} 不支持「{{preset}}」预设。请选择其他预设。"
@@ -4443,7 +4444,7 @@
             "started": "{{service}} 已开始",
             "progress": "计划预填充{{stage}}",
             "completed": "{{service}} 已完成",
-            "cancelled": "{{service}} 已停止",
+            "canceled": "{{service}} 已停止",
             "failed": "{{service}} 失败：{{reason}}",
             "skipped": "{{service}} 已跳过：{{reason}}",
             "needsLogin": "{{service}} 需要登录后才能继续计划预填充",
@@ -4661,7 +4662,7 @@
         "expired": "已过期",
         "orphaned": "孤儿",
         "cleaned": "已清理",
-        "cancelled": "已取消",
+        "canceled": "已取消",
         "error": "错误"
       },
       "historyStatusBadges": {
@@ -4669,7 +4670,7 @@
         "inProgress": "进行中",
         "failed": "失败",
         "error": "错误",
-        "cancelled": "已取消",
+        "canceled": "已取消",
         "cached": "已缓存"
       },
       "labels": {
@@ -4963,12 +4964,12 @@
       "progressLine": "{{done}} / {{total}} · {{speed}} · {{percent}}",
       "completed": "已完成",
       "failed": "失败",
-      "cancelled": "已取消",
+      "canceled": "已取消",
       "items": "已处理 {{count}} / {{total}} 项",
       "processedLabel": "处理进度",
       "skipped": "已跳过",
       "transferredLabel": "传输量",
-      "outcomes": "{{completed}} 项成功，{{failed}} 项失败，{{skipped}} 项跳过，{{cancelled}} 项取消",
+      "outcomes": "{{completed}} 项成功，{{failed}} 项失败，{{skipped}} 项跳过，{{canceled}} 项取消",
       "resultsLabel": "结果",
       "overlap": "已跳过其他运行正在下载的项目。",
       "historyIncomplete": "部分项目历史无法恢复。此处显示可用的统计数据。",
@@ -5012,6 +5013,7 @@
       "sessionReplaced": "此登录会话已被新的会话替换。请重新登录。",
       "credentialRejected": "守护进程拒绝了此凭据。请重新登录。",
       "loginTimedOut": "登录超时，请重试。",
+      "loginDisconnected": "预填充守护进程在使用已保存的登录时断开了连接，请重试。",
       "loginTimedOutTitle": "登录超时",
       "loginTimedOutBody_one": "未在 {{count}} 分钟内输入验证码。请重新登录。",
       "loginTimedOutBody_other": "未在 {{count}} 分钟内输入验证码。请重新登录。",
@@ -5070,9 +5072,9 @@
       "battlenetFeature2": "《魔兽世界》《暗黑破坏神》《守望先锋》等",
       "battlenetFeature3": "强制重新下载和缓存管理",
       "battlenetNoLogin": "无需账号登录",
-      "riotDescription": "预填充公开的 Riot CDN 内容，例如《英雄联盟》和《无畏契约》等游戏。",
+      "riotDescription": "预填充公开的 Riot CDN 内容，例如《英雄联盟》、《云顶之弈》和《无畏契约》等游戏。",
       "riotFeature1": "预填充所有产品或选择特定游戏",
-      "riotFeature2": "《英雄联盟》和《无畏契约》内容",
+      "riotFeature2": "《英雄联盟》、《云顶之弈》和《无畏契约》内容",
       "riotFeature3": "强制重新下载和缓存管理",
       "riotNoLogin": "无需账号登录",
       "xboxDescription": "预填充您的 Xbox 和 Microsoft Store 库，为您账户中的游戏预先下载游戏内容。",
@@ -5177,7 +5179,7 @@
       "etaMinutesSeconds": "{{minutes}}分 {{seconds}}秒",
       "etaHoursMinutes": "{{hours}}小时 {{minutes}}分",
       "failedCount": "（{{count}} 个失败）",
-      "cancelling": "正在取消..."
+      "canceling": "正在取消..."
     },
     "duration": {
       "zero": "0秒",
@@ -5377,7 +5379,7 @@
       "failedClearCache": "清除缓存失败",
       "commandFailed": "命令失败",
       "alreadyRunning": "此会话已有预填充正在运行",
-      "cancellingPrefill": "正在取消预填充操作...",
+      "cancelingPrefill": "正在取消预填充操作...",
       "failedCancelPrefill": "取消预填充失败",
       "selectedGames": "已选择 {{count}} 个游戏进行预填充",
       "selectedGames_other": "已选择 {{count}} 个游戏进行预填充",
@@ -5386,7 +5388,7 @@
       "platformsChanged": "目标平台已设为 {{platforms}}",
       "connectionsChanged": "下载连接数已设为 {{value}}",
       "endingSession": "正在结束会话...",
-      "loginCancelled": "登录已取消",
+      "loginCanceled": "登录已取消",
       "removedFromCache": "已将 {{game}} 从已缓存列表中移除",
       "clearedAllFromCache": "已清除此服务的已缓存游戏记录",
       "removeFromCacheSharedFiles": "未移除 {{game}} 的任何内容，因为它的文件与另一个游戏共享",
@@ -5585,13 +5587,10 @@
         "continueButton_other": "以访客身份继续（{{count}} 小时）"
       },
       "databaseReset": {
+        "canceled": "数据库重置已取消",
         "complete": "数据库重置完成",
         "inProgress": "数据库重置进行中",
-        "canLoginNow": "您现在可以登录。",
-        "pleaseWait": "请稍候...",
-        "completed": "数据库重置已完成",
-        "failed": "数据库重置失败",
-        "resetting": "正在重置数据库..."
+        "notFinished": "数据库重置未完成"
       },
       "help": {
         "title": "如何找到您的 API 密钥：",
@@ -5603,7 +5602,6 @@
       },
       "errors": {
         "apiKeyRequired": "API 密钥是必需的",
-        "authenticationFailed": "认证失败",
         "guestModeDisabled": "访客模式当前已被管理员禁用。",
         "guestModeNoData": "访客模式不可用。尚未加载数据。",
         "failedToStartGuest": "启动访客模式失败",
@@ -6267,13 +6265,13 @@
         },
         "waiting": {
           "label": "等待主要",
-          "description": "等待状态主色（排队项目的边框）",
-          "affects": ["等待图标", "排队徽章", "等待边框"]
+          "description": "等待状态主色（等待项目的边框）",
+          "affects": ["等待图标", "等待徽章", "等待边框"]
         },
         "waitingBg": {
           "label": "等待背景",
-          "description": "等待状态背景色（排队项目背景）",
-          "affects": ["等待徽章", "排队行", "等待横幅"]
+          "description": "等待状态背景色（等待项目背景）",
+          "affects": ["等待徽章", "等待行", "等待横幅"]
         },
         "waitingText": {
           "label": "等待文本",
@@ -7110,7 +7108,7 @@
       "preparing": "准备中...",
       "timeEstimate": "通常需要 1-5 分钟，具体取决于您的网络连接。",
       "continue": "继续",
-      "cancelling": "取消中...",
+      "canceling": "取消中...",
       "cancelUseGithub": "取消并改用 GitHub"
     },
     "depotInit": {
@@ -7182,8 +7180,8 @@
       "failedToProcess": "日志处理失败",
       "failedToProcessDatasource": "启动处理失败",
       "cancel": "取消处理",
-      "cancelling": "正在取消...",
-      "cancelled": "处理已取消",
+      "canceling": "正在取消...",
+      "canceled": "处理已取消",
       "cancelFailed": "取消处理失败",
       "formatHint": "没有从日志中读取到任何下载记录。日志格式可能无法识别。请在“管理”中打开数据源详情查看具体情况。"
     },
@@ -7210,7 +7208,7 @@
       "imported": "已导入：{{formattedCount}}",
       "skipped": "已跳过：{{formattedCount}}",
       "errors": "错误：{{formattedCount}}",
-      "importFailed": "导入失败：{{error}}"
+      "importFailed": "导入失败：{{detail}}"
     },
     "platformSetup": {
       "title": "平台设置",
@@ -7516,13 +7514,19 @@
     },
     "downloadHistoryUpgrade": {
       "indexing": "正在重建重复检查索引",
-      "merging": "正在合并拆分的下载记录"
+      "merging": "正在合并拆分的下载记录",
+      "failed": "下载历史升级失败：{{errorDetail}}",
+      "failedWithRemaining": "下载历史升级失败：{{errorDetail}}。仍有 {{count}} 行等待合并，将在下次启动时重试。",
+      "failedBeforeMerge": "下载历史升级在合并开始前失败：{{errorDetail}}。将在下次启动时重试。"
     },
     "generic": {
       "unknown": "操作进行中...",
+      "starting": "正在启动...",
+      "canceling": "正在取消...",
       "failed": "操作失败",
+      "failedWithDetail": "操作失败：{{errorDetail}}",
       "complete": "操作完成",
-      "cancelled": "操作已取消",
+      "canceled": "操作已取消",
       "skipped": "操作已跳过",
       "nothingToDo": "没有需要处理的内容",
       "interruptedByRestart": "操作因应用重启而中断",
@@ -7532,9 +7536,19 @@
     "cacheClear": {
       "initializing": "正在初始化缓存清理...",
       "starting": "开始删除缓存...",
+      "clearing": "正在清理缓存...",
       "progress": "正在清理缓存 ({{processed}}/{{totalDirs}}) - {{activeCount}} 个活跃",
       "forDatasource": "{{datasource}}：{{message}}",
-      "cancelled": "缓存清理已取消",
+      "canceled": "缓存清理已取消",
+      "cleared": "已成功清理 {{directories}} 个缓存目录",
+      "clearedAcross": "已在 {{count}} 个数据源（{{datasources}}）中成功清理 {{directories}} 个缓存目录",
+      "completed": "缓存清理已完成",
+      "datasourceNotFound": "未找到数据源 {{datasource}}",
+      "noDatasources": "没有为缓存清理配置已启用的数据源",
+      "datasourceBlocked": "数据源 {{datasource}} 的缓存文件夹不存在或为只读",
+      "pathMissing": "没有数据源的缓存文件夹存在",
+      "cleanerMissing": "未找到缓存清理程序",
+      "failedAfterClearing": "已清理 {{datasources}} 后缓存清理失败：{{errorDetail}}",
       "error": {
         "dirNotFound": "缓存目录不存在: {{cachePath}}",
         "fatal": "缓存清理失败: {{errorDetail}}"
@@ -7583,8 +7597,9 @@
       "completeStructuralFull": "全面结构扫描完成：发现 {{count}} 个无效缓存文件，增量基线已刷新。",
       "completeStructuralIncremental": "增量结构扫描完成：发现 {{count}} 个无效缓存文件。",
       "completeStructuralBaseline": "初始增量基线已完成：发现 {{count}} 个无效缓存文件。",
-      "cancelled": "损坏扫描已取消",
-      "failed": "损坏扫描失败：{{errorDetail}}"
+      "canceled": "损坏扫描已取消",
+      "failed": "损坏扫描失败：{{errorDetail}}",
+      "capabilityRefused": "扫描未运行：某个数据源无法将缓存文件对应到下载，或没有启用任何数据源。服务器日志中有原因。"
     },
     "corruptionRemove": {
       "starting": "开始为 {{service}} 进行缓存损坏清理",
@@ -7603,15 +7618,15 @@
       "completeStructural": "已处理 {{service}} 的 {{count}} 个无效缓存文件（删除 {{files}} 个、{{alreadyMissing}} 个已不存在、{{healed}} 个现已有效）",
       "success": "已成功移除 {{service}} 中经过验证的已标记缓存文件",
       "successStructural": "已成功移除 {{service}} 重新验证过的无效缓存文件",
-      "cancelled": "操作已被取消。",
+      "canceled": "操作已被取消。",
       "allComplete": "已完成 {{serviceCount}} 个服务的缓存损坏清理：移除 {{count}} 个已标记文件（{{files}} 个缓存文件、{{logLines}} 行日志、{{logEntries}} 条数据库条目）",
       "allCompleteStructural": "已完成 {{serviceCount}} 个服务的无效缓存文件移除：删除 {{files}} 个文件、{{alreadyMissing}} 个已不存在、{{healed}} 个现已有效",
       "allCompleteWithFailures": "缓存损坏清理已完成，{{serviceCount}} 个服务中有 {{failedCount}} 个失败。已移除 {{count}} 个已标记文件（{{files}} 个缓存文件、{{logLines}} 行日志）",
       "allCompleteWithFailuresStructural": "无效缓存文件移除已完成，{{serviceCount}} 个服务中有 {{failedCount}} 个失败。删除 {{files}} 个文件，{{alreadyMissing}} 个已不存在，{{healed}} 个现已有效",
       "allStoppedWithFailures": "缓存损坏清理在处理 {{completedCount}}/{{serviceCount}} 个服务后停止，其中 {{failedCount}} 个失败。已移除 {{count}} 个已标记文件（{{files}} 个缓存文件、{{logLines}} 行日志）",
       "allStoppedWithFailuresStructural": "无效缓存文件移除在处理 {{completedCount}}/{{serviceCount}} 个服务后停止，其中 {{failedCount}} 个失败。删除 {{files}} 个文件，{{alreadyMissing}} 个已不存在，{{healed}} 个现已有效",
-      "allCancelled": "缓存损坏清理已取消，已处理 {{completedCount}}/{{serviceCount}} 个服务",
-      "allCancelledStructural": "无效缓存文件移除已取消，已处理 {{completedCount}}/{{serviceCount}} 个服务",
+      "allCanceled": "缓存损坏清理已取消，已处理 {{completedCount}}/{{serviceCount}} 个服务",
+      "allCanceledStructural": "无效缓存文件移除已取消，已处理 {{completedCount}}/{{serviceCount}} 个服务",
       "error": {
         "fatal": "缓存损坏清理失败：{{errorDetail}}"
       },
@@ -7623,7 +7638,7 @@
       "starting": "开始数据库重置...",
       "complete": "数据库重置成功完成",
       "completeWithActiveLogins": "数据库重置已完成，但部分预填充登录仍然有效",
-      "cancelled": "数据库重置已被取消",
+      "canceled": "数据库重置已被取消",
       "failed": "数据库重置失败: {{errorDetail}}",
       "startingTables": "开始重置 {{count}} 个表...",
       "noTablesSelected": "未选择有效的表进行重置",
@@ -7644,27 +7659,37 @@
       "starting": "正在开始数据导入…",
       "progress": "正在导入: {{processed}}/{{total}} 条记录",
       "completedDetail": "已导入 {{imported}} 条，跳过 {{skipped}} 条，错误 {{errors}} 条",
-      "cancelled": "数据导入已取消"
+      "canceled": "数据导入已取消",
+      "allRecordsFailed": "导入失败：全部 {{count}} 条记录出错",
+      "failed": "数据导入失败：{{errorDetail}}"
     },
     "depotMapping": {
-      "starting": "正在开始仓库映射...",
+      "starting": "正在开始 Steam 游戏映射...",
       "batchProgress": "{{processedBatches}} / {{totalBatches}} 批次",
+      "reconnecting": "正在重新连接 Steam（第 {{reconnectAttempt}} 次，共 {{maxReconnectAttempts}} 次）...",
       "github": {
-        "downloading": "正在从 GitHub 下载仓库映射...",
-        "complete": "GitHub 仓库数据已导入",
-        "prefillNamesNotRestored": "仓库映射已导入，但仅通过预取得知的游戏名称未能恢复。请再次运行导入。",
-        "failed": "[GitHub 模式] {{errorDetail}}"
+        "downloading": "正在从 GitHub 下载 Steam 游戏映射...",
+        "complete": "已从 GitHub 导入 Steam 游戏映射",
+        "prefillNamesNotRestored": "Steam 游戏映射已导入，但仅通过预取得知的游戏名称未能恢复。请再次运行导入。",
+        "failed": "Steam 游戏映射导入失败：{{errorDetail}}",
+        "httpFailed": "GitHub 对 Steam 游戏映射下载返回了 HTTP {{errorDetail}}",
+        "emptyFile": "下载的 Steam 游戏映射文件为空",
+        "invalidJson": "下载的 Steam 游戏映射文件不是有效的 JSON",
+        "noMappings": "下载的文件不包含 Steam 游戏映射",
+        "olderSnapshot": "下载的 Steam 游戏映射比已保存的旧",
+        "timedOut": "Steam 游戏映射下载超时",
+        "networkError": "下载 Steam 游戏映射时出现网络错误：{{errorDetail}}"
       },
-      "cancelled": "仓库映射扫描已取消",
-      "saving": "正在保存仓库映射...",
-      "resolvingOrphans": "正在解析孤立的仓库映射...",
-      "importing": "正在导入仓库映射...",
-      "applyingToDownloads": "正在将仓库映射应用于下载记录...",
-      "finalized": "仓库映射完成",
-      "completed": "仓库映射完成",
-      "failed": "仓库映射失败",
-      "skippedSetupIncomplete": "仓库映射未运行：初始设置尚未完成",
-      "skippedSteamUnreachable": "仓库映射未运行：无法连接到 Steam",
+      "canceled": "Steam 游戏映射已取消",
+      "saving": "正在保存 Steam 游戏映射...",
+      "resolvingOrphans": "正在解析孤立的 Steam 游戏映射...",
+      "importing": "正在导入 Steam 游戏映射...",
+      "applyingToDownloads": "正在将 Steam 游戏映射应用于下载记录...",
+      "finalized": "Steam 游戏映射完成",
+      "completed": "Steam 游戏映射完成",
+      "failed": "Steam 游戏映射失败",
+      "skippedSetupIncomplete": "Steam 游戏映射未运行：初始设置尚未完成",
+      "skippedSteamUnreachable": "Steam 游戏映射未运行：无法连接到 Steam",
       "scan": {
         "skippedFullRequired": "计划扫描已跳过 - 需要全面扫描"
       }
@@ -7682,7 +7707,7 @@
       "completed": "Epic 目录刷新完成",
       "resolvedWithoutSignIn": "已使用已存储的目录命名 Epic 下载 - 未登录 Epic 账户",
       "skippedNotSignedIn": "Epic 目录刷新已跳过 - 未登录 Epic 账户",
-      "cancelled": "Epic 游戏目录刷新已取消",
+      "canceled": "Epic 游戏目录刷新已取消",
       "failed": "Epic 游戏目录刷新失败: {{errorDetail}}",
       "mappingFailed": "Epic 游戏映射失败"
     },
@@ -7696,7 +7721,7 @@
       "keySaveFailed": "保存 Steam Web API 密钥失败",
       "keyRemoved": "Steam Web API 密钥已移除",
       "keyRemoveFailed": "移除 Steam Web API 密钥失败",
-      "cancelled": "Steam Web API 密钥检查已取消"
+      "canceled": "Steam Web API 密钥检查已取消"
     },
     "xboxMapping": {
       "starting": "正在解析 Xbox 游戏目录...",
@@ -7705,7 +7730,7 @@
       "backfilling": "正在回填 Xbox 游戏映射...",
       "completed": "Xbox 游戏目录解析完成",
       "skippedNotSignedIn": "Xbox 游戏目录解析已跳过 - 未登录 Microsoft 账户",
-      "cancelled": "Xbox 游戏目录解析已取消",
+      "canceled": "Xbox 游戏目录解析已取消",
       "failed": "Xbox 目录解析失败: {{errorDetail}}"
     },
     "battleNetMapping": {
@@ -7714,7 +7739,7 @@
       "saving": "正在保存 Battle.net 游戏映射...",
       "completed": "Battle.net 游戏映射完成",
       "skippedNothingResolved": "Battle.net 游戏映射已跳过 - 没有下载记录匹配到已知游戏",
-      "cancelled": "Battle.net 游戏映射已取消",
+      "canceled": "Battle.net 游戏映射已取消",
       "failed": "Battle.net 游戏映射失败"
     },
     "riotMapping": {
@@ -7722,14 +7747,14 @@
       "resolving": "正在将 Riot 下载解析为游戏名称...",
       "completed": "Riot 游戏映射完成",
       "skippedNothingResolved": "Riot 游戏映射已跳过 - 没有下载记录匹配到已知游戏",
-      "cancelled": "Riot 游戏映射已取消",
+      "canceled": "Riot 游戏映射已取消",
       "failed": "Riot 游戏映射失败"
     },
     "xbox": {
       "mapping": {
         "authenticating": "正在等待 Microsoft 登录...",
         "completed": "Xbox 登录完成",
-        "cancelled": "Xbox 登录已取消",
+        "canceled": "Xbox 登录已取消",
         "failed": "Xbox 登录失败",
         "errors": {
           "noXboxProfile": "此 Microsoft 帐户没有 Xbox 个人资料。请先在 xbox.com 登录一次以创建个人资料，然后重试。",
@@ -7750,7 +7775,7 @@
       },
       "noUrls": "未找到此游戏的URL",
       "complete": "已为 Epic 游戏 '{{gameName}}' 移除 {{files}} 个缓存文件 ({{gb}} GB)、{{logEntries}} 条日志条目",
-      "cancelled": "Epic 游戏 '{{gameName}}' 的移除已被取消。",
+      "canceled": "Epic 游戏 '{{gameName}}' 的移除已被取消。",
       "error": {
         "fatal": "Epic 游戏移除失败: {{errorDetail}}"
       },
@@ -7788,9 +7813,12 @@
       "updatingStatus": "正在更新游戏状态...",
       "finalizingRemoval": "正在完成移除...",
       "complete": "淘汰移除完成。",
-      "cancelled": "淘汰移除已取消。",
+      "canceled": "淘汰移除已取消。",
       "failed": "淘汰移除失败。",
-      "refreshingDetection": "正在刷新缓存检测数据..."
+      "refreshingDetection": "正在刷新缓存检测数据...",
+      "error": {
+        "fatal": "淘汰移除失败: {{errorDetail}}"
+      }
     },
     "evictionScan": {
       "detectingGames": "正在运行完整的游戏检测...",
@@ -7801,7 +7829,7 @@
       "postProcessing": "正在更新检测记录...",
       "refreshingSummary": "正在刷新缓存文件检测摘要...",
       "complete": "扫描完成: 已处理 {{totalProcessed}}，已淘汰 {{totalEvicted}}，已取消淘汰 {{totalUnEvicted}}",
-      "cancelled": "淘汰扫描已取消",
+      "canceled": "淘汰扫描已取消",
       "stoppedBySystem": "扫描在完成前停止，很可能是容器内存不足。请为容器分配更多内存后重新运行扫描。",
       "repairStopped": "此任务之后的缓存检查在完成前停止，很可能是容器内存不足。请为容器分配更多内存，然后点击重试。",
       "repairFailed": "此任务之后的缓存检查失败。原因见服务器日志。请点击重试。",
@@ -7818,7 +7846,9 @@
       "counting": "正在统计缓存文件数量...",
       "calibrating": "正在测量删除速度（测试 {{step}}/{{totalSteps}}）...",
       "complete": "缓存文件扫描完成: {{totalFiles}} 个文件，{{totalSize}}",
-      "cancelled": "缓存文件扫描已取消",
+      "canceled": "缓存文件扫描已取消",
+      "rootUnavailable": "缓存文件夹 {{cachePath}} 不可用或已被替换",
+      "failed": "缓存文件扫描失败。请查看服务器日志。",
       "error": {
         "fatal": "缓存大小扫描失败: {{errorDetail}}"
       }
@@ -7863,7 +7893,7 @@
         "noNewGames": "未检测到新游戏（共 {{totalGamesDetected}} 个有缓存文件的游戏）",
         "full": "检测到 {{totalGamesDetected}} 个有缓存文件的游戏"
       },
-      "cancelled": "游戏检测已取消",
+      "canceled": "游戏检测已取消",
       "refreshingSummary": "正在刷新缓存文件检测摘要...",
       "scan": {
         "skippedIncremental": "跳过缓存文件扫描（增量模式）...",
@@ -7898,6 +7928,9 @@
         "gamesAndServices": "从缓存加载了 {{gamesCount}} 个游戏和 {{servicesCount}} 个服务",
         "gamesOnly": "从缓存加载了 {{gamesCount}} 个游戏"
       },
+      "mappingsFound": "为未知游戏找到 {{count}} 个新映射，正在刷新...",
+      "rescanningWithMappings": "正在使用 {{count}} 个新映射重新扫描...",
+      "staleCleanedUp": "已结束：此检测是之前启动遗留的",
       "error": {
         "fatal": "游戏缓存检测失败: {{errorDetail}}"
       }
@@ -7912,7 +7945,7 @@
       "finalizing": "正在完成移除...",
       "noUrls": "未找到此游戏的URL",
       "complete": "已为游戏 '{{gameName}}'（AppID {{gameAppId}}）移除 {{files}} 个缓存文件 ({{gb}} GB)、{{logEntries}} 条日志条目",
-      "cancelled": "游戏 '{{gameName}}' 的移除已被取消。",
+      "canceled": "游戏 '{{gameName}}' 的移除已被取消。",
       "error": {
         "fatal": "游戏移除失败: {{errorDetail}}"
       },
@@ -7952,7 +7985,7 @@
     "logProcessor": {
       "starting": "开始日志处理...",
       "complete": "处理完成",
-      "cancelled": "日志处理已取消",
+      "canceled": "日志处理已取消",
       "error": {
         "fatal": "日志处理失败: {{errorDetail}}"
       }
@@ -7981,7 +8014,9 @@
       "processingDatasource": "正在从数据源 '{{datasourceName}}' 移除 {{service}} 条目...",
       "cleaningDatabase": "正在清理 {{service}} 的数据库记录...",
       "error": {
-        "fatal": "日志移除失败: {{errorDetail}}"
+        "fatal": "日志移除失败: {{errorDetail}}",
+        "exitCode": "从 {{datasource}} 移除 {{service}} 条目失败（退出代码 {{exitCode}}）",
+        "noEnding": "日志移除未完成即停止"
       }
     },
     "logService": {
@@ -7995,7 +8030,7 @@
       },
       "progress": "正在统计日志条目...",
       "complete": "服务统计完成",
-      "cancelled": "服务统计已被取消",
+      "canceled": "服务统计已被取消",
       "error": {
         "fatal": "服务统计失败: {{errorDetail}}"
       }
@@ -8009,7 +8044,7 @@
       "complete": "已为服务 '{{service}}' 移除 {{files}} 个缓存文件 ({{gb}} GB)、{{logEntries}} 条日志条目、{{dbRecords}} 条数据库记录",
       "finalizing": "正在完成移除...",
       "success": "已成功从缓存移除 {{name}} 服务",
-      "cancelled": "服务 {{name}} 的移除已被取消。",
+      "canceled": "服务 {{name}} 的移除已被取消。",
       "error": {
         "default": "移除 {{name}} 时出错: {{errorDetail}}",
         "fatal": "服务移除失败: {{errorDetail}}"
@@ -8056,7 +8091,7 @@
       "skippedNoDaemon": "此服务没有注册的守护进程",
       "skippedNoContainer": "没有正在运行的持久容器。请先启动持久容器，再设置计划。",
       "skippedContainerBusy": "持久容器正忙",
-      "skippedOverlap": "另一个计划正在使用此平台。本次尝试已跳过，未加入队列。",
+      "skippedOverlap": "另一个计划正在使用此平台。本次尝试已跳过，不会稍后运行。",
       "needsPersistentContainer": "没有正在运行的持久容器。请先启动持久容器并在其中登录，再设置计划。",
       "needsPersistentLogin": "持久容器正在运行，但尚未登录。请登录后再次运行，或等待下一次计划尝试。",
       "reusingContainer": "正在复用持久容器",
@@ -8085,6 +8120,10 @@
       "runAllNeedLogin": "所有到期的服务都需要登录",
       "runAllSkipped": "所有已启用的服务均被跳过"
     },
+    "prefill": {
+      "daemonInitialized": "预填充服务已就绪",
+      "daemonNotInitialized": "预填充服务未就绪"
+    },
     "prefillSession": {
       "superseded": "已被新的预填充操作取代",
       "stopped": "会话已停止",
@@ -8100,13 +8139,16 @@
     },
     "statusCheck": {
       "dnsTimeout": "DNS 查询超时",
-      "noARecords": "未返回 A 记录"
+      "noARecords": "未返回 A 记录",
+      "failed": "检查失败:{{errorDetail}}",
+      "canceled": "检查已取消。"
     }
   },
   "errors": {
     "unmappedRemoval": {
       "noFullScan": "请先运行全面检测扫描。",
       "downloadInProgress": "有客户端正在向缓存写入下载内容。请在其完成后重试。",
+      "trackerNotReported": "下载跟踪器尚未报告，因此无法判断缓存是否正在被写入。请几秒后重试。",
       "trackerStopped": "下载跟踪已停止（例如在执行日志操作时），因此移除操作无法判断是否有客户端正在读取缓存。请在跟踪恢复后重试。",
       "logsBehind": "日志处理尚未读取所有访问日志。如果此问题持续出现，服务器日志会列出无法打开的日志文件。请修复其权限，然后重试。",
       "logsMissing": "之前读取过的某个日志系列已丢失，或日志文件夹为空。请挂载或恢复日志文件夹，然后重试。如果文件夹已挂载，只是 access.log 不见了，nginx 重新打开日志时会再创建它：请在“计划任务”中运行“日志轮换”，或重启 LANCache 容器，然后重试。如果您是有意移除某个按服务划分的日志，可在“日志移除”中使用“删除日志文件”清除它，这也会删除仍然存在的日志文件。",
@@ -8181,7 +8223,7 @@
       "bulkActive": "正在进行批量操作。请等待其完成。",
       "globalOperationActive": "正在进行全局操作（缓存清除或数据库重置）。所有其他操作将被阻止。",
       "cacheFileScanActive": "正在进行缓存文件扫描。请等待其完成后再开始缓存操作。",
-      "heavyOperationActive": "另一个数据操作正在运行。此操作已加入队列，将在其完成后开始。",
+      "heavyOperationActive": "另一个数据操作正在运行。此操作正在等待，将在其完成后开始。",
       "downloadHistoryUpgradeActive": "一次性下载历史升级正在进行，请在完成后重试。",
       "evictionResetBusy": "淘汰数据正在更新，请在完成后重试。"
     },
@@ -8213,6 +8255,11 @@
       "nothingRemovable": "此已保存的损坏扫描没有可移除的候选项",
       "scopeNothingRemovable": "此已保存的损坏范围没有可移除的候选项",
       "datasourceGone": "一个或多个损坏候选项属于已不再配置的数据源"
+    },
+    "dataImport": {
+      "invalidSource": "源数据库连接字符串无效",
+      "targetMissing": "此服务器没有数据库连接字符串",
+      "sameDatabase": "不能从此服务器正在使用的数据库导入"
     },
     "datasources": {
       "invalidCacheSize": "缓存大小必须是字节数，或诸如 2000g、500G、2t 或 1.5T 的大小。",
@@ -8247,10 +8294,15 @@
     "login": {
       "invalidCredentials": "API 密钥、用户名或密码无效。"
     },
+    "guest": {
+      "disabled": "访客访问已关闭。",
+      "setupIncomplete": "完成设置后才能使用访客会话。",
+      "noAdministrator": "创建管理员账户后才能使用访客会话。",
+      "sessionFailed": "无法启动访客会话。"
+    },
     "logs": {
       "startFailed": "启动日志处理失败",
       "startFailedForDatasource": "启动数据源 '{{datasource}}' 的日志处理失败",
-      "removeFailed": "从数据源 '{{datasource}}' 移除服务 '{{service}}' 的日志失败",
       "fileNotFound": "找不到日志文件：{{path}}",
       "directoryReadOnly": "数据源 '{{datasource}}' 的日志目录为只读。请在 docker-compose.yml 中从其卷挂载移除 :ro，然后重试。",
       "processingActive": "日志处理正在运行。请在其完成后重试。",
@@ -8295,6 +8347,7 @@
       "noRunningSession": "$t(errors.prefill.serviceNames.{{service}}) 没有正在运行的持久会话",
       "sessionReplaced": "此持久会话已被新的会话替换。请重新启动。",
       "loginCancelUnconfirmed": "无法取消登录。请重新启动会话。",
+      "earlierSignInNotCanceled": "之前的登录无法取消。请重新启动会话以恢复。",
       "logoutBeforeSavedLogin": "请先退出当前账户，再使用您保存的登录信息。",
       "heldAccountNotLoggedOut": "无法让容器退出已取消登录所留下的账户。请重试。",
       "requestFailed": "预填充守护进程无法完成此请求。请重试。",
@@ -8307,7 +8360,9 @@
       "ambiguousOperation": "请选择要取消的预填充运行。",
       "outcomeUnknown": "无法恢复此预填充的运行结果。",
       "startUnavailable": "容器无法启动预填充。请重试。",
+      "topCountAboveLimit": "此平台最多预填充前 {{max}} 个游戏。请将前 N 项数量设为 {{max}} 或更少。",
       "gameDownloadFailed": "此游戏未完成下载。",
+      "cacheDomainMissing": "LANCache 没有为此游戏返回任何数据。Xbox 游戏需要 windowsupdates 和 xboxlive 缓存域组。请在 LANCache 中启用它们并重新加载，然后再次运行预填充。",
       "signInLost": "服务账户在完成前已退出登录。常驻容器可能会使用已保存的登录信息自行重新登录。如果仍未登录，请重新登录，然后再次运行。",
       "loginRequired": "服务账户已退出登录。请重新登录，然后再次运行。",
       "gameDetailsUnavailable": "服务未返回此游戏的详细信息。",
@@ -8317,7 +8372,16 @@
       "banSavedCleanupIncomplete": "封禁已保存，但预填充清理未完成。请重试此操作。",
       "validityDatesNotSaved": "有效期已保存，但重新登录日期未更新。请再次保存以完成。",
       "lancacheIpUnresolved": "Prefill__LancacheIp 中设置的 LANCache 地址无法解析为 IP 地址。请检查该设置，然后重试。",
-      "shuttingDown": "LANCache Manager 正在关闭，无法启动新的预填充会话。请在其重新启动后重试。"
+      "shuttingDown": "LANCache Manager 正在关闭，无法启动新的预填充会话。请在其重新启动后重试。",
+      "noDaemon": "没有为 $t(errors.prefill.serviceNames.{{service}}) 注册预填充守护进程。",
+      "sessionNotFound": "未找到此 ID 的持久会话。请刷新页面后重试。",
+      "persistentContainerBusy": "$t(errors.prefill.serviceNames.{{service}}) 持久容器正忙。请稍后重试。",
+      "sessionChanged": "持久预填充会话已变更。请重试。",
+      "runNoLongerActive": "请求的预填充运行已不再进行。",
+      "loginIdInvalid": "此登录请求没有有效的 ID。请刷新页面后重试。",
+      "loginIdentityRequired": "取消请求未指明要取消的登录。请刷新页面后重试。",
+      "sessionIdRequired": "请求未指明预填充会话。请刷新页面后重试。",
+      "credentialRequired": "请先输入所需的登录信息再发送。"
     },
     "rateLimit": {
       "tooManyRequests": "来自此地址的请求过多。请等待限制重置后重试。"
@@ -8339,7 +8403,7 @@
       "signInInProgress": "Steam 登录已在进行中。",
       "signInLost": "Steam 已退出登录。请重新登录，然后重试。",
       "gameDetailsUnavailable": "Steam 未返回游戏详情。请重试。",
-      "signInCancelled": "登录已取消。",
+      "signInCanceled": "登录已取消。",
       "signInOwnerChanged": "此 Steam 登录由其他账户发起。请使用您的账户重新开始登录。",
       "serversBusy": "Steam 服务器当前繁忙。这是暂时的，请稍候片刻再试。",
       "mobileConfirmationRequired": "需要在手机上确认",
@@ -8352,6 +8416,9 @@
     },
     "validation": {
       "failed": "验证失败"
+    },
+    "operations": {
+      "notCancelable": "此任务已无法取消。"
     }
   }
 }

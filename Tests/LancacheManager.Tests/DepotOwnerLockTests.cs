@@ -1,6 +1,5 @@
 using System.Data.Common;
 using System.Reflection;
-using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamKit2;
@@ -53,7 +52,7 @@ public sealed class DepotOwnerLockTests
     }
 
     [Fact]
-    public async Task AMappingWriteStartedDuringAnOpenReplaceWaitsAndLeavesOneOwner()
+    public async Task AMappingWriteStartedDuringAnOpenImportWaitsAndLeavesOneOwner()
     {
         await using var database = await TestDatabase.CreateAsync();
         await using (var seed = database.Factory.CreateDbContext())
@@ -68,11 +67,12 @@ public sealed class DepotOwnerLockTests
         var service = NewService(database.Options);
         Task<bool>? write = null;
 
-        await files.Pics.ImportToDatabaseAsync(Snapshot(2000, 2, "Replacement game"), true, CancellationToken.None,
-            async (message, _) =>
+        await files.ImportAsync(Snapshot(1000, 2, "Newer owner"), CancellationToken.None,
+            async percent =>
             {
-                if (write != null || !message.StartsWith("Inserting mappings...", StringComparison.Ordinal)) return;
-                // The replace has deleted the old owner but not committed.
+                // Above 20 percent the import is writing mapping batches (the processing phase ends at 20).
+                if (write != null || percent <= 20) return;
+                // The import names a new owner for the depot but has not committed.
                 write = Task.Run(async () =>
                 {
                     await using var context = database.Factory.CreateDbContext();
@@ -84,7 +84,9 @@ public sealed class DepotOwnerLockTests
         Assert.True(await write!.WaitAsync(TimeSpan.FromSeconds(10)));
         await using var check = database.Factory.CreateDbContext();
         var rows = await check.SteamDepotMappings.Where(row => row.DepotId == 1000).ToListAsync();
-        Assert.Equal(5, Assert.Single(rows, row => row.IsOwner).AppId);
+        // The import's owner wins, the older owner and the prefill row stay as references.
+        Assert.Equal(new long[] { 1, 2, 5 }, rows.Select(row => row.AppId).Order());
+        Assert.Equal(2, Assert.Single(rows, row => row.IsOwner).AppId);
     }
 
     [Fact]
@@ -94,8 +96,7 @@ public sealed class DepotOwnerLockTests
         using var files = new PicsFiles(database.Options);
         await using var holder = await HoldKeyAsync(database);
 
-        var import = Task.Run(() => files.Pics.ImportToDatabaseAsync(
-            Snapshot(1000, 7, "Snapshot name"), false, CancellationToken.None));
+        var import = Task.Run(() => files.ImportAsync(Snapshot(1000, 7, "Snapshot name"), CancellationToken.None));
         await WaitForWaiterOrCompletionAsync(database, import);
         Assert.False(import.IsCompleted);
         await using (var other = await OpenSecondPoolAsync(database))
@@ -124,7 +125,7 @@ public sealed class DepotOwnerLockTests
         using var files = new PicsFiles(RetryOptions(database, failure));
         var service = NewService(database.Options);
 
-        await files.Pics.ImportToDatabaseAsync(Snapshot(1000, 7, "Snapshot name"), false, CancellationToken.None);
+        await files.ImportAsync(Snapshot(1000, 7, "Snapshot name"), CancellationToken.None);
 
         Assert.True(failure.Thrown);
         await using var context = database.Factory.CreateDbContext();
@@ -215,18 +216,87 @@ public sealed class DepotOwnerLockTests
         Assert.Equal(1001, row.DepotId);
     }
 
+    // The prefill daemon sends "App 5" for an app it has no name for.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("App 5")]
+    public async Task AMappingWithNoNameStoresNoName(string? appName)
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Options);
+
+        await using (var context = database.Factory.CreateDbContext())
+        {
+            Assert.True(await service.EnsureDepotMappingExistsAsync(context, 5, 1000, appName));
+        }
+
+        await using var check = database.Factory.CreateDbContext();
+        Assert.Null((await check.SteamDepotMappings.SingleAsync(row => row.DepotId == 1000)).AppName);
+    }
+
+    // A stored name is replaced only when it is missing or is the exact "App N" / "Steam App N"
+    // form older versions wrote, and an incoming name only when it is not the daemon's "App N".
+    [Theory]
+    [InlineData("App Store Pro", "Prefill game", "App Store Pro")]
+    [InlineData("App 5", "Prefill game", "Prefill game")]
+    [InlineData("Steam App 5", "Prefill game", "Prefill game")]
+    [InlineData(null, "App Store Pro", "App Store Pro")]
+    [InlineData(null, "App 5", null)]
+    public async Task AnIncomingNameReplacesOnlyAMissingOrPlaceholderName(
+        string? stored, string incoming, string? expected)
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using (var seed = database.Factory.CreateDbContext())
+        {
+            seed.SteamDepotMappings.Add(new SteamDepotMapping
+            {
+                DepotId = 1000, AppId = 5, AppName = stored, IsOwner = true, Source = "SteamKit2-PICS"
+            });
+            await seed.SaveChangesAsync();
+        }
+        var service = NewService(database.Options);
+
+        await using (var context = database.Factory.CreateDbContext())
+        {
+            await service.EnsureDepotMappingExistsAsync(context, 5, 1000, incoming);
+        }
+
+        await using var check = database.Factory.CreateDbContext();
+        Assert.Equal(expected, (await check.SteamDepotMappings.SingleAsync(row => row.DepotId == 1000)).AppName);
+    }
+
+    // The prefill daemon sends "App 5" for an app it has no name for; that is no name to cache.
+    [Fact]
+    public async Task APrefillRecordKeepsNoPlaceholderAsTheCachedAppName()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var service = NewService(database.Options);
+
+        Assert.True(await service.RecordSteamCacheAsync(5, "App 5", 1, null, [Depot(1000)]));
+        Assert.Null(await CachedAppNameAsync(database, "5"));
+
+        await service.RecordSteamCacheAsync(5, "Prefill game", 1, null, [new() { DepotId = 1000, ManifestId = 2, TotalBytes = 1 }]);
+        await service.RecordSteamCacheAsync(5, "App 5", 1, null, [new() { DepotId = 1000, ManifestId = 3, TotalBytes = 1 }]);
+        Assert.Equal("Prefill game", await CachedAppNameAsync(database, "5"));
+    }
+
+    private static async Task<string?> CachedAppNameAsync(TestDatabase database, string appId)
+    {
+        await using var context = database.Factory.CreateDbContext();
+        return (await context.PrefillCachedApps.SingleAsync(app => app.AppId == appId)).AppName;
+    }
+
     private static PrefillCacheService NewService(DbContextOptions<AppDbContext> options) =>
         new(new TestDbContextFactory(options), NullLogger<PrefillCacheService>.Instance);
 
     private static DepotManifestProgressInfo Depot(long depotId) =>
         new() { DepotId = depotId, ManifestId = 1, TotalBytes = 1 };
 
-    private static PicsJsonData Snapshot(long depotId, long appId, string appName) =>
-        JsonSerializer.Deserialize<PicsJsonData>($$$"""
-            {"metadata":{"lastChangeNumber":200,"version":"2.8","lastUpdated":"2026-01-01T00:00:00Z"},
-             "depotMappings":{"{{{depotId}}}":{"ownerId":{{{appId}}},"appIds":[{{{appId}}}],"appNames":["{{{appName}}}"],
-               "source":"SteamKit2-PICS","discoveredAt":"2026-01-01T00:00:00Z"} } }
-            """, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+    private static string Snapshot(long depotId, long appId, string appName) => $$$"""
+        {"metadata":{"lastChangeNumber":200,"version":"2.8","lastUpdated":"2026-01-01T00:00:00Z"},
+         "depotMappings":{"{{{depotId}}}":{"ownerId":{{{appId}}},"appIds":[{{{appId}}}],"appNames":["{{{appName}}}"],
+           "source":"SteamKit2-PICS","discoveredAt":"2026-01-01T00:00:00Z"} } }
+        """;
 
     private static DbContextOptions<AppDbContext> RetryOptions(TestDatabase database, IInterceptor failure) =>
         new DbContextOptionsBuilder<AppDbContext>()
@@ -308,6 +378,7 @@ public sealed class DepotOwnerLockTests
             Directory.CreateDirectory(_root);
             var paths = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
             ((PathResolverProxy)(object)paths).Root = _root;
+            Directory.CreateDirectory(paths.GetPicsDirectory());
             var registrations = new ServiceCollection();
             registrations.AddScoped(_ => new AppDbContext(options));
             _services = registrations.BuildServiceProvider();
@@ -316,6 +387,14 @@ public sealed class DepotOwnerLockTests
         }
 
         public PicsDataService Pics { get; }
+
+        // Imports through the depot file, the path every crawl and local import takes.
+        public Task ImportAsync(string snapshot, CancellationToken cancellationToken,
+            Func<int, Task>? progressCallback = null)
+        {
+            Pics.WritePicsJsonFile(snapshot);
+            return Pics.ImportToDatabaseAsync(cancellationToken, progressCallback);
+        }
 
         public void Dispose()
         {

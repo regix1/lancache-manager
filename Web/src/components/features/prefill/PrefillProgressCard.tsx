@@ -30,14 +30,14 @@ interface PrefillProgressCardProps {
   history?: boolean;
   progress: PrefillProgress;
   onCancel?: () => void;
-  /** When true the Cancel button shows a disabled "Cancelling..." state. */
-  isCancelling?: boolean;
+  /** When true the Cancel button shows a disabled "Canceling..." state. */
+  isCanceling?: boolean;
 }
 
 export function PrefillProgressCard({
   progress,
   onCancel,
-  isCancelling = false,
+  isCanceling = false,
   run,
   serviceId,
   error,
@@ -115,7 +115,7 @@ export function PrefillProgressCard({
       snapshot.cachedApps +
       snapshot.failedApps +
       snapshot.skippedApps +
-      snapshot.cancelledApps;
+      snapshot.canceledApps;
     const label =
       run.recovering && active
         ? t('prefill.progress.reconnecting')
@@ -131,7 +131,7 @@ export function PrefillProgressCard({
       { label: t('prefill.runs.completed'), count: snapshot.completedApps + snapshot.cachedApps },
       { label: t('prefill.runs.failed'), count: snapshot.failedApps },
       { label: t('prefill.runs.skipped'), count: snapshot.skippedApps },
-      { label: t('prefill.runs.cancelled'), count: snapshot.cancelledApps }
+      { label: t('prefill.runs.canceled'), count: snapshot.canceledApps }
     ].filter((outcome) => outcome.count > 0);
     const results =
       outcomes.length > 0 ? (
@@ -185,11 +185,11 @@ export function PrefillProgressCard({
                   variant="transparent"
                   className="text-themed-secondary delete-hover"
                   onClick={onCancel}
-                  disabled={disabled || isCancelling}
+                  disabled={disabled || isCanceling}
                   aria-label={t('prefill.runs.cancel', { name })}
                 >
-                  {isCancelling && <LoadingSpinner inline size="xs" />}
-                  {isCancelling ? t('prefill.progress.cancelling') : t('common.cancel')}
+                  {isCanceling && <LoadingSpinner inline size="xs" />}
+                  {isCanceling ? t('prefill.progress.canceling') : t('common.cancel')}
                 </Button>
               )}
               {!active && !history && completionContext && (
@@ -367,7 +367,7 @@ export function PrefillProgressCard({
                 </p>
                 <p className="text-xs text-themed-muted">
                   {/* V7: ETA is derived from the CURRENT game's bytes, not the whole job, so it is
-                      labelled per-game to avoid being read as an overall-job ETA (which would
+                      labeled per-game to avoid being read as an overall-job ETA (which would
                       sawtooth at every game boundary). */}
                   {etaSeconds !== null && etaSeconds > 0
                     ? t('prefill.progress.etaCurrentGame', {
@@ -382,13 +382,13 @@ export function PrefillProgressCard({
               color="stop"
               size="md"
               onClick={onCancel}
-              disabled={isCancelling}
+              disabled={isCanceling}
               className="min-h-[44px] sm:min-h-10 flex-1 sm:flex-initial"
             >
-              {isCancelling ? (
+              {isCanceling ? (
                 <>
                   <LoadingSpinner inline size="xs" />
-                  {t('prefill.progress.cancelling')}
+                  {t('prefill.progress.canceling')}
                 </>
               ) : (
                 t('common.cancel')
@@ -400,7 +400,7 @@ export function PrefillProgressCard({
         {/* Hide the now-frozen progress bars while the cancel request is in flight so a stale,
             non-advancing bar isn't shown for seconds. The cancel button carries the pending
             state, so no separate status row is needed here. */}
-        {!isCancelling && (
+        {!isCanceling && (
           <>
             {/* Overall progress (multi-game jobs only) */}
             {showOverall && !isReconnecting && (
@@ -471,7 +471,7 @@ export function PrefillProgressCard({
                 </div>
               ) : progress.state === 'app_completed' ? null : (
                 <p className="text-sm text-themed-muted text-center">
-                  {progress.message || t('prefill.progress.preparingOperation')}
+                  {t('prefill.progress.preparingOperation')}
                 </p>
               )}
             </div>

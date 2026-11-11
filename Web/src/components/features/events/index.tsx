@@ -102,7 +102,7 @@ const EventsTab: React.FC = () => {
 
       {/* Active Events. The count and its chips sit on the shared quiet well rather than on the
           page background - one line of text and a chip with no container of their own read as
-          stray copy. The well carries no colour of its own, so the chips stay the only
+          stray copy. The well carries no color of its own, so the chips stay the only
           saturated thing on the row. */}
       {activeEvents.length > 0 && (
         <div className="well-surface flex flex-wrap items-center gap-2 px-3 py-2">

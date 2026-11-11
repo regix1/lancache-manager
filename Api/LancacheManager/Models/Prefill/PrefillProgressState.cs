@@ -11,7 +11,7 @@ namespace LancacheManager.Models;
 /// fallback is provided for forward compatibility with daemon versions that emit new values.
 ///
 /// Serialized as lowercase strings on the wire ("idle", "downloading", "started",
-/// "completed", "failed", "error", "cancelled", "app_completed", "already_cached") to
+/// "completed", "failed", "error", "canceled", "app_completed", "already_cached") to
 /// preserve the pre-existing JSON contract with the frontend and the external daemon protocol.
 /// </summary>
 [JsonConverter(typeof(PrefillProgressStateJsonConverter))]
@@ -19,8 +19,8 @@ public enum PrefillProgressState
 {
     /// <summary>
     /// Catch-all for future daemon-emitted states that this version of the C# server
-    /// does not recognise. Preserved as an explicit member so deserialization never
-    /// throws on unrecognised daemon output.
+    /// does not recognize. Preserved as an explicit member so deserialization never
+    /// throws on unrecognized daemon output.
     /// </summary>
     Unknown,
 
@@ -40,13 +40,13 @@ public enum PrefillProgressState
     Failed,
 
     /// <summary>
-    /// Daemon-emitted error state. Normalised to <see cref="Failed"/> before the
+    /// Daemon-emitted error state. Normalized to <see cref="Failed"/> before the
     /// state is forwarded to SignalR consumers.
     /// </summary>
     Error,
 
-    /// <summary>Prefill operation was cancelled.</summary>
-    Cancelled,
+    /// <summary>Prefill operation was canceled.</summary>
+    Canceled,
 
     /// <summary>
     /// Per-app completion event emitted by C# after observing a daemon app_completed
@@ -103,7 +103,7 @@ public static class PrefillProgressStateExtensions
         PrefillProgressState.Completed => "completed",
         PrefillProgressState.Failed => "failed",
         PrefillProgressState.Error => "error",
-        PrefillProgressState.Cancelled => "cancelled",
+        PrefillProgressState.Canceled => "canceled",
         PrefillProgressState.AppCompleted => "app_completed",
         PrefillProgressState.AlreadyCached => "already_cached",
         PrefillProgressState.Unknown => "unknown",
@@ -113,7 +113,7 @@ public static class PrefillProgressStateExtensions
     /// <summary>
     /// Parses a raw state string (case-insensitive) into a <see cref="PrefillProgressState"/>,
     /// returning <see cref="PrefillProgressState.Unknown"/> for null, whitespace, or
-    /// unrecognised values. Never throws. Accepts both snake_case wire values
+    /// unrecognized values. Never throws. Accepts both snake_case wire values
     /// (<c>"app_completed"</c>, <c>"already_cached"</c>) and PascalCase enum names.
     /// </summary>
     public static PrefillProgressState ParseOrUnknown(string? value)
@@ -140,20 +140,20 @@ public static class PrefillProgressStateExtensions
     }
 
     /// <summary>
-    /// Applies the daemon-side <c>error</c> → <c>failed</c> normalisation. All other
+    /// Applies the daemon-side <c>error</c> → <c>failed</c> normalization. All other
     /// values pass through unchanged. Use before broadcasting state to SignalR consumers.
     /// </summary>
-    public static PrefillProgressState NormaliseErrorToFailed(this PrefillProgressState state)
+    public static PrefillProgressState NormalizeErrorToFailed(this PrefillProgressState state)
         => state == PrefillProgressState.Error ? PrefillProgressState.Failed : state;
 
     /// <summary>
-    /// True if the state is one of the terminal lifecycle states (completed / failed / cancelled / error).
+    /// True if the state is one of the terminal lifecycle states (completed / failed / canceled / error).
     /// </summary>
     public static bool IsTerminal(this PrefillProgressState state) => state switch
     {
         PrefillProgressState.Completed => true,
         PrefillProgressState.Failed => true,
-        PrefillProgressState.Cancelled => true,
+        PrefillProgressState.Canceled => true,
         PrefillProgressState.Error => true,
         _ => false
     };

@@ -543,9 +543,8 @@ public class XboxNamedDetectionEvictionTests
     /// <summary>
     /// Builds a real <see cref="GameCacheDetectionService"/> for the startup reconcile path only.
     /// The collaborators that path uses are real and rooted at a throwaway temp directory; the
-    /// operation-state and tracker collaborators are left null because the only thing that reads them
-    /// is the constructor's RestoreInterruptedOperations, which swallows the resulting failure, and
-    /// the Rust and notification collaborators are never reached by a reconcile.
+    /// operation-state, tracker, Rust and notification collaborators are left null because neither
+    /// the constructor nor a reconcile reads them.
     /// </summary>
     private static GameCacheDetectionService NewDetectionService(DbContextOptions<AppDbContext> options, string root)
     {

@@ -222,7 +222,7 @@ public sealed class IntegrationOwnershipTests
     }
 
     [Fact]
-    public async Task CancelledAttemptCannotCompleteOrCancelItsSuccessor()
+    public async Task CanceledAttemptCannotCompleteOrCancelItsSuccessor()
     {
         using var fixture = new IntegrationFixture();
         fixture.Seed();

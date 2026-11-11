@@ -36,7 +36,8 @@ import { useLiveDownloadPreviews } from '../downloads/useLiveDownloadPreviews';
 import {
   buildTrafficKey,
   filterLivePreviews,
-  getGameDisplayName
+  getGameDisplayName,
+  getLiveGameDisplayName
 } from '../downloads/liveDownloadPreviews';
 import { storage } from '@utils/storage';
 import { APP_EVENTS, STORAGE_KEYS } from '@utils/constants';
@@ -78,9 +79,8 @@ const ActiveDownloadItem: React.FC<{
 }> = ({ game, t }) => {
   const activity = useActivityStatus();
   const downloading = activity.isActive('download', buildTrafficKey(game), 'downloading');
-  const displayName = getGameDisplayName(
-    game.gameName,
-    game.service,
+  const displayName = getLiveGameDisplayName(
+    game,
     game.depotId
       ? t('downloads.active.depotLabel', { depotId: game.depotId })
       : getServiceDisplayName(game.service)

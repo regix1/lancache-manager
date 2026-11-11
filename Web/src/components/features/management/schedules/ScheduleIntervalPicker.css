@@ -53,7 +53,7 @@
   position: absolute;
   top: calc(100% + 0.375rem);
   left: 0;
-  z-index: 250; /* level with .ed-dropdown so it layers above neighbouring rows */
+  z-index: 250; /* level with .ed-dropdown so it layers above neighboring rows */
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -64,6 +64,14 @@
   border: 1px solid var(--theme-border-primary);
   box-shadow: var(--shadow-dropdown);
   animation: dropdownSlideDown 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Dark themes separate a floating layer from what it floats over with a lighter fill and a
+   border, never a shadow; light themes keep the shadow. */
+[data-theme='dark'] .schedule-interval-popover {
+  background-color: var(--theme-bg-surface);
+  border-color: var(--theme-card-border);
+  box-shadow: none;
 }
 
 .schedule-interval-picker-input {

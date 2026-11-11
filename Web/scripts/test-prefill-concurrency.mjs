@@ -71,7 +71,7 @@ const run = (id, sequence = 1, state = 'downloading') => ({
     completedApps: 0,
     cachedApps: 0,
     failedApps: 0,
-    cancelledApps: 0,
+    canceledApps: 0,
     skippedApps: 0,
     bytesTransferred: 12,
     selectionResolved: true
@@ -98,7 +98,7 @@ const progress = (id, sequence, state = 'downloading') => ({
   alreadyUpToDate: 0,
   failedApps: 0,
   skippedApps: 1,
-  cancelledApps: 0
+  canceledApps: 0
 });
 
 test('interleaved runs preserve sibling objects, counts and actual bytes', () => {
@@ -112,7 +112,7 @@ test('interleaved runs preserve sibling objects, counts and actual bytes', () =>
 });
 
 test('late progress, wrong daemon, duplicate terminals and old recovery cannot revive a run', () => {
-  const initial = [run('1', 8, 'cancelled'), run('2', 4), run('3', 1)];
+  const initial = [run('1', 8, 'canceled'), run('2', 4), run('3', 1)];
   for (const event of [
     progress('1', 9),
     progress('2', 3),
@@ -254,9 +254,9 @@ test('persistent cancellation targets the selected run while another cancel is p
     {
       getPersistentServiceId: () => 'Steam',
       persistentContainerByService: new Map([['Steam', container]]),
-      cancellingRunsRef: { current: new Set() },
+      cancelingRunsRef: { current: new Set() },
       isPrefillRunActive,
-      setCancellingRunIds: (ids) => {
+      setCancelingRunIds: (ids) => {
         pendingIds = ids;
       },
       setRunErrors: () => undefined,
@@ -287,6 +287,89 @@ test('persistent cancellation targets the selected run while another cancel is p
   releases[1]();
   await second;
   assert.deepEqual(pendingIds, []);
+});
+
+test('a persistent run cancel keeps the earlier error on screen until the cancel answers', async () => {
+  let runErrors = { 1: 'earlier' };
+  let release;
+  let fail = false;
+  const container = { sessionId: 'session', isRunning: true, runs: [run('1')] };
+  const cancel = bindLifted(
+    liftConstArrow(
+      'src/components/features/management/schedules/scheduled-prefill/useScheduledPrefillContainers.ts',
+      'handleCancelPersistentDownload'
+    ),
+    {
+      getPersistentServiceId: () => 'Steam',
+      persistentContainerByService: new Map([['Steam', container]]),
+      cancelingRunsRef: { current: new Set() },
+      isPrefillRunActive,
+      setCancelingRunIds: () => undefined,
+      setRunErrors: (update) => {
+        runErrors = update(runErrors);
+      },
+      setPersistentContainers: (update) => update([container]),
+      getErrorMessage: (error) => error.message,
+      ApiService: {
+        cancelPersistentPrefill: () =>
+          new Promise((resolve, reject) => {
+            release = () => (fail ? reject(new Error('refused')) : resolve());
+          })
+      },
+      loadPersistentContainers: async () => undefined
+    }
+  );
+  const succeeded = cancel('steam', '1');
+  assert.equal(runErrors['1'], 'earlier');
+  release();
+  await succeeded;
+  assert.equal(runErrors['1'], '');
+
+  runErrors = { 1: 'earlier' };
+  fail = true;
+  const refused = cancel('steam', '1');
+  assert.equal(runErrors['1'], 'earlier');
+  release();
+  await refused;
+  assert.equal(runErrors['1'], 'refused');
+});
+
+test('a Prefill tab run cancel keeps the earlier error on screen until the cancel answers', async () => {
+  let runs = [run('1')];
+  const runsRef = { current: runs };
+  let runErrors = { 1: 'earlier' };
+  let release;
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
+  const cancel = bindLifted(
+    liftHookCallback(
+      'src/components/features/prefill/hooks/usePrefillSignalR.ts',
+      'useCallback',
+      "'CancelPrefillRunAsync'"
+    ),
+    {
+      hubConnection: { current: { invoke: async () => pending } },
+      sessionRef: { current: { id: 'session' } },
+      runsRef,
+      cancelRunsRef: { current: new Set() },
+      isPrefillRunActive,
+      updateRuns: (next) => {
+        runs = mergePrefillRuns(runs, next);
+        runsRef.current = runs;
+      },
+      setRunErrors: (update) => {
+        runErrors = update(runErrors);
+      },
+      refreshRuns: async () => undefined,
+      t: (key) => key
+    }
+  );
+  const request = cancel('1');
+  assert.equal(runErrors['1'], 'earlier');
+  release();
+  await request;
+  assert.equal(runErrors['1'], '');
 });
 
 test('terminal completion storage deduplicates identities and dismisses only the selected run', () => {

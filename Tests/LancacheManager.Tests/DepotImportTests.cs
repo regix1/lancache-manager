@@ -13,6 +13,7 @@ using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,7 +29,7 @@ public sealed class DepotImportTests
     [Theory]
     [InlineData(RunTrigger.Manual)]
     [InlineData(RunTrigger.Scheduled)]
-    public async Task SnapshotReplacesPopulatedCatalogAndCommitsBeforeSchedulePublication(RunTrigger trigger)
+    public async Task SnapshotCombinesWithPopulatedCatalogAndCommitsBeforeSchedulePublication(RunTrigger trigger)
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
@@ -49,16 +50,19 @@ public sealed class DepotImportTests
 
         await using var db = fixture.Database.Factory.CreateDbContext();
         var rows = await db.SteamDepotMappings.OrderBy(row => row.DepotId).ThenBy(row => row.AppId).ToListAsync();
-        Assert.Equal(new long[] { 2, 3, 9 }, rows.Select(row => row.AppId));
-        Assert.DoesNotContain(rows, row => row.DepotId == 20);
+        // The snapshot adds to what the table held: the old owner of depot 10 stays as a reference and
+        // depots the snapshot does not list keep their rows.
+        Assert.Equal(new long[] { 1, 2, 3, 4, 9 }, rows.Select(row => row.AppId));
         Assert.Equal("New owner", rows.Single(row => row.IsOwner && row.DepotId == 10).AppName);
+        Assert.Single(rows, row => row.IsOwner && row.DepotId == 10);
+        Assert.True(rows.Single(row => row.DepotId == 20).IsOwner);
         Assert.Equal("orphan-resolved", rows.Single(row => row.DepotId == 90).Source);
         var download = await db.Downloads.SingleAsync();
         Assert.Equal(2, download.GameAppId);
         Assert.Equal("New owner", download.GameName);
         Assert.Equal(2u, Get<ConcurrentDictionary<uint, uint>>(fixture.Service, "_depotOwners")[10]);
-        Assert.False(Get<ConcurrentDictionary<uint, HashSet<uint>>>(fixture.Service, "_depotToAppMappings").ContainsKey(20));
-        Assert.False(Get<ConcurrentDictionary<uint, string>>(fixture.Service, "_appNames").ContainsKey(1));
+        Assert.True(Get<ConcurrentDictionary<uint, HashSet<uint>>>(fixture.Service, "_depotToAppMappings").ContainsKey(20));
+        Assert.True(Get<ConcurrentDictionary<uint, string>>(fixture.Service, "_appNames").ContainsKey(1));
         Assert.Equal(200u, fixture.State.GetState().LastPicsChangeNumber);
         Assert.True(fixture.State.GetState().HasDataLoaded);
         Assert.True(fixture.State.GetLastPicsCrawl() > fixture.PreviousCrawl);
@@ -69,7 +73,7 @@ public sealed class DepotImportTests
             && item.Content.ToString().Contains("\"PendingFullScan\":null", StringComparison.Ordinal));
         var terminal = Assert.Single(fixture.Events.Snapshots, item => item.Event == "DepotMappingComplete");
         Assert.True(terminal.Content.GetProperty("Success").GetBoolean());
-        Assert.False(terminal.Content.GetProperty("Cancelled").GetBoolean());
+        Assert.False(terminal.Content.GetProperty("Canceled").GetBoolean());
         // An import passed no notice builds one from the service mode and its own trigger.
         var notice = fixture.Tracker.GetOperation(terminal.Content.GetProperty("OperationId").GetGuid())!.Notice!;
         Assert.Equal(NotificationMode.Manual, notice.Mode);
@@ -80,7 +84,7 @@ public sealed class DepotImportTests
     }
 
     [Fact]
-    public async Task AGitHubReplaceKeepsTheDepotsPrefillMapped()
+    public async Task AGitHubImportKeepsTheDepotsPrefillMapped()
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
@@ -159,7 +163,7 @@ public sealed class DepotImportTests
     }
 
     [Fact]
-    public async Task AGitHubReplaceKeepsTheSnapshotOwnerOfAPrefillDepot()
+    public async Task AGitHubImportKeepsTheSnapshotOwnerOfAPrefillDepot()
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
@@ -197,7 +201,7 @@ public sealed class DepotImportTests
     }
 
     [Fact]
-    public async Task AGitHubReplaceWhosePrefillRestoreFailsEndsFailedButKeepsTheImport()
+    public async Task AGitHubImportWhosePrefillRestoreFailsEndsFailedButKeepsTheImport()
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
@@ -218,8 +222,11 @@ public sealed class DepotImportTests
         var terminal = Assert.Single(fixture.Events.Snapshots, item => item.Event == "DepotMappingComplete");
         Assert.False(terminal.Content.GetProperty("Success").GetBoolean());
         Assert.Equal("signalr.depotMapping.github.prefillNamesNotRestored", terminal.Content.GetProperty("StageKey").GetString());
-        // The browser translates the stage key only while no error text is sent beside it.
-        Assert.Equal(JsonValueKind.Null, terminal.Content.GetProperty("Error").ValueKind);
+        // The card words the failure from the key above; an error would show ahead of it, so none is sent.
+        Assert.Null(terminal.Content.GetProperty("Error").GetString());
+        var operation = fixture.Tracker.GetOperation(terminal.Content.GetProperty("OperationId").GetGuid())!;
+        Assert.Equal("signalr.depotMapping.github.prefillNamesNotRestored", operation.Message);
+        Assert.Equal("signalr.depotMapping.github.prefillNamesNotRestored", operation.FailureReason!.StageKey);
         Assert.Equal(200u, fixture.State.GetState().LastPicsChangeNumber);
         Assert.True(fixture.State.GetLastPicsCrawl() > fixture.PreviousCrawl);
         using (var published = JsonDocument.Parse(await File.ReadAllTextAsync(fixture.MappingFile)))
@@ -228,8 +235,8 @@ public sealed class DepotImportTests
         }
         await using var db = fixture.Database.Factory.CreateDbContext();
         var rows = await db.SteamDepotMappings.ToListAsync();
-        Assert.Equal(new long[] { 2, 3 }, rows.Where(row => row.DepotId == 10).Select(row => row.AppId).Order());
-        Assert.DoesNotContain(rows, row => row.DepotId == 20);
+        Assert.Equal(new long[] { 1, 2, 3 }, rows.Where(row => row.DepotId == 10).Select(row => row.AppId).Order());
+        Assert.Equal(4, Assert.Single(rows, row => row.DepotId == 20).AppId);
         Assert.Equal(77, Assert.Single(rows, row => row.DepotId == 770).AppId);
         Assert.Equal(79, Assert.Single(rows, row => row.DepotId == 790).AppId);
         Assert.DoesNotContain(rows, row => row.DepotId == 780);
@@ -237,7 +244,7 @@ public sealed class DepotImportTests
     }
 
     [Fact]
-    public async Task AGitHubReplaceCommitsThePrefillOnlyMappingsWithTheReplace()
+    public async Task AGitHubImportCommitsThePrefillOnlyMappingsWithTheImport()
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
@@ -264,15 +271,15 @@ public sealed class DepotImportTests
             await initial.SaveChangesAsync();
         }
 
-        // A detection that reads the mappings right after the replace commits must still find the
-        // prefill-only depot. The replace's commit is the first one after which depot 20, absent from
-        // the snapshot, is gone.
+        // A detection that reads the mappings right after the import commits must still find the
+        // prefill-only depot. The import's commit is the first one after which the snapshot's pair
+        // (10, 2) exists.
         List<SteamDepotMapping>? atCommit = null;
         fixture.AfterCommit = () =>
         {
             if (atCommit != null) return;
             using var reader = fixture.Database.Factory.CreateDbContext();
-            if (reader.SteamDepotMappings.Any(row => row.DepotId == 20)) return;
+            if (!reader.SteamDepotMappings.Any(row => row.DepotId == 10 && row.AppId == 2)) return;
             atCommit = reader.SteamDepotMappings.AsNoTracking().Where(row => row.DepotId == 770).ToList();
         };
 
@@ -315,21 +322,830 @@ public sealed class DepotImportTests
     }
 
     [Fact]
+    public async Task GitHubThenFullCrawlThenGitHubKeepsEveryPairOnceAndEverySourcesDepots()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        await using (var initial = fixture.Database.Factory.CreateDbContext())
+        {
+            initial.Downloads.AddRange(
+                new Download { DepotId = 20, GameAppId = 4, GameName = "Removed app", GameImageUrl = "https://example.com/removed.jpg" },
+                new Download { DepotId = 30 });
+            await initial.SaveChangesAsync();
+        }
+
+        fixture.Source = Snapshot(200);
+        Assert.True(await fixture.Service.ImportFromGitHubAsync());
+        // The crawl sees depot 10 as the file does and finds depot 30, which the file lacks.
+        await FinishFullCrawlAsync(fixture, 210,
+            (10, 2, new uint[] { 2, 3 }, "New owner"),
+            (30, 5, new uint[] { 5 }, "Crawl only game"));
+        fixture.Source = Snapshot(210);
+        Assert.True(await fixture.Service.ImportFromGitHubAsync());
+
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var rows = await db.SteamDepotMappings.AsNoTracking().ToListAsync();
+        Assert.All(rows.GroupBy(row => (row.DepotId, row.AppId)), pair => Assert.Single(pair));
+        Assert.Equal(
+            new (long, long)[] { (10, 1), (10, 2), (10, 3), (20, 4), (30, 5), (90, 9) },
+            rows.Select(row => (row.DepotId, row.AppId)).Order());
+        Assert.All(rows.GroupBy(row => row.DepotId), depot => Assert.Single(depot, row => row.IsOwner));
+        var downloads = await db.Downloads.AsNoTracking().ToListAsync();
+        var crawlOnly = downloads.Single(download => download.DepotId == 30);
+        Assert.Equal(5, crawlOnly.GameAppId);
+        Assert.Equal("Crawl only game", crawlOnly.GameName);
+        var seeded = downloads.Single(download => download.DepotId == 20);
+        Assert.Equal(4, seeded.GameAppId);
+        Assert.Equal("Removed app", seeded.GameName);
+        Assert.Equal("https://example.com/removed.jpg", seeded.GameImageUrl);
+    }
+
+    [Fact]
+    public async Task AnOwnerChangedByAnotherSourceLeavesOneOwnerAndRenamesTheDownload()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        await using (var initial = fixture.Database.Factory.CreateDbContext())
+        {
+            initial.Downloads.Add(new Download { DepotId = 10, GameAppId = 1, GameName = "Old owner" });
+            await initial.SaveChangesAsync();
+        }
+
+        fixture.Source = Snapshot(200);
+        Assert.True(await fixture.Service.ImportFromGitHubAsync());
+        // The crawl names app 7 as the owner of depot 10 and does not list app 2 for it.
+        await FinishFullCrawlAsync(fixture, 210, (10, 7, new uint[] { 7 }, "Crawl owner"));
+
+        await using (var afterCrawl = fixture.Database.Factory.CreateDbContext())
+        {
+            var depot = await afterCrawl.SteamDepotMappings.AsNoTracking().Where(row => row.DepotId == 10).ToListAsync();
+            Assert.Equal(7, Assert.Single(depot, row => row.IsOwner).AppId);
+            var download = await afterCrawl.Downloads.AsNoTracking().SingleAsync();
+            Assert.Equal(7, download.GameAppId);
+            Assert.Equal("Crawl owner", download.GameName);
+        }
+
+        fixture.Source = Snapshot(210);
+        Assert.True(await fixture.Service.ImportFromGitHubAsync());
+
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var rows = await db.SteamDepotMappings.AsNoTracking().Where(row => row.DepotId == 10).ToListAsync();
+        Assert.Equal(new long[] { 1, 2, 3, 7 }, rows.Select(row => row.AppId).Order());
+        Assert.Equal(2, Assert.Single(rows, row => row.IsOwner).AppId);
+        var renamed = await db.Downloads.AsNoTracking().SingleAsync();
+        Assert.Equal(2, renamed.GameAppId);
+        Assert.Equal("New owner", renamed.GameName);
+    }
+
+    [Fact]
+    public async Task AnIncrementalCrawlKeepsTheTablesOwnerOverAStaleMemoryOwner()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = Snapshot(200);
+        Assert.True(await fixture.Service.ImportFromGitHubAsync());
+        // Memory still holds the owner an earlier crawl found, as when the import's reload was canceled.
+        Get<ConcurrentDictionary<uint, uint>>(fixture.Service, "_depotOwners")[10] = 7;
+        Get<ConcurrentDictionary<uint, HashSet<uint>>>(fixture.Service, "_depotToAppMappings")[10].Add(7);
+        Get<ConcurrentDictionary<uint, string>>(fixture.Service, "_appNames")[7] = "Stale owner";
+
+        await (Task)Invoke(fixture.Service, "LoadDepotMappingsAsync", false, CancellationToken.None)!;
+        Set(fixture.Service, "_lastChangeNumberSeen", 210u);
+        using var source = new CancellationTokenSource();
+        await using var reporter = (MappingOperationReporter)Invoke(fixture.Service, "CreateTrackedRebuildReporter", source,
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual))!;
+        await reporter.StartAsync();
+        await (Task)Invoke(fixture.Service, "FinalizeAndNotifyAsync", true, reporter.Token)!;
+
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var rows = await db.SteamDepotMappings.AsNoTracking().Where(row => row.DepotId == 10).ToListAsync();
+        Assert.Equal(2, Assert.Single(rows, row => row.IsOwner).AppId);
+    }
+
+    [Fact]
+    public async Task AGitHubImportWhoseStoreLookupFailsKeepsTheDownloadsNameAndImage()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        await using (var initial = fixture.Database.Factory.CreateDbContext())
+        {
+            initial.Downloads.Add(new Download
+            {
+                DepotId = 10, GameAppId = 2, GameName = "New owner", GameImageUrl = "https://example.com/stored.jpg"
+            });
+            await initial.SaveChangesAsync();
+        }
+        fixture.StoreAnswer = "{}";
+        fixture.Source = Snapshot(200);
+
+        Assert.True(await fixture.Service.ImportFromGitHubAsync());
+
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var download = await db.Downloads.AsNoTracking().SingleAsync();
+        Assert.Equal(2, download.GameAppId);
+        Assert.Equal("New owner", download.GameName);
+        Assert.Equal("https://example.com/stored.jpg", download.GameImageUrl);
+    }
+
+    [Fact]
+    public async Task AGitHubImportLeavesADownloadNoMappingNamesAsItWas()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        await using (var initial = fixture.Database.Factory.CreateDbContext())
+        {
+            initial.Downloads.Add(new Download
+            {
+                DepotId = 555, GameAppId = 555, GameName = "Ingest name", GameImageUrl = "https://example.com/ingest.jpg"
+            });
+            await initial.SaveChangesAsync();
+        }
+        fixture.Source = Snapshot(200);
+
+        Assert.True(await fixture.Service.ImportFromGitHubAsync());
+
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var download = await db.Downloads.AsNoTracking().SingleAsync();
+        Assert.Equal(555, download.GameAppId);
+        Assert.Equal("Ingest name", download.GameName);
+        Assert.Equal("https://example.com/ingest.jpg", download.GameImageUrl);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AFailedOrCanceledFullCrawlKeepsEveryDownloadsName(bool cancel)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        await using (var initial = fixture.Database.Factory.CreateDbContext())
+        {
+            initial.Downloads.Add(new Download
+            {
+                DepotId = 10, GameAppId = 1, GameName = "Old owner", GameImageUrl = "https://example.com/old.jpg"
+            });
+            await initial.SaveChangesAsync();
+        }
+        using var run = new CancellationTokenSource();
+        if (cancel)
+        {
+            // The run is canceled while the crawl lists Steam's apps.
+            fixture.Source = """{"applist":{"apps":[{"appid":10,"name":"Counter-Strike"}]}}""";
+            fixture.Download = _ =>
+            {
+                run.Cancel();
+                return Task.FromResult(fixture.Source);
+            };
+            Set(fixture.Service, "_steamApps", new SteamKit2.SteamClient().GetHandler<SteamKit2.SteamApps>()!);
+        }
+
+        // Without a Steam session the listing fails; with one, the cancel above stops it.
+        var preparing = (Task)Invoke(fixture.Service, "PrepareForScanAsync", run.Token, false)!;
+        if (cancel) await Assert.ThrowsAnyAsync<OperationCanceledException>(() => preparing);
+        else await Assert.ThrowsAsync<InvalidOperationException>(() => preparing);
+
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var download = await db.Downloads.AsNoTracking().SingleAsync();
+        Assert.Equal(1, download.GameAppId);
+        Assert.Equal("Old owner", download.GameName);
+        Assert.Equal("https://example.com/old.jpg", download.GameImageUrl);
+    }
+
+    // Ends a full crawl that found the given depots, the way the crawl leaves memory before it saves:
+    // the four maps hold only what it found.
+    private static async Task FinishFullCrawlAsync(
+        Fixture fixture, uint changeNumber, params (uint DepotId, uint OwnerId, uint[] AppIds, string OwnerName)[] found)
+    {
+        var mappings = Get<ConcurrentDictionary<uint, HashSet<uint>>>(fixture.Service, "_depotToAppMappings");
+        var owners = Get<ConcurrentDictionary<uint, uint>>(fixture.Service, "_depotOwners");
+        var appNames = Get<ConcurrentDictionary<uint, string>>(fixture.Service, "_appNames");
+        mappings.Clear();
+        owners.Clear();
+        appNames.Clear();
+        Get<ConcurrentDictionary<uint, string>>(fixture.Service, "_depotNames").Clear();
+        foreach (var depot in found)
+        {
+            mappings[depot.DepotId] = new HashSet<uint>(depot.AppIds);
+            owners[depot.DepotId] = depot.OwnerId;
+            appNames[depot.OwnerId] = depot.OwnerName;
+        }
+        Set(fixture.Service, "_lastChangeNumberSeen", changeNumber);
+        using var source = new CancellationTokenSource();
+        await using var reporter = (MappingOperationReporter)Invoke(fixture.Service, "CreateTrackedRebuildReporter", source,
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual))!;
+        await reporter.StartAsync();
+        await (Task)Invoke(fixture.Service, "FinalizeAndNotifyAsync", false, reporter.Token)!;
+    }
+
+    [Fact]
     public async Task AGitHubImportStartedFromTheDepotPageUnderHiddenGivesAHiddenRow()
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
         fixture.Source = Snapshot(200);
         fixture.Service.SetNotificationMode(NotificationMode.Hidden);
-        var controller = new DepotsController(fixture.Service, fixture.Pics, fixture.State,
-            NullLogger<DepotsController>.Instance,
-            OperationConflictTestServices.Create(fixture.Tracker, NullLogger<OperationConflictChecker>.Instance));
+        var controller = NewController(fixture);
 
         await controller.ImportDepotMappingsAsync("github", CancellationToken.None);
 
         var run = Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationType == "depotMapping");
         Assert.Equal("completed", run.Status);
         Assert.Equal(RunVisibility.Hidden, run.Visibility);
+    }
+
+    /// <summary>
+    /// The rebuild and the GitHub import check conflicts and start under the queue's lock, so a cache
+    /// clear sent at the same moment cannot start beside them. A conflict the queue finds is answered
+    /// 409 as before, and the service is never asked to start.
+    /// </summary>
+    [Fact]
+    public async Task ARebuildAndAGitHubImportThatMeetARunningClearAnswer409AndStartNothingAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = Snapshot(200);
+        var conflict = ClearConflict();
+        var queue = new RecordingQueue { Conflict = conflict };
+        fixture.Queue = queue;
+        var controller = NewController(fixture);
+
+        var rebuild = Assert.IsType<ConflictObjectResult>(await controller.StartDepotRebuildAsync(CancellationToken.None));
+        var import = await controller.ImportDepotMappingsAsync("github", CancellationToken.None);
+
+        Assert.Same(conflict, rebuild.Value);
+        Assert.Same(conflict, Assert.IsType<ConflictObjectResult>(import.Result).Value);
+        Assert.Equal([OperationType.DepotMapping, OperationType.DepotMapping], queue.Gated);
+        Assert.Empty(fixture.Tracker.GetRuns().Runs);
+        Assert.False(fixture.Service.IsRebuildRunning);
+    }
+
+    /// <summary>
+    /// An import from the depot file on disk sent while a database reset runs is refused with the
+    /// reset as the conflict, and writes no mapping row beside it.
+    /// </summary>
+    [Fact]
+    public async Task ALocalImportSentDuringADatabaseResetAnswers409AndWritesNothingAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        var reset = fixture.Tracker.RegisterOperation(OperationType.DatabaseReset, "Database reset", new CancellationTokenSource());
+        var controller = NewController(fixture);
+
+        var import = await controller.ImportDepotMappingsAsync("local", CancellationToken.None);
+
+        var conflict = Assert.IsType<OperationConflictResponse>(Assert.IsType<ConflictObjectResult>(import.Result).Value);
+        Assert.Equal(reset, conflict.ActiveOperationId);
+        Assert.False(fixture.Service.IsRebuildRunning);
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        Assert.Equal(new long[] { 1, 4, 9 }, await db.SteamDepotMappings.OrderBy(row => row.AppId).Select(row => row.AppId).ToArrayAsync());
+    }
+
+    /// <summary>
+    /// An import from the depot file on disk starts through the queue's gated start and runs as one
+    /// depot run, so it draws a card and ends Completed once its rows are written.
+    /// </summary>
+    [Fact]
+    public async Task ALocalImportRegistersOneDepotRunThatEndsCompletedAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        var queue = new RecordingQueue();
+        fixture.Queue = queue;
+        var controller = NewController(fixture);
+
+        var import = await controller.ImportDepotMappingsAsync("local", CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(import.Result);
+        Assert.Equal([OperationType.DepotMapping], queue.Gated);
+        var run = Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationType == "depotMapping");
+        Assert.Equal("completed", run.Status);
+        Assert.Contains(fixture.Events.Snapshots, sent => sent.Event == "DepotMappingStarted");
+        Assert.False(fixture.Service.IsRebuildRunning);
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        Assert.Contains(2L, await db.SteamDepotMappings.Select(row => row.AppId).ToArrayAsync());
+    }
+
+    /// <summary>
+    /// The published depot file names an app it has no name for "App {id}". That exact placeholder is
+    /// stored as no name, while a real title that only starts with "App " is stored as it is.
+    /// </summary>
+    [Fact]
+    public async Task AnImportedAppPlaceholderIsStoredUnnamedAndARealNameIsKeptAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Pics.WritePicsJsonFile("""
+            {"metadata":{"lastChangeNumber":100,"version":"2.8","lastUpdated":"2026-01-01T00:00:00Z"},
+             "depotMappings":{"30":{"ownerId":7,"appIds":[7,8],"appNames":["App 7","App Builder"],"discoveredAt":"2026-01-01T00:00:00Z"}}}
+            """);
+
+        await fixture.Pics.ImportToDatabaseAsync();
+
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var rows = await db.SteamDepotMappings.Where(row => row.DepotId == 30).OrderBy(row => row.AppId).ToListAsync();
+        Assert.Equal(2, rows.Count);
+        Assert.Null(rows[0].AppName);
+        Assert.Equal("App Builder", rows[1].AppName);
+    }
+
+    /// <summary>
+    /// The same placeholder read from the depot file into the in-memory names is not taken as a name,
+    /// so it never reaches the rows written from those names.
+    /// </summary>
+    [Fact]
+    public async Task AnAppPlaceholderInTheDepotFileIsNotTakenAsAnAppNameAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var names = Get<ConcurrentDictionary<uint, string>>(fixture.Service, "_appNames");
+        names.Clear();
+
+        Invoke(fixture.Service, "MergeDepotMappingsFromJson", new PicsJsonData
+        {
+            DepotMappings = new Dictionary<string, PicsDepotMapping>
+            {
+                ["30"] = new() { AppIds = [7, 8], AppNames = ["App 7", "App Builder"] }
+            }
+        });
+
+        Assert.False(names.ContainsKey(7));
+        Assert.Equal("App Builder", names[8]);
+    }
+
+    /// <summary>
+    /// An import that has no name for a pair keeps the app and depot names another source stored, so
+    /// after a restart a new download of that game is still named from the table.
+    /// </summary>
+    [Fact]
+    public async Task AnImportWithNoNameKeepsTheStoredNamesAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        await using (var seed = fixture.Database.Factory.CreateDbContext())
+        {
+            await seed.SteamDepotMappings.Where(row => row.DepotId == 10 && row.AppId == 1)
+                .ExecuteUpdateAsync(row => row.SetProperty(mapping => mapping.DepotName, "Old owner Content"));
+        }
+
+        await fixture.Pics.ImportToDatabaseAsync(new PicsJsonData
+        {
+            Metadata = new PicsMetadata { LastChangeNumber = 200 },
+            DepotMappings = new Dictionary<string, PicsDepotMapping>
+            {
+                ["10"] = new() { OwnerId = 1, AppIds = [1], AppNames = ["App 1"], DiscoveredAt = fixture.PreviousCrawl }
+            }
+        }, CancellationToken.None);
+
+        long id;
+        await using (var db = fixture.Database.Factory.CreateDbContext())
+        {
+            var row = await db.SteamDepotMappings.SingleAsync(mapping => mapping.DepotId == 10 && mapping.AppId == 1);
+            Assert.Equal("Old owner", row.AppName);
+            Assert.Equal("Old owner Content", row.DepotName);
+            var download = new Download { Service = "steam", DepotId = 10, IsActive = false };
+            db.Downloads.Add(download);
+            await db.SaveChangesAsync();
+            id = download.Id;
+        }
+
+        // A restart starts with no names in memory and reads them from the table; the store does not
+        // answer for app 1, so the download's name can only come from the stored row.
+        Get<ConcurrentDictionary<uint, string>>(fixture.Service, "_appNames").Clear();
+        Get<ConcurrentDictionary<uint, string>>(fixture.Service, "_depotNames").Clear();
+        await fixture.Service.ManuallyApplyDepotMappingsAsync();
+
+        Assert.Equal("Old owner", Get<ConcurrentDictionary<uint, string>>(fixture.Service, "_appNames")[1]);
+        await using var after = fixture.Database.Factory.CreateDbContext();
+        Assert.Equal("Old owner", (await after.Downloads.SingleAsync(download => download.Id == id)).GameName);
+    }
+
+    /// <summary>
+    /// A real title that starts with "App " names the download when the store lookup fails; only the
+    /// exact "App {id}" placeholder is refused.
+    /// </summary>
+    [Fact]
+    public async Task APicsTitleStartingWithAppNamesTheDownloadWhenTheStoreFailsAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        long id;
+        await using (var seed = fixture.Database.Factory.CreateDbContext())
+        {
+            // Depot 10 belongs to app 1, which the store does not answer for.
+            await seed.SteamDepotMappings.Where(row => row.AppId == 1)
+                .ExecuteUpdateAsync(row => row.SetProperty(mapping => mapping.AppName, "App Builder"));
+            var download = new Download { Service = "steam", DepotId = 10, IsActive = false };
+            seed.Downloads.Add(download);
+            await seed.SaveChangesAsync();
+            id = download.Id;
+        }
+
+        await fixture.Service.ManuallyApplyDepotMappingsAsync();
+
+        await using var db = fixture.Database.Factory.CreateDbContext();
+        var named = await db.Downloads.SingleAsync(download => download.Id == id);
+        Assert.Equal(1, named.GameAppId);
+        Assert.Equal("App Builder", named.GameName);
+    }
+
+    /// <summary>
+    /// The depot schedule's tick, in crawl and in GitHub mode, starts its run inside the queue's gated
+    /// start. Blocked by a cache clear, it waits on the queue's card instead and starts no run now.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task ADepotTickStartsThroughTheQueueAndWaitsWhenBlockedAsync(bool githubMode, bool blocked)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = Snapshot(200);
+        var queue = new RecordingQueue { Conflict = blocked ? ClearConflict() : null };
+        fixture.Queue = queue;
+        Set(fixture.Service, "_initialized", true);
+        Set(fixture.Service, "_isRunning", true);
+        Set(fixture.Service, "_crawlIncrementalMode", githubMode ? "github" : (object)false);
+        // A crawl fails at its started event, so it never connects to Steam; it is registered by then.
+        fixture.Events.BeforeSend = (name, _) =>
+        {
+            if (!githubMode && name == "DepotMappingStarted") throw new IOException("Stopped before connecting");
+        };
+
+        await ((Task)Invoke(fixture.Service, "ExecuteWorkAsync", CancellationToken.None)!).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(OperationType.DepotMapping, queue.Gated[0]);
+        if (blocked)
+        {
+            Assert.Equal(OperationType.DepotMapping, queue.Parked);
+            Assert.Equal(ConflictScope.Bulk(), queue.ParkedScope);
+            Assert.Empty(fixture.Tracker.GetRuns().Runs);
+        }
+        else
+        {
+            Assert.Null(queue.Parked);
+            Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationType == "depotMapping");
+        }
+    }
+
+    /// <summary>
+    /// A full crawl asked for while an incremental one waits does not join it: it waits on its own card and
+    /// runs after. The same crawl asked again joins the card already waiting.
+    /// </summary>
+    [Fact]
+    public async Task AFullCrawlDoesNotJoinAWaitingIncrementalCrawlAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        var clearing = fixture.Tracker.RegisterOperation(
+            OperationType.CacheClearing, "Cache Clear (All)", new CancellationTokenSource());
+        static RunNotice Click() => new(NotificationMode.Manual, RunTrigger.Manual);
+
+        Assert.False(await fixture.Service.StartRebuildThroughQueueAsync(true, Click(), CancellationToken.None));
+        Assert.False(await fixture.Service.StartRebuildThroughQueueAsync(true, Click(), CancellationToken.None));
+        Assert.False(await fixture.Service.StartRebuildThroughQueueAsync(false, Click(), CancellationToken.None));
+
+        var waiting = fixture.Tracker.GetWaitingOperations().Where(operation => operation.Type == OperationType.DepotMapping).ToList();
+        Assert.Equal(2, waiting.Count);
+
+        foreach (var operation in waiting)
+            fixture.Tracker.CancelOperation(operation.Id);
+        fixture.Tracker.CompleteOperation(clearing, success: true);
+    }
+
+    /// <summary>
+    /// A full crawl started from the Depots page answers a full crawl asked for while it runs (a sign-in that
+    /// starts a crawl, a schedule tick): no second crawl waits to run after it. An incremental crawl is other
+    /// work and still waits.
+    /// </summary>
+    [Fact]
+    public async Task ACrawlAskedDuringAPageCrawlOfTheSameModeJoinsItAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        // The crawl waits for a Steam session here, so it stays registered until the test cancels it.
+        var session = Get<SemaphoreSlim>(fixture.Service, "_sessionGate");
+        await session.WaitAsync();
+        static RunNotice Click() => new(NotificationMode.Manual, RunTrigger.Manual);
+
+        try
+        {
+            var accepted = Assert.IsType<AcceptedResult>(
+                await NewController(fixture).StartDepotRebuildAsync(CancellationToken.None, incremental: false));
+            Assert.True(Assert.IsType<DepotRebuildStartResponse>(accepted.Value).Started);
+
+            Assert.False(await fixture.Service.StartRebuildThroughQueueAsync(false, Click(), CancellationToken.None));
+            Assert.DoesNotContain(fixture.Tracker.GetWaitingOperations(), operation => operation.Type == OperationType.DepotMapping);
+            Assert.False(await fixture.Service.StartRebuildThroughQueueAsync(true, Click(), CancellationToken.None));
+            Assert.Single(fixture.Tracker.GetWaitingOperations(), operation => operation.Type == OperationType.DepotMapping);
+        }
+        finally
+        {
+            foreach (var waiting in fixture.Tracker.GetWaitingOperations().ToList())
+                fixture.Tracker.CancelOperation(waiting.Id);
+            await fixture.Service.CancelRebuildAsync();
+            await Get<Task>(fixture.Service, "_currentBuildTask").WaitAsync(TimeSpan.FromSeconds(10));
+            session.Release();
+        }
+    }
+
+    /// <summary>
+    /// A GitHub import started from the Depots page answers a GitHub import the schedule asks for while it
+    /// downloads: the tick waits on no card of its own.
+    /// </summary>
+    [Fact]
+    public async Task AGitHubTickDuringAPageImportJoinsItAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        var downloading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Download = async _ =>
+        {
+            downloading.TrySetResult();
+            await release.Task;
+            return fixture.Source;
+        };
+
+        var import = NewController(fixture).ImportDepotMappingsAsync("github", CancellationToken.None);
+        try
+        {
+            await downloading.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var running = Assert.Single(fixture.Tracker.GetActiveOperations(OperationType.DepotMapping));
+
+            // The request the GitHub tick sends when it finds the queue busy after its own running check.
+            var tick = await fixture.Queue.EnqueueAsync(
+                OperationType.DepotMapping, ConflictScope.Bulk(), "Depot Mapping",
+                () => Task.FromResult<Guid?>(null), CancellationToken.None, new DepotMappingRequestKey(DepotMappingWork.GitHubImport));
+
+            Assert.Equal(OperationStartStatus.AlreadyRunning, tick.Status);
+            Assert.Equal(running.Id, tick.OperationId);
+            Assert.DoesNotContain(fixture.Tracker.GetWaitingOperations(), operation => operation.Type == OperationType.DepotMapping);
+        }
+        finally
+        {
+            foreach (var waiting in fixture.Tracker.GetWaitingOperations().ToList())
+                fixture.Tracker.CancelOperation(waiting.Id);
+            release.TrySetResult();
+        }
+        Assert.IsType<OkObjectResult>((await import.WaitAsync(TimeSpan.FromSeconds(10))).Result);
+    }
+
+    /// <summary>
+    /// A full crawl asked for while a full crawl started the same way runs (a sign-in that starts a crawl
+    /// during a scheduled one) answers with that crawl: no second crawl waits to run after it.
+    /// </summary>
+    [Fact]
+    public async Task AFullCrawlAskedDuringAFullCrawlJoinsItAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        // The crawl waits for a Steam session here, so it stays registered until the test cancels it.
+        var session = Get<SemaphoreSlim>(fixture.Service, "_sessionGate");
+        await session.WaitAsync();
+        static RunNotice Click() => new(NotificationMode.Manual, RunTrigger.Manual);
+
+        try
+        {
+            Assert.True(await fixture.Service.StartRebuildThroughQueueAsync(false, Click(), CancellationToken.None));
+            var running = Assert.Single(fixture.Tracker.GetActiveOperations(OperationType.DepotMapping));
+
+            Assert.False(await fixture.Service.StartRebuildThroughQueueAsync(false, Click(), CancellationToken.None));
+
+            Assert.DoesNotContain(fixture.Tracker.GetWaitingOperations(), operation => operation.Type == OperationType.DepotMapping);
+            Assert.Equal(running.Id, Assert.Single(fixture.Tracker.GetActiveOperations(OperationType.DepotMapping)).Id);
+        }
+        finally
+        {
+            foreach (var waiting in fixture.Tracker.GetWaitingOperations().ToList())
+                fixture.Tracker.CancelOperation(waiting.Id);
+            await fixture.Service.CancelRebuildAsync();
+            await Get<Task>(fixture.Service, "_currentBuildTask").WaitAsync(TimeSpan.FromSeconds(10));
+            session.Release();
+        }
+    }
+
+    /// <summary>
+    /// A GitHub tick the queue finds busy, whose blocker ends before the queue parks it, starts its import at
+    /// once. The tick then ends only when that import ends, as an unblocked tick does, so the schedule does
+    /// not stamp the run finished while the import still downloads.
+    /// </summary>
+    [Fact]
+    public async Task AGitHubTickStartedByTheQueueRecheckEndsWithItsImportAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Queue = new RecordingQueue { Conflict = ClearConflict(), StartWhenParked = true };
+        Set(fixture.Service, "_initialized", true);
+        Set(fixture.Service, "_isRunning", true);
+        Set(fixture.Service, "_crawlIncrementalMode", "github");
+        var downloading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Download = async _ =>
+        {
+            downloading.TrySetResult();
+            await release.Task;
+            return fixture.Source;
+        };
+
+        var tick = (Task)Invoke(fixture.Service, "ExecuteWorkAsync", CancellationToken.None)!;
+        try
+        {
+            await downloading.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await Task.WhenAny(tick, Task.Delay(TimeSpan.FromSeconds(1)));
+
+            Assert.False(tick.IsCompleted);
+            Assert.True(fixture.Service.IsRebuildRunning);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        await tick.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(fixture.Service.IsRebuildRunning);
+        Assert.Equal("completed", Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationType == "depotMapping").Status);
+    }
+
+    /// <summary>
+    /// A crawl whose started event cannot be sent ends before it does any work, so neither door reports it
+    /// as started: the sign-in and schedule door answers false, and the Depots page answers Started false.
+    /// </summary>
+    [Fact]
+    public async Task ACrawlWhoseStartFailsIsNotReportedStartedAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Events.BeforeSend = (name, _) =>
+        {
+            if (name == "DepotMappingStarted") throw new IOException("Stopped before connecting");
+        };
+
+        Assert.False(await fixture.Service.StartRebuildThroughQueueAsync(
+            false, new RunNotice(NotificationMode.Manual, RunTrigger.Manual), CancellationToken.None));
+        await Get<Task>(fixture.Service, "_currentBuildTask").WaitAsync(TimeSpan.FromSeconds(10));
+
+        var accepted = Assert.IsType<AcceptedResult>(
+            await NewController(fixture).StartDepotRebuildAsync(CancellationToken.None, incremental: false));
+        await Get<Task>(fixture.Service, "_currentBuildTask").WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(Assert.IsType<DepotRebuildStartResponse>(accepted.Value).Started);
+    }
+
+    /// <summary>
+    /// A crawl started from the Depots page keeps running after the request that started it ends: the
+    /// browser closing the connection after the 202 does not cancel it.
+    /// </summary>
+    [Fact]
+    public async Task APageCrawlOutlivesItsRequestAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        // The crawl waits for a Steam session here, so it stays registered until the test cancels it.
+        var session = Get<SemaphoreSlim>(fixture.Service, "_sessionGate");
+        await session.WaitAsync();
+        using var request = new CancellationTokenSource();
+
+        try
+        {
+            var accepted = Assert.IsType<AcceptedResult>(
+                await NewController(fixture).StartDepotRebuildAsync(request.Token, incremental: false));
+            Assert.True(Assert.IsType<DepotRebuildStartResponse>(accepted.Value).Started);
+            var crawl = Get<Task>(fixture.Service, "_currentBuildTask");
+
+            request.Cancel();
+            await Task.WhenAny(crawl, Task.Delay(TimeSpan.FromSeconds(1)));
+
+            Assert.False(crawl.IsCompleted);
+            Assert.Single(fixture.Tracker.GetActiveOperations(OperationType.DepotMapping));
+        }
+        finally
+        {
+            await fixture.Service.CancelRebuildAsync();
+            await Get<Task>(fixture.Service, "_currentBuildTask").WaitAsync(TimeSpan.FromSeconds(10));
+            session.Release();
+        }
+    }
+
+    /// <summary>
+    /// An import of the depot file on disk is not labeled as a GitHub download, and Cancel stops it even
+    /// after an earlier crawl committed its baseline.
+    /// </summary>
+    [Fact]
+    public async Task ALocalImportIsNotLabeledGitHubAndCanBeCanceledAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        // As a finished crawl leaves it.
+        Set(fixture.Service, "_baselineCommitted", true);
+        Task<bool>? cancelAnswer = null;
+        fixture.Events.BeforeSend = (name, _) =>
+        {
+            if (name == "DepotMappingStarted") cancelAnswer = fixture.Service.CancelRebuildAsync();
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Service.ImportFromLocalFileAsync(
+            CancellationToken.None, new RunNotice(NotificationMode.Manual, RunTrigger.Manual), new TaskCompletionSource<Guid?>()))
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.NotNull(cancelAnswer);
+        Assert.True(await cancelAnswer);
+        Assert.Equal("canceled", Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationType == "depotMapping").Status);
+        var started = Assert.Single(fixture.Events.Snapshots, sent => sent.Event == "DepotMappingStarted").Content;
+        var scanMode = started.EnumerateObject().Single(property => property.NameEquals("scanMode") || property.NameEquals("ScanMode")).Value;
+        Assert.Equal(JsonSerializer.SerializeToElement(DepotScanMode.Incremental).ToString(), scanMode.ToString());
+    }
+
+    /// <summary>
+    /// An owner app PICS returns with no name and no depots is fetched once per crawl: a later app whose
+    /// depot names the same owner does not queue it again.
+    /// </summary>
+    [Fact]
+    public async Task ANamelessOwnerWithNoDepotsIsFetchedOncePerCrawlAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+
+        List<uint> Process(uint id, string keyValues) =>
+            (List<uint>)Invoke(fixture.Service, "ProcessAppDepots", PicsApp(id, keyValues))!;
+
+        Assert.Equal([500u], Process(100, """ "appinfo" { "common" { "name" "Game A" } "depots" { "101" { "depotfromapp" "500" } } } """));
+        Assert.Empty(Process(500, """ "appinfo" { "common" { "type" "tool" } } """));
+        Assert.Empty(Process(200, """ "appinfo" { "common" { "name" "Game B" } "depots" { "201" { "depotfromapp" "500" } } } """));
+    }
+
+    private static SteamKit2.SteamApps.PICSProductInfoCallback.PICSProductInfo PicsApp(uint id, string keyValues)
+    {
+        var app = (SteamKit2.SteamApps.PICSProductInfoCallback.PICSProductInfo)System.Runtime.CompilerServices.RuntimeHelpers
+            .GetUninitializedObject(typeof(SteamKit2.SteamApps.PICSProductInfoCallback.PICSProductInfo));
+        // SteamKit2 builds this only from a Steam response, so the test sets its auto-property fields.
+        CacheScanGateHarness.SetField(app, "<ID>k__BackingField", id);
+        CacheScanGateHarness.SetField(app, "<KeyValues>k__BackingField", SteamKit2.KeyValue.LoadFromString(keyValues)!);
+        return app;
+    }
+
+    private static DepotsController NewController(Fixture fixture) =>
+        new(fixture.Service, fixture.Pics, fixture.State,
+            NullLogger<DepotsController>.Instance,
+            OperationConflictTestServices.Create(fixture.Tracker, NullLogger<OperationConflictChecker>.Instance),
+            fixture.Queue);
+
+    private static OperationConflictResponse ClearConflict() => new()
+    {
+        StageKey = "errors.conflict.globalOperationActive",
+        Error = "blocked",
+        ActiveOperationId = Guid.NewGuid(),
+        ActiveOperationType = nameof(OperationType.CacheClearing)
+    };
+
+    /// <summary>
+    /// Answers every gated start with <see cref="Conflict"/> when one is set, else runs the start, and
+    /// records each gated type and the park it is then asked for.
+    /// </summary>
+    private sealed class RecordingQueue : IOperationWaitlist
+    {
+        public OperationConflictResponse? Conflict { get; init; }
+
+        /// <summary>Answers a park as the queue's re-check does when the blocker ended meanwhile: it starts at once.</summary>
+        public bool StartWhenParked { get; init; }
+        public List<OperationType> Gated { get; } = [];
+        public OperationType? Parked { get; private set; }
+        public ConflictScope? ParkedScope { get; private set; }
+
+        public async Task<OperationStartResponse> EnqueueAsync(
+            OperationType type,
+            ConflictScope scope,
+            string displayName,
+            Func<Task<Guid?>> start,
+            CancellationToken ct,
+            OperationRequestKey requestKey,
+            bool reportRefusal = false,
+            RunNotice? notice = null,
+            string? target = null)
+        {
+            if (StartWhenParked && await start() is { } startedId)
+            {
+                return new OperationStartResponse
+                {
+                    OperationId = startedId,
+                    Status = OperationStartStatus.Started
+                };
+            }
+
+            Parked = type;
+            ParkedScope = scope;
+            return new OperationStartResponse
+            {
+                OperationId = Guid.NewGuid(),
+                Status = OperationStartStatus.Waiting
+            };
+        }
+
+        public async Task<OperationConflictResponse?> StartUnlessBusyAsync(
+            OperationType type, ConflictScope scope, Func<Task<Guid?>> start, CancellationToken ct, OperationRequestKey requestKey)
+        {
+            Gated.Add(type);
+            if (Conflict != null)
+            {
+                return Conflict;
+            }
+
+            await start();
+            return null;
+        }
     }
 
     [Fact]
@@ -533,6 +1349,111 @@ public sealed class DepotImportTests
             () => (Task)Invoke(fixture.Service, "GetAppIdsViaPicsAsync", run.Token, false)!);
     }
 
+    [Fact]
+    public async Task ACanceledCrawlEndsOnItsCancelKeyWithNoSentenceOfItsOwnAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        // The crawl's run is registered by its started event, so a cancel there ends a real run.
+        fixture.Events.BeforeSend = (name, _) =>
+        {
+            if (name == "DepotMappingStarted") throw new OperationCanceledException();
+        };
+
+        Assert.True(fixture.Service.TryStartRebuild());
+        await Get<Task>(fixture.Service, "_currentBuildTask").WaitAsync(TimeSpan.FromSeconds(10));
+
+        var terminal = Assert.Single(fixture.Events.Snapshots, item => item.Event == "DepotMappingComplete");
+        Assert.True(terminal.Content.GetProperty("Canceled").GetBoolean());
+        Assert.Equal("signalr.depotMapping.canceled", terminal.Content.GetProperty("StageKey").GetString());
+        Assert.False(terminal.Content.TryGetProperty("Message", out _));
+        Assert.False(terminal.Content.GetProperty("Context").TryGetProperty("message", out _));
+    }
+
+    /// <summary>
+    /// A crawl that ends before it reaches the depot scan (canceled or failed while it connects) leaves its
+    /// own end state on the progress answer, never the phase an earlier run finished with: the browser reads
+    /// a polled "completed" as a finished crawl.
+    /// </summary>
+    [Theory]
+    [InlineData(true, DepotScanPhase.Canceled)]
+    [InlineData(false, DepotScanPhase.Error)]
+    public async Task ACrawlThatEndsBeforeTheScanReportsItsOwnEndStateAsync(bool canceled, DepotScanPhase expected)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        Set(fixture.Service, "_currentStatus", DepotScanPhase.Completed);
+        fixture.Events.BeforeSend = (name, _) =>
+        {
+            if (name != "DepotMappingStarted") return;
+            if (canceled) throw new OperationCanceledException();
+            throw new InvalidOperationException("Steam is unreachable");
+        };
+
+        Assert.True(fixture.Service.TryStartRebuild());
+        await Get<Task>(fixture.Service, "_currentBuildTask").WaitAsync(TimeSpan.FromSeconds(10));
+
+        var progress = fixture.Service.GetProgress();
+        Assert.False(progress.IsProcessing);
+        Assert.Equal(expected, progress.Status);
+    }
+
+    /// <summary>
+    /// A depot run's events name each step by stage key, and the browser builds the sentence from it, so
+    /// no event carries an English sentence of its own beside the key.
+    /// </summary>
+    [Theory]
+    [InlineData("github")]
+    [InlineData("local")]
+    [InlineData("apply")]
+    [InlineData("crawl")]
+    public async Task EveryDepotRunEventCarriesItsStageKeyAndNoSentenceAsync(string run)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = Snapshot(200);
+        switch (run)
+        {
+            case "github":
+                Assert.True(await fixture.Service.ImportFromGitHubAsync());
+                break;
+            case "local":
+                fixture.Queue = new RecordingQueue();
+                Assert.IsType<OkObjectResult>(
+                    (await NewController(fixture).ImportDepotMappingsAsync("local", CancellationToken.None)).Result);
+                break;
+            case "apply":
+                await fixture.Service.ManuallyApplyDepotMappingsAsync();
+                break;
+            case "crawl":
+                Set(fixture.Service, "_lastChangeNumberSeen", 210u);
+                using (var source = new CancellationTokenSource())
+                {
+                    await using var reporter = (MappingOperationReporter)Invoke(fixture.Service, "CreateTrackedRebuildReporter", source,
+                        new RunNotice(NotificationMode.Manual, RunTrigger.Manual))!;
+                    await reporter.StartAsync();
+                    await (Task)Invoke(fixture.Service, "FinalizeAndNotifyAsync", true, reporter.Token)!;
+                }
+                break;
+        }
+
+        var sent = fixture.Events.Snapshots.Where(item => item.Event.StartsWith("DepotMapping", StringComparison.Ordinal)).ToList();
+        Assert.Contains(sent, item => item.Event == "DepotMappingStarted");
+        Assert.Contains(sent, item => item.Event == "DepotMappingComplete");
+        Assert.All(sent, item =>
+        {
+            Assert.StartsWith("signalr.depotMapping.", item.Content.GetProperty("StageKey").GetString());
+            Assert.False(item.Content.TryGetProperty("Message", out _), $"{item.Event} carries a Message");
+            var context = item.Content.GetProperty("Context");
+            Assert.False(
+                context.ValueKind == JsonValueKind.Object && context.TryGetProperty("message", out _),
+                $"{item.Event} carries a context message");
+            Assert.False(
+                context.ValueKind == JsonValueKind.Object && context.TryGetProperty("status", out _),
+                $"{item.Event} carries a context status");
+            if (item.Event == "DepotMappingProgress")
+                Assert.Equal("running", item.Content.GetProperty("Status").GetString());
+        });
+    }
+
     // The crawl fails at its started event, so it never connects to Steam; its operation is already
     // registered by then.
     private static async Task StartRebuildAndStopBeforeConnectingAsync(Fixture fixture, Func<bool> start)
@@ -548,6 +1469,36 @@ public sealed class DepotImportTests
     private static RunNotice SingleRunNotice(Fixture fixture) =>
         fixture.Tracker.GetOperation(Assert.Single(fixture.Tracker.GetRuns().Runs).OperationId)!.Notice!;
 
+    /// <summary>
+    /// A crawl that lost Steam mid-batch says so by its own stage key, carrying the attempt numbers its
+    /// sentence names, so every screen can say the scan is reconnecting.
+    /// </summary>
+    [Fact]
+    public async Task AReconnectDuringACrawlIsNamedByItsOwnStageKeyAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        using var source = new CancellationTokenSource();
+        await using var reporter = (MappingOperationReporter)Invoke(fixture.Service, "CreateTrackedRebuildReporter", source,
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual))!;
+        await reporter.StartAsync();
+        var send = typeof(SteamKit2Service).GetMethod("SendDepotMappingProgressAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var arguments = send.GetParameters()
+            .Select(parameter => parameter.Name switch
+            {
+                "isReconnecting" => (object?)true,
+                "reconnectAttempt" => 2,
+                _ => "Reconnecting to Steam..."
+            })
+            .ToArray();
+
+        await (Task)send.Invoke(fixture.Service, arguments)!;
+
+        var progress = Assert.Single(fixture.Events.Snapshots, item => item.Event == "DepotMappingProgress").Content;
+        Assert.Equal("signalr.depotMapping.reconnecting", progress.GetProperty("StageKey").GetString());
+        Assert.Equal(2, progress.GetProperty("Context").GetProperty("reconnectAttempt").GetInt32());
+        Assert.Equal(3, progress.GetProperty("Context").GetProperty("maxReconnectAttempts").GetInt32());
+    }
+
     [Fact]
     public async Task EqualCursorCanBeImportedAgainAndOlderCursorCannotReplaceIt()
     {
@@ -562,7 +1513,7 @@ public sealed class DepotImportTests
         Assert.Equal(200u, fixture.State.GetState().LastPicsChangeNumber);
         Assert.Equal(completed, fixture.State.GetLastPicsCrawl());
         await using var db = fixture.Database.Factory.CreateDbContext();
-        Assert.Equal(3, await db.SteamDepotMappings.CountAsync());
+        Assert.Equal(5, await db.SteamDepotMappings.CountAsync());
     }
 
     [Theory]
@@ -589,15 +1540,53 @@ public sealed class DepotImportTests
     }
 
     [Fact]
-    public async Task DatabaseCancellationRollsBackDeletionAndInsertedBatch()
+    public async Task ADownloadThatIsNotJsonEndsWithItsOwnStageKey()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = "not json";
+
+        Assert.False(await fixture.Service.ImportFromGitHubAsync());
+
+        var terminal = Assert.Single(fixture.Events.Snapshots, item => item.Event == "DepotMappingComplete");
+        Assert.False(terminal.Content.GetProperty("Success").GetBoolean());
+        Assert.Equal("signalr.depotMapping.github.invalidJson", terminal.Content.GetProperty("StageKey").GetString());
+        Assert.Null(terminal.Content.GetProperty("Error").GetString());
+        var run = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationType == "depotMapping");
+        Assert.Equal("signalr.depotMapping.github.invalidJson", run.Message);
+        Assert.Equal("signalr.depotMapping.github.invalidJson", run.FailureReason!.StageKey);
+    }
+
+    [Fact]
+    public async Task AnHttpFailureEndsWithItsKeyAndTheStatusItsSentenceNames()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.StatusCode = HttpStatusCode.InternalServerError;
+
+        Assert.False(await fixture.Service.ImportFromGitHubAsync());
+
+        var terminal = Assert.Single(fixture.Events.Snapshots, item => item.Event == "DepotMappingComplete");
+        // The key travels as the stage key with the status as its value; no error shows ahead of it.
+        Assert.Equal("signalr.depotMapping.github.httpFailed", terminal.Content.GetProperty("StageKey").GetString());
+        Assert.Equal("500", terminal.Content.GetProperty("Context").GetProperty("errorDetail").ToString());
+        Assert.Null(terminal.Content.GetProperty("Error").GetString());
+        var run = Assert.Single(fixture.Tracker.GetRuns().Runs, item => item.OperationType == "depotMapping");
+        Assert.Equal("signalr.depotMapping.github.httpFailed", run.Message);
+        Assert.Equal("signalr.depotMapping.github.httpFailed", run.FailureReason!.StageKey);
+        Assert.Equal("500", run.FailureReason.Context["errorDetail"]);
+    }
+
+    [Fact]
+    public async Task DatabaseCancellationRollsBackInsertedBatch()
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
         using var cancellation = new CancellationTokenSource();
-        var snapshot = JsonSerializer.Deserialize<PicsJsonData>(Snapshot(200), JsonOptions)!;
+        fixture.Pics.WritePicsJsonFile(Snapshot(200));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Pics.ImportToDatabaseAsync(
-            snapshot, true, cancellation.Token, (_, progress) =>
+            cancellation.Token, progress =>
             {
                 if (progress == 95) cancellation.Cancel();
                 return Task.CompletedTask;
@@ -607,7 +1596,7 @@ public sealed class DepotImportTests
     }
 
     [Fact]
-    public async Task DatabaseErrorRollsBackDeletionOnPopulatedTable()
+    public async Task DatabaseErrorRollsBackOnPopulatedTable()
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
@@ -689,9 +1678,10 @@ public sealed class DepotImportTests
         await fixture.SeedAsync();
         fixture.State.UpdateState(state => state.LastPicsChangeNumber = null);
         fixture.Source = Snapshot(200);
-        fixture.Events.BeforeSend = (_, content) =>
+        fixture.Events.BeforeSend = (name, content) =>
         {
-            if (content.ToString().Contains("Applying mappings to downloads", StringComparison.Ordinal))
+            if (name == "DepotMappingProgress"
+                && content.GetProperty("StageKey").GetString() == "signalr.depotMapping.applyingToDownloads")
                 throw new IOException("Application unavailable");
         };
         Assert.False(await fixture.Service.ImportFromGitHubAsync());
@@ -870,9 +1860,12 @@ public sealed class DepotImportTests
         await fixture.SeedAsync();
         fixture.Source = Snapshot(200);
         using var cancellation = new CancellationTokenSource();
-        fixture.Events.BeforeSend = (_, content) =>
+        fixture.Events.BeforeSend = (name, content) =>
         {
-            if (content.ToString().Contains("Finalizing import...", StringComparison.Ordinal)) cancellation.Cancel();
+            // The import's last progress line: every earlier GitHub download step reports at most 90 percent.
+            if (name == "DepotMappingProgress"
+                && content.GetProperty("StageKey").GetString() == "signalr.depotMapping.github.downloading"
+                && content.GetProperty("PercentComplete").GetDouble() > 90) cancellation.Cancel();
         };
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fixture.Service.ImportFromGitHubAsync(cancellation.Token));
         Assert.Equal(100u, fixture.State.GetState().LastPicsChangeNumber);
@@ -888,9 +1881,10 @@ public sealed class DepotImportTests
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
         fixture.Source = Snapshot(200);
-        fixture.Events.BeforeSend = (_, content) =>
+        fixture.Events.BeforeSend = (name, content) =>
         {
-            if (content.ToString().Contains("Applying mappings to downloads...", StringComparison.Ordinal)) fixture.FailReload = true;
+            if (name == "DepotMappingProgress"
+                && content.GetProperty("StageKey").GetString() == "signalr.depotMapping.applyingToDownloads") fixture.FailReload = true;
         };
         Assert.False(await fixture.Service.ImportFromGitHubAsync());
         Assert.Equal(1u, Get<ConcurrentDictionary<uint, uint>>(fixture.Service, "_depotOwners")[10]);
@@ -942,7 +1936,7 @@ public sealed class DepotImportTests
         Assert.True(await import);
         var terminal = Assert.Single(fixture.Events.Snapshots, item => item.Event == "DepotMappingComplete");
         Assert.True(terminal.Content.GetProperty("Success").GetBoolean());
-        Assert.False(terminal.Content.GetProperty("Cancelled").GetBoolean());
+        Assert.False(terminal.Content.GetProperty("Canceled").GetBoolean());
     }
 
     [Theory]
@@ -988,6 +1982,28 @@ public sealed class DepotImportTests
         Assert.Equal("common.notifications.warnings.depotBatchesFailed", warning.StageKey);
         Assert.Equal(2, warning.Context["failed"]);
         Assert.Equal(5, warning.Context["total"]);
+    }
+
+    [Fact]
+    public async Task APicsRunWhoseOrphanLookupFailedWarnsThatOrphanDepotsWereNotResolvedAsync()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        Set(fixture.Service, "_lastChangeNumberSeen", 200u);
+        // The crawl counts an orphan batch whose app lookup threw and carried on.
+        Set(fixture.Service, "_failedOrphanBatches", 1);
+        using var source = new CancellationTokenSource();
+        await using var reporter = (MappingOperationReporter)Invoke(fixture.Service, "CreateTrackedRebuildReporter", source,
+            new RunNotice(NotificationMode.Manual, RunTrigger.Manual))!;
+        await reporter.StartAsync();
+
+        await (Task)Invoke(fixture.Service, "FinalizeAndNotifyAsync", false, reporter.Token)!;
+
+        var run = Assert.Single(fixture.Tracker.GetRuns().Runs, run => run.OperationId == reporter.OperationId);
+        Assert.Equal("completed", run.Status);
+        var warning = Assert.Single(run.Warnings);
+        Assert.Equal("common.notifications.warnings.orphanDepotsNotResolved", warning.StageKey);
+        Assert.Equal(1, warning.Context["count"]);
     }
 
     [Fact]
@@ -1069,6 +2085,44 @@ public sealed class DepotImportTests
     }
 
     [Fact]
+    public async Task AnAppWhoseNameLookupFailedIsStoredUnnamedAndNamedByALaterPass()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        long id;
+        await using (var seed = fixture.Database.Factory.CreateDbContext())
+        {
+            var download = new Download { Service = "steam", DepotId = 10, IsActive = false };
+            seed.Downloads.Add(download);
+            await seed.SaveChangesAsync();
+            id = download.Id;
+            // Depot 10 belongs to app 1, which the store does not answer for. "App 1" is the PICS
+            // placeholder, so neither PICS nor the depot carries a name for it.
+            await seed.SteamDepotMappings.Where(row => row.AppId == 1)
+                .ExecuteUpdateAsync(row => row.SetProperty(mapping => mapping.AppName, "App 1"));
+        }
+        Get<ConcurrentDictionary<uint, string>>(fixture.Service, "_appNames").TryRemove(1u, out _);
+
+        await fixture.Service.ManuallyApplyDepotMappingsAsync();
+
+        await using (var db = fixture.Database.Factory.CreateDbContext())
+        {
+            var unnamed = await db.Downloads.SingleAsync(download => download.Id == id);
+            Assert.Equal(1, unnamed.GameAppId);
+            Assert.Null(unnamed.GameName);
+        }
+
+        fixture.StoreAnswer = """{"1":{"success":true,"data":{"name":"Named later","header_image":"https://example.com/1.jpg"}}}""";
+        // The store skips an app for an hour after a failed lookup; the second pass stands for a later one.
+        Get<ConcurrentDictionary<long, DateTime>>(Get<SteamService>(fixture.Service, "_steamService"), "_lookupRetryAtUtc").Clear();
+
+        await fixture.Service.ManuallyApplyDepotMappingsAsync();
+
+        await using var after = fixture.Database.Factory.CreateDbContext();
+        Assert.Equal("Named later", (await after.Downloads.SingleAsync(download => download.Id == id)).GameName);
+    }
+
+    [Fact]
     public async Task HttpFailurePreservesThePreviousCatalog()
     {
         await using var fixture = await Fixture.CreateAsync();
@@ -1127,7 +2181,7 @@ public sealed class DepotImportTests
     [InlineData(false, true, true)]
     [InlineData(true, false, true)]
     [InlineData(true, true, true)]
-    public async Task FailedOrCancelledFinalizationDoesNotCommitTheCandidate(bool cancel, bool incremental, bool loaded)
+    public async Task FailedOrCanceledFinalizationDoesNotCommitTheCandidate(bool cancel, bool incremental, bool loaded)
     {
         await using var fixture = await Fixture.CreateAsync();
         await fixture.SeedAsync();
@@ -1147,7 +2201,7 @@ public sealed class DepotImportTests
         if (cancel) await Assert.ThrowsAnyAsync<OperationCanceledException>(() => finalizing);
         else await Assert.ThrowsAsync<ServiceUnavailableException>(() => finalizing);
         fixture.Events.BeforeSend = null;
-        await reporter.CompleteAsync(false, cancelled: cancel);
+        await reporter.CompleteAsync(false, canceled: cancel);
         Assert.Equal(100u, fixture.State.GetState().LastPicsChangeNumber);
         Assert.Equal(fixture.PreviousCrawl, fixture.State.GetLastPicsCrawl());
         Assert.Equal(fixture.PreviousCrawl, fixture.State.GetLastFullPicsCrawl());
@@ -1179,8 +2233,6 @@ public sealed class DepotImportTests
         Assert.False(SteamKit2Service.ShouldReuseCachedViability(requiresFullScan, false));
         Assert.True(SteamKit2Service.ShouldReuseCachedViability(requiresFullScan, true));
     }
-
-    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     private static string Snapshot(uint cursor) => $$$$"""
         {"metadata":{"lastChangeNumber":{{{{cursor}}}},"version":"2.8","lastUpdated":"2026-01-01T00:00:00Z"},
@@ -1238,9 +2290,13 @@ public sealed class DepotImportTests
         public PicsDataService Pics { get; }
         public SteamKit2Service Service { get; }
         public UnifiedOperationTracker Tracker { get; }
+
+        /// <summary>The queue the depot and banner starts resolve; a real one on <see cref="Tracker"/> unless a test swaps it.</summary>
+        public IOperationWaitlist Queue { get; set; }
         public RecordingNotifications Events { get; }
         public RecordingCommandInterceptor Recorder { get; } = new();
         public string Source { get; set; } = Snapshot(200);
+        public string StoreAnswer { get; set; } = """{"2":{"success":true,"data":{"name":"New owner","header_image":"https://example.com/new.jpg"}}}""";
         public HttpStatusCode StatusCode { get; set; } = HttpStatusCode.OK;
         public Func<CancellationToken, Task<string>>? Download { get; set; }
         public Func<uint, CancellationToken, Task<(uint CurrentChangeNumber, bool RequiresFullScan)>> CheckChanges { get; set; }
@@ -1261,12 +2317,20 @@ public sealed class DepotImportTests
             Directory.CreateDirectory(paths.GetPicsDirectory());
             State = StateTestMethods.CreateStateService(Root);
             StateFile = Path.Combine(paths.GetStateDirectory(), "state.json");
+            _processes = new ProcessManager(NullLogger<ProcessManager>.Instance);
+            var tracker = new UnifiedOperationTracker(_processes, NullLogger<UnifiedOperationTracker>.Instance);
+            Tracker = tracker;
+            Queue = new OperationWaitlistService(
+                tracker,
+                OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+                NullLogger<OperationWaitlistService>.Instance);
             var registrations = new ServiceCollection();
             var options = new DbContextOptionsBuilder<AppDbContext>(Database.Options)
                 .AddInterceptors(new ReadFailure(this), Recorder, new PrefillRead(this), new CommitProbe(this))
                 .Options;
             registrations.AddScoped(_ => new AppDbContext(options));
             registrations.AddSingleton<GameImageFetchService>(_ => _images);
+            registrations.AddTransient<IOperationWaitlist>(_ => Queue);
             _services = registrations.BuildServiceProvider();
             var scopes = _services.GetRequiredService<IServiceScopeFactory>();
             Pics = new PicsDataService(
@@ -1281,12 +2345,9 @@ public sealed class DepotImportTests
                     File.Move(source, destination, overwrite);
                 });
             var clients = new Clients(this);
-            _steam = new SteamService(new HttpClient(new StoreHandler()), NullLogger<SteamService>.Instance);
+            _steam = new SteamService(new HttpClient(new StoreHandler(this)), NullLogger<SteamService>.Instance);
             var notifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotifications>();
             Events = (RecordingNotifications)(object)notifications;
-            _processes = new ProcessManager(NullLogger<ProcessManager>.Instance);
-            var tracker = new UnifiedOperationTracker(_processes, NullLogger<UnifiedOperationTracker>.Instance);
-            Tracker = tracker;
             _images = new GameImageFetchService(_services, NullLogger<GameImageFetchService>.Instance,
                 new ConfigurationBuilder().Build(), State, notifications,
                 DispatchProxy.Create<IImageCacheService, NullReturningProxy>(), tracker);
@@ -1428,12 +2489,12 @@ public sealed class DepotImportTests
                 => fixture.CheckChanges(changeNumberToCheck, ct);
         }
 
-        private sealed class StoreHandler : HttpMessageHandler
+        private sealed class StoreHandler(Fixture fixture) : HttpMessageHandler
         {
             protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
                 => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent("""{"2":{"success":true,"data":{"name":"New owner","header_image":"https://example.com/new.jpg"}}}""")
+                    Content = new StringContent(fixture.StoreAnswer)
                 });
         }
 

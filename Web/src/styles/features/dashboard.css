@@ -18,7 +18,7 @@
 
 /* Stands in for the sparkline when a card has nothing to draw. Same height and
    offset as the chart it replaces, so the card does not change size, and it
-   centres the short caption that says why the chart is missing. */
+   centers the short caption that says why the chart is missing. */
 .sparkline-placeholder {
   display: flex;
   align-items: center;
@@ -38,7 +38,7 @@
 
 /* One heading voice for the whole dashboard. The panel title is used by Downloads, Service
    Analytics, Peak Usage Hours, Cache Growth and Top Clients; the card title by the stat cards.
-   They share the same size, weight, case, tracking and colour, so they share one rule. */
+   They share the same size, weight, case, tracking and color, so they share one rule. */
 .dash-panel-title,
 .dash-card-title {
   margin: 0;
@@ -941,7 +941,7 @@
   --legend-color: var(--theme-primary);
 }
 
-/* The saved and missed series on the bandwidth trend. Both read the chart's hit/miss colours so
+/* The saved and missed series on the bandwidth trend. Both read the chart's hit/miss colors so
    the swatch matches the line it names; only that chart uses these two classes. */
 .line-trend-swatch-success {
   --legend-color: var(--theme-chart-cache-hit);

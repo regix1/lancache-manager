@@ -12,7 +12,8 @@ import {
   SCHEDULED_PREFILL_OS_OPTIONS,
   SCHEDULED_PREFILL_PRESET_OPTIONS,
   SCHEDULED_PREFILL_SUPPORTED_OPERATING_SYSTEMS,
-  SCHEDULED_PREFILL_SUPPORTED_PRESETS
+  SCHEDULED_PREFILL_SUPPORTED_PRESETS,
+  SCHEDULED_PREFILL_TOP_COUNT_MAX
 } from './constants';
 import type {
   ScheduledPrefillMaxConcurrencyMode,
@@ -249,7 +250,7 @@ export function ScheduledPrefillGameFields({
                 id={`scheduled-prefill-top-count-${serviceKey}`}
                 className="scheduled-prefill-number-cap scheduled-prefill-number-cap--full"
                 min={1}
-                max={99999}
+                max={SCHEDULED_PREFILL_TOP_COUNT_MAX[serviceKey]}
                 step={1}
                 value={config.topCount ?? 50}
                 disabled={disabled || presetOverridden}

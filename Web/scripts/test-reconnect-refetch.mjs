@@ -36,7 +36,7 @@ const hookSource = readFileSync(
 const reactStubSource = `
 let slots = null;
 let cursor = 0;
-let queued = [];
+let pendingEffects = [];
 
 export const useRef = (initial) => {
   if (!slots[cursor]) {
@@ -54,7 +54,7 @@ export const useEffect = (run, deps) => {
   slot.ran = true;
   slot.deps = deps;
   if (changed) {
-    queued.push(run);
+    pendingEffects.push(run);
   }
 };
 
@@ -64,10 +64,10 @@ export const createComponent = () => {
     render(body) {
       slots = componentSlots;
       cursor = 0;
-      queued = [];
+      pendingEffects = [];
       body();
-      const effects = queued;
-      queued = [];
+      const effects = pendingEffects;
+      pendingEffects = [];
       slots = null;
       effects.forEach((run) => run());
     }
@@ -207,8 +207,8 @@ const gameRemovalPage = () => {
   return { push, render, reloads };
 };
 
-const repairing = { status: 'cancelled', repairing: true, repairError: null };
-const repairEnded = { status: 'cancelled', repairing: false, repairError: null };
+const repairing = { status: 'canceled', repairing: true, repairError: null };
+const repairEnded = { status: 'canceled', repairing: false, repairError: null };
 
 test('a repair that ends reloads the page once, for a run folded under a bulk card too', () => {
   const page = gameRemovalPage();
@@ -260,7 +260,7 @@ test("pages that show eviction state reload when an eviction or corruption remov
     repairTypes('src/components/features/management/sections/StorageSection.tsx').includes(
       'eviction_removal'
     ),
-    "a cancelled eviction removal's repair deletes the evicted rows the Evicted Items card lists"
+    "a canceled eviction removal's repair deletes the evicted rows the Evicted Items card lists"
   );
   assert.ok(
     repairTypes('src/components/features/management/game-detection/GameCacheDetector.tsx').includes(

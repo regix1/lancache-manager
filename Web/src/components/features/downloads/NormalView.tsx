@@ -1314,7 +1314,7 @@ const NormalView: React.FC<NormalViewProps> = ({
   // Card-grid virtualization: chunk flat `items` into rows of `gridCols` cards
   // and virtualize the resulting row list. Column count is measured from the
   // parent width via a ResizeObserver so it mirrors the CSS grid's auto-fill
-  // behaviour (which otherwise cannot be observed from JS).
+  // behavior (which otherwise cannot be observed from JS).
   const GRID_MIN_WIDTH: Record<'small' | 'medium' | 'large', number> = {
     small: 200,
     medium: 280,

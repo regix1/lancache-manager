@@ -1,5 +1,6 @@
 import type { CustomSchedule } from './custom-schedule/types';
 import type { ScheduledPrefillServiceId } from './scheduled-prefill/types';
+import type { RunWarning } from '@contexts/SignalRContext/types';
 
 export type NotificationMode = 'all' | 'manual' | 'silent' | 'hidden';
 
@@ -75,7 +76,7 @@ export interface ServiceScheduleInfo {
   /**
    * Present on the Xbox mapping schedule only, and only while its sign-in is waiting for the user to
    * approve a device code. That wait is what makes `isRunning` true, so this is what the row shows
-   * instead of leaving Run Now greyed out with no reason.
+   * instead of leaving Run Now grayed out with no reason.
    */
   awaitingSignIn?: boolean | null;
 }
@@ -94,7 +95,7 @@ export const readSchedules = (schedules: ServiceScheduleInfo[]): ServiceSchedule
         : null
   }));
 
-export type ScheduleExecutionStatus = 'completed' | 'failed' | 'cancelled' | 'skipped';
+export type ScheduleExecutionStatus = 'completed' | 'failed' | 'canceled' | 'skipped';
 type ScheduleExecutionTrigger = 'scheduled' | 'startup' | 'manual' | 'runAll';
 
 interface ScheduleExecutionFields {
@@ -106,7 +107,9 @@ interface ScheduleExecutionFields {
   startedAt: string;
   completedAt: string;
   detail?: string | null;
-  warning?: { stageKey: string; context: Record<string, string | number> } | null;
+  warning?: RunWarning | null;
+  /** A failed run's key and the values its sentence names; absent on rows stored before it was kept. */
+  failureReason?: RunWarning | null;
   scheduleId?: string | null;
   scheduleName?: string | null;
   platform?: ScheduledPrefillServiceId | null;

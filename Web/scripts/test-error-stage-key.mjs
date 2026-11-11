@@ -2,12 +2,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import i18next from 'i18next';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
 import {
   bindLifted,
+  collectNodes,
   compileToUrl,
   compileTree,
   findSoleNode,
+  liftConstArrow,
   liftHookCallback,
   moduleUrl,
   parseSource
@@ -26,6 +30,9 @@ import {
 
 const localeFile = (name) =>
   JSON.parse(readFileSync(new URL(`../src/i18n/locales/${name}.json`, import.meta.url), 'utf8'));
+
+/** Source text of a file under `src/`. */
+const read = (path) => readFileSync(new URL(`../src/${path}`, import.meta.url), 'utf8');
 
 const en = localeFile('en');
 const zh = localeFile('zh');
@@ -55,7 +62,7 @@ const apiErrorUrl = await compileToUrl('../src/services/apiError.ts', {
 
 const { buildApiError, ApiError } = await import(apiErrorUrl);
 
-const { getErrorMessage } = await import(
+const { getErrorMessage, isAbortError } = await import(
   await compileToUrl('../src/utils/error.ts', {
     '@/i18n': i18nStub,
     '../services/apiError': apiErrorUrl
@@ -339,6 +346,25 @@ test('a notification card translates a refusal key instead of printing it', asyn
   assert.equal(translateStageKeyMessage('errors.http.timeout'), zh.errors.http.timeout);
 });
 
+test('a run ended on a sign-in, management or common key shows that key translated', async () => {
+  await translator.changeLanguage('zh');
+
+  // A refused sign-in ends its run on a prefill key, a refusal can carry a management key and a
+  // stopped sign-in a common one; the card's error line reads each of them from the run.
+  assert.equal(
+    translateStageKeyMessage('prefill.auth.signInRefused'),
+    zh.prefill.auth.signInRefused
+  );
+  assert.equal(
+    translateStageKeyMessage('management.datasources.noActiveDatasources'),
+    zh.management.datasources.noActiveDatasources
+  );
+  assert.equal(
+    translateStageKeyMessage('common.notifications.warnings.signInSessionEnded'),
+    zh.common.notifications.warnings.signInSessionEnded
+  );
+});
+
 test('a notification card still shows a sentence the backend composed itself', async () => {
   await translator.changeLanguage('zh');
 
@@ -357,13 +383,7 @@ const accountStep = parseSource(
   ts.ScriptKind.TSX
 );
 
-/** Source text of the two expressions that screen builds its message from, as it ships. */
-const sentenceExpression = findSoleNode(
-  accountStep,
-  'sentence declaration',
-  (node) => ts.isVariableDeclaration(node) && node.name.getText(accountStep) === 'sentence'
-).initializer.getText(accountStep);
-
+/** Source text of the expression that screen builds its message from, as it ships. */
 const submitErrorExpression = findSoleNode(
   accountStep,
   'setSubmitError call that reads the key',
@@ -377,8 +397,7 @@ const submitErrorExpression = findSoleNode(
 /** What the screen puts under the form for one response body. */
 const accountStepShows = (data) => {
   const t = (key, options) => translator.t(key, options);
-  const sentence = bindLifted(`() => (${sentenceExpression})`, { data, t, recovering: false })();
-  return bindLifted(`() => (${submitErrorExpression})`, { data, t, sentence })();
+  return bindLifted(`() => (${submitErrorExpression})`, { data, t, recovering: false })();
 };
 
 test('the account screen reads a refusal it has words for in the reader language', async () => {
@@ -392,19 +411,28 @@ test('the account screen reads a refusal it has words for in the reader language
   assert.equal(accountStepShows(refused), zh.errors.accountSetup.accountExists);
 });
 
-test('the account screen names the password rule, not the refusal heading', async () => {
+test('the account screen reads a broken password rule as the translated validation sentence', async () => {
   await translator.changeLanguage('zh');
 
-  // The whole body ValidationFilter sends when a password rule fails. The heading is now keyed, and
-  // the key says no more than "Validation failed" in any language, so the operator would lose the
-  // one sentence that tells them what to change if the key were preferred here.
+  // The whole body ValidationFilter sends when a password rule fails. The form checks every rule
+  // the server's validator holds before it sends, so this body follows only a request built by
+  // hand, and its English per-field sentence is never shown in place of the keyed heading.
   const brokenRule = {
     error: 'Validation failed',
     stageKey: 'errors.validation.failed',
     errors: [{ field: 'password', message: 'Password cannot exceed 256 characters' }]
   };
 
-  assert.equal(accountStepShows(brokenRule), 'Password cannot exceed 256 characters');
+  assert.equal(accountStepShows(brokenRule), zh.errors.validation.failed);
+});
+
+test('the account screen with no key in the body reads its own status sentence', async () => {
+  await translator.changeLanguage('zh');
+
+  assert.equal(
+    accountStepShows({ error: 'An unexpected error occurred' }),
+    zh.initialization.adminAccount.errors.createFailed
+  );
 });
 
 test('a Run Now refused because the service is turned off in the server configuration reads in the reader language', async () => {
@@ -575,4 +603,897 @@ test('the external database step reads a refusal and its values in the reader la
   assert.equal(shown.at(-1), translator.t('errors.setup.connectFailed', unreachable.context));
   assert.match(shown.at(-1), /db:5432\/lancache/);
   assert.notEqual(shown.at(-1), unreachable.error);
+});
+
+// ---------------------------------------------------------------------------
+// Sign-in, guest session and database reset, which return or receive a key rather than throw
+// ---------------------------------------------------------------------------
+
+/** The auth service as it ships, with `fetch` answering every route but the status through `answer`. */
+const loadAuthService = async (answer) => {
+  globalThis.fetch = async (url) =>
+    String(url).endsWith('/api/auth/status')
+      ? new Response(JSON.stringify({ isAuthenticated: false, sessionType: null }), { status: 200 })
+      : answer();
+  const url = await compileToUrl('../src/services/auth.service.ts', {
+    '@/i18n': i18nStub,
+    '@utils/constants': moduleUrl(
+      `export const getApiUrl = () => ''; export const APP_EVENTS = { SHOW_TOAST: 'show-toast' };`
+    ),
+    '@utils/antiforgery': moduleUrl(`export const antiforgeryHeaders = () => ({});`),
+    '@utils/error': moduleUrl(`export const isAbortError = () => false;`),
+    '@utils/userInteractionTracker': moduleUrl(
+      `export const hasRecentUserInteraction = () => false;`
+    ),
+    './apiError': apiErrorUrl
+  });
+  return (await import(url)).default;
+};
+
+test('a refused sign-in reads the same zh sentence for a wrong username and a wrong password', async (t) => {
+  t.after(() => {
+    delete globalThis.fetch;
+  });
+  await translator.changeLanguage('zh');
+  // The login route answers every credential refusal with this one body, so usernames cannot be
+  // told apart by the reply.
+  const refused = {
+    error: 'Invalid API key, username or password',
+    stageKey: 'errors.login.invalidCredentials'
+  };
+  const authService = await loadAuthService(
+    () => new Response(JSON.stringify(refused), { status: 401 })
+  );
+
+  const wrongUsername = await authService.login('key', 'nobody', 'Correct-Password-1');
+  const wrongPassword = await authService.login('key', 'admin', 'Wrong-Password-1');
+
+  assert.deepEqual(wrongUsername, {
+    success: false,
+    message: sentence('errors.login.invalidCredentials')
+  });
+  assert.deepEqual(wrongPassword, wrongUsername);
+});
+
+test('a sign-in answered by a proxy page reads the status sentence', async (t) => {
+  t.after(() => {
+    delete globalThis.fetch;
+  });
+  await translator.changeLanguage('zh');
+  const authService = await loadAuthService(
+    () => new Response('<html><body>502 Bad Gateway</body></html>', { status: 502 })
+  );
+
+  assert.deepEqual(await authService.login('key', 'admin', 'Password-1'), {
+    success: false,
+    message: translator.t('auth.errors.loginFailedStatus', { status: 502 })
+  });
+});
+
+test('a refused guest session reads in the reader language', async (t) => {
+  t.after(() => {
+    delete globalThis.fetch;
+  });
+  await translator.changeLanguage('zh');
+  const authService = await loadAuthService(
+    () =>
+      new Response(
+        JSON.stringify({ error: 'Guest access is disabled', stageKey: 'errors.guest.disabled' }),
+        { status: 403 }
+      )
+  );
+
+  assert.deepEqual(await authService.startGuestSession(), {
+    success: false,
+    message: sentence('errors.guest.disabled')
+  });
+});
+
+// Subscribes the sign-in dialog's shipped reset handler with the given state setters and returns
+// the handler it registered.
+const subscribeResetHandler = (setters) => {
+  const handlers = new Map();
+  const formatters = Object.fromEntries(
+    ['formatDatabaseResetProgressMessage', 'formatDatabaseResetCompleteMessage'].map((name) => [
+      name,
+      bindLifted(liftConstArrow('src/contexts/notifications/detailMessageFormatters.ts', name), {
+        i18n: translator
+      })
+    ])
+  );
+  bindLifted(
+    liftHookCallback(
+      'src/components/modals/auth/AuthenticationModal.tsx',
+      'useEffect',
+      'handleDatabaseResetProgress'
+    ),
+    {
+      on: (name, handler) => handlers.set(name, handler),
+      off: () => undefined,
+      t: (key, options) => translator.t(key, options),
+      ...setters,
+      ...formatters
+    }
+  )();
+  return handlers.get('DatabaseResetProgress');
+};
+
+// Renders the sign-in dialog's shipped reset banner, with the shipped expressions of each banner
+// flag the file declares, for one state.
+const renderResetBanner = (resetStatus, resetJustCompleted) => {
+  const modal = parseSource('src/components/modals/auth/AuthenticationModal.tsx');
+  const banner = findSoleNode(
+    modal,
+    'database reset banner',
+    (node) =>
+      ts.isJsxExpression(node) &&
+      node.getText(modal).startsWith('{(resetStatus.isResetting || resetJustCompleted)')
+  );
+  const icon =
+    (name) =>
+    ({ className }) =>
+      React.createElement('svg', { 'data-icon': name, className });
+  // Each flag reads the state and the flags declared before it.
+  const flags = { resetStatus, resetJustCompleted };
+  for (const name of ['resetFailed', 'resetCanceled', 'resetTextClass']) {
+    for (const declaration of collectNodes(
+      modal,
+      (node) => ts.isVariableDeclaration(node) && node.name.getText(modal) === name
+    )) {
+      flags[name] = bindLifted(`() => (${declaration.initializer.getText(modal)})`, {
+        ...flags
+      })();
+    }
+  }
+  return renderToStaticMarkup(
+    bindLifted(
+      `() => (<>${banner.getText(modal)}</>)`,
+      {
+        React,
+        t: (key, options) => translator.t(key, options),
+        ...flags,
+        formatPercent: String,
+        ProgressBar: () => null,
+        CheckCircle: icon('CheckCircle'),
+        AlertCircle: icon('AlertCircle'),
+        Database: icon('Database'),
+        Info: icon('Info')
+      },
+      { jsx: ts.JsxEmit.React }
+    )()
+  );
+};
+
+test('the sign-in dialog reads database reset progress in the reader language', async () => {
+  await translator.changeLanguage('zh');
+  const stored = [];
+  const deliver = subscribeResetHandler({
+    setResetStatus: (value) => stored.push(value),
+    setResetJustCompleted: () => undefined,
+    scheduleResetBannerHide: () => undefined
+  });
+
+  const context = { deleted: 5, total: 50, percent: 10 };
+  deliver({
+    status: 'running',
+    percentComplete: 10,
+    stageKey: 'signalr.dbReset.clearingLogEntries',
+    context,
+    message: 'Clearing log entries'
+  });
+  assert.equal(stored.at(-1).message, translator.t('signalr.dbReset.clearingLogEntries', context));
+
+  // A reset that left a prefill sign-in active reads the same here as on the notification strip.
+  deliver({
+    status: 'completed',
+    percentComplete: 100,
+    stageKey: 'signalr.dbReset.complete',
+    context: { persistentLoginFailures: ['steam'] },
+    message: 'Done'
+  });
+  assert.equal(stored.at(-1).message, sentence('signalr.dbReset.completeWithActiveLogins'));
+});
+
+test('a canceled database reset ends the sign-in dialog banner instead of leaving it running', async () => {
+  await translator.changeLanguage('zh');
+  const stored = [];
+  const justCompleted = [];
+  const deliver = subscribeResetHandler({
+    setResetStatus: (value) => stored.push(value),
+    setResetJustCompleted: (value) => justCompleted.push(value),
+    scheduleResetBannerHide: () => undefined
+  });
+
+  deliver({
+    status: 'canceled',
+    percentComplete: 40,
+    stageKey: 'signalr.dbReset.canceled',
+    context: {}
+  });
+
+  // The sign-in buttons stay disabled while isResetting is true, so a cancel that left it set
+  // locked the dialog until a reload.
+  assert.equal(stored.at(-1).isResetting, false);
+  assert.equal(stored.at(-1).status, 'canceled');
+  assert.equal(stored.at(-1).message, sentence('signalr.dbReset.canceled'));
+  assert.deepEqual(justCompleted, [true]);
+});
+
+test('the sign-in dialog banner says how the database reset ended', async () => {
+  await translator.changeLanguage('zh');
+  const completed = renderResetBanner(
+    { isResetting: false, percentComplete: 100, message: 'M1', status: 'completed' },
+    true
+  );
+  assert.ok(completed.includes(sentence('modals.auth.databaseReset.complete')));
+  assert.ok(completed.includes('M1'));
+  assert.ok(completed.includes('bg-success'));
+  assert.ok(completed.includes('data-icon="CheckCircle"'));
+  assert.ok(!completed.includes('canLoginNow'));
+
+  // A failed reset is red; a canceled one is gray, as canceled runs are everywhere else.
+  const ended = {
+    canceled: {
+      message: sentence('signalr.dbReset.canceled'),
+      titleKey: 'modals.auth.databaseReset.canceled',
+      otherTitleKey: 'modals.auth.databaseReset.notFinished',
+      shows: ['bg-themed-tertiary', 'text-themed-primary', 'data-icon="Info"'],
+      hides: ['bg-error', 'text-error', 'AlertCircle']
+    },
+    failed: {
+      message: translator.t('signalr.dbReset.failed', { errorDetail: 'disk full' }),
+      titleKey: 'modals.auth.databaseReset.notFinished',
+      otherTitleKey: 'modals.auth.databaseReset.canceled',
+      shows: ['bg-error', 'text-error-text', 'data-icon="AlertCircle"'],
+      hides: ['bg-themed-tertiary', 'data-icon="Info"']
+    }
+  };
+  for (const [status, { message, titleKey, otherTitleKey, shows, hides }] of Object.entries(
+    ended
+  )) {
+    const shown = renderResetBanner(
+      { isResetting: false, percentComplete: 0, message, status },
+      true
+    );
+    assert.ok(shown.includes(message), status);
+    for (const present of shows) {
+      assert.ok(shown.includes(present), `${status} banner lacks ${present}`);
+    }
+    for (const absent of [...hides, 'bg-success', 'text-success', 'CheckCircle']) {
+      assert.ok(!shown.includes(absent), `${status} banner shows ${absent}`);
+    }
+    assert.ok(shown.includes(sentence(titleKey)), status);
+    for (const absentKey of [otherTitleKey, 'modals.auth.databaseReset.complete']) {
+      assert.ok(!shown.includes(sentence(absentKey)), `${status} banner shows ${absentKey}`);
+    }
+  }
+
+  const running = renderResetBanner(
+    { isResetting: true, percentComplete: 10, message: 'M2', status: 'running' },
+    false
+  );
+  assert.ok(running.includes(sentence('modals.auth.databaseReset.inProgress')));
+  assert.ok(running.includes('M2'));
+  assert.ok(running.includes('bg-warning'));
+});
+
+test('a reset that starts within 5 s of the last one ending shows its own progress', async () => {
+  await translator.changeLanguage('zh');
+  for (const firstEnd of ['completed', 'failed', 'canceled']) {
+    let resetStatus = { isResetting: false, percentComplete: 0, message: '', status: '' };
+    let resetJustCompleted = false;
+    let pendingHide = null;
+    const deliver = subscribeResetHandler({
+      setResetStatus: (value) => (resetStatus = value),
+      setResetJustCompleted: (value) => (resetJustCompleted = value),
+      scheduleResetBannerHide: (callback) => (pendingHide = callback)
+    });
+    const assertShowsProgress = (when) => {
+      const shown = renderResetBanner(resetStatus, resetJustCompleted);
+      assert.ok(shown.includes(sentence('modals.auth.databaseReset.inProgress')), when);
+      assert.ok(shown.includes('bg-warning'), when);
+      assert.ok(shown.includes('data-icon="Database"'), when);
+      for (const absent of [
+        'bg-error',
+        'bg-success',
+        sentence('modals.auth.databaseReset.notFinished'),
+        sentence('modals.auth.databaseReset.complete')
+      ]) {
+        assert.ok(!shown.includes(absent), `${when}: banner shows ${absent}`);
+      }
+    };
+
+    deliver({
+      status: firstEnd,
+      percentComplete: firstEnd === 'completed' ? 100 : 0,
+      stageKey: `signalr.dbReset.${firstEnd === 'completed' ? 'complete' : firstEnd}`,
+      context: { errorDetail: 'disk full' }
+    });
+    const staleHide = pendingHide;
+    // The queue starts a parked reset as soon as the first one ends, inside its 5 s banner.
+    deliver({
+      status: 'running',
+      percentComplete: 10,
+      stageKey: 'signalr.dbReset.clearingLogEntries',
+      context: { deleted: 5, total: 50, percent: 10 }
+    });
+    assertShowsProgress(`${firstEnd} then running`);
+
+    staleHide();
+    assertShowsProgress(`${firstEnd} then running, after the first reset's hide timer`);
+
+    deliver({
+      status: 'completed',
+      percentComplete: 100,
+      stageKey: 'signalr.dbReset.complete',
+      context: {}
+    });
+    const ended = renderResetBanner(resetStatus, resetJustCompleted);
+    assert.ok(ended.includes(sentence('modals.auth.databaseReset.complete')), firstEnd);
+    assert.ok(ended.includes('bg-success'), firstEnd);
+  }
+});
+
+test('the guest button failure is not picked by its wording', () => {
+  const modal = read('components/modals/auth/AuthenticationModal.tsx');
+  assert.ok(!modal.includes(".includes('disabled')"));
+});
+
+// ---------------------------------------------------------------------------
+// Status Check failure and cancel text
+// ---------------------------------------------------------------------------
+
+const statusCheckPath = 'src/components/features/management/status-check/StatusCheckSection.tsx';
+const verdictCardPath = 'src/components/features/management/status-check/VerdictCard.tsx';
+
+/**
+ * The text and Alert color each of the card's two failure boxes shows for a stored run error, drawn
+ * through the shipped expressions in the translator's current language.
+ */
+const drawnRunError = (runError) => {
+  const card = parseSource(verdictCardPath);
+  const alerts = collectNodes(
+    card,
+    (node) => ts.isJsxExpression(node) && node.getText(card).startsWith('{runErrorText &&')
+  );
+  assert.equal(alerts.length, 2, 'the empty card and the verdict card each draw the failure');
+  const textDeclaration = findSoleNode(
+    card,
+    'runErrorText declaration',
+    (node) => ts.isVariableDeclaration(node) && node.name.getText(card) === 'runErrorText'
+  );
+  const runErrorText = bindLifted(`() => (${textDeclaration.initializer.getText(card)})`, {
+    runError,
+    getErrorMessage,
+    t: (key, options) => translator.t(key, options)
+  })();
+  const colorDeclaration = findSoleNode(
+    card,
+    'runErrorColor declaration',
+    (node) => ts.isVariableDeclaration(node) && node.name.getText(card) === 'runErrorColor'
+  );
+  const runErrorColor = bindLifted(`() => (${colorDeclaration.initializer.getText(card)})`, {
+    runError
+  })();
+  const drawn = alerts.map((alert) => {
+    const colors = [];
+    const text = renderToStaticMarkup(
+      bindLifted(
+        `() => (<>${alert.getText(card)}</>)`,
+        {
+          React,
+          runErrorText,
+          runErrorColor,
+          Alert: ({ children, color }) => {
+            colors.push(color);
+            return React.createElement('div', null, children);
+          }
+        },
+        { jsx: ts.JsxEmit.React }
+      )()
+    ).replace(/<[^>]+>/g, '');
+    return { text, color: colors[0] };
+  });
+  assert.deepEqual(drawn[0], drawn[1]);
+  return drawn[0];
+};
+
+test('a failed or canceled Status Check reads with one prefix in the reader language', async () => {
+  await translator.changeLanguage('zh');
+  const handlers = new Map();
+  const shown = [];
+  bindLifted(liftHookCallback(statusCheckPath, 'useEffect', 'handleComplete'), {
+    on: (name, handler) => handlers.set(name, handler),
+    off: () => undefined,
+    lastFinishedOperationRef: { current: null },
+    finishedOperationIdsRef: { current: new Set() },
+    currentOperationRef: { current: null },
+    statusVersionRef: { current: 0 },
+    setIsRunning: () => undefined,
+    setProgress: () => undefined,
+    setRunError: (value) => shown.push(drawnRunError(value)),
+    setStatus: () => undefined,
+    reloadDomains: () => undefined,
+    t: (key, options) => translator.t(key, options),
+    keys: 'management.sections.statusCheck'
+  })();
+  const deliver = handlers.get('StatusCheckComplete');
+
+  deliver({
+    operationId: 'x',
+    success: false,
+    error: 'boom',
+    result: null,
+    stageKey: 'signalr.statusCheck.failed',
+    context: { errorDetail: 'boom' },
+    canceled: false
+  });
+  assert.equal(
+    shown.at(-1).text,
+    sentence('signalr.statusCheck.failed').replace('{{errorDetail}}', 'boom')
+  );
+  assert.equal(shown.at(-1).text.split('检查失败').length - 1, 1);
+  assert.equal(shown.at(-1).color, 'red');
+
+  // A cancel is not an error: its sentence sits in the gray box, not the red one.
+  deliver({
+    operationId: 'y',
+    success: false,
+    error: 'Canceled',
+    result: null,
+    stageKey: 'signalr.statusCheck.canceled',
+    context: null,
+    canceled: true
+  });
+  assert.equal(shown.at(-1).text, sentence('signalr.statusCheck.canceled'));
+  assert.equal(shown.at(-1).color, 'neutral');
+
+  // The card draws the sentence it was handed; the prefix lives with the writers only.
+  assert.ok(
+    !read('components/features/management/status-check/VerdictCard.tsx').includes('sweepFailed')
+  );
+  const section = read('components/features/management/status-check/StatusCheckSection.tsx');
+  assert.equal(section.split('sweepFailed').length - 1, 2);
+  assert.equal(section.split('resolverMode.saveFailed').length - 1, 1);
+  assert.ok(!section.includes('sweepDidNotFinish'));
+  assert.ok(!section.includes('setRunError(getErrorMessage('));
+});
+
+test('a failed resolver choice save says the choice was not saved, not that the check failed', async () => {
+  await translator.changeLanguage('zh');
+  const shown = [];
+  const handleResolverModeChange = bindLifted(
+    liftHookCallback(statusCheckPath, 'useCallback', 'setStatusCheckResolverMode'),
+    {
+      resolverMode: 'auto',
+      isRunning: false,
+      statusVersionRef: { current: 0 },
+      handleRun: () => assert.fail('a failed save starts no check'),
+      setRunError: (value) => shown.push(drawnRunError(value).text),
+      setStatus: () => undefined,
+      ApiService: {
+        setStatusCheckResolverMode: async () => {
+          throw new Error('boom');
+        },
+        getStatusCheck: async () => ({ resolverMode: 'auto' })
+      },
+      getErrorMessage,
+      t: (key, options) => translator.t(key, options),
+      keys: 'management.sections.statusCheck'
+    }
+  );
+  await handleResolverModeChange('host');
+
+  assert.equal(
+    shown.at(-1),
+    sentence('management.sections.statusCheck.resolverMode.saveFailed').replace('{{error}}', 'boom')
+  );
+  assert.ok(!shown.at(-1).includes('检查失败'));
+});
+
+test('a Status Check failure box follows a language switch, reason included', async () => {
+  await translator.changeLanguage('zh');
+  const stored = [];
+  const setRunError = (value) => stored.push(value);
+  const t = (key, options) => translator.t(key, options);
+  const keys = 'management.sections.statusCheck';
+  // A refusal the API names with a key, so its reason is itself translated text.
+  const limited = () =>
+    refusal({ error: 'Too many requests', stageKey: 'errors.rateLimit.tooManyRequests' });
+
+  const handlers = new Map();
+  bindLifted(liftHookCallback(statusCheckPath, 'useEffect', 'handleComplete'), {
+    on: (name, handler) => handlers.set(name, handler),
+    off: () => undefined,
+    lastFinishedOperationRef: { current: null },
+    finishedOperationIdsRef: { current: new Set() },
+    currentOperationRef: { current: null },
+    statusVersionRef: { current: 0 },
+    setIsRunning: () => undefined,
+    setProgress: () => undefined,
+    setRunError,
+    setStatus: () => undefined,
+    reloadDomains: () => undefined,
+    t,
+    keys
+  })();
+  handlers.get('StatusCheckComplete')({
+    operationId: 'x',
+    success: false,
+    error: 'boom',
+    result: null,
+    stageKey: 'signalr.statusCheck.failed',
+    context: { errorDetail: 'boom' },
+    canceled: false
+  });
+
+  const runWith = (getStatusCheck) =>
+    bindLifted(liftHookCallback(statusCheckPath, 'useCallback', 'runStatusCheck'), {
+      setRunError,
+      setStatus: () => undefined,
+      setIsRunning: () => undefined,
+      setProgress: () => undefined,
+      currentOperationRef: { current: null },
+      lastFinishedOperationRef: { current: null },
+      finishedOperationIdsRef: { current: new Set() },
+      statusVersionRef: { current: 0 },
+      ApiError,
+      ApiService: {
+        runStatusCheck: async () => {
+          throw await limited();
+        },
+        getStatusCheck
+      },
+      getErrorMessage,
+      t,
+      keys
+    });
+  await runWith(async () => ({ isRunning: false, operationId: null, resolverMode: 'auto' }))();
+  await runWith(async () => {
+    throw new Error('resync failed');
+  })();
+
+  await bindLifted(liftHookCallback(statusCheckPath, 'useCallback', 'setStatusCheckResolverMode'), {
+    resolverMode: 'auto',
+    isRunning: false,
+    statusVersionRef: { current: 0 },
+    handleRun: () => assert.fail('a failed save starts no check'),
+    setRunError,
+    setStatus: () => undefined,
+    ApiService: {
+      setStatusCheckResolverMode: async () => {
+        throw await limited();
+      },
+      getStatusCheck: async () => ({ resolverMode: 'auto' })
+    },
+    getErrorMessage,
+    t,
+    keys
+  })('host');
+
+  await translator.changeLanguage('en');
+  const reason = sentence('errors.rateLimit.tooManyRequests');
+  const checkFailed = sentence(`${keys}.sweepFailed`).replace('{{error}}', reason);
+  // No Run and no resolver choice clears the box at click time; each new error replaces the last.
+  assert.deepEqual(
+    stored.map((value) => drawnRunError(value).text),
+    [
+      sentence('signalr.statusCheck.failed').replace('{{errorDetail}}', 'boom'),
+      checkFailed,
+      checkFailed,
+      sentence(`${keys}.resolverMode.saveFailed`).replace('{{error}}', reason)
+    ]
+  );
+});
+
+test('a Run that another sweep refuses or outruns never shows a failure or a spinner it should not', async (t) => {
+  const keys = 'management.sections.statusCheck';
+  const conflict = () => failedWith(409, JSON.stringify({ error: 'A check is already running' }));
+  const failure = {
+    operationId: 'x',
+    success: false,
+    error: 'boom',
+    result: null,
+    stageKey: 'signalr.statusCheck.failed',
+    context: { errorDetail: 'boom' },
+    canceled: false
+  };
+
+  /** Run and the completion handler sharing one pair of operation refs, as in the component. */
+  const section = (ApiService) => {
+    const calls = { runError: [], isRunning: [], status: [] };
+    const refs = {
+      currentOperationRef: { current: null },
+      lastFinishedOperationRef: { current: null },
+      finishedOperationIdsRef: { current: new Set() },
+      statusVersionRef: { current: 0 }
+    };
+    const setters = {
+      setRunError: (value) => calls.runError.push(value),
+      setIsRunning: (value) => calls.isRunning.push(value),
+      setStatus: (value) => calls.status.push(value),
+      setProgress: () => undefined
+    };
+    const handlers = new Map();
+    bindLifted(liftHookCallback(statusCheckPath, 'useEffect', 'handleComplete'), {
+      ...refs,
+      ...setters,
+      on: (name, handler) => handlers.set(name, handler),
+      off: () => undefined,
+      reloadDomains: () => undefined
+    })();
+    const run = bindLifted(liftHookCallback(statusCheckPath, 'useCallback', 'runStatusCheck'), {
+      ...refs,
+      ...setters,
+      ApiError,
+      ApiService,
+      getErrorMessage,
+      keys
+    });
+    return {
+      calls,
+      refs,
+      setters,
+      run,
+      deliver: handlers.get('StatusCheckComplete'),
+      deliverProgress: handlers.get('StatusCheckProgress')
+    };
+  };
+
+  await t.test('a 409 whose sweep is done shows its result, not "sweep failed"', async () => {
+    const { calls, run } = section({
+      runStatusCheck: async () => {
+        throw await conflict();
+      },
+      getStatusCheck: async () => ({ isRunning: false, operationId: null, resolverMode: 'auto' })
+    });
+    await run();
+    assert.deepEqual(calls.runError, [null]);
+  });
+
+  // Read before sweep `x` finished, answered after its completion arrived.
+  const stale = { isRunning: true, operationId: 'x', resolverMode: 'auto' };
+
+  await t.test(
+    'a stale status answering a refused Run does not bring the spinner back',
+    async () => {
+      const { calls, refs, run } = section({
+        runStatusCheck: async () => {
+          throw await conflict();
+        },
+        getStatusCheck: async () => stale
+      });
+      refs.lastFinishedOperationRef.current = 'x';
+      refs.finishedOperationIdsRef.current.add('x');
+      await run();
+      assert.ok(!calls.isRunning.includes(true));
+      assert.deepEqual(calls.status, []);
+    }
+  );
+
+  await t.test(
+    'a stale status answering the section load does not bring the spinner back',
+    async () => {
+      const loaded = { isRunning: [], status: [], statusError: [] };
+      const currentOperationRef = { current: null };
+      await bindLifted(liftHookCallback(statusCheckPath, 'useCallback', 'Promise.allSettled'), {
+        mockMode: false,
+        setStatus: (value) => loaded.status.push(value),
+        setDomainGroups: () => undefined,
+        setReloadError: () => undefined,
+        setIsRunning: (value) => loaded.isRunning.push(value),
+        setStatusError: (value) => loaded.statusError.push(value),
+        setIsLoading: () => undefined,
+        ApiService: {
+          getStatusCheck: async () => stale,
+          getCacheDomains: async () => ({ services: [] })
+        },
+        currentOperationRef,
+        lastFinishedOperationRef: { current: 'x' },
+        finishedOperationIdsRef: { current: new Set(['x']) },
+        statusVersionRef: { current: 0 },
+        isAbortError,
+        getErrorMessage
+      })();
+      assert.ok(!loaded.isRunning.includes(true));
+      assert.deepEqual(loaded.status, []);
+      assert.equal(currentOperationRef.current, null);
+      assert.deepEqual(loaded.statusError, [null]);
+    }
+  );
+
+  await t.test('a Run that starts clears the shown box after the request, not before', async () => {
+    let storedAtRequest;
+    const { calls, run } = section({
+      runStatusCheck: async () => {
+        storedAtRequest = calls.runError.length;
+        return { operationId: 'z' };
+      },
+      getStatusCheck: async () => assert.fail('a started Run needs no resync')
+    });
+    await run();
+    assert.equal(storedAtRequest, 0);
+    assert.deepEqual(calls.runError, [null]);
+    assert.deepEqual(calls.isRunning, [true]);
+  });
+
+  await t.test('a Run reply that lands after its own sweep ended keeps that ending', async () => {
+    let reply;
+    const { calls, run, deliver } = section({
+      runStatusCheck: () =>
+        new Promise((resolve) => {
+          reply = resolve;
+        }),
+      getStatusCheck: async () => assert.fail('a started Run needs no resync')
+    });
+    const running = run();
+    deliver(failure);
+    reply({ operationId: 'x' });
+    await running;
+    assert.ok(!calls.isRunning.includes(true));
+    assert.deepEqual(calls.runError.at(-1), {
+      stageKey: 'signalr.statusCheck.failed',
+      context: { errorDetail: 'boom' }
+    });
+  });
+
+  await t.test('a sweep that ends while a 409 resync is out keeps the ending it drew', async () => {
+    let answer;
+    let markAsked;
+    const asked = new Promise((resolve) => {
+      markAsked = resolve;
+    });
+    const { calls, run, deliver } = section({
+      runStatusCheck: async () => {
+        throw await conflict();
+      },
+      getStatusCheck: () =>
+        new Promise((resolve) => {
+          answer = resolve;
+          markAsked();
+        })
+    });
+    const running = run();
+    await asked;
+    deliver({ ...failure, operationId: 'y' });
+    answer({ isRunning: false, operationId: null, resolverMode: 'auto' });
+    await running;
+    assert.deepEqual(calls.runError.at(-1), {
+      stageKey: 'signalr.statusCheck.failed',
+      context: { errorDetail: 'boom' }
+    });
+  });
+
+  /** A status read held open until the test answers it, and a promise that settles once it is sent. */
+  const heldStatus = () => {
+    let answer;
+    let markAsked;
+    const asked = new Promise((resolve) => {
+      markAsked = resolve;
+    });
+    const getStatusCheck = () =>
+      new Promise((resolve) => {
+        answer = resolve;
+        markAsked();
+      });
+    return { asked, getStatusCheck, answer: (value) => answer(value) };
+  };
+
+  /** Sweep `x` ends, then sweep `y` runs and ends, all while one status read is out. */
+  const twoSweepsEnd = ({ deliver, deliverProgress }) => {
+    deliver({ ...failure, operationId: 'x', success: true, result: { services: [] } });
+    deliverProgress({ operationId: 'y', completedDomains: 1, totalDomains: 2 });
+    deliver({ ...failure, operationId: 'y', success: true, result: { services: [] } });
+  };
+
+  await t.test(
+    'a status read that names an older finished sweep does not bring the spinner back on load',
+    async () => {
+      const held = heldStatus();
+      const shown = section({ getStatusCheck: held.getStatusCheck });
+      const stale = { isRunning: true, operationId: 'x', resolverMode: 'auto' };
+      // The held read is dropped for being older than the two completions and read again; the
+      // second read names the same finished sweep, so the finished-sweep check is what drops it.
+      let statusReads = 0;
+      let load;
+      load = bindLifted(liftHookCallback(statusCheckPath, 'useCallback', 'Promise.allSettled'), {
+        ...shown.refs,
+        ...shown.setters,
+        mockMode: false,
+        loadAll: (signal) => load(signal),
+        setDomainGroups: () => undefined,
+        setReloadError: () => undefined,
+        setStatusError: () => undefined,
+        setIsLoading: () => undefined,
+        ApiService: {
+          getStatusCheck: () => {
+            statusReads += 1;
+            return statusReads === 1 ? held.getStatusCheck() : Promise.resolve(stale);
+          },
+          getCacheDomains: async () => ({ services: [] })
+        },
+        isAbortError,
+        getErrorMessage
+      });
+      const loading = load();
+      await held.asked;
+      twoSweepsEnd(shown);
+      held.answer(stale);
+      await loading;
+      assert.equal(statusReads, 2, 'the older read is read again');
+      assert.equal(shown.calls.isRunning.at(-1), false, 'no sweep is running');
+      assert.equal(shown.refs.currentOperationRef.current, null);
+      assert.ok(!shown.calls.status.some((value) => value?.isRunning === true));
+    }
+  );
+
+  await t.test(
+    'a status read that names an older finished sweep does not bring the spinner back after a 409',
+    async () => {
+      const held = heldStatus();
+      const shown = section({
+        runStatusCheck: async () => {
+          throw await conflict();
+        },
+        getStatusCheck: held.getStatusCheck
+      });
+      const running = shown.run();
+      await held.asked;
+      twoSweepsEnd(shown);
+      held.answer({ isRunning: true, operationId: 'x', resolverMode: 'auto' });
+      await running;
+      assert.equal(shown.calls.isRunning.at(-1), false, 'no sweep is running');
+      assert.equal(shown.refs.currentOperationRef.current, null);
+      assert.ok(!shown.calls.status.some((value) => value?.isRunning === true));
+    }
+  );
+
+  await t.test(
+    'a 409 whose resync shows a sweep running drops an older sweep error that arrived meanwhile',
+    async () => {
+      const held = heldStatus();
+      const shown = section({
+        runStatusCheck: async () => {
+          throw await conflict();
+        },
+        getStatusCheck: held.getStatusCheck
+      });
+      const running = shown.run();
+      await held.asked;
+      // Sweep `a` failed before this click; its events reach the page only now.
+      shown.deliverProgress({ operationId: 'a', completedDomains: 0, totalDomains: 2 });
+      shown.deliver({ ...failure, operationId: 'a' });
+      held.answer({ isRunning: true, operationId: 'b', resolverMode: 'auto' });
+      await running;
+      assert.equal(shown.calls.isRunning.at(-1), true, 'sweep b is shown running');
+      assert.equal(shown.calls.runError.at(-1), null, 'the older failure line is gone');
+    }
+  );
+});
+
+test('no sign-in, reset or prefill site shows a server sentence in front of its own', () => {
+  for (const path of [
+    'components/initialization/AccessSetup.tsx',
+    'components/features/auth/AuthenticateTab.tsx',
+    'components/features/management/steam/AuthenticationManager.tsx',
+    'components/modals/auth/AuthenticationModal.tsx'
+  ]) {
+    assert.ok(!read(path).includes('result.message ||'), path);
+  }
+  for (const path of [
+    'services/auth.service.ts',
+    'components/initialization/steps/AdminAccountStep.tsx'
+  ]) {
+    assert.doesNotMatch(read(path), /data\.error \|\|/, path);
+    assert.doesNotMatch(read(path), /data\.errors\?\.\[0\]\?\.message \|\|/, path);
+  }
+  const modal = read('components/modals/auth/AuthenticationModal.tsx');
+  assert.ok(!modal.includes('event.message'));
+  assert.ok(!modal.includes('resetStatus.message ||'));
+  assert.ok(
+    !read('components/features/prefill/PrefillProgressCard.tsx').includes('progress.message')
+  );
+  for (const path of ['services/auth.service.ts', 'contexts/AuthContext.types.ts']) {
+    assert.ok(!read(path).includes('success: boolean; message?: string'), path);
+  }
 });

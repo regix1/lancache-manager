@@ -27,7 +27,7 @@ public abstract partial class PrefillDaemonServiceBase
         var flaggedNeedsRelogin = 0;
         var terminated = 0;
         var stalledFailed = 0;
-        var abandonedLoginsCancelled = 0;
+        var abandonedLoginsCanceled = 0;
 
         // A session with no runs still needs a pass while it is recovering or a pass skipped its read. The reads
         // run together because one whose daemon cannot be reached waits out the client's connect bound, and the
@@ -76,7 +76,7 @@ public abstract partial class PrefillDaemonServiceBase
                         {
                             var page = await session.Client.GetOperationAsync(run.PrefillRunId, run.DaemonInstanceId,
                                 cancellationToken: cancellationToken);
-                            if (page.Operation.State is "completed" or "failed" or "cancelled")
+                            if (page.Operation.State is "completed" or "failed" or "canceled")
                             {
                                 run.ReconcileRequested = true;
                                 continue;
@@ -187,12 +187,12 @@ public abstract partial class PrefillDaemonServiceBase
             try
             {
                 _logger.LogInformation(
-                    "Login for session {SessionId} went unanswered past its deadline. Cancelling it.",
+                    "Login for session {SessionId} went unanswered past its deadline. Canceling it.",
                     abandoned.Session.Id);
                 if (await CancelLoginAsync(abandoned.Session.Id, loginAttempt: abandoned.Attempt,
                         stopReason: "common.notifications.warnings.signInExpired"))
                 {
-                    Interlocked.Increment(ref abandonedLoginsCancelled);
+                    Interlocked.Increment(ref abandonedLoginsCanceled);
                 }
             }
             catch (Exception ex)
@@ -200,13 +200,13 @@ public abstract partial class PrefillDaemonServiceBase
                 // Same per-session isolation as the two phases above. A cancel whose daemon round-trip
                 // failed deliberately leaves the login resumable (see CancelLoginAsync), so the next tick
                 // sees it again and tries once more.
-                _logger.LogWarning(ex, "Error cancelling abandoned login for session {SessionId}", abandoned.Session.Id);
+                _logger.LogWarning(ex, "Error canceling abandoned login for session {SessionId}", abandoned.Session.Id);
             }
         }
 
         await Task.WhenAll(abandonedLogins.Select(ProcessAbandonedLoginAsync));
 
-        return new PrefillSessionExpiryResult(flaggedNeedsRelogin, terminated, stalledFailed, abandonedLoginsCancelled);
+        return new PrefillSessionExpiryResult(flaggedNeedsRelogin, terminated, stalledFailed, abandonedLoginsCanceled);
     }
 
     /// <summary>

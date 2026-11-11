@@ -45,7 +45,7 @@ type ClockSaveAnswer = 'saved' | 'failed' | 'noAnswer';
  * UserPreferencesUpdated events are handled by SessionPreferencesContext.
  */
 class PreferencesService {
-  // Held only to queue behind and to recognise the tail, never read for what a save answered.
+  // Held only to queue behind and to recognize the tail, never read for what a save answered.
   private pendingUpdates = new Map<string, Promise<unknown>>();
 
   /**
@@ -104,7 +104,7 @@ class PreferencesService {
 
     const tracked: Promise<boolean> = send.finally(() => {
       // Only the tail clears the slot; an earlier link finishing must not free a key that a
-      // later value is still queued behind.
+      // later value is still waiting behind.
       if (this.pendingUpdates.get(keyStr) === tracked) {
         this.pendingUpdates.delete(keyStr);
       }
@@ -134,7 +134,7 @@ class PreferencesService {
 
     const tracked: Promise<ClockSaveAnswer> = send.finally(() => {
       // Only the tail clears a slot; an earlier link finishing must not free a key that a later
-      // value is still queued behind.
+      // value is still waiting behind.
       CLOCK_KEYS.forEach((key) => {
         if (this.pendingUpdates.get(key) === tracked) {
           this.pendingUpdates.delete(key);

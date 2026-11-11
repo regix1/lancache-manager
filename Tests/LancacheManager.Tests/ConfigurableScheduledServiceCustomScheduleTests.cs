@@ -51,7 +51,7 @@ public class ConfigurableScheduledServiceCustomScheduleTests
     [Fact]
     public async Task NextRunUtc_WithNoCustomSchedule_IsStillTheIntervalAsync()
     {
-        // Control for the test above: the same probe with no schedule must keep the old behaviour, or
+        // Control for the test above: the same probe with no schedule must keep the old behavior, or
         // the schedule test would pass for every service whether or not it had one.
         using var service = new CustomScheduleProbeService(TimeSpan.FromHours(6));
 
@@ -233,7 +233,7 @@ public class ConfigurableScheduledServiceCustomScheduleTests
         Assert.Equal(2, service.Logger.CountWarningsContaining("has no next run"));
     }
 
-    // ---- The other scheduling base honours a schedule the same way ----
+    // ---- The other scheduling base honors a schedule the same way ----
 
     [Fact]
     public async Task OtherBase_NextRunUtc_WithACustomSchedule_ComesFromTheExpressionAsync()
@@ -462,7 +462,7 @@ public class ConfigurableScheduledServiceCustomScheduleTests
         Assert.Empty(recorder.Schedules);
     }
 
-    // ---- The endpoint refuses what the loop could not honour ----
+    // ---- The endpoint refuses what the loop could not honor ----
 
     [Fact]
     public async Task SetCustomScheduleAsync_WithAScheduleThatCanNeverFire_Answers400AndStoresNothingAsync()

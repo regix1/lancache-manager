@@ -60,7 +60,7 @@ export interface GuestPrefillConfigChangedPayload
  * Single source of truth for per-service prefill routing/branding.
  *
  * Replaces the open-coded 3-way ternaries scattered across PrefillPanel.tsx (hubPath,
- * serviceBasePath, header icon/colour). Centralising here removes the latent
+ * serviceBasePath, header icon/color). Centralizing here removes the latent
  * "default-to-Steam" footgun where a future edit that forgets the `battlenet` arm would
  * silently route Battle.net traffic to the Steam daemon.
  *
@@ -94,7 +94,7 @@ interface PrefillServiceBase {
   serviceNameKey: string;
   /** Branded icon component for this service. */
   icon: typeof SteamIcon;
-  /** CSS custom property holding this service's accent colour. */
+  /** CSS custom property holding this service's accent color. */
   colorVar: ColorToken;
   /**
    * Literal Tailwind background class for the service header badge. Kept as a literal (not
@@ -117,7 +117,7 @@ interface PrefillServiceBase {
    */
   prefillCommands: readonly CommandType[];
   /**
-   * Target-platform (OS) values this service's daemon actually honours. Only Steam's socket
+   * Target-platform (OS) values this service's daemon actually honors. Only Steam's socket
    * reads an `os` filter (PICS config.oslist); Epic/Xbox/BattleNet/Riot silently ignore it
    * (Epic hardcodes Windows manifest URLs, Xbox has no platform concept, BattleNet/Riot
    * hardcode Windows CDN/patchline lookups). An empty array hides the "Target platforms"
@@ -153,7 +153,7 @@ interface ThreadlessPrefillService extends PrefillServiceBase {
   supportsMaxThreads: false;
 }
 
-/** Services whose daemon honours a per-download thread cap. */
+/** Services whose daemon honors a per-download thread cap. */
 interface ThreadedPrefillService extends PrefillServiceBase {
   supportsMaxThreads: true;
   /** Field this service's guest-config event uses for the thread limit. */

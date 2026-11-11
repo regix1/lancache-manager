@@ -971,8 +971,8 @@ test('a lost Steam answer is decided by the pushed ending and never by a timer',
     {
       loginEnding: {
         attemptId: 'attempt-1',
-        status: 'cancelled',
-        stageKey: 'errors.steam.signInCancelled'
+        status: 'canceled',
+        stageKey: 'errors.steam.signInCanceled'
       }
     }
   ]);
@@ -993,7 +993,7 @@ test('a lost Steam answer is decided by the pushed ending and never by a timer',
     globalThis.hubEmit('IntegrationLoginEnded', { attemptId: 'attempt-1' });
     await settle();
     assert.equal(statusUrls.length, 3);
-    assert.equal(view.render().state.error, 'errors.steam.signInCancelled');
+    assert.equal(view.render().state.error, 'errors.steam.signInCanceled');
   } finally {
     restore();
   }
@@ -1087,14 +1087,14 @@ test('an ending pushed before the Steam wait starts listening is read without a 
     {
       loginEnding: {
         attemptId: 'attempt-1',
-        status: 'cancelled',
-        stageKey: 'errors.steam.signInCancelled'
+        status: 'canceled',
+        stageKey: 'errors.steam.signInCanceled'
       }
     }
   ]);
   try {
     await settle();
-    assert.equal(view.render().state.error, 'errors.steam.signInCancelled');
+    assert.equal(view.render().state.error, 'errors.steam.signInCanceled');
   } finally {
     restore();
   }
@@ -1159,8 +1159,8 @@ test('a lost Steam answer reads the sign-in status again when its wait ends', as
     {
       loginEnding: {
         attemptId: 'attempt-1',
-        status: 'cancelled',
-        stageKey: 'errors.steam.signInCancelled'
+        status: 'canceled',
+        stageKey: 'errors.steam.signInCanceled'
       }
     }
   ]);
@@ -1168,7 +1168,7 @@ test('a lost Steam answer reads the sign-in status again when its wait ends', as
     const before = refreshes();
     globalThis.hubEmit('IntegrationLoginEnded', { attemptId: 'attempt-1' });
     await settle();
-    assert.equal(view.render().state.error, 'errors.steam.signInCancelled');
+    assert.equal(view.render().state.error, 'errors.steam.signInCanceled');
     assert.equal(refreshes(), before + 1, 'the access read names no attempt once the wait ended');
   } finally {
     restore();
@@ -1793,7 +1793,7 @@ test('integration authentication starts mapping only after acceptance', () => {
   );
   assert.match(
     steamControllerSource,
-    /if \(result\.Success\)[\s\S]*?if \(request\.AutoStartPicsRebuild\)[\s\S]*?_steamKit2Service\.TryStartRebuild\(/
+    /if \(result\.Success\)[\s\S]*?if \(request\.AutoStartPicsRebuild\)[\s\S]*?_steamKit2Service\.StartRebuildThroughQueueAsync\(/
   );
 
   const epicSource = readFileSync(

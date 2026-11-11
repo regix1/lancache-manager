@@ -10,7 +10,7 @@ const makeHarness = () => {
   const calls = [];
   const fetchInProgress = { current: false };
   const liveRefetchPendingRef = { current: false };
-  const liveFollowUpQueuedRef = { current: false };
+  const liveFollowUpWantedRef = { current: false };
   const currentRequestIdRef = { current: 0 };
   const abortControllerRef = { current: null };
   const lastFetchTime = { current: 0 };
@@ -62,7 +62,7 @@ const makeHarness = () => {
     i18n: { t: (key) => key },
     setIsRefreshing: () => undefined,
     liveRefetchPendingRef,
-    liveFollowUpQueuedRef,
+    liveFollowUpWantedRef,
     setLiveFollowUps: (update) => {
       liveFollowUps = update(liveFollowUps);
     }
@@ -73,7 +73,7 @@ const makeHarness = () => {
     {
       fetchInProgress,
       liveRefetchPendingRef,
-      liveFollowUpQueuedRef,
+      liveFollowUpWantedRef,
       fetchAllData: fetchBatch,
       eventName: 'DownloadsRefresh'
     }
@@ -85,7 +85,7 @@ const makeHarness = () => {
     fetchInProgress,
     fold,
     liveRefetchPendingRef,
-    liveFollowUpQueuedRef,
+    liveFollowUpWantedRef,
     getLiveFollowUps: () => liveFollowUps
   };
 };
@@ -113,7 +113,7 @@ test('a superseded settle cannot clear the current request and live events fold 
   harness.calls[1].reject(abortError());
   await delay(0);
   assert.equal(harness.getLiveFollowUps(), 1);
-  assert.equal(harness.liveFollowUpQueuedRef.current, true);
+  assert.equal(harness.liveFollowUpWantedRef.current, true);
 });
 
 test('the follow-up effect starts one request and an idle event fetches immediately', async () => {
@@ -126,7 +126,7 @@ test('the follow-up effect starts one request and an idle event fetches immediat
   const runFollowUp = () =>
     bindLifted(liftHookCallback(PATH, 'useEffect', 'liveFollowUps === 0'), {
       liveFollowUps: harness.getLiveFollowUps(),
-      liveFollowUpQueuedRef: harness.liveFollowUpQueuedRef,
+      liveFollowUpWantedRef: harness.liveFollowUpWantedRef,
       currentTimeRangeRef: { current: 'live' },
       fetchAllData: harness.fetchBatch
     })();
@@ -135,10 +135,10 @@ test('the follow-up effect starts one request and an idle event fetches immediat
   assert.equal(
     harness.calls.length,
     1,
-    'an event before the effect folds into the queued follow-up'
+    'an event before the effect folds into the wanted follow-up'
   );
   runFollowUp();
-  assert.equal(harness.calls.length, 2, 'one queued follow-up starts');
+  assert.equal(harness.calls.length, 2, 'one wanted follow-up starts');
   assert.equal(harness.calls[1].signal.aborted, false);
 
   harness.calls[1].reject(abortError());

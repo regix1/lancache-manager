@@ -15,6 +15,7 @@ import ApiService, {
   type StatusCheckServiceResult,
   type StatusCheckStatusResponse
 } from '@services/api.service';
+import { ApiError } from '@services/apiError';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useMockMode } from '@contexts/useMockMode';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
@@ -40,7 +41,8 @@ import type {
   RibbonSegment,
   RibbonSegmentStatus,
   StatusCheckCompleteEvent,
-  StatusCheckProgressEvent
+  StatusCheckProgressEvent,
+  StatusCheckRunError
 } from './types';
 
 // Problems first; unverified (can't compare - hero already warns) before healthy;
@@ -73,25 +75,38 @@ const StatusCheckSection: React.FC = () => {
   // only risk a phantom scan-replay on reopen (and a stuck one if that GET fails).
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState<StatusCheckProgressEvent | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
+  const [runError, setRunError] = useState<StatusCheckRunError | null>(null);
   const [problemsOnly, setProblemsOnly] = useState(false);
   const { selected: expandedServices, toggle: toggleService, setMany } = useSelectionSet<string>();
   const [refreshingDomains, setRefreshingDomains] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [reloadError, setReloadError] = useState<string | null>(null);
 
   const serviceRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   // Guards against out-of-order SignalR events: a delayed progress event arriving after its
   // sweep completed, or a stale complete event from a previous sweep, must not flip run state.
-  // Only the most recently finished sweep ever needs to be ignored - the server runs one sweep
-  // at a time, so there's never more than one "stale" operation id in flight.
-  const currentOperationRef = useRef<string | null>(getCachedStatus()?.operationId ?? null);
+  // Every finished id is kept, because one slow status read can outlive several sweeps.
+  // Starts empty rather than from the cached status: that sweep may have ended while the page was
+  // closed, and its id would then hide the ending of the next sweep. The mount read sets it.
+  const currentOperationRef = useRef<string | null>(null);
   const lastFinishedOperationRef = useRef<string | null>(null);
+  const finishedOperationIdsRef = useRef<Set<string>>(new Set());
+  // Counts the newer states the page applied (a run, a completion, a domain reload, a mode change).
+  // A status read sent before one of them is older than the page, so it is read again rather than
+  // applied.
+  const statusVersionRef = useRef(0);
   const { state: probeState, retry: retryProbe } = useClientProbe();
 
   const reloadDomains = useCallback(async (domainsSource: StatusCheckDomainsSource) => {
+    statusVersionRef.current += 1;
     setStatus((previous) => (previous ? { ...previous, domainsSource } : previous));
-    const domains = await ApiService.getCacheDomains();
-    setDomainGroups(domains.services);
+    try {
+      const domains = await ApiService.getCacheDomains();
+      setDomainGroups(domains.services);
+      setReloadError(null);
+    } catch (error) {
+      setReloadError(getErrorMessage(error));
+    }
   }, []);
 
   const loadAll = useCallback(
@@ -106,15 +121,26 @@ const StatusCheckSection: React.FC = () => {
         setIsLoading(false);
         return;
       }
+      const version = statusVersionRef.current;
       const [statusResult, domainsResult] = await Promise.allSettled([
         ApiService.getStatusCheck(signal),
         ApiService.getCacheDomains(signal)
       ]);
       if (signal?.aborted) return;
+      if (statusVersionRef.current !== version) return loadAll(signal);
       if (statusResult.status === 'fulfilled') {
-        setStatus(statusResult.value);
-        setIsRunning(statusResult.value.isRunning);
-        currentOperationRef.current = statusResult.value.operationId;
+        // Read before that sweep's completion arrived and answered after it: the completion is newer.
+        if (
+          !(
+            statusResult.value.isRunning &&
+            statusResult.value.operationId !== null &&
+            finishedOperationIdsRef.current.has(statusResult.value.operationId)
+          )
+        ) {
+          setStatus(statusResult.value);
+          setIsRunning(statusResult.value.isRunning);
+          currentOperationRef.current = statusResult.value.operationId;
+        }
         setStatusError(null);
       } else if (!isAbortError(statusResult.reason)) {
         setStatusError(getErrorMessage(statusResult.reason));
@@ -122,6 +148,7 @@ const StatusCheckSection: React.FC = () => {
       // A failed domain list is non-fatal: the test dropdown renders its unavailable state.
       if (domainsResult.status === 'fulfilled') {
         setDomainGroups(domainsResult.value.services);
+        setReloadError(null);
       }
       setIsLoading(false);
     },
@@ -146,20 +173,22 @@ const StatusCheckSection: React.FC = () => {
 
   useEffect(() => {
     const handleProgress = (event: StatusCheckProgressEvent): void => {
-      if (lastFinishedOperationRef.current === event.operationId) return;
+      if (finishedOperationIdsRef.current.has(event.operationId)) return;
       currentOperationRef.current = event.operationId;
       setIsRunning(true);
       setProgress(event);
     };
     const handleComplete = (event: StatusCheckCompleteEvent): void => {
       lastFinishedOperationRef.current = event.operationId;
+      finishedOperationIdsRef.current.add(event.operationId);
       if (currentOperationRef.current && currentOperationRef.current !== event.operationId) {
         return; // a previous sweep's completion arriving late - not the run we're showing
       }
+      statusVersionRef.current += 1;
       currentOperationRef.current = null;
       setIsRunning(false);
       setProgress(null);
-      if (event.success && event.result) {
+      if (event.success) {
         setRunError(null);
         setStatus((previous) => ({
           lastResult: event.result,
@@ -169,7 +198,11 @@ const StatusCheckSection: React.FC = () => {
           resolverMode: previous?.resolverMode ?? 'auto'
         }));
       } else {
-        setRunError(event.error ?? t(`${keys}.sweepDidNotFinish`));
+        setRunError(
+          event.canceled
+            ? { stageKey: event.stageKey, canceled: true }
+            : { stageKey: event.stageKey, context: event.context ?? {} }
+        );
       }
     };
     const handleDomainsRefreshed = (event: CacheDomainsRefreshedEvent): void => {
@@ -183,29 +216,47 @@ const StatusCheckSection: React.FC = () => {
       off('StatusCheckComplete', handleComplete);
       off('CacheDomainsRefreshed', handleDomainsRefreshed);
     };
-  }, [on, off, t, reloadDomains]);
+  }, [on, off, reloadDomains]);
 
   // A reconnect can swallow the completion event of a sweep that finished while
   // the socket was down - resync from the server whenever the connection returns.
   useReconnectRefetch(isConnected, loadAll);
 
   const handleRun = useCallback(async () => {
-    setRunError(null);
+    const finishedAtClick = lastFinishedOperationRef.current;
     try {
       const run = await ApiService.runStatusCheck();
+      statusVersionRef.current += 1;
+      // The sweep starts before the reply is written, so its completion can arrive first.
+      if (finishedOperationIdsRef.current.has(run.operationId)) return;
+      setRunError(null);
       currentOperationRef.current = run.operationId;
       setIsRunning(true);
       setProgress(null);
     } catch (error) {
-      // A 409 means a sweep is already running elsewhere - resync instead of erroring.
+      // A 409 means a sweep is already running elsewhere: show it, or its result if it has finished.
+      const conflict = error instanceof ApiError && error.kind === 'conflict';
       try {
         const current = await ApiService.getStatusCheck();
+        statusVersionRef.current += 1;
+        // Read before that sweep's completion arrived and answered after it: the completion is newer.
+        if (
+          current.isRunning &&
+          current.operationId !== null &&
+          finishedOperationIdsRef.current.has(current.operationId)
+        )
+          return;
         setStatus(current);
         setIsRunning(current.isRunning);
         currentOperationRef.current = current.operationId;
-        if (!current.isRunning) setRunError(getErrorMessage(error));
+        // The other sweep ended while this request was out, and its completion drew its own ending.
+        if (conflict && !current.isRunning && lastFinishedOperationRef.current !== finishedAtClick)
+          return;
+        setRunError(
+          !current.isRunning && !conflict ? { stageKey: `${keys}.sweepFailed`, error } : null
+        );
       } catch {
-        setRunError(getErrorMessage(error));
+        setRunError({ stageKey: `${keys}.sweepFailed`, error });
       }
     }
   }, []);
@@ -228,18 +279,21 @@ const StatusCheckSection: React.FC = () => {
   const handleResolverModeChange = useCallback(
     async (mode: StatusCheckResolverMode) => {
       if (mode === resolverMode) return;
-      setRunError(null);
+      statusVersionRef.current += 1;
       setStatus((previous) => (previous ? { ...previous, resolverMode: mode } : previous));
       try {
         const result = await ApiService.setStatusCheckResolverMode(mode);
+        setRunError(null);
+        statusVersionRef.current += 1;
         setStatus((previous) =>
           previous ? { ...previous, resolverMode: result.resolverMode } : previous
         );
       } catch (error) {
-        setRunError(getErrorMessage(error));
+        setRunError({ stageKey: `${keys}.resolverMode.saveFailed`, error });
         // Persist failed - resync the authoritative mode instead of leaving the optimistic one.
         try {
           const current = await ApiService.getStatusCheck();
+          statusVersionRef.current += 1;
           setStatus(current);
         } catch {
           /* keep the existing error visible */
@@ -319,9 +373,9 @@ const StatusCheckSection: React.FC = () => {
 
   const handleRefreshDomains = useCallback(async () => {
     setRefreshingDomains(true);
-    setRefreshError(null);
     try {
       const result = await ApiService.refreshCacheDomains();
+      setRefreshError(null);
       await reloadDomains(result.domainsSource);
     } catch (error) {
       setRefreshError(getErrorMessage(error));
@@ -448,6 +502,7 @@ const StatusCheckSection: React.FC = () => {
           onRefresh={() => void handleRefreshDomains()}
           refreshing={refreshingDomains}
           refreshError={refreshError}
+          reloadError={reloadError}
         />
       </div>
     </>

@@ -6,7 +6,7 @@ namespace LancacheManager.Core.Services;
 /// Result of one <see cref="PrefillDaemonServiceBase.ProcessSessionExpiryAsync"/> pass, for
 /// structured logging/diagnostics at the caller (<c>PersistentSessionExpiryService</c>).
 /// </summary>
-public readonly record struct PrefillSessionExpiryResult(int FlaggedNeedsRelogin, int Terminated, int StalledFailed, int AbandonedLoginsCancelled);
+public readonly record struct PrefillSessionExpiryResult(int FlaggedNeedsRelogin, int Terminated, int StalledFailed, int AbandonedLoginsCanceled);
 
 /// <summary>
 /// Result of <see cref="PrefillDaemonServiceBase.LogoutPersistentSessionAsync"/>. <see cref="LoggedOut"/>

@@ -283,6 +283,11 @@ public class AppDbContext : DbContext
                     warning => warning == null ? null : JsonSerializer.Serialize(warning, (JsonSerializerOptions?)null),
                     json => json == null ? null : JsonSerializer.Deserialize<RunWarning>(json, (JsonSerializerOptions?)null))
                 .HasMaxLength(4096);
+            execution.Property(item => item.FailureReason)
+                .HasConversion(
+                    reason => reason == null ? null : JsonSerializer.Serialize(reason, (JsonSerializerOptions?)null),
+                    json => json == null ? null : JsonSerializer.Deserialize<RunWarning>(json, (JsonSerializerOptions?)null))
+                .HasMaxLength(4096);
 
             execution.HasIndex(item => item.OperationId)
                 .HasDatabaseName("IX_ScheduleExecutions_OperationId")

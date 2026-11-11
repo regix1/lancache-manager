@@ -70,11 +70,11 @@ public static class ClientStatsAggregationHelper
     }
 
     /// <summary>
-    /// Turns per-IP totals into ranked client rows, honouring each group's reporting mode.
+    /// Turns per-IP totals into ranked client rows, honoring each group's reporting mode.
     /// A group that reports combined collapses every member IP into one nicknamed row, and
     /// that fold happens BEFORE the top-N cut so a nickname spread over several IPs still
     /// ranks on its combined traffic. A group that reports separately emits one row per
-    /// member IP instead, each labelled with the nickname and competing on its own traffic.
+    /// member IP instead, each labeled with the nickname and competing on its own traffic.
     /// IPs with no group produce a row with <c>IsGrouped=false</c> and no display name.
     /// Every aggregate feeds exactly one row, so no traffic is counted twice and the three
     /// row kinds rank against each other coherently. <paramref name="limit"/> caps ROWS: a

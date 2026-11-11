@@ -56,7 +56,7 @@ public static class EvictedDataModeExtensions
 
     /// <summary>
     /// Parses a legacy string value into an <see cref="EvictedDataMode"/>. Case-insensitive.
-    /// Returns <c>null</c> if the value is null, whitespace, or unrecognised.
+    /// Returns <c>null</c> if the value is null, whitespace, or unrecognized.
     /// </summary>
     public static EvictedDataMode? TryParseWire(string? value)
     {

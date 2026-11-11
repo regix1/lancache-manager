@@ -11,6 +11,7 @@ using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -587,7 +588,7 @@ public sealed class LogsControllerRustFileOperationsTests
     }
 
     [Fact]
-    public async Task ResetToEnd_CancelledWhileWaitingForTheLogsLeavesProcessingFreeAsync()
+    public async Task ResetToEnd_CanceledWhileWaitingForTheLogsLeavesProcessingFreeAsync()
     {
         using var fixture = new ControllerFixture();
         fixture.State.SetLogPosition("alpha", 7);
@@ -1688,6 +1689,150 @@ public sealed class LogsControllerRustFileOperationsTests
             .LogProcessing.SeedPendingDatasources);
     }
 
+    // A log run that cannot start for a reason other than "busy" is refused at once with the words the
+    // route gave before. Thrown from a start run by the queue, the refusal reaches the caller unchanged and goes out
+    // as a 503 that carries its key.
+    [Fact]
+    public async Task StartAll_WithNoDatasourceEnabled_IsRefusedWithItsKeyAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"logs-controller-start-refused-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        try
+        {
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["LanCache:DataSources:0:Name"] = "alpha",
+                    ["LanCache:DataSources:0:CachePath"] = Path.Combine(root, "alpha-cache"),
+                    ["LanCache:DataSources:0:LogPath"] = Path.Combine(root, "alpha-logs"),
+                    ["LanCache:DataSources:0:Enabled"] = "false"
+                })
+                .Build();
+            var pathResolver = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+            ((PathResolverProxy)(object)pathResolver).Root = root;
+            var datasources = new DatasourceService(configuration, pathResolver, NullLogger<DatasourceService>.Instance);
+            Assert.Empty(datasources.GetDatasources());
+            var processor = new RustLogProcessorService(
+                NullLogger<RustLogProcessorService>.Instance,
+                pathResolver,
+                notifications: null!,
+                stateService: null!,
+                serviceProvider: null!,
+                rustProcessHelper: null!,
+                datasources,
+                operationTracker: null!,
+                TimeProvider.System);
+
+            var refusal = await Assert.ThrowsAsync<ServiceUnavailableException>(() => processor.StartAllInBackgroundAsync());
+            Assert.Equal("errors.logs.startFailed", refusal.StageKey);
+
+            var tracker = new UnifiedOperationTracker(
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                NullLogger<UnifiedOperationTracker>.Instance);
+            var queue = new OperationWaitlistService(
+                tracker,
+                OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+                NullLogger<OperationWaitlistService>.Instance);
+            var startRefusal = await Assert.ThrowsAsync<ServiceUnavailableException>(() => queue.EnqueueAsync(
+                OperationType.LogProcessing, ConflictScope.Bulk(), "Log Processing",
+                processor.StartAllInBackgroundAsync, CancellationToken.None, OperationRequestKey.Plain));
+            Assert.Equal("errors.logs.startFailed", startRefusal.StageKey);
+            Assert.Empty(tracker.GetActiveOperations());
+
+            Task Throw(HttpContext context) => throw startRefusal;
+            var middleware = new GlobalExceptionMiddleware(
+                Throw,
+                NullLogger<GlobalExceptionMiddleware>.Instance,
+                DispatchProxy.Create<IHostEnvironment, NullReturningProxy>());
+            var httpContext = new DefaultHttpContext();
+            httpContext.Response.Body = new MemoryStream();
+            await middleware.InvokeAsync(httpContext);
+            Assert.Equal(StatusCodes.Status503ServiceUnavailable, httpContext.Response.StatusCode);
+            httpContext.Response.Body.Position = 0;
+            using var body = await JsonDocument.ParseAsync(httpContext.Response.Body);
+            Assert.Equal("errors.logs.startFailed", body.RootElement.GetProperty("stageKey").GetString());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // Both log routes hand their start to the queue, which checks and starts under one lock, so a log run
+    // never starts beside a cache clear, database reset, history upgrade or another log run. The route
+    // checks nothing and starts nothing itself.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("alpha")]
+    public async Task ProcessLogs_EntersTheQueueAndParksThereAsync(string? datasourceName)
+    {
+        var waiting = new OperationStartResponse { OperationId = Guid.NewGuid(), Status = OperationStartStatus.Waiting };
+        var queue = new RecordingOperationWaitlist(waiting);
+        using var fixture = new ControllerFixture(operationQueue: queue);
+
+        var result = await ProcessLogsAsync(fixture.Controller, datasourceName);
+
+        var accepted = Assert.IsType<AcceptedResult>(result);
+        Assert.Same(waiting, accepted.Value);
+        Assert.Equal(OperationType.LogProcessing, queue.Type);
+        Assert.Equal(ConflictScope.Bulk(), queue.Scope);
+        Assert.Equal(datasourceName, queue.Target);
+        Assert.False(fixture.Processor.IsProcessing);
+        Assert.Empty(fixture.Tracker.GetActiveOperations(OperationType.LogProcessing));
+    }
+
+    // A log run with nothing in its way starts at once and answers with the running operation's id.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("alpha")]
+    public async Task ProcessLogs_ThatStartsAtOnceAnswersWithTheRunningIdAsync(string? datasourceName)
+    {
+        var operationId = Guid.NewGuid();
+        var queue = new RecordingOperationWaitlist(new OperationStartResponse { OperationId = operationId, Status = OperationStartStatus.Started });
+        using var fixture = new ControllerFixture(operationQueue: queue);
+
+        var result = await ProcessLogsAsync(fixture.Controller, datasourceName);
+
+        var response = Assert.IsType<OperationResponse>(Assert.IsType<AcceptedResult>(result).Value);
+        Assert.Equal(operationId, response.OperationId);
+        Assert.Equal(OperationStatus.Running, response.Status);
+    }
+
+    private static Task<IActionResult> ProcessLogsAsync(LogsController controller, string? datasourceName) =>
+        datasourceName is null
+            ? controller.ProcessAllLogsAsync(CancellationToken.None)
+            : controller.ProcessDatasourceLogsAsync(datasourceName, CancellationToken.None);
+
+    private sealed class RecordingOperationWaitlist(OperationStartResponse response) : IOperationWaitlist
+    {
+        public OperationType? Type { get; private set; }
+        public ConflictScope? Scope { get; private set; }
+        public string? Target { get; private set; }
+
+        public Task<OperationStartResponse> EnqueueAsync(
+            OperationType type,
+            ConflictScope scope,
+            string displayName,
+            Func<Task<Guid?>> start,
+            CancellationToken ct,
+            OperationRequestKey requestKey,
+            bool reportRefusal = false,
+            RunNotice? notice = null,
+            string? target = null)
+        {
+            Type = type;
+            Scope = scope;
+            Target = target;
+            return Task.FromResult(response);
+        }
+
+        public Task<OperationConflictResponse?> StartUnlessBusyAsync(
+            OperationType type,
+            ConflictScope scope,
+            Func<Task<Guid?>> start,
+            CancellationToken ct, OperationRequestKey requestKey) => throw new NotSupportedException();
+    }
+
     private static Task<LogFileLock> HoldStepAsync(ControllerFixture fixture) =>
         fixture.RepairOwner.LockLogFilesAsync(
             null,
@@ -1709,7 +1854,9 @@ public sealed class LogsControllerRustFileOperationsTests
         private readonly ServiceProvider _services;
         private readonly OperationStateService _repairOwner;
 
-        public ControllerFixture(Func<IPathResolver, NginxLogRotationService>? nginx = null)
+        public ControllerFixture(
+            Func<IPathResolver, NginxLogRotationService>? nginx = null,
+            IOperationWaitlist? operationQueue = null)
         {
             _root = Path.Combine(Path.GetTempPath(), $"logs-controller-rust-{Guid.NewGuid():N}");
             Directory.CreateDirectory(_root);
@@ -1800,7 +1947,7 @@ public sealed class LogsControllerRustFileOperationsTests
                 State,
                 nginxRotation,
                 Checker,
-                operationQueue: null!,
+                operationQueue: operationQueue!,
                 _repairOwner,
                 new CacheManagementService(
                     configuration,

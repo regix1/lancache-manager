@@ -42,9 +42,9 @@ public sealed partial class PrefillContainerOrchestrationTests
         var second = await fixture.StartAsync("20");
         Assert.Equal(0, second.TerminalCompletedFlag);
         await fixture.RefreshAsync();
-        Assert.Equal([run.PrefillRunId], client.Cancelled);
+        Assert.Equal([run.PrefillRunId], client.Canceled);
         await fixture.RefreshAsync();
-        Assert.Equal("cancelled", run.Snapshot.State);
+        Assert.Equal("canceled", run.Snapshot.State);
     }
 
     /// <summary>
@@ -81,13 +81,13 @@ public sealed partial class PrefillContainerOrchestrationTests
 
         await Assert.ThrowsAsync<ServiceUnavailableException>(() => daemon.StopPersistentSessionAsync(session.Id, "admin"));
 
-        Assert.Equal("cancelled", run.Snapshot.State);
+        Assert.Equal("canceled", run.Snapshot.State);
         Assert.Contains(recorder.Invocations, invocation =>
             invocation.Method == nameof(ISignalRNotificationService.SendToPrefillClientRawAsync)
             && (string?)invocation.Args[0] == "page"
             && (string?)invocation.Args[1] == SignalREvents.PrefillProgress
             && (invocation.Args[2]?.GetType().GetProperty("progress")?.GetValue(invocation.Args[2]) as PrefillProgress)?.State
-                == "cancelled");
+                == "canceled");
     }
 
     /// <summary>
@@ -224,7 +224,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         database.ReleaseFirstCreate.TrySetResult(true);
 
         Assert.False(await stall.WaitAsync(TimeSpan.FromSeconds(10)));
-        Assert.Empty(client.Cancelled);
+        Assert.Empty(client.Canceled);
         Assert.True(run.CancelRequested);
         Assert.Equal("stalled", run.CancelReason);
     }

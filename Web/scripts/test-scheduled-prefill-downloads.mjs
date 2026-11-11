@@ -48,7 +48,7 @@ const run = (id, state) => ({
     cachedApps: 0,
     failedApps: 0,
     skippedApps: 0,
-    cancelledApps: 0
+    canceledApps: 0
   },
   items: [],
   recovering: false,
@@ -97,8 +97,8 @@ const create = () => {
 test('the run list separates active runs from newest-first history and cancels the exact run', () => {
   const cancellations = [];
   const tree = create()({
-    runs: [run('1', 'cancelled'), run('2', 'downloading'), run('3', 'failed')],
-    cancellingRunIds: ['2'],
+    runs: [run('1', 'canceled'), run('2', 'downloading'), run('3', 'failed')],
+    cancelingRunIds: ['2'],
     runErrors: { 2: 'Cancellation failed' },
     onCancel: (id) => cancellations.push(id)
   });
@@ -112,7 +112,7 @@ test('the run list separates active runs from newest-first history and cancels t
     history.map((node) => node.props.run.runId),
     ['3', '1']
   );
-  assert.equal(active[0].props.isCancelling, true);
+  assert.equal(active[0].props.isCanceling, true);
   assert.equal(active[0].props.error, 'Cancellation failed');
   active[0].props.onCancel();
   assert.deepEqual(cancellations, ['2']);
@@ -141,7 +141,7 @@ test('run headings use separate count badges for zero and populated lists', () =
   );
   assert.equal(walk(empty, disclosure)[0].props.count, 0);
   const populated = render({
-    runs: [run('1', 'downloading'), run('2', 'cancelled'), run('3', 'failed')]
+    runs: [run('1', 'downloading'), run('2', 'canceled'), run('3', 'failed')]
   });
   assert.deepEqual(
     walk(populated, badge).map((node) => node.children.join('')),
@@ -162,7 +162,7 @@ test('a finished run leaves active downloads and remains available in history', 
 });
 
 test('read-only session runs share history without adding cancellation or dismiss controls', () => {
-  const tree = create()({ runs: [run('1', 'downloading'), run('2', 'cancelled')] });
+  const tree = create()({ runs: [run('1', 'downloading'), run('2', 'canceled')] });
   const cards = walk(tree, card);
   assert.equal(cards.length, 2);
   assert.equal(cards[0].props.onCancel, undefined);

@@ -134,7 +134,7 @@ public sealed class EpicSignInMappingTests
         await rig.MappingEndsAsync();
 
         Assert.True(DateTime.UtcNow - submitted < TimeSpan.FromSeconds(10));
-        Assert.Equal("cancelled", Assert.Single(rig.Tracker.GetRuns().Runs).Status);
+        Assert.Equal("canceled", Assert.Single(rig.Tracker.GetRuns().Runs).Status);
         Assert.True(rig.Service.IsAuthenticated);
         // The game read before the stall is kept under its real title; the one in flight is left out.
         await using var db = await rig.Databases.CreateDbContextAsync();
@@ -159,7 +159,7 @@ public sealed class EpicSignInMappingTests
         await rig.SubmitAsync(start.AttemptId);
         await rig.MappingEndsAsync();
 
-        Assert.Equal("cancelled", Assert.Single(rig.Tracker.GetRuns().Runs).Status);
+        Assert.Equal("canceled", Assert.Single(rig.Tracker.GetRuns().Runs).Status);
         Assert.True(rig.Service.IsAuthenticated);
         Assert.Equal(1, rig.SessionLock.CurrentCount);
         Assert.Equal(0, rig.ProcessingFlag);
@@ -187,7 +187,7 @@ public sealed class EpicSignInMappingTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => submit.WaitAsync(TimeSpan.FromSeconds(10)));
         var ending = rig.Service.GetAuthStatus(rig.Fixture.Owner, start.AttemptId).LoginEnding;
         Assert.NotNull(ending);
-        Assert.Equal(OperationStatus.Cancelled, ending.Status);
+        Assert.Equal(OperationStatus.Canceled, ending.Status);
         Assert.Equal("errors.integration.attemptExpired", ending.StageKey);
         Assert.Equal(1, rig.SessionLock.CurrentCount);
         Assert.Equal(0, rig.ProcessingFlag);
@@ -280,7 +280,7 @@ public sealed class EpicSignInMappingTests
         Assert.True(await rig.Service.CancelRefreshAsync(rig.Fixture.Owner, start.AttemptId));
         await rig.MappingEndsAsync();
 
-        Assert.Equal("cancelled", Assert.Single(rig.Tracker.GetRuns().Runs).Status);
+        Assert.Equal("canceled", Assert.Single(rig.Tracker.GetRuns().Runs).Status);
         using var restarted = await rig.RestartAsync();
         Assert.True(restarted.IsAuthenticated);
         Assert.Equal(2, restarted.GamesDiscovered);
@@ -307,7 +307,36 @@ public sealed class EpicSignInMappingTests
         await rig.Service.LogoutAsync(rig.Fixture.Owner).WaitAsync(TimeSpan.FromSeconds(10));
         await rig.MappingEndsAsync();
 
-        Assert.Equal("cancelled", Assert.Single(rig.Tracker.GetRuns().Runs).Status);
+        Assert.Equal("canceled", Assert.Single(rig.Tracker.GetRuns().Runs).Status);
+        Assert.False(rig.Service.IsAuthenticated);
+        Assert.True(string.IsNullOrEmpty(rig.Fixture.Epic.GetAuthData().RefreshToken));
+    }
+
+    [Fact]
+    public async Task ALogoutWhileASavedLoginPrefillHoldsTheGateCancelsTheMappingAtOnceAndSignsOutWhenThePrefillLetsGoAsync()
+    {
+        using var rig = new Rig();
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Handler.Before = (request, token) =>
+        {
+            if (request.RequestUri!.AbsolutePath.StartsWith("/catalog/api/", StringComparison.Ordinal))
+            {
+                reached.TrySetResult();
+                return Task.Delay(Timeout.Infinite, token);
+            }
+            return Task.CompletedTask;
+        };
+        await rig.SignInAsync();
+        await reached.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await using var prefill = await rig.Fixture.Epic.AcquireIntegrationLoginAsync(rig.Fixture.Owner);
+
+        var logout = rig.Service.LogoutAsync(rig.Fixture.Owner);
+        await rig.MappingEndsAsync();
+
+        Assert.Equal("canceled", Assert.Single(rig.Tracker.GetRuns().Runs).Status);
+        Assert.False(logout.IsCompleted);
+        await prefill.DisposeAsync();
+        await logout.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.False(rig.Service.IsAuthenticated);
         Assert.True(string.IsNullOrEmpty(rig.Fixture.Epic.GetAuthData().RefreshToken));
     }
@@ -554,7 +583,7 @@ public sealed class EpicSignInMappingTests
         Assert.True(await rig.Service.CancelRefreshAsync(rig.Fixture.Owner, start.AttemptId));
         await rig.MappingEndsAsync();
 
-        Assert.Equal("cancelled", Assert.Single(rig.Tracker.GetRuns().Runs).Status);
+        Assert.Equal("canceled", Assert.Single(rig.Tracker.GetRuns().Runs).Status);
         Assert.True(rig.Service.IsAuthenticated);
     }
 

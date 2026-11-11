@@ -18,7 +18,7 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// The Steam sign-in outlives the request that started it, but authentication is not a depot-mapping
-/// run. These tests pin that failed and cancelled sign-ins leave the login guard clear without ever
+/// run. These tests pin that failed and canceled sign-ins leave the login guard clear without ever
 /// registering a mapping operation.
 /// </summary>
 public sealed class SteamLoginOperationLifetimeTests : IDisposable
@@ -83,14 +83,14 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
 
         var result = await signIn.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.False(result.Success);
-        Assert.Equal("Sign-in was cancelled.", result.Message);
+        Assert.Equal("Sign-in was canceled.", result.Message);
         Assert.Null(result.OperationId);
         Assert.Empty(tracker.GetActiveOperations(OperationType.DepotMapping));
 
         var ending = service.GetIntegrationLoginEnding(new IntegrationCaller(null, null, false), Assert.IsType<Guid>(result.AttemptId));
         Assert.NotNull(ending);
-        Assert.Equal(OperationStatus.Cancelled, ending.Status);
-        Assert.Equal("errors.steam.signInCancelled", ending.StageKey);
+        Assert.Equal(OperationStatus.Canceled, ending.Status);
+        Assert.Equal("errors.steam.signInCanceled", ending.StageKey);
     }
 
     /// <summary>
@@ -107,7 +107,7 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         {
             OnLogged = entry =>
             {
-                if (entry.Message != "Steam sign-in cancelled") return;
+                if (entry.Message != "Steam sign-in canceled") return;
                 inCancelArm.Set();
                 unwind.Wait(TimeSpan.FromSeconds(10));
             }
@@ -124,8 +124,8 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         await signIn.WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.NotNull(ending);
-        Assert.Equal(OperationStatus.Cancelled, ending.Status);
-        Assert.Equal("errors.steam.signInCancelled", ending.StageKey);
+        Assert.Equal(OperationStatus.Canceled, ending.Status);
+        Assert.Equal("errors.steam.signInCanceled", ending.StageKey);
     }
 
     [Fact]
@@ -158,16 +158,16 @@ public sealed class SteamLoginOperationLifetimeTests : IDisposable
         var failed = await failing.AuthenticateAsync("account", "password");
 
         var held = CreateService(CreateTracker(), new SemaphoreSlim(0, 1));
-        var cancelledSignIn = held.AuthenticateAsync("account", "password");
+        var canceledSignIn = held.AuthenticateAsync("account", "password");
         await WaitForActiveSignInAsync(held);
         held.CancelLogin();
-        var cancelled = await cancelledSignIn.WaitAsync(TimeSpan.FromSeconds(10));
+        var canceled = await canceledSignIn.WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Equal(
             new SignalRNotifications.IntegrationLoginEnded(Assert.IsType<Guid>(failed.AttemptId)),
             Assert.Single(SentEndings(failing)).Payload);
         Assert.Equal(
-            new SignalRNotifications.IntegrationLoginEnded(Assert.IsType<Guid>(cancelled.AttemptId)),
+            new SignalRNotifications.IntegrationLoginEnded(Assert.IsType<Guid>(canceled.AttemptId)),
             Assert.Single(SentEndings(held)).Payload);
     }
 

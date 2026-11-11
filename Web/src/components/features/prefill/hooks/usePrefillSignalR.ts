@@ -1,5 +1,10 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { type HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
+import {
+  type HubConnection,
+  HubConnectionBuilder,
+  HubConnectionState,
+  LogLevel
+} from '@microsoft/signalr';
 import { SIGNALR_BASE, STORAGE_KEYS } from '@utils/constants';
 import { sessionStore } from '@utils/storage';
 import { formatTimeRemaining, type PrefillSessionDto } from '../types';
@@ -222,12 +227,12 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
       }
       runsRef.current = applyPrefillRunProgress(runsRef.current, progress);
       setRuns(runsRef.current);
-      if (['completed', 'failed', 'cancelled'].includes(progress.state)) void refreshRuns();
+      if (['completed', 'failed', 'canceled'].includes(progress.state)) void refreshRuns();
     },
     [refreshRuns]
   );
 
-  // Cancels one run: marks it cancelling, invokes the run's hub cancel, and reads the run list again.
+  // Cancels one run: marks it canceling, invokes the run's hub cancel, and reads the run list again.
   const cancelPrefill = useCallback(
     async (runId: string): Promise<void> => {
       const connection = hubConnection.current;
@@ -244,9 +249,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         return;
       cancelRunsRef.current.add(runId);
       updateRuns([{ ...run, cancelRequested: true }]);
-      setRunErrors((errors) => ({ ...errors, [runId]: '' }));
       try {
         await connection.invoke('CancelPrefillRunAsync', currentSession.id, runId);
+        setRunErrors((errors) => ({ ...errors, [runId]: '' }));
         await refreshRuns();
       } catch (error: unknown) {
         if (sessionRef.current?.id !== currentSession.id) return;
@@ -365,8 +370,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
     setIsInitializing(true);
 
+    // Declared outside the try so the catch can read the state of the connection that failed.
+    let connection: HubConnection | null = null;
     try {
-      const connection = await connectToHub();
+      connection = await connectToHub();
       if (!connection) {
         setIsInitializing(false);
         return;
@@ -451,11 +458,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     } catch (err) {
       // Background session-reconciliation on mount/reconnect - a hub-closed/access-denied scenario
       // is expected and stays silent. A genuine failure means a running session may have been
-      // missed, so it shows the connection box with Retry instead of empty platform cards.
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      // missed, so it shows the connection box with Retry instead of empty platform cards. A close
+      // (unmount or reconnect stops the hub mid-invoke) leaves the connection no longer Connected.
       const isExpectedHubClose =
-        errorMessage.includes('connection being closed') ||
-        errorMessage.includes('Invocation canceled');
+        connection !== null && connection.state !== HubConnectionState.Connected;
       if (!isExpectedHubClose) {
         console.error('[usePrefillSignalR] Failed to initialize session:', getErrorMessage(err));
         setHubConnectFailed(true);
@@ -503,8 +509,13 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
         const created = await connection.invoke<CreateSessionResult>('OpenSessionAsync');
         if (created.stageKey !== null) {
-          // A refused create carries its reason as a key and values, shown through the failure path below.
-          throw new Error(t(created.stageKey, created.context ?? {}));
+          // A refused create carries its reason as a key and values; the text is built from the key here.
+          const refusal = t(created.stageKey, created.context ?? {});
+          setCreateSessionError(refusal);
+          notifyError(t('prefill.errors.failedCreateSession'));
+          addLog('error', refusal);
+          setIsCreating(false);
+          return;
         }
         const session = created.session;
         setSession(session);
@@ -548,10 +559,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         await connection.invoke('SubscribeToSessionAsync', session.id);
         setIsCreating(false);
       } catch (err) {
-        const errorMessage = getErrorMessage(err);
-        setCreateSessionError(errorMessage);
-        notifyError(t('prefill.errors.failedCreateSession'), err);
-        addLog('error', errorMessage);
+        const failure = t('prefill.errors.failedCreateSession');
+        setCreateSessionError(failure);
+        notifyError(failure, err);
+        addLog('error', failure);
         setIsCreating(false);
       }
     },

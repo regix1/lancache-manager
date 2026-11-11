@@ -22,10 +22,10 @@ public abstract partial class PrefillDaemonServiceBase
         {
             // A challenge can still arrive from a daemon
             // client whose session was already terminated/replaced - the client read loop delivering a
-            // queued "username" challenge right after Stop removed the session, just as a fresh
+            // waiting "username" challenge right after Stop removed the session, just as a fresh
             // container becomes the service's active session. Writing it to PendingLoginChallenge or
             // broadcasting it would repopulate a dead session's state and let that stale challenge leak
-            // toward the replacement (the "Received queued challenge for session <dead>" anomaly).
+            // toward the replacement (the "Received waiting challenge for session <dead>" anomaly).
             // Ignore any challenge whose session is no longer the live, Active session under its id.
             if (!_sessions.TryGetValue(session.Id, out var liveSession)
                 || !ReferenceEquals(liveSession, session)
@@ -91,7 +91,7 @@ public abstract partial class PrefillDaemonServiceBase
         try
         {
             // Post-detach/replace/terminate guard: daemon event callbacks are dispatched fire-and-forget,
-            // so a queued status event can arrive after this session was detached at shutdown, replaced
+            // so a status event still in flight can arrive after this session was detached at shutdown, replaced
             // (error-state), or terminated. Ignore it before any DB write / broadcast if it is no longer
             // the live registered instance for its id. Re-checked after each await below so a callback that
             // escaped the bounded teardown drain (took longer than the timeout) cannot resurrect teardown
@@ -130,16 +130,15 @@ public abstract partial class PrefillDaemonServiceBase
                 // report must not sign the container in, count a sign-in, end the drop retry, settle the
                 // login, or clear the mark. A report after this cancel has settled remembers that the
                 // daemon reached signed-in, so a later connection drop can clear the mark and sign in once.
-                // Message "Initialized" is the daemon's startup snapshot (GetStatus maps isInitialized to
-                // that text). It is not a finished sign-in, so it never arms the drop for this cancel.
+                // IsInitialized marks the daemon's startup snapshot (GetStatus reads isInitialized). It is
+                // not a finished sign-in, so it never arms the drop for this cancel.
                 // A sign-in the daemon finishes while this cancel is still running arms it too: a cancel
                 // cannot undo a finished sign-in, so no drop code for this cancel follows it.
                 var keepPersonCancel = session.LoginCanceledByPerson
                     && reportedAuthState == DaemonAuthState.Authenticated;
                 if (keepPersonCancel)
                 {
-                    var initializedSnapshot = string.Equals(status.Message, "Initialized", StringComparison.Ordinal);
-                    if (!session.LoggedInWhilePersonCanceled && !initializedSnapshot)
+                    if (!session.LoggedInWhilePersonCanceled && status.IsInitialized != true)
                     {
                         session.LoggedInWhilePersonCanceled = true;
                         witnessArmed = true;
@@ -420,7 +419,11 @@ public abstract partial class PrefillDaemonServiceBase
             if (session.LoginOperationId is not null)
             {
                 session.LastLoginFailureMessage = failure.Message;
-                session.LastLoginFailureKey = failure.StageKey;
+                // A tracked sign-in that suppresses challenges is a person's saved sign-in: the automatic try suppresses
+                // them too but never raises an operation. It names the drop as a saved sign-in does.
+                session.LastLoginFailureKey = session.SuppressLoginChallengePublication
+                    ? "prefill.persistent.loginDisconnected"
+                    : failure.StageKey;
                 CompleteLoginOperation(session);
             }
             DaemonSessionDto snapshot;
@@ -497,7 +500,7 @@ public abstract partial class PrefillDaemonServiceBase
         // Only a person's Log in registers a login operation; the automatic sign-ins never do.
         var personLogin = session.LoginOperationId is not null;
         // Every ending of a login comes through here - the daemon's own success broadcast, a fail-fast,
-        // the user cancelling, a logout, a login command that never reached the daemon, and the headless
+        // the user canceling, a logout, a login command that never reached the daemon, and the headless
         // abandon - so this is the single place a login's card gets closed. LoggingIn is the one state
         // that is not an ending: it is the broadcast that opens the flow. Done first so a broadcast
         // failure further down cannot leave a card running for a login that is already over.
@@ -670,7 +673,7 @@ public abstract partial class PrefillDaemonServiceBase
                 PrefillState = row.State switch
                 {
                     "completed" => PrefillState.Completed,
-                    "cancelled" => PrefillState.Cancelled,
+                    "canceled" => PrefillState.Canceled,
                     "failed" => PrefillState.Failed,
                     _ => PrefillState.Downloading
                 }
@@ -822,7 +825,7 @@ public abstract partial class PrefillDaemonServiceBase
                 if (session.Runs.ContainsKey(id) || saved.Any(row => row.Id == id)) continue;
                 // A run's row is saved before the run is sent, so a finished operation with no row is one whose
                 // row was deleted, and adopting it would write back history a reset removed.
-                if (snapshot.State is "completed" or "failed" or "cancelled") continue;
+                if (snapshot.State is "completed" or "failed" or "canceled") continue;
                 var page = await session.Client.GetOperationAsync(id, snapshot.DaemonInstanceId,
                     cancellationToken: cancellationToken);
                 var adopted = new DaemonRun
@@ -853,7 +856,7 @@ public abstract partial class PrefillDaemonServiceBase
                             if (run.TerminalCompletedFlag != 0 || run.AdmissionPending) continue;
                             // A Start that ended the run without sending it kept that end in memory when its save
                             // failed; the daemon never had the run, so no item history was lost.
-                            var unsentEnd = run.Snapshot is { State: "failed" or "cancelled" };
+                            var unsentEnd = run.Snapshot is { State: "failed" or "canceled" };
                             if (!unsentEnd) run.HistoryIncomplete = true;
                             await FinishRunAsync(session, run, unsentEnd ? run.Snapshot : run.Snapshot with
                             {
@@ -916,8 +919,8 @@ public abstract partial class PrefillDaemonServiceBase
     {
         if (!await run.PrefillWork.WaitAsync(0, cancellationToken))
         {
-            // The holder may have read the daemon before the change this call was told about, as when a cancelled
-            // run's end arrives during the read that still saw it cancelling. The holder reads again when it
+            // The holder may have read the daemon before the change this call was told about, as when a canceled
+            // run's end arrives during the read that still saw it canceling. The holder reads again when it
             // releases; one that released before the request was written is caught by the second try.
             run.ReconcileRequested = true;
             if (!await run.PrefillWork.WaitAsync(0, cancellationToken)) return;
@@ -937,7 +940,7 @@ public abstract partial class PrefillDaemonServiceBase
                 if (page.Operation.OperationId != run.PrefillRunId.ToString()
                     || page.Operation.DaemonInstanceId != run.DaemonInstanceId || page.Items is null)
                     throw new JsonException("Operation page has a different run identity.");
-                var terminal = page.Operation.State is "completed" or "failed" or "cancelled";
+                var terminal = page.Operation.State is "completed" or "failed" or "canceled";
                 firstTerminal ??= terminal;
                 if (terminal && firstTerminal == false)
                 {
@@ -957,7 +960,7 @@ public abstract partial class PrefillDaemonServiceBase
                 offset = page.NextOffset.Value;
             }
             if (!IsSessionLive(session) || snapshot!.Sequence < run.Snapshot.Sequence) return;
-            if (snapshot.State is "completed" or "failed" or "cancelled")
+            if (snapshot.State is "completed" or "failed" or "canceled")
                 await FinishRunAsync(session, run, snapshot, items, cancellationToken);
             else
             {
@@ -977,8 +980,8 @@ public abstract partial class PrefillDaemonServiceBase
                         .FirstOrDefault(snapshot => snapshot.OperationId == run.PrefillRunId.ToString());
             }
             // A Start that ended the run without sending it kept that end in memory when its save failed.
-            var outcome = retained is { State: "completed" or "failed" or "cancelled" } ? retained
-                : run.Snapshot is { State: "failed" or "cancelled" } ? run.Snapshot
+            var outcome = retained is { State: "completed" or "failed" or "canceled" } ? retained
+                : run.Snapshot is { State: "failed" or "canceled" } ? run.Snapshot
                 : run.Snapshot with
                 {
                     State = "failed",
@@ -1012,7 +1015,7 @@ public abstract partial class PrefillDaemonServiceBase
         IReadOnlyList<DaemonRunItem> items, CancellationToken cancellationToken, bool containerStopped = false)
     {
         if (run.TerminalCompletedFlag != 0 || (!containerStopped && !IsSessionLive(session))) return;
-        if (snapshot.State == "cancelled" && run.CancelReason is "stalled" or "auth-lost" or "runtime-exceeded")
+        if (snapshot.State == "canceled" && run.CancelReason is "stalled" or "auth-lost" or "runtime-exceeded")
             snapshot = snapshot with { State = "failed", Reason = run.CancelReason };
         if (snapshot.FailedApps > 0 && snapshot.State == "completed") snapshot = snapshot with { State = "failed" };
         // Set before the terminal save, so a sign-out's stall check never takes a run whose end is being saved for silent.
@@ -1035,7 +1038,7 @@ public abstract partial class PrefillDaemonServiceBase
         run.PrefillState = snapshot.State switch
         {
             "completed" => PrefillState.Completed,
-            "cancelled" => PrefillState.Cancelled,
+            "canceled" => PrefillState.Canceled,
             _ => PrefillState.Failed
         };
         Volatile.Write(ref run.LastProgressTicksUtc, 0);
@@ -1069,15 +1072,16 @@ public abstract partial class PrefillDaemonServiceBase
         var failure = snapshot.State == "failed" ? new DaemonCommandException(snapshot.Reason, loginStageKey: SignInLostStageKey) : null;
         run.ErrorMessage = failure?.Message;
         run.ErrorStageKey = failure?.StageKey;
+        // A stall and the time limit have no daemon text, so the message is the same key the browser words.
         if (snapshot.State == "failed" && snapshot.Reason == "stalled")
         {
-            run.ErrorMessage = "The prefill stopped making progress.";
             run.ErrorStageKey = "signalr.scheduledPrefill.failedStalled";
+            run.ErrorMessage = run.ErrorStageKey;
         }
         if (snapshot.State == "failed" && snapshot.Reason == "runtime-exceeded")
         {
-            run.ErrorMessage = "Exceeded maximum service runtime";
             run.ErrorStageKey = "signalr.scheduledPrefill.failedMaxRuntime";
+            run.ErrorMessage = run.ErrorStageKey;
         }
         run.LastProgress = new PrefillProgress
         {
@@ -1097,7 +1101,7 @@ public abstract partial class PrefillDaemonServiceBase
             UpdatedApps = snapshot.CompletedApps,
             AlreadyUpToDate = snapshot.CachedApps,
             FailedApps = snapshot.FailedApps,
-            CancelledApps = snapshot.CancelledApps,
+            CanceledApps = snapshot.CanceledApps,
             SkippedApps = snapshot.SkippedApps,
             TotalBytesTransferred = snapshot.BytesTransferred,
             UpdatedAt = snapshot.UpdatedAt.UtcDateTime,

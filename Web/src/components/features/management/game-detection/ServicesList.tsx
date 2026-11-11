@@ -15,7 +15,7 @@ interface ServicesListProps {
   /**
    * Optional client-only multi-select surface, forwarded straight to
    * CacheEntityList. Keyed on `service_name` (the list's item key). Absent =
-   * no checkboxes / no select-all (behaviour identical to today).
+   * no checkboxes / no select-all (behavior identical to today).
    */
   selection?: SelectionAdapter;
 }

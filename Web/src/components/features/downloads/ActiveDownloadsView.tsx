@@ -13,7 +13,7 @@ import Badge from '@components/ui/Badge';
 import BadgesRow from './BadgesRow';
 import { useActivityStatus } from '@contexts/ActivityContext/useActivityStatus';
 import { useConnectionLost } from '@hooks/useConnectionLost';
-import { buildTrafficKey, getGameDisplayName } from './liveDownloadPreviews';
+import { buildTrafficKey, getLiveGameDisplayName } from './liveDownloadPreviews';
 import { efficiencyTier, HIT_TIER_CLASS } from '@utils/efficiencyTier';
 import type { GameSpeedInfo, ClientSpeedInfo } from '../../../types';
 
@@ -164,9 +164,8 @@ const ActiveDownloadsView: React.FC = () => {
       <div className="downloads-list">
         {viewMode === 'games'
           ? games.map((game: GameSpeedInfo) => {
-              const displayName = getGameDisplayName(
-                game.gameName,
-                game.service,
+              const displayName = getLiveGameDisplayName(
+                game,
                 t('downloads.active.depotLabel', { depotId: game.depotId })
               );
               return (

@@ -9,7 +9,9 @@ const eslint = new ESLint({ cwd: webRoot });
 const rejected = {
   'text input disabled by saving': '<TextInput disabled={saving} />',
   'dropdown disabled by loading': '<EnhancedDropdown disabled={loading} />',
-  'native input disabled by a combined flag': '<input disabled={isScanBusy || saving} />'
+  'native input disabled by a combined flag': '<input disabled={isScanBusy || saving} />',
+  'text input disabled by a named saving flag': '<TextInput disabled={savingProfile} />',
+  'setting row disabled by a named submitting flag': '<SettingRow disabled={isSubmittingForm} />'
 };
 const allowed = {
   'dropdown disabled by a scan lock': '<EnhancedDropdown disabled={isScanBusy} />',
@@ -18,7 +20,7 @@ const allowed = {
 };
 
 async function saveFlagMessages(jsx) {
-  const source = `export function Fixture({ saving, loading, isScanBusy }) {\n  return <>${jsx}</>;\n}\n`;
+  const source = `export function Fixture({ saving, loading, isScanBusy, savingProfile, isSubmittingForm }) {\n  return <>${jsx}</>;\n}\n`;
   const [result] = await eslint.lintText(source, {
     filePath: resolve(webRoot, 'src/save-flag-fixture.tsx')
   });

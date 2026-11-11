@@ -78,7 +78,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
   const formCurrent = formIdentityRef.current === integration?.identity;
   const requestRef = useRef(0);
   const attemptRef = useRef<string | null>(null);
-  const cancelledAttemptRef = useRef<string | null>(null);
+  const canceledAttemptRef = useRef<string | null>(null);
   const busyRef = useRef(false);
   const [attemptId, setAttemptId] = useState<string | null>(null);
   // The attempt whose answer this page lost and whose ending it is waiting to be told about.
@@ -132,7 +132,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
   };
 
   const resetAuthForm = () => {
-    if (attemptRef.current) cancelledAttemptRef.current = attemptRef.current;
+    if (attemptRef.current) canceledAttemptRef.current = attemptRef.current;
     attemptRef.current = null;
     setAttemptId(null);
     cancelPendingRequest();
@@ -192,7 +192,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
         (status.canManage === true || status.ownershipReason === 'login-in-progress')
       ) {
         attemptRef.current = null;
-        cancelledAttemptRef.current = null;
+        canceledAttemptRef.current = null;
         onSuccess?.(t('modals.steamAuth.success.authenticatedAs', { username: askedUsername }));
         resetAuthForm();
         return true;
@@ -242,10 +242,10 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
 
   const cancelLogin = () => {
     if (!formCurrent || identityRef.current !== integration?.identity) return;
-    const cancelled = attemptId;
-    if (cancelledAttemptRef.current === cancelled) cancelledAttemptRef.current = null;
-    if (!integration || !cancelled) return;
-    void ApiService.cancelSteamLogin(cancelled)
+    const canceled = attemptId;
+    if (canceledAttemptRef.current === canceled) canceledAttemptRef.current = null;
+    if (!integration || !canceled) return;
+    void ApiService.cancelSteamLogin(canceled)
       .catch((error: unknown) => {
         console.warn('Steam sign-in cancellation was not acknowledged:', getErrorMessage(error));
       })
@@ -259,7 +259,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     requestRef.current += 1;
     busyRef.current = false;
     attemptRef.current = null;
-    cancelledAttemptRef.current = null;
+    canceledAttemptRef.current = null;
     setAttemptId(null);
     setUsername('');
     resetAuthForm();
@@ -330,7 +330,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
     const identity = integration?.identity;
     const current = () => requestRef.current === request && identityRef.current === identity;
     const submittedAttempt = integration ? (attemptRef.current ?? createUuid()) : null;
-    cancelledAttemptRef.current = null;
+    canceledAttemptRef.current = null;
     attemptRef.current = submittedAttempt;
     setAttemptId(submittedAttempt);
 
@@ -369,7 +369,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
       // Only the phone-approval wait gets a countdown drawn over it. Every request runs under the
       // same abort timer, but sending a Steam Guard code takes about two seconds, and putting a
       // two-minute clock over those two seconds made the line appear and vanish on every submit,
-      // sliding the centred panel each way. A wait that ends in seconds does not need a countdown.
+      // sliding the centered panel each way. A wait that ends in seconds does not need a countdown.
       // The timer arms here, after the click, never while a field is being filled, so a short
       // window cannot cut anyone off mid-typing.
       if (willWaitForMobileConfirmation) {
@@ -449,7 +449,7 @@ export function useSteamLoginFlow(options: SteamLoginFlowOptions) {
 
         if (result.success) {
           attemptRef.current = null;
-          cancelledAttemptRef.current = null;
+          canceledAttemptRef.current = null;
           onSuccess?.(t('modals.steamAuth.success.authenticatedAs', { username }));
           resetAuthForm();
           return true;

@@ -88,11 +88,11 @@ test('dismissing the Steam modal during the phone wait cancels the sign-in', () 
   );
   assert.ok(
     !phoneWaitBranch.includes('isPrefillMode'),
-    'the cancel is gated on prefill mode again, so the manager flow stops cancelling'
+    'the cancel is gated on prefill mode again, so the manager flow stops canceling'
   );
 });
 
-test('a sign-in that succeeded is never cancelled on its way out', () => {
+test('a sign-in that succeeded is never canceled on its way out', () => {
   // Success closes through the onClose prop directly. Routing it through handleCloseModal instead
   // would cancel the very sign-in that just worked.
   assert.ok(

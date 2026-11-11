@@ -13,9 +13,9 @@ public sealed class CorruptionReport
     [JsonRequired]
     public int ContractVersion { get; set; }
 
-    [JsonPropertyName("cancelled")]
+    [JsonPropertyName("canceled")]
     [JsonRequired]
-    public bool Cancelled { get; set; }
+    public bool Canceled { get; set; }
 
     [JsonPropertyName("detection_method")]
     [JsonRequired]

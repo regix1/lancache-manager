@@ -22,7 +22,7 @@ public class MappingOperationReporterTests
         Assert.True(committed);
         var terminal = Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(SignalREvents.DepotMappingComplete));
         Assert.True(terminal.Success);
-        Assert.False(terminal.Cancelled);
+        Assert.False(terminal.Canceled);
         Assert.Equal(OperationStatus.Completed, terminal.Status);
         Assert.Equal($"{MappingOperations.Steam.StageKeyPrefix}.completed", terminal.StageKey);
     }
@@ -121,12 +121,18 @@ public class MappingOperationReporterTests
             "SteamKit2",
             "SteamKit2Service.Scheduling.cs"));
 
+        // GitHub mode captures the run's trigger and notice before its start reaches the queue.
+        Assert.Contains("var notice = CurrentRunNotice;", source, StringComparison.Ordinal);
+        Assert.Contains("var trigger = CurrentRunTrigger;", source, StringComparison.Ordinal);
         Assert.Contains(
-            "ImportFromGitHubAsync(stoppingToken, CurrentRunTrigger, CurrentRunNotice)",
+            "ImportFromGitHubAsync(runToken, trigger, notice, started: registered)",
             source,
             StringComparison.Ordinal);
-        Assert.Contains("trigger: CurrentRunTrigger", source, StringComparison.Ordinal);
-        Assert.Contains("notice: CurrentRunNotice", source, StringComparison.Ordinal);
+        // The crawl's notice carries the run's trigger into TryStartRebuild.
+        Assert.Contains(
+            "StartRebuildThroughQueueAsync(incremental, CurrentRunNotice, stoppingToken)",
+            source,
+            StringComparison.Ordinal);
         Assert.DoesNotContain("RunTrigger.Scheduled)", source, StringComparison.Ordinal);
     }
 
@@ -177,7 +183,7 @@ public class MappingOperationReporterTests
         Assert.All(progress, item => Assert.Equal(reporter.OperationId, item.OperationId));
         Assert.Equal(reporter.OperationId, complete.OperationId);
         Assert.True(complete.Success);
-        Assert.False(complete.Cancelled);
+        Assert.False(complete.Canceled);
         Assert.Equal(OperationStatus.Completed, complete.Status);
         Assert.Equal(100, complete.PercentComplete);
         Assert.Empty(tracker.GetActiveOperations(definition.OperationType));
@@ -207,7 +213,7 @@ public class MappingOperationReporterTests
 
         Assert.Empty(notifications.PayloadsFor<ScheduledRunProgressEvent>(definition.Events.Progress));
         Assert.True(complete.Success);
-        Assert.False(complete.Cancelled);
+        Assert.False(complete.Canceled);
         Assert.Equal(OperationStatus.Skipped, complete.Status);
         Assert.Equal(0, complete.PercentComplete);
         Assert.Equal($"{definition.StageKeyPrefix}.skippedNothingToDo", complete.StageKey);
@@ -239,15 +245,19 @@ public class MappingOperationReporterTests
         Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(definition.Events.Complete));
         Assert.Equal(reporter.OperationId, complete.OperationId);
         Assert.False(complete.Success);
-        Assert.False(complete.Cancelled);
+        Assert.False(complete.Canceled);
         Assert.Equal(OperationStatus.Failed, complete.Status);
         Assert.Equal(42, complete.PercentComplete);
-        Assert.Equal("mapping failed", complete.Error);
+        // The card reads the failure from its key and the text it names, never from an English error field.
+        Assert.Null(complete.Error);
+        Assert.Equal($"{definition.StageKeyPrefix}.failed", complete.StageKey);
+        Assert.NotNull(complete.Context);
+        Assert.Equal("mapping failed", complete.Context!["errorDetail"]);
     }
 
     [Theory]
     [MemberData(nameof(Definitions))]
-    public async Task Reporter_CancellationEmitsOneCancelledTerminalAtHighestProgressAsync(
+    public async Task Reporter_CancellationEmitsOneCanceledTerminalAtHighestProgressAsync(
         MappingOperationDefinition definition)
     {
         var notifications = new CapturingNotificationService();
@@ -259,8 +269,8 @@ public class MappingOperationReporterTests
         await reporter.CompleteAsync(
             success: false,
             error: "Stopped before finishing",
-            cancelled: true,
-            stageKey: $"{definition.StageKeyPrefix}.cancelled");
+            canceled: true,
+            stageKey: $"{definition.StageKeyPrefix}.canceled");
 
         var terminal = await notifications.WhenEventAsync(definition.Events.Complete)
             .WaitAsync(TimeSpan.FromSeconds(5));
@@ -269,14 +279,14 @@ public class MappingOperationReporterTests
         Assert.Single(notifications.PayloadsFor<ScheduledRunCompleteEvent>(definition.Events.Complete));
         Assert.Equal(reporter.OperationId, complete.OperationId);
         Assert.False(complete.Success);
-        Assert.True(complete.Cancelled);
-        Assert.Equal(OperationStatus.Cancelled, complete.Status);
+        Assert.True(complete.Canceled);
+        Assert.Equal(OperationStatus.Canceled, complete.Status);
         Assert.Equal(55, complete.PercentComplete);
     }
 
     [Theory]
     [MemberData(nameof(Definitions))]
-    public async Task ExternalCancellation_UsesCancelledStageAndRejectsPostTerminalProgressAsync(
+    public async Task ExternalCancellation_UsesCanceledStageAndRejectsPostTerminalProgressAsync(
         MappingOperationDefinition definition)
     {
         var notifications = new CapturingNotificationService();
@@ -289,15 +299,14 @@ public class MappingOperationReporterTests
         tracker.CompleteOperation(
             reporter.OperationId,
             success: false,
-            error: "Force killed by user",
-            cancelled: true);
+            canceled: true);
         var terminal = await notifications.WhenEventAsync(definition.Events.Complete)
             .WaitAsync(TimeSpan.FromSeconds(5));
         await reporter.ReportAsync(80, $"{definition.StageKeyPrefix}.late");
 
         var complete = Assert.IsType<ScheduledRunCompleteEvent>(terminal.Payload);
-        Assert.True(complete.Cancelled);
-        Assert.Equal($"{definition.StageKeyPrefix}.cancelled", complete.StageKey);
+        Assert.True(complete.Canceled);
+        Assert.Equal($"{definition.StageKeyPrefix}.canceled", complete.StageKey);
         Assert.Single(notifications.PayloadsFor<ScheduledRunProgressEvent>(definition.Events.Progress));
     }
 

@@ -57,7 +57,7 @@ const EventModal: React.FC<EventModalProps> = ({
   const [pickerKey, setPickerKey] = useState(0);
   // The floor the two DateTimePickers below are given. They compare it against cells they build
   // in the browser's own calendar, so it is midnight of the browser's today. Taking the day from
-  // a display timezone instead lands the floor on the neighbouring day, which either lets an
+  // a display timezone instead lands the floor on the neighboring day, which either lets an
   // event be created that has already started or makes today unselectable.
   const todayMinDate = new Date();
   todayMinDate.setHours(0, 0, 0, 0);

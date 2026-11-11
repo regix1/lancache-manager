@@ -26,7 +26,7 @@ export function useClientProbe(): { state: ClientProbeState; retry: () => void }
       return;
     }
 
-    let cancelled = false;
+    let canceled = false;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CLIENT_PROBE_TIMEOUT_MS);
     setState({ status: 'checking', servedBy: null });
@@ -39,7 +39,7 @@ export function useClientProbe(): { state: ClientProbeState; retry: () => void }
           signal: controller.signal
         });
         const servedBy = response.headers.get('X-LanCache-Processed-By')?.trim() ?? null;
-        if (cancelled) return;
+        if (canceled) return;
         if (response.status === 204 && servedBy) {
           setState({ status: 'intercepted', servedBy });
         } else {
@@ -48,7 +48,7 @@ export function useClientProbe(): { state: ClientProbeState; retry: () => void }
       } catch (corsError) {
         if (isAbortError(corsError)) {
           // Timed out (or unmounted - guarded below): nothing answered in time.
-          if (!cancelled) setState({ status: 'unreachable', servedBy: null });
+          if (!canceled) setState({ status: 'unreachable', servedBy: null });
           return;
         }
         // A cors-mode TypeError usually just means the server didn't send CORS
@@ -59,9 +59,9 @@ export function useClientProbe(): { state: ClientProbeState; retry: () => void }
             cache: 'no-store',
             signal: controller.signal
           });
-          if (!cancelled) setState({ status: 'inconclusive', servedBy: null });
+          if (!canceled) setState({ status: 'inconclusive', servedBy: null });
         } catch (_fallbackError) {
-          if (!cancelled) setState({ status: 'unreachable', servedBy: null });
+          if (!canceled) setState({ status: 'unreachable', servedBy: null });
         }
       } finally {
         clearTimeout(timer);
@@ -71,7 +71,7 @@ export function useClientProbe(): { state: ClientProbeState; retry: () => void }
     void probe();
 
     return () => {
-      cancelled = true;
+      canceled = true;
       controller.abort();
       clearTimeout(timer);
     };

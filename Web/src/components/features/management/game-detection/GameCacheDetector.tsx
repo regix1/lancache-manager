@@ -135,21 +135,21 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // itself, Hidden ones included.
   const evictionScanActive = useOperationBusy({
     types: ['eviction_scan'],
-    status: ['running', 'waiting']
+    status: ['running', 'waiting', 'canceling']
   });
 
   // Game detection state from the server's run list. The eviction scan's own detection phase is
   // folded under that scan, so it never lands here.
   const isDetectionFromNotification = useOperationBusy({
     types: ['game_detection'],
-    status: ['running', 'cancelling']
+    status: ['running', 'canceling']
   });
-  // A QUEUED detection scan also disables the scan buttons (re-click would only
-  // queue a duplicate), without flipping the blocking body loader that the
+  // A WAITING detection scan also disables the scan buttons (re-click would only
+  // join it), without flipping the blocking body loader that the
   // running flag drives.
-  const isDetectionQueued = useOperationBusy({ types: ['game_detection'], status: 'waiting' });
+  const isDetectionWaiting = useOperationBusy({ types: ['game_detection'], status: 'waiting' });
 
-  // Any running/queued removal in the game-cache domain (single, evicted, or bulk)
+  // Any running/waiting removal in the game-cache domain (single, evicted, or bulk)
   // disables Remove All - single removes and Remove All gate together. Removals
   // from unrelated cards (corruption/logs/cache) still enqueue.
   const isCacheRemovalActive = useCacheRemovalActive();
@@ -372,6 +372,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         setGames(
           (detection.games ?? []).map((game) => ({
             ...game,
+            is_unresolved_depot: false,
             depot_ids: [],
             sample_urls: [],
             datasources: ['Default']
@@ -495,8 +496,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Reload after an eviction scan or successful cache clear so newly evicted games surface
   // immediately without requiring a full Game Cache Detection scan or service restart.
   useEffect(() => {
-    // Also bound to CacheClearingComplete, whose payload carries no status; the check reads it
-    // as undefined and lets a real clear through.
+    // Also bound to CacheClearingComplete. A cache clear never ends Skipped, so every clear
+    // ending reloads.
     const handleEvictionStateChanged = (event: { status?: OperationStatus }) => {
       if (isSkippedRun(event)) return;
       scheduleCachedDetectionSync('Failed to reload after cache eviction state changed');
@@ -511,7 +512,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   }, [on, off, scheduleCachedDetectionSync]);
 
   // The cache repair those jobs owe can change the cached results after their Complete events. The
-  // repair of a cancelled removal marks the files it already deleted as evicted, and a corruption
+  // repair of a canceled removal marks the files it already deleted as evicted, and a corruption
   // removal's repair reconciles the cache, which marks the games whose files are gone as evicted.
   useRepairEnd(
     [
@@ -1100,7 +1101,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 icon={<Zap className="w-3.5 h-3.5" />}
                 disabled={
                   loading ||
-                  isDetectionQueued ||
+                  isDetectionWaiting ||
                   evictionScanActive ||
                   mockMode ||
                   setupStatusLoading ||
@@ -1130,7 +1131,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 icon={<Search className="w-3.5 h-3.5" />}
                 disabled={
                   loading ||
-                  isDetectionQueued ||
+                  isDetectionWaiting ||
                   evictionScanActive ||
                   mockMode ||
                   setupStatusLoading ||
@@ -1485,7 +1486,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         fileCount={cacheFileCount ?? undefined}
         fileBytes={cacheFileBytes}
         statusMessage={countStatusMessage}
-        // Disabled only while the count is still running. A count that failed or was cancelled
+        // Disabled only while the count is still running. A count that failed or was canceled
         // leaves no number, and gating on that alone left the dialog with a message saying the
         // count failed and a Remove button that could never be pressed. The figure tells the
         // reader how much is about to go; not having it is a reason to warn, not to refuse.
@@ -1504,7 +1505,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         fileCount={cacheFileCount ?? undefined}
         fileBytes={cacheFileBytes}
         statusMessage={countStatusMessage}
-        // Disabled only while the count is still running. A count that failed or was cancelled
+        // Disabled only while the count is still running. A count that failed or was canceled
         // leaves no number, and gating on that alone left the dialog with a message saying the
         // count failed and a Remove button that could never be pressed. The figure tells the
         // reader how much is about to go; not having it is a reason to warn, not to refuse.

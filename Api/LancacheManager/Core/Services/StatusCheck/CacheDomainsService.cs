@@ -329,20 +329,73 @@ public sealed class CacheDomainsService : ICacheDomainsService
             // good disk copy.
             // Written without the caller's token: a cancel between these writes would leave the new
             // manifest naming domain files that were never written, and a restart serves that copy.
-            // The manifest goes last, so a failed write keeps the old manifest; the fetched list is
-            // still served from memory.
+            // The whole list goes into a new folder, and one rename of current.txt switches a restart
+            // to it, so a restart reads the whole old list or the whole new one, never a mix. Either
+            // way the fetched list is still served from memory.
             EnsureDomainsDirectory();
+            var listFolderName = "list-" + Guid.NewGuid().ToString("N");
+            var listFolder = Path.Combine(_domainsDirectory, listFolderName);
+            var pointerPath = Path.Combine(_domainsDirectory, "current.txt");
+            var switched = false;
             try
             {
+                Directory.CreateDirectory(listFolder);
                 foreach (var (fileName, fileContent) in referencedFiles)
                 {
-                    await File.WriteAllTextAsync(Path.Combine(_domainsDirectory, fileName), fileContent, CancellationToken.None);
+                    await File.WriteAllTextAsync(Path.Combine(listFolder, fileName), fileContent, CancellationToken.None);
                 }
-                await File.WriteAllTextAsync(Path.Combine(_domainsDirectory, "cache_domains.json"), manifestJson, CancellationToken.None);
+                await File.WriteAllTextAsync(Path.Combine(listFolder, "cache_domains.json"), manifestJson, CancellationToken.None);
+                await File.WriteAllTextAsync(pointerPath + ".tmp", listFolderName, CancellationToken.None);
+                File.Move(pointerPath + ".tmp", pointerPath, overwrite: true);
+                switched = true;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 _logger.LogWarning(ex, "Status Check: failed to save the cache-domains list to {Path}", _domainsDirectory);
+                try
+                {
+                    Directory.Delete(listFolder, recursive: true);
+                }
+                catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(cleanupEx, "Status Check: failed to delete the unused list folder {Path}", listFolder);
+                }
+                try
+                {
+                    File.Delete(pointerPath + ".tmp");
+                }
+                catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(cleanupEx, "Status Check: failed to delete the temp file {Path}", pointerPath + ".tmp");
+                }
+            }
+
+            if (switched)
+            {
+                // Older list folders, the flat layout from earlier versions and leftovers of a crashed
+                // save are no longer read.
+                foreach (var entry in Directory.EnumerateFileSystemEntries(_domainsDirectory))
+                {
+                    if (entry == pointerPath || entry == listFolder)
+                    {
+                        continue;
+                    }
+                    try
+                    {
+                        if (Directory.Exists(entry))
+                        {
+                            Directory.Delete(entry, recursive: true);
+                        }
+                        else
+                        {
+                            File.Delete(entry);
+                        }
+                    }
+                    catch (Exception cleanupEx) when (cleanupEx is IOException or UnauthorizedAccessException)
+                    {
+                        _logger.LogWarning(cleanupEx, "Status Check: failed to delete the old cache-domains entry {Path}", entry);
+                    }
+                }
             }
 
             _logger.LogInformation(
@@ -407,13 +460,15 @@ public sealed class CacheDomainsService : ICacheDomainsService
     private CacheDomainsList? LoadFromDisk()
     {
         var manifestPath = Path.Combine(_domainsDirectory, "cache_domains.json");
-        if (!File.Exists(manifestPath))
-        {
-            return null;
-        }
-
         try
         {
+            var listFolder = ListFolder();
+            manifestPath = Path.Combine(listFolder, "cache_domains.json");
+            if (!File.Exists(manifestPath))
+            {
+                return null;
+            }
+
             var manifestJson = File.ReadAllText(manifestPath);
             var services = ParseCacheDomainsJson(manifestJson);
             var result = new CacheDomainsList();
@@ -423,7 +478,7 @@ public sealed class CacheDomainsService : ICacheDomainsService
                 var domains = new List<string>();
                 foreach (var file in files)
                 {
-                    var filePath = Path.Combine(_domainsDirectory, SanitizeFileName(file));
+                    var filePath = Path.Combine(listFolder, SanitizeFileName(file));
                     if (File.Exists(filePath))
                     {
                         domains.AddRange(ParseDomainFile(File.ReadAllText(filePath)));
@@ -456,8 +511,18 @@ public sealed class CacheDomainsService : ICacheDomainsService
 
     private DateTime? GetDiskManifestWriteTimeUtc()
     {
-        var manifestPath = Path.Combine(_domainsDirectory, "cache_domains.json");
+        var manifestPath = Path.Combine(ListFolder(), "cache_domains.json");
         return File.Exists(manifestPath) ? File.GetLastWriteTimeUtc(manifestPath) : (DateTime?)null;
+    }
+
+    /// <summary>The folder current.txt names, or cache-domains itself when current.txt is absent:
+    /// installs from earlier versions and NOFETCH installs hold only the flat layout.</summary>
+    private string ListFolder()
+    {
+        var pointerPath = Path.Combine(_domainsDirectory, "current.txt");
+        return File.Exists(pointerPath)
+            ? Path.Combine(_domainsDirectory, SanitizeFileName(File.ReadAllText(pointerPath).Trim()))
+            : _domainsDirectory;
     }
 
     private void EnsureDomainsDirectory()

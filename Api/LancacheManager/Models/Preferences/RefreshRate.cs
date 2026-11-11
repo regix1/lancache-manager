@@ -72,7 +72,7 @@ public static class RefreshRateExtensions
 
     /// <summary>
     /// Parses a legacy / wire string value into a <see cref="RefreshRate"/>. Case-insensitive.
-    /// Returns <c>null</c> if the value is null, whitespace, or unrecognised.
+    /// Returns <c>null</c> if the value is null, whitespace, or unrecognized.
     /// </summary>
     public static RefreshRate? TryParseWire(string? value)
     {

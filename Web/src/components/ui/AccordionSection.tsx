@@ -24,7 +24,7 @@ interface AccordionSectionProps {
   count?: number;
   icon?: AccordionIcon;
   /**
-   * Colour token for the icon and its box. The header tints the box with the token's `-subtle`
+   * Color token for the icon and its box. The header tints the box with the token's `-subtle`
    * and `-muted` tiers, so the token has to be one the theme emits those tiers for - the closed
    * `ColorToken` union is what guarantees that.
    */

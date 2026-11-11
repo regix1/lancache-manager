@@ -9,6 +9,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -503,6 +504,167 @@ public sealed class PrefillTrafficSeparationTests : IDisposable
     }
 
     [Fact]
+    public async Task APrefillRuleForSteamAndXboxOnOneAddressKeepsThatAddresssOtherRows()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var steamPrefill = Row("steam", Container, 0, 5000, isPrefill: true);
+        var xboxPrefill = Row("xboxlive", Container, 0, 4000, isPrefill: true);
+        var epicPrefill = Row("epicgames", Container, 0, 3000, isPrefill: true);
+        var steamOrdinary = Row("steam", Container, 1000, 200);
+        await SeedAsync(database, steamPrefill, xboxPrefill, epicPrefill, steamOrdinary);
+        await using var context = new AppDbContext(database.Options);
+
+        var kept = await context.Downloads
+            .ApplyClientFilters([], [], [CacheScanGateHarness.PrefillRule(Container, ClientExclusionModes.Hide, PrefillPlatform.Steam, PrefillPlatform.Xbox)])
+            .Select(d => d.Id)
+            .OrderBy(id => id)
+            .ToListAsync();
+
+        Assert.Equal(new[] { epicPrefill.Id, steamOrdinary.Id }.Order(), kept);
+    }
+
+    [Fact]
+    public async Task TheClientFiltersDropEachPartAndTheAddedToCacheArmKeepsPrefillRows()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        const string hiddenIp = "10.0.0.7";
+        const string statsOnlyIp = "10.0.0.8";
+        var hidden = Row("steam", hiddenIp, 1000, 200);
+        var statsOnly = Row("steam", statsOnlyIp, 1000, 200);
+        var prefill = Row("steam", Container, 0, 5000, isPrefill: true);
+        var ordinary = Row("steam", Device, 1000, 200);
+        await SeedAsync(database, hidden, statsOnly, prefill, ordinary);
+        await using var context = new AppDbContext(database.Options);
+
+        var served = await context.Downloads
+            .ApplyClientFilters([hiddenIp], [statsOnlyIp], [CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Hide)])
+            .Select(d => d.Id)
+            .ToListAsync();
+        var addedToCache = await context.Downloads
+            .ApplyClientFilters([], [statsOnlyIp], [])
+            .Select(d => d.Id)
+            .OrderBy(id => id)
+            .ToListAsync();
+
+        Assert.Equal([ordinary.Id], served);
+        Assert.Equal(new[] { hidden.Id, prefill.Id, ordinary.Id }.Order(), addedToCache);
+    }
+
+    [Fact]
+    public void AStoredRuleWithNoTrafficFieldLoadsAsAWholeClientRule()
+    {
+        WriteState(new AppState { ExcludedClientRules = [new ClientExclusionRule { Ip = "10.0.0.5", Mode = ClientExclusionModes.Hide }] });
+        var path = Path.Combine(_root, nameof(IPathResolver.GetStateDirectory), "state.json");
+        File.WriteAllText(path, File.ReadAllText(path).Replace("\"Traffic\":\"all\",", "", StringComparison.Ordinal));
+        Assert.DoesNotContain("\"Traffic\"", File.ReadAllText(path), StringComparison.Ordinal);
+
+        var state = StateTestMethods.CreateStateService(_root);
+
+        var rule = Assert.Single(state.GetExcludedClientRules());
+        Assert.Equal(("10.0.0.5", ClientExclusionTraffic.All), (rule.Ip, rule.Traffic));
+        Assert.Equal(["10.0.0.5"], state.GetHiddenClientIps());
+        Assert.Empty(state.GetPrefillRules());
+    }
+
+    [Fact]
+    public async Task AHiddenPrefillRuleLeavesPrefillBytesOutOfTheSpeedHistory()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var recent = DateTime.UtcNow.AddMinutes(-10);
+        await SeedAsync(database, Row("steam", Device, 1000, 200, start: recent), Row("steam", Container, 0, 5000, isPrefill: true, start: recent));
+        var controller = new SpeedsController(null!, database.Factory, State([CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Hide)]), null!);
+
+        var result = await controller.GetSpeedHistoryAsync(60);
+
+        var history = Assert.IsType<SpeedHistorySnapshot>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(1200, history.TotalBytes);
+        Assert.Equal(1, history.TotalSessions);
+    }
+
+    [Fact]
+    public async Task AHiddenPrefillRuleLeavesPrefillRowsOutOfTheListWithEventTags()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var device = Row("steam", Device, 1000, 200);
+        await SeedAsync(database, device, Row("steam", Container, 0, 5000, isPrefill: true));
+        var controller = DownloadsOver(database, State([CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Hide)]));
+
+        var result = await controller.GetWithEventsAsync(startTime: new DateTimeOffset(Start.AddHours(-1)).ToUnixTimeSeconds());
+
+        var rows = Assert.IsType<List<DownloadWithEventTags>>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal([device.Id], rows.Select(row => row.Download.Id));
+    }
+
+    [Fact]
+    public async Task AHiddenPrefillRuleLeavesPrefillRowsOutOfTheRetroList()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedAsync(database, Row("steam", Device, 1000, 200), Row("steam", Container, 0, 5000, isPrefill: true));
+        var controller = DownloadsOver(database, State([CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Hide)]));
+
+        var result = await controller.GetRetroDownloadsAsync(new RetroDownloadQuery());
+
+        var retro = Assert.IsType<RetroDownloadResponse>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal(1, retro.TotalDownloads);
+        Assert.Equal(Device, Assert.Single(retro.Items).ClientIp);
+    }
+
+    [Fact]
+    public async Task AHiddenPrefillRuleLeavesPrefillRowsOutOfAGroupsMemberList()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var device = Row("steam", Device, 1000, 200);
+        var prefill = Row("steam", Container, 0, 5000, isPrefill: true);
+        await SeedAsync(database, device, prefill);
+        var controller = DownloadsOver(database, State([CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Hide)]));
+
+        var result = await controller.GetByIdsAsync(new BatchDownloadEventsRequest { DownloadIds = [device.Id, prefill.Id] });
+
+        var rows = Assert.IsType<List<Download>>(Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.Equal([device.Id], rows.Select(row => row.Id));
+    }
+
+    [Fact]
+    public async Task AHiddenPrefillRuleLeavesPrefillBytesOutOfEventCompareServedButNotMissed()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var device = Row("steam", Device, 1000, 200);
+        var prefill = Row("steam", Container, 0, 5000, isPrefill: true);
+        await SeedAsync(database, device, prefill);
+        await using (var seed = new AppDbContext(database.Options))
+        {
+            seed.Events.Add(new Event { Id = 7, Name = "LAN Party", StartTimeUtc = Start, EndTimeUtc = Start.AddHours(1), CreatedAtUtc = Start, ColorIndex = 1 });
+            seed.EventDownloads.AddRange(
+                new EventDownload { EventId = 7, DownloadId = device.Id, TaggedAtUtc = Start },
+                new EventDownload { EventId = 7, DownloadId = prefill.Id, TaggedAtUtc = Start });
+            await seed.SaveChangesAsync();
+        }
+        var service = BatchOver(database);
+        CacheScanGateHarness.SetField(service, "_stateRepository", State([CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Hide)]));
+
+        var compare = await service.GetEventCompareAsync([7], CancellationToken.None);
+
+        var series = Assert.Single(compare.Series);
+        Assert.Equal(1200, series.Served.Sum() ?? 0, 0);
+        Assert.Equal(5200, series.Missed.Sum() ?? 0, 0);
+    }
+
+    [Fact]
+    public async Task AHiddenPrefillRuleLeavesPrefillBytesOutOfTheServiceStats()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedAsync(database, Row("steam", Device, 1000, 200), Row("steam", Container, 0, 5000, isPrefill: true));
+        var controller = (StatsController)RuntimeHelpers.GetUninitializedObject(typeof(StatsController));
+        CacheScanGateHarness.SetField(controller, "_context", new AppDbContext(database.Options));
+        CacheScanGateHarness.SetField(controller, "_stateRepository", State([CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Hide)]));
+
+        var result = await controller.GetServicesAsync(ct: CancellationToken.None);
+
+        var steam = Assert.Single(Assert.IsType<List<ServiceStats>>(Assert.IsType<OkObjectResult>(result.Result).Value));
+        Assert.Equal(1200, steam.TotalBytes);
+    }
+
+    [Fact]
     public async Task AnExcludePrefillRuleKeepsTheDownloadsInListsAndTakesThemOutOfStats()
     {
         await using var database = await TestDatabase.CreateAsync();
@@ -526,11 +688,32 @@ public sealed class PrefillTrafficSeparationTests : IDisposable
 
         // ToQueryString throws when any part of the filter would need client evaluation.
         var sql = context.Downloads
-            .ApplyPrefillFilter(
+            .ApplyClientFilters(
+            [],
+            [],
             [
                 CacheScanGateHarness.PrefillRule("10.0.0.5", ClientExclusionModes.Hide, PrefillPlatform.Steam, PrefillPlatform.Xbox),
                 CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Exclude)
             ])
+            .ToQueryString();
+
+        Assert.Contains("WHERE", sql, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void AllThreeClientFilterPartsTranslateToSql()
+    {
+        using var context = new AppDbContext(
+            new DbContextOptionsBuilder<AppDbContext>()
+                .UseNpgsql("Host=localhost;Database=client_filters_translation_smoke_test")
+                .Options);
+
+        // ToQueryString throws when any part of the filter would need client evaluation.
+        var sql = context.Downloads
+            .ApplyClientFilters(
+                ["10.0.0.7"],
+                ["10.0.0.8"],
+                [CacheScanGateHarness.PrefillRule("10.0.0.5", ClientExclusionModes.Hide, PrefillPlatform.Steam)])
             .ToQueryString();
 
         Assert.Contains("WHERE", sql, StringComparison.OrdinalIgnoreCase);
@@ -828,6 +1011,15 @@ public sealed class PrefillTrafficSeparationTests : IDisposable
         CacheScanGateHarness.SetField(downloads, "_context", new AppDbContext(database.Options));
         CacheScanGateHarness.SetField(downloads, "_stateRepository", state);
         return downloads.GetByIdAsync(id);
+    }
+
+    private static DownloadsController DownloadsOver(TestDatabase database, IStateService state)
+    {
+        var context = new AppDbContext(database.Options);
+        return new DownloadsController(context, state, new EventsService(context, NullLogger<EventsService>.Instance, state), NullLogger<DownloadsController>.Instance)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
     }
 
     private static (StatsController Controller, RecordingNotifications Recorder) ExclusionsController(

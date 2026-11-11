@@ -168,7 +168,7 @@ public sealed class PrefillCacheStatusTests
 
     // Pins the ownership check on the run-cancel route a guest's browser can call.
     [Fact]
-    public async Task CancellingAnotherSessionsRunIsForbidden()
+    public async Task CancelingAnotherSessionsRunIsForbidden()
     {
         var (daemon, session, _) = PrefillCacheChangeTests.NewDaemon(NewOptions());
         session.Client = DispatchProxy.Create<IDaemonClient, NullReturningProxy>();

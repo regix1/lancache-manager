@@ -82,7 +82,7 @@ public partial class SteamKit2Service
 
             using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(reporter!.Token, window.Token);
             window.CancelAfter(login.ExpiresAtUtc > DateTime.UtcNow ? login.ExpiresAtUtc - DateTime.UtcNow : TimeSpan.Zero);
-            using var cancelled = lifetime.Token.Register(() =>
+            using var canceled = lifetime.Token.Register(() =>
             {
                 lock (_loginOwnerLock)
                     if (_loginAttempt == login) CancelLogin();
@@ -166,10 +166,10 @@ public partial class SteamKit2Service
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Steam sign-in cancelled");
-            return await EndLoginAsync(login, OperationStatus.Cancelled, "errors.steam.signInCancelled", new AuthenticationResult
+            _logger.LogInformation("Steam sign-in canceled");
+            return await EndLoginAsync(login, OperationStatus.Canceled, "errors.steam.signInCanceled", new AuthenticationResult
             {
-                Success = false, Message = "Sign-in was cancelled."
+                Success = false, Message = "Sign-in was canceled."
             });
         }
         catch (LancacheManager.Middleware.ApiException)
@@ -236,7 +236,7 @@ public partial class SteamKit2Service
             {
                 // Recorded before the attempt stops counting as running, so a status read in between reads the cancel.
                 _steamAuthRepository.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
-                    login.AttemptId, OperationStatus.Cancelled, "errors.steam.signInCancelled"));
+                    login.AttemptId, OperationStatus.Canceled, "errors.steam.signInCanceled"));
                 _steamAuthRepository.FinishIntegrationLogin(login);
             }
             _hasPendingLoginOwner = false;
@@ -470,7 +470,7 @@ public partial class SteamKit2Service
             // CM-rotation retry treats it like any other transient connection loss.
             throw new SteamConnectionLostException("Steam connection dropped during sign-in");
         }
-        catch (AuthenticationException authEx) when (authEx.Message.Contains("Expired"))
+        catch (AuthenticationException authEx) when (authEx.Result == EResult.Expired)
         {
             _logger.LogWarning("Authentication session expired - user did not confirm in time");
             return new CredentialsAuthPollOutcome

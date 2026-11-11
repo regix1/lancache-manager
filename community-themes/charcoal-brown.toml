@@ -3,7 +3,7 @@ name = "Timber & Stone"
 id = "charcoal-brown"
 description = "Warm browns, rich charcoals, and soft taupes - sophisticated earth tones"
 author = "Nature"
-version = "3.4.4"
+version = "3.4.5"
 isDark = true
 sharpCorners = false
 
@@ -20,7 +20,7 @@ bgTertiary = "#333130"
 bgHover = "#3d3a38"
 bgElevated = "#262321"
 bgSurface = "#2e2b29"
-bgSurfaceHover = "#353230"
+bgSurfaceHover = "#3f3d3c"
 bgSurfaceActive = "#3d3a38"
 bgOverlay = "rgba(0,0,0,0.6)"
 
@@ -69,9 +69,9 @@ waitingText = "#d8c3d4"
 
 # Service colors - Earthy clays, olives, taupes with dusty blue/sage accents
 steamColor = "#6b8095"  # Dusty slate blue
-epicColor = "#b0aca6"  # Warm silver grey
+epicColor = "#b0aca6"  # Warm silver gray
 originColor = "#ffca87"  # Pale caramel clay
-blizzardColor = "#a5baca"  # Pale ice blue-grey
+blizzardColor = "#a5baca"  # Pale ice blue-gray
 wsusColor = "#8fbc9a"  # Dusty sage green
 riotColor = "#c87164"  # Terracotta rose
 xboxColor = "#79a061"  # Muted moss green

@@ -141,7 +141,7 @@ public class XboxGameMappingController : ControllerBase
     public async Task<ActionResult<MessageOnlyResponse>> CancelLogin([FromBody] IntegrationLoginRequest? request = null)
     {
         _xboxCatalogMappingService.CancelLogin(await IntegrationLease.ResolveCallerAsync(HttpContext), request?.AttemptId);
-        return Ok(new MessageOnlyResponse { Message = "Xbox login cancelled" });
+        return Ok(new MessageOnlyResponse { Message = "Xbox login canceled" });
     }
 
     /// <summary>

@@ -8,7 +8,7 @@ using LancacheManager.Models;
 namespace LancacheManager.Core.Services;
 
 /// <summary>
-/// Implements the operation wait-queue (see <see cref="IOperationQueue"/>).
+/// Implements the operation wait-queue (see <see cref="IOperationWaitlist"/>).
 ///
 /// Concurrency model:
 ///  - <see cref="_gate"/> (async mutex) serializes enqueue decisions and promotions, closing
@@ -33,12 +33,12 @@ namespace LancacheManager.Core.Services;
 /// that swap two ways, and both are needed:
 ///  - <see cref="IUnifiedOperationTracker.RecordHandoff"/> is published BEFORE the waiting op is
 ///    completed, so every later cancel aimed at the old id follows it to the running op.
-///  - the waiting op's Cancelled latch is re-read AFTER the handoff is published, which catches a
+///  - the waiting op's Canceled latch is re-read AFTER the handoff is published, which catches a
 ///    cancel that landed earlier, while the start delegate was still running.
 /// Without them a cancel clicked during promotion returned 200, ended the waiting card, and left
 /// the work it had just started running to completion.
 /// </summary>
-public sealed class OperationQueueService : IOperationQueue
+public sealed class OperationWaitlistService : IOperationWaitlist
 {
     private sealed class Waiter
     {
@@ -63,56 +63,54 @@ public sealed class OperationQueueService : IOperationQueue
     private const int MaxPromotionRefusals = 300;
 
     /// <summary>
-    /// Invoked when a parked operation ends, including a cancel. The cache controller drops the queued
+    /// Invoked when a parked operation ends, including a cancel. The cache controller drops the waiting
     /// Remove all whose id this is and reports an ending that ran no service. Synchronous, on the completion stack.
     /// </summary>
-    internal static Action<Guid>? QueuedRemoveAllEnded;
+    internal static Action<Guid>? WaitingRemoveAllEnded;
     private static readonly TimeSpan _promotionRetryDelay = TimeSpan.FromMilliseconds(100);
 
     private readonly IUnifiedOperationTracker _tracker;
     private readonly IOperationConflictChecker _conflictChecker;
-    private readonly ILogger<OperationQueueService> _logger;
+    private readonly ILogger<OperationWaitlistService> _logger;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _sync = new();
     private readonly List<Waiter> _waiters = new();
     private long _nextSequence;
 
-    public OperationQueueService(
+    public OperationWaitlistService(
         IUnifiedOperationTracker tracker,
         IOperationConflictChecker conflictChecker,
-        ILogger<OperationQueueService> logger)
+        ILogger<OperationWaitlistService> logger)
     {
         _tracker = tracker;
         _conflictChecker = conflictChecker;
         _logger = logger;
 
-        // Single terminal hook: every op (success/failed/cancelled/force-killed) funnels
+        // Single terminal hook: every op (success/failed/canceled/force-killed) funnels
         // through CompleteOperation, so every terminal event can promote waiters.
         _tracker.OperationTerminal += op => { _ = PromoteEligibleAsync(); };
         // A waiter parked on a repair has no operation terminal to wait for.
         _tracker.BlockerCleared += () => { _ = PromoteEligibleAsync(); };
     }
 
-    public async Task<QueuedOperationResponse> EnqueueAsync(
+    public async Task<OperationStartResponse> EnqueueAsync(
         OperationType type,
         ConflictScope scope,
         string displayName,
         Func<Task<Guid?>> start,
         CancellationToken ct,
+        OperationRequestKey requestKey,
         bool reportRefusal = false,
         RunNotice? notice = null,
-        string? target = null,
-        StructuralScanMode? scanMode = null,
-        int? scanThreshold = null,
-        int? scanLookbackDays = null,
-        DetectionScanType? detectionScanType = null)
+        string? target = null)
     {
+        RequireKeyOfType(type, requestKey);
         await _gate.WaitAsync(ct);
         try
         {
             // Dedup against the queue first: an identical request already parked is returned
-            // as-is (never two queued copies of the same destructive work).
+            // as-is (never two waiting copies of the same destructive work).
             lock (_sync)
             {
                 // A count is read-only and belongs to the dialog that asked for it, so each request
@@ -126,27 +124,26 @@ public sealed class OperationQueueService : IOperationQueue
                     && w.Scope.Matches(scope)
                     // A waiter being canceled leaves this list a moment later, on another thread; a new
                     // request that joined it would end with it.
-                    // Two requests are the same when type, scope, target and scan settings match; a schedule's
-                    // requests carry neither target nor scan settings, so they match by type, which names the
-                    // schedule. The English name is for logs.
+                    // Two requests are the same when type, scope, target and request key match; a request
+                    // asking for other work (other tables, other limits, another crawl mode, other scan settings)
+                    // waits on its own card and runs after. A schedule's requests carry no target, so they match
+                    // by type, which names the schedule, and by key. The English name is for logs.
                     && _tracker.GetOperation(w.WaitingId) is { Status: OperationStatus.Waiting } waiting
                     && string.Equals(waiting.Target, target, StringComparison.Ordinal)
-                    && SameScanSettings(waiting, scanMode, scanThreshold, scanLookbackDays, detectionScanType));
+                    && waiting.RequestKey == requestKey);
                 // A request whose join was refused (that waiter is being canceled, or its own card
                 // stopped waiting) is not a duplicate: it goes on to the conflict check and waits or starts
                 // on its own. The waiting run's own lock is taken by Adopt, so a person's click raises its
                 // trigger and actor together, and the scan type the person pressed is kept.
                 if (duplicateWaiter != null
-                    && (notice is not { OperationId: not null, Cancelled: false }
+                    && (notice is not { OperationId: not null, Canceled: false }
                         || notice.CloseInto(_tracker, duplicateWaiter.WaitingId))
                     && (notice is null || duplicateWaiter.Notice is not { } retained || retained.Adopt(_tracker, notice)))
                 {
-                    return new QueuedOperationResponse
+                    return new OperationStartResponse
                     {
                         OperationId = duplicateWaiter.WaitingId,
-                        Queued = true,
-                        AlreadyRunning = true,
-                        Status = "waiting"
+                        Status = OperationStartStatus.Waiting
                     };
                 }
             }
@@ -222,12 +219,12 @@ public sealed class OperationQueueService : IOperationQueue
 
                 if (startedId.HasValue)
                 {
+                    RecordRequestKey(startedId.Value, requestKey);
                     if (notice is not null && notice.OperationId == cardBeforeStart) notice.Attach(_tracker, startedId.Value);
-                    return new QueuedOperationResponse
+                    return new OperationStartResponse
                     {
                         OperationId = startedId.Value,
-                        Queued = false,
-                        Status = "started"
+                        Status = OperationStartStatus.Started
                     };
                 }
 
@@ -241,17 +238,15 @@ public sealed class OperationQueueService : IOperationQueue
                 }
             }
             // Identical op already ACTIVE -> idempotent accept (never rejected, never doubled).
-            // Refused: the running duplicate turned Cancelling after GetDuplicateId read it. The request parks
+            // Refused: the running duplicate turned Canceling after GetDuplicateId read it. The request parks
             // below and runs once that run ends.
-            if (GetDuplicateId(conflict, scanMode, scanThreshold, scanLookbackDays, detectionScanType) is { } activeId
-                && (notice is not { OperationId: not null, Cancelled: false } || notice.CloseInto(_tracker, activeId)))
+            if (GetDuplicateId(conflict, requestKey) is { } activeId
+                && (notice is not { OperationId: not null, Canceled: false } || notice.CloseInto(_tracker, activeId)))
             {
-                return new QueuedOperationResponse
+                return new OperationStartResponse
                 {
                     OperationId = activeId,
-                    Queued = false,
-                    AlreadyRunning = true,
-                    Status = "alreadyRunning"
+                    Status = OperationStartStatus.AlreadyRunning
                 };
             }
 
@@ -260,6 +255,8 @@ public sealed class OperationQueueService : IOperationQueue
             var cts = new CancellationTokenSource();
             Guid waitingId = default;
             var blocker = ResolveBlocker(conflict);
+            // The waiting row carries the scan settings its key names, so the card names the scan it waits to run.
+            var scanKey = requestKey as CorruptionDetectionRequestKey;
             waitingId = _tracker.RegisterOperation(
                 type,
                 displayName,
@@ -267,7 +264,7 @@ public sealed class OperationQueueService : IOperationQueue
                 onTerminalCleanup: () =>
                 {
                     RemoveWaiter(waitingId);
-                    QueuedRemoveAllEnded?.Invoke(waitingId);
+                    WaitingRemoveAllEnded?.Invoke(waitingId);
                 },
                 initialStatus: OperationStatus.Waiting,
                 metadata: new Dictionary<string, object?> { ["waiting"] = true },
@@ -276,18 +273,19 @@ public sealed class OperationQueueService : IOperationQueue
                 target: target,
                 blockedByType: blocker?.Type,
                 blockedByTarget: blocker?.Target,
-                scanMode: scanMode,
-                scanThreshold: scanThreshold,
-                scanLookbackDays: scanLookbackDays,
+                scanMode: scanKey?.Mode,
+                scanThreshold: scanKey?.Threshold,
+                scanLookbackDays: scanKey?.LookbackDays,
                 blockedByFullRepair: blocker?.Metadata is CacheClearingRepair { FullRepair: true },
-                detectionScanType: detectionScanType);
+                detectionScanType: (requestKey as GameDetectionRequestKey)?.ScanType);
+            RecordRequestKey(waitingId, requestKey);
 
             // A waiting op has no worker, so the queue is its worker: when the universal
-            // cancel path cancels the CTS, complete the op as cancelled (CompletedFlag makes
+            // cancel path cancels the CTS, complete the op as canceled (CompletedFlag makes
             // a race with promotion's success-complete a safe who-wins).
-            // Cancelled is passed explicitly rather than left to the tracker's latch: this token can
-            // be cancelled by paths other than the cancel endpoint, and the card must read as
-            // cancelled on all of them. No attribution — at this point the code cannot tell a person
+            // Canceled is passed explicitly rather than left to the tracker's latch: this token can
+            // be canceled by paths other than the cancel endpoint, and the card must read as
+            // canceled on all of them. No attribution — at this point the code cannot tell a person
             // clicking cancel from the app shutting down.
             // A type that keeps its parked id when it starts running shares this token with the
             // work, so the completion is asked for rather than taken: once the operation is
@@ -325,7 +323,7 @@ public sealed class OperationQueueService : IOperationQueue
             if (conflict == null)
             {
                 _logger.LogInformation(
-                    "Queued {Type} '{Name}' ({Id}) after its local start gate temporarily refused",
+                    "Waiting {Type} '{Name}' ({Id}) after its local start gate temporarily refused",
                     type,
                     displayName,
                     waitingId);
@@ -333,7 +331,7 @@ public sealed class OperationQueueService : IOperationQueue
             else
             {
                 _logger.LogInformation(
-                    "Queued {Type} '{Name}' ({Id}) behind active {ActiveType} ({ActiveId})",
+                    "Waiting {Type} '{Name}' ({Id}) behind active {ActiveType} ({ActiveId})",
                     type, displayName, waitingId, conflict.ActiveOperationType, conflict.ActiveOperationId);
             }
 
@@ -342,12 +340,42 @@ public sealed class OperationQueueService : IOperationQueue
                 _ = PromoteAfterRetryDelayAsync();
             }
 
-            return new QueuedOperationResponse
+            return new OperationStartResponse
             {
                 OperationId = waitingId,
-                Queued = true,
-                Status = "waiting"
+                Status = OperationStartStatus.Waiting
             };
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<OperationConflictResponse?> StartUnlessBusyAsync(
+        OperationType type,
+        ConflictScope scope,
+        Func<Task<Guid?>> start,
+        CancellationToken ct,
+        OperationRequestKey requestKey)
+    {
+        RequireKeyOfType(type, requestKey);
+        await _gate.WaitAsync(ct);
+        try
+        {
+            var conflict = await _conflictChecker.CheckAsync(type, scope, ct);
+            if (conflict != null)
+            {
+                return conflict;
+            }
+
+            // Recorded on the run the start registered and on no other: a run of the same type that registers
+            // meanwhile (a depot Apply mappings click) did not ask for this work.
+            if (await start() is { } startedId)
+            {
+                RecordRequestKey(startedId, requestKey);
+            }
+            return null;
         }
         finally
         {
@@ -414,8 +442,7 @@ public sealed class OperationQueueService : IOperationQueue
     /// Serialized by <see cref="_gate"/>; re-entrant terminal events (the waiting op's own
     /// completion fires OperationTerminal too) simply run a later, idempotent pass.
     /// </summary>
-    private Guid? GetDuplicateId(OperationConflictResponse? conflict, StructuralScanMode? scanMode, int? scanThreshold,
-        int? scanLookbackDays, DetectionScanType? detectionScanType)
+    private Guid? GetDuplicateId(OperationConflictResponse? conflict, OperationRequestKey requestKey)
     {
         if (conflict?.StageKey != "errors.conflict.duplicate"
             || conflict.ActiveOperationId is not { } activeId || activeId == Guid.Empty)
@@ -433,27 +460,61 @@ public sealed class OperationQueueService : IOperationQueue
         // so the request waits and runs after them. A child step (an eviction scan's own detection) shares a
         // schedule's type but serves only its parent, so it never answers a schedule's request. A game
         // detection answers only a request for the same scan type: the other type waits and runs its own
-        // scan after.
+        // scan after. Any other request is answered only by a run whose key is equal; a run started without
+        // the queue carries the plain key, so a request with a key of its own waits and runs after it.
         return operation != null && !operation.Status.IsTerminal() && operation.Status != OperationStatus.Waiting
-            && operation.Status != OperationStatus.Cancelling
+            && operation.Status != OperationStatus.Canceling
             && operation.Type != OperationType.GameImageFetch
+            && Describes(operation, requestKey)
             && (operation.ParentOperationId is null && ScheduleOperationTypes.FindServiceKey(operation.Type) is not null
-                    && (operation.Type != OperationType.GameDetection || operation.DetectionScanType == detectionScanType)
-                || (operation.Type == OperationType.CorruptionDetection
-                    && SameScanSettings(operation, scanMode, scanThreshold, scanLookbackDays, detectionScanType)))
+                || operation.Type == OperationType.CorruptionDetection)
                 ? activeId
                 : null;
     }
 
-    // A corruption scan's identity: the mode, miss threshold and lookback the scan service compares
-    // (CorruptionDetectionService.StartDetectionAsync); the method is implied by the mode. A game detection's
-    // identity is its scan type. Both the waiter dedupe and GetDuplicateId use this, so the two cannot disagree.
-    private static bool SameScanSettings(OperationInfo operation, StructuralScanMode? scanMode, int? scanThreshold,
-        int? scanLookbackDays, DetectionScanType? detectionScanType)
-        => operation.ScanMode == scanMode
-            && operation.ScanThreshold == scanThreshold
-            && operation.ScanLookbackDays == scanLookbackDays
-            && operation.DetectionScanType == detectionScanType;
+    // Whether a running operation does the work a request's key asks for. A scan is matched on the settings it
+    // was registered with, because a scan started without the queue carries them too: a corruption scan's mode,
+    // miss threshold and lookback, the values the scan service compares (CorruptionDetectionService.StartDetectionAsync),
+    // and a game detection's scan type. Every other key is matched on the key the queue recorded on the run.
+    private static bool Describes(OperationInfo operation, OperationRequestKey requestKey) => requestKey switch
+    {
+        CorruptionDetectionRequestKey scan => operation.ScanMode == scan.Mode
+            && operation.ScanThreshold == scan.Threshold
+            && operation.ScanLookbackDays == scan.LookbackDays,
+        GameDetectionRequestKey detection => operation.DetectionScanType == detection.ScanType,
+        _ => operation.RequestKey == requestKey
+    };
+
+    // A job type whose requests differ takes its own key, so a caller of that type that passed the plain key, or
+    // another type's key, would join or answer work it did not ask for.
+    private static void RequireKeyOfType(OperationType type, OperationRequestKey requestKey)
+    {
+        var expected = type switch
+        {
+            OperationType.DatabaseReset => typeof(DatabaseResetRequestKey),
+            OperationType.UnmappedFileRemoval => typeof(UnmappedFileRemovalRequestKey),
+            OperationType.CorruptionRemoval => typeof(CorruptionRemovalRequestKey),
+            OperationType.CorruptionDetection => typeof(CorruptionDetectionRequestKey),
+            OperationType.GameDetection => typeof(GameDetectionRequestKey),
+            OperationType.GameImageFetch => typeof(GameImageFetchRequestKey),
+            OperationType.DepotMapping => typeof(DepotMappingRequestKey),
+            _ => typeof(OperationRequestKey)
+        };
+        if (requestKey.GetType() != expected)
+        {
+            throw new ArgumentException(
+                $"A {type} request takes a {expected.Name}, not a {requestKey.GetType().Name}.", nameof(requestKey));
+        }
+    }
+
+    // Written under _gate, where every join reads it.
+    private void RecordRequestKey(Guid operationId, OperationRequestKey requestKey)
+    {
+        if (_tracker.GetOperation(operationId) is { } operation)
+        {
+            operation.RequestKey = requestKey;
+        }
+    }
 
     // Set only where the refusal is a DownloadInProgressException, never for a start gate that stayed busy.
     private static void MarkSkippedForDownload(OperationInfo operation) => operation.SkippedForDownload = true;
@@ -486,10 +547,11 @@ public sealed class OperationQueueService : IOperationQueue
                         }
                     }
 
+                    // The waiting run's own record holds the request key, written when it parked; a record
+                    // already gone asks for the plain work of its type.
+                    var waiterKey = _tracker.GetOperation(waiter.WaitingId)?.RequestKey ?? OperationRequestKey.Plain;
                     var conflict = await _conflictChecker.CheckAsync(waiter.Type, waiter.Scope, CancellationToken.None);
-                    var waiterOperation = _tracker.GetOperation(waiter.WaitingId);
-                    var duplicateId = GetDuplicateId(conflict, waiterOperation?.ScanMode, waiterOperation?.ScanThreshold,
-                        waiterOperation?.ScanLookbackDays, waiterOperation?.DetectionScanType);
+                    var duplicateId = GetDuplicateId(conflict, waiterKey);
                     if (conflict != null && !duplicateId.HasValue)
                     {
                         // Still blocked; independent-scope waiters behind it may still promote.
@@ -509,6 +571,7 @@ public sealed class OperationQueueService : IOperationQueue
                     Guid? startedId = null;
                     string? startError = null;
                     string? startErrorDetail = null;
+                    RunWarning? startFailureReason = null;
                     var startDeclined = false;
                     var nothingToDo = false;
                     OperationBlockedException? stillBlocked = null;
@@ -520,7 +583,7 @@ public sealed class OperationQueueService : IOperationQueue
                         if (_tracker.TryCloseInto(waiter.WaitingId, runningId))
                         {
                             _logger.LogInformation(
-                                "Queued {Type} '{Name}' joined running op {RunningId}", waiter.Type, waiter.Name, runningId);
+                                "Waiting {Type} '{Name}' joined running op {RunningId}", waiter.Type, waiter.Name, runningId);
                             continue;
                         }
                     }
@@ -549,11 +612,11 @@ public sealed class OperationQueueService : IOperationQueue
                             startDeclined = true;
                             // Set for the control flow below, which reads a null startError as the
                             // transient local-start-gate case and parks the waiter for another 30
-                            // seconds. It never reaches the card: the terminal emit drops the text on a
-                            // skipped completion, because that field is rendered verbatim.
-                            startError = ex.Message;
+                            // seconds. It is the skipped row's message: the decline's own key, which
+                            // every refusal carries.
+                            startError = ex.StageKey;
                             _logger.LogInformation(
-                                "Queued {Type} '{Name}' declined at promotion: {Reason}",
+                                "Waiting {Type} '{Name}' declined at promotion: {Reason}",
                                 waiter.Type, waiter.Name, ex.Message);
                         }
                         catch (OperationBlockedException blocked)
@@ -569,19 +632,22 @@ public sealed class OperationQueueService : IOperationQueue
                         }
                         catch (Exception ex)
                         {
-                            // A refusal's key reaches the card, which shows it in the reader's language. The card
-                            // carries no values, so a refusal that needs some keeps its filled-in sentence. An error that
-                            // is not a refusal is not worded for a reader: it ends on the generic key, and the row keeps
-                            // its text as the error detail.
+                            // A refusal's key reaches the card, which shows it in the reader's language; its values
+                            // travel as the run's failure reason, which the card words the same way. An error with no
+                            // key is not worded for a reader: it ends on the generic key, and the row keeps its text as
+                            // the error detail.
                             startError = ex switch
                             {
-                                ApiException { StageKey: { } refusalKey, Context: null } => refusalKey,
-                                ApiException => ex.Message,
+                                ApiException { StageKey: { } refusalKey } => refusalKey,
                                 _ => "signalr.generic.failed"
                             };
-                            // A refusal's text is the server's English sentence; only the generic key needs the detail.
-                            startErrorDetail = ex is ApiException ? null : ex.Message;
-                            _logger.LogError(ex, "Queued {Type} '{Name}' failed to start at promotion", waiter.Type, waiter.Name);
+                            if (ex is ApiException { StageKey: { } key, Context: { } context })
+                            {
+                                startFailureReason = new RunWarning(key, context);
+                            }
+                            // A keyed refusal is worded by its key; every ending on the generic key keeps the text as detail.
+                            startErrorDetail = ex is ApiException { StageKey: not null } ? null : ex.Message;
+                            _logger.LogError(ex, "Waiting {Type} '{Name}' failed to start at promotion", waiter.Type, waiter.Name);
                         }
                     }
 
@@ -607,13 +673,13 @@ public sealed class OperationQueueService : IOperationQueue
                         {
                             AnnounceBlockerChange(waiter, stillBlocked.Conflict);
                             _logger.LogInformation(
-                                "Queued {Type} '{Name}' parked again on {Scope} behind {ActiveType} ({ActiveId})",
+                                "Waiting {Type} '{Name}' parked again on {Scope} behind {ActiveType} ({ActiveId})",
                                 waiter.Type, waiter.Name, stillBlocked.Scope.ToTrackerKey(),
                                 stillBlocked.Conflict.ActiveOperationType, stillBlocked.Conflict.ActiveOperationId);
                         }
                         else
                         {
-                            _tracker.CompleteOperation(waiter.WaitingId, success: false, cancelled: true);
+                            _tracker.CompleteOperation(waiter.WaitingId, success: false, canceled: true);
                         }
                         continue;
                     }
@@ -623,9 +689,9 @@ public sealed class OperationQueueService : IOperationQueue
                         // The parked record itself is now running. Completing it here would finish
                         // the work that just started and leave the card with nothing to follow.
                         _logger.LogInformation(
-                            "Promoted queued {Type} '{Name}' in place ({Id})",
+                            "Promoted waiting {Type} '{Name}' in place ({Id})",
                             waiter.Type, waiter.Name, waiter.WaitingId);
-                        if (_tracker.GetOperation(waiter.WaitingId)?.Cancelled == true)
+                        if (_tracker.GetOperation(waiter.WaitingId)?.Canceled == true)
                         {
                             _tracker.CancelOperation(waiter.WaitingId);
                         }
@@ -633,13 +699,14 @@ public sealed class OperationQueueService : IOperationQueue
                     else if (startedId.HasValue)
                     {
                         _logger.LogInformation(
-                            "Promoted queued {Type} '{Name}': waiting op {WaitingId} -> running op {NewId}",
+                            "Promoted waiting {Type} '{Name}': waiting op {WaitingId} -> running op {NewId}",
                             waiter.Type, waiter.Name, waiter.WaitingId, startedId.Value);
 
                         // Point the old id at the new one BEFORE closing the waiting card, so any
                         // cancel arriving from this moment on reaches the operation now doing the
                         // work rather than the parked card it replaced.
                         _tracker.RecordHandoff(waiter.WaitingId, startedId.Value);
+                        RecordRequestKey(startedId.Value, waiterKey);
                         waiter.Notice?.Attach(_tracker, startedId.Value);
 
                         // The waiting row ends as completed and names the running operation, so the
@@ -649,12 +716,12 @@ public sealed class OperationQueueService : IOperationQueue
                         // A cancel that landed WHILE Start() was running hit a waiting operation
                         // that no longer drove anything: it ended the parked card and left the work
                         // it had just started running, so the user was told the operation was
-                        // cancelled while it carried on. The Cancelled latch is set before the token
-                        // is cancelled and is never cleared, so that click is still readable here.
-                        if (_tracker.GetOperation(waiter.WaitingId)?.Cancelled == true)
+                        // canceled while it carried on. The Canceled latch is set before the token
+                        // is canceled and is never cleared, so that click is still readable here.
+                        if (_tracker.GetOperation(waiter.WaitingId)?.Canceled == true)
                         {
                             _logger.LogInformation(
-                                "Queued {Type} '{Name}' was cancelled during promotion; cancelling promoted op {NewId}",
+                                "Waiting {Type} '{Name}' was canceled during promotion; canceling promoted op {NewId}",
                                 waiter.Type, waiter.Name, startedId.Value);
                             _tracker.CancelOperation(startedId.Value);
                         }
@@ -665,7 +732,7 @@ public sealed class OperationQueueService : IOperationQueue
                         // operation while the old worker unwinds. Keep the real waiting operation
                         // parked and retry outside the global queue mutex instead of dropping the
                         // scheduled request or blocking every enqueue call inside waiter.Start().
-                        var requeued = false;
+                        var parkedAgain = false;
                         var retryLimitReached = false;
                         lock (_sync)
                         {
@@ -676,7 +743,7 @@ public sealed class OperationQueueService : IOperationQueue
                                 {
                                     _waiters.Add(waiter);
                                     _waiters.Sort(static (left, right) => left.Sequence.CompareTo(right.Sequence));
-                                    requeued = true;
+                                    parkedAgain = true;
                                 }
                                 else
                                 {
@@ -685,11 +752,11 @@ public sealed class OperationQueueService : IOperationQueue
                             }
                         }
 
-                        if (requeued)
+                        if (parkedAgain)
                         {
                             retryRequested = true;
                             _logger.LogDebug(
-                                "Queued {Type} '{Name}' temporarily refused promotion; retry {Attempt}/{MaxAttempts}",
+                                "Waiting {Type} '{Name}' temporarily refused promotion; retry {Attempt}/{MaxAttempts}",
                                 waiter.Type,
                                 waiter.Name,
                                 waiter.PromotionRefusals,
@@ -707,14 +774,14 @@ public sealed class OperationQueueService : IOperationQueue
                             _tracker.CompleteOperation(
                                 waiter.WaitingId,
                                 success: true,
-                                error: "Queued operation could not acquire its local start gate",
+                                error: "signalr.generic.skipped",
                                 skipped: true);
                         }
                         else
                         {
-                            // The waiting operation was cancelled while promotion was in flight.
+                            // The waiting operation was canceled while promotion was in flight.
                             // Promotion claimed it, so its cancel callback left the ending here.
-                            _tracker.CompleteOperation(waiter.WaitingId, success: false, cancelled: true);
+                            _tracker.CompleteOperation(waiter.WaitingId, success: false, canceled: true);
                         }
                     }
                     else
@@ -730,7 +797,9 @@ public sealed class OperationQueueService : IOperationQueue
                                 ? MarkSkippedForDownload
                                 : startErrorDetail is { } detail
                                     ? (OperationInfo operation) => operation.ErrorDetail = detail
-                                    : null);
+                                    : startFailureReason is { } reason
+                                        ? (OperationInfo operation) => operation.FailureReason = reason
+                                        : null);
                     }
                 }
             }

@@ -47,7 +47,7 @@ export const useStats = (): {
   const context = useDashboardDataContext();
   const { failedSectionKeys } = context;
   // Per section, not one flag: each card renders its own, so a failed cache sub-query must not
-  // make the clients card claim it failed too. Memoised so a consumer can put it in a dep array.
+  // make the clients card claim it failed too. Memoized so a consumer can put it in a dep array.
   const failedSections = useMemo(
     () => ({
       cache: failedSectionKeys.includes('cache'),

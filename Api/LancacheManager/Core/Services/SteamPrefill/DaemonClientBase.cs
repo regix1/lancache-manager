@@ -148,7 +148,7 @@ public abstract class DaemonClientBase : IDaemonClient
 
     /// <summary>
     /// Called on a failed connection attempt before the half-built transport is torn down, so a
-    /// transport can log its own endpoint detail. Not called when the attempt is cancelled.
+    /// transport can log its own endpoint detail. Not called when the attempt is canceled.
     /// </summary>
     protected virtual void OnConnectAttemptFailed(Exception exception)
     {
@@ -786,8 +786,10 @@ public abstract class DaemonClientBase : IDaemonClient
                 }
                 status.Status = element.TryGetProperty("isLoggedIn", out var loggedIn) && loggedIn.GetBoolean()
                     ? "logged-in" : "not-logged-in";
-                status.Message = element.TryGetProperty("isInitialized", out var init) && init.GetBoolean()
-                    ? "Initialized" : "Not initialized";
+                // Read by kind: a status that names the field as null (the manager's own serialized status does)
+                // means not initialized, and GetBoolean would throw and lose the whole status with its capabilities.
+                status.IsInitialized = element.TryGetProperty("isInitialized", out var init)
+                    && init.ValueKind == JsonValueKind.True;
                 status.AuthExpiryUtc = DaemonStatus.ParseAuthExpiry(element);
                 status.AccountDisplayName = accountName;
                 status.DisplayName = accountName;
@@ -1234,7 +1236,7 @@ public abstract class DaemonClientBase : IDaemonClient
     /// </summary>
     /// <returns>
     /// False both when the daemon refused the cancel and when the command never got through to
-    /// it. Either way the login may still be running, so false means "not confirmed cancelled".
+    /// it. Either way the login may still be running, so false means "not confirmed canceled".
     /// </returns>
     public async Task<bool> CancelLoginWithOutcomeAsync(CancellationToken cancellationToken = default)
     {
@@ -1702,7 +1704,7 @@ public abstract class DaemonClientBase : IDaemonClient
         var snapshot = JsonSerializer.Deserialize<DaemonRunSnapshot>(element.GetRawText(), _jsonOptions)
             ?? throw new JsonException("Required cancellation result is null.");
         if (snapshot.OperationId != runId.ToString() || snapshot.DaemonInstanceId != daemonInstanceId)
-            throw new JsonException("Cancellation acknowledgement has a different operation identity.");
+            throw new JsonException("Cancellation acknowledgment has a different operation identity.");
         return snapshot;
     }
 
@@ -1748,8 +1750,14 @@ public abstract class DaemonClientBase : IDaemonClient
             case "recent": parameters["recent"] = "true"; break;
             case "recently_purchased": parameters["recently_purchased"] = "true"; break;
             case "top":
-                parameters["top"] = options.TopCount?.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                ?? throw new ArgumentException("A top selection requires a count.", nameof(options)); break;
+                // Steam reads the count from `top`; the Xbox and Epic daemons read `top` as true/false and take
+                // `selection` plus `topCount`. A count the Xbox daemon refuses is refused before it gets here.
+                var topCount = options.TopCount
+                    ?? throw new ArgumentException("A top selection requires a count.", nameof(options));
+                parameters["top"] = topCount.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                parameters["selection"] = "top";
+                parameters["topCount"] = parameters["top"];
+                break;
         }
         if (cachedDepots is not null)
             parameters["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions);
@@ -1765,11 +1773,11 @@ public abstract class DaemonClientBase : IDaemonClient
                 RequiresLogin = response.RequiresLogin == true
             };
         if (response.Data is not JsonElement element)
-            throw new JsonException("Required prefill acknowledgement is absent.");
+            throw new JsonException("Required prefill acknowledgment is absent.");
         var result = JsonSerializer.Deserialize<PrefillResult>(element.GetRawText(), _jsonOptions)
-            ?? throw new JsonException("Required prefill acknowledgement is null.");
+            ?? throw new JsonException("Required prefill acknowledgment is null.");
         if (result.RunId != runId || result.DaemonInstanceId != daemonInstanceId)
-            throw new JsonException("Prefill acknowledgement has a different operation identity.");
+            throw new JsonException("Prefill acknowledgment has a different operation identity.");
         return result;
     }
 

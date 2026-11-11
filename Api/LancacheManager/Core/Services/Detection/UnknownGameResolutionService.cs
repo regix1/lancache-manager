@@ -36,6 +36,9 @@ public sealed class UnknownGameResolutionService
     /// </returns>
     public async Task<int> ResolveUnknownGamesAsync(CancellationToken cancellationToken = default)
     {
+        // Resolving rewrites a row's GameAppId to the owning app, so it can pair with a row another
+        // detection writer inserts for that app; the shared lock keeps those passes apart.
+        await GameCacheDetectionDataService.DetectionRowWriteLock.WaitAsync(cancellationToken);
         try
         {
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
@@ -141,9 +144,14 @@ public sealed class UnknownGameResolutionService
 
             var existingGamesByAppId = resolvedAppIds.Count == 0
                 ? new Dictionary<long, CachedGameDetection>()
-                : await dbContext.CachedGameDetections
-                    .Where(g => resolvedAppIds.Contains(g.GameAppId))
-                    .ToDictionaryAsync(g => g.GameAppId, cancellationToken);
+                : GameCacheDetectionDataService.KeepOneRowPerKey(
+                    dbContext,
+                    // An unknown depot's GameAppId is its depot number, not an app id, so it is
+                    // never a merge target for an app with the same number.
+                    await dbContext.CachedGameDetections
+                        .Where(g => resolvedAppIds.Contains(g.GameAppId) && !g.IsUnresolvedDepot)
+                        .ToListAsync(cancellationToken),
+                    g => g.GameAppId);
 
             var resolvedCount = 0;
             var newlyFailedDepots = new List<long>();
@@ -194,6 +202,7 @@ public sealed class UnknownGameResolutionService
                     {
                         unknownGame.GameName = resolvedName;
                         unknownGame.GameAppId = resolvedAppId;
+                        unknownGame.IsUnresolvedDepot = false;
                         pendingAppIdAssignments[resolvedAppId] = unknownGame;
                     }
 
@@ -232,6 +241,7 @@ public sealed class UnknownGameResolutionService
                     {
                         unknownGame.GameName = resolvedName;
                         unknownGame.GameAppId = resolvedAppId;
+                        unknownGame.IsUnresolvedDepot = false;
                         pendingAppIdAssignments[resolvedAppId] = unknownGame;
                     }
 
@@ -326,6 +336,10 @@ public sealed class UnknownGameResolutionService
             _logger.LogWarning(ex, "[GameDetection] Failed to resolve unknown games in cache");
             return 0;
         }
+        finally
+        {
+            GameCacheDetectionDataService.DetectionRowWriteLock.Release();
+        }
     }
 
     private static async Task<List<CachedGameDetection>> GetUnknownGamesCachedAsync(
@@ -333,7 +347,7 @@ public sealed class UnknownGameResolutionService
         CancellationToken cancellationToken)
     {
         return await dbContext.CachedGameDetections
-            .Where(g => g.GameName.StartsWith("Unknown Game (Depot"))
+            .Where(g => g.IsUnresolvedDepot)
             .ToListAsync(cancellationToken);
     }
 

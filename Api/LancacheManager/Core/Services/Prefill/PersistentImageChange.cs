@@ -19,5 +19,5 @@ internal sealed class PersistentImageChange
     public string? CreatedContainerId { get; set; }
     public bool ContainerRemoved { get; set; }
     public bool OldSessionRetired { get; set; }
-    public bool Cancelled { get; set; }
+    public bool Canceled { get; set; }
 }

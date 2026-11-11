@@ -6,7 +6,7 @@ namespace LancacheManager.Tests;
 /// Pins the rule both scan-mode routes apply before storing a mode. It reads only facts that survive
 /// at rest, because the Steam socket is closed between crawls: a connection or login flag would
 /// refuse Incremental and Full on every install. The stage keys are the ones the scan mode dropdown
-/// shows for the same missing requirement, so a refused save and a greyed-out option say one thing.
+/// shows for the same missing requirement, so a refused save and a grayed-out option say one thing.
 /// </summary>
 public class DepotScanModeRequirementTests
 {

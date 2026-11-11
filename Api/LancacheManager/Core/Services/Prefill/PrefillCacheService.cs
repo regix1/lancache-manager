@@ -38,13 +38,16 @@ public class PrefillCacheService
     /// </summary>
     internal async Task<bool> EnsureDepotMappingExistsAsync(AppDbContext context, long appId, long depotId, string? appName)
     {
+        // RecordSteamCacheAsync now drops the daemon's "App {appId}" before it stores anything, so
+        // only PrefillCachedDepots rows older versions stored still carry that exact form here.
+        var name = appName == $"App {appId}" ? null : appName;
         var execution = context.Database.CreateExecutionStrategy();
         return await execution.ExecuteAsync(async () =>
         {
             // A retried attempt must not save an entity a failed attempt left in the Added state.
             context.ChangeTracker.Clear();
             var relational = context.Database.IsRelational();
-            // A restore inside a PICS replace runs in the replace's transaction, so its rows commit with it.
+            // A restore inside a GitHub import runs in the import's transaction, so its rows commit with it.
             await using var transaction = relational && context.Database.CurrentTransaction == null
                 ? await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted)
                 : null;
@@ -66,15 +69,15 @@ public class PrefillCacheService
                 var changed = false;
                 var promoted = false;
 
-                // Update app name if we have a better one (not placeholder)
-                if (!string.IsNullOrEmpty(appName) &&
-                    !appName.StartsWith("App ") &&
-                    !appName.StartsWith("Steam App ") &&
+                // A stored "App N" or "Steam App N" is a row older versions wrote; this method and
+                // PicsDataService now store null for a missing name. Only those exact forms are
+                // replaced, so a real title that starts "App " is kept.
+                if (!string.IsNullOrEmpty(name) &&
                     (string.IsNullOrEmpty(existingMapping.AppName) ||
-                     existingMapping.AppName.StartsWith("App ") ||
-                     existingMapping.AppName.StartsWith("Steam App ")))
+                     existingMapping.AppName == $"App {existingMapping.AppId}" ||
+                     existingMapping.AppName == $"Steam App {existingMapping.AppId}"))
                 {
-                    existingMapping.AppName = appName;
+                    existingMapping.AppName = name;
                     existingMapping.DiscoveredAt = DateTime.UtcNow;
                     changed = true;
                 }
@@ -89,7 +92,8 @@ public class PrefillCacheService
                     changed = true;
                 }
 
-                // A depot whose owner row a PICS replace removed would otherwise stay "Unknown Game".
+                // No import deletes an owner row, but a depot older versions left with no owner has only
+                // this prefill row to name it, and without the promotion it stays "Unknown Game".
                 if (!existingMapping.IsOwner &&
                     existingMapping.Source == "Prefill" &&
                     !depotMappings.Any(m => m.IsOwner))
@@ -113,7 +117,7 @@ public class PrefillCacheService
             {
                 DepotId = depotId,
                 AppId = appId,
-                AppName = appName ?? $"App {appId}",
+                AppName = name,
                 IsOwner = !depotMappings.Any(m => m.IsOwner),
                 Source = "Prefill",
                 DiscoveredAt = DateTime.UtcNow
@@ -236,6 +240,9 @@ public class PrefillCacheService
     {
         if (appId is <= 0 or > uint.MaxValue || totalBytes < 0 || depots is not { Count: > 0 })
             return false;
+        // The steam prefill daemon still sends "App {appId}" for an app it has no name for
+        // (steam-prefill-daemon DownloadHandler.cs:219), so that exact form is no name.
+        if (appName == $"App {appId}") appName = null;
 
         var accepted = new List<DepotManifestProgressInfo>();
         foreach (var group in depots.GroupBy(depot => depot.DepotId).OrderBy(group => group.Key))

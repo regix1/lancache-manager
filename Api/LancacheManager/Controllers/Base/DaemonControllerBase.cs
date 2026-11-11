@@ -54,7 +54,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// Lists the games owned by the logged-in session, for the prefill picker.
     /// </summary>
     /// <remarks>
-    /// The list comes from the daemon rather than a local catalogue, so it reflects what
+    /// The list comes from the daemon rather than a local catalog, so it reflects what
     /// that account can actually download.
     /// </remarks>
     [HttpGet("sessions/{sessionId}/games")]

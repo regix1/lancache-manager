@@ -41,7 +41,7 @@ public class NginxLogRotationService
     private static readonly TimeSpan _bareMetalWarningThrottle = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan _availabilityCacheTtl = TimeSpan.FromSeconds(30);
     // One docker exec ... kill -USR1 normally returns within a second; 30 s lets a slow daemon
-    // finish and stops a hung one from holding the log lock and every job queued behind it.
+    // finish and stops a hung one from holding the log lock and every job waiting behind it.
     private static readonly TimeSpan _writerSignalTimeout = TimeSpan.FromSeconds(30);
 
     private const string HostPidVisibleMarker = "nginx-pid-visible";

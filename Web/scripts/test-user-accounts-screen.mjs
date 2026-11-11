@@ -6,7 +6,7 @@ import ts from 'typescript';
 /**
  * The account screen is meant to be assembled entirely out of components that already exist, and to
  * show the installation's own account with its row actions disabled rather than missing. Both are
- * claims about the source rather than about runtime behaviour, and there is no component renderer in
+ * claims about the source rather than about runtime behavior, and there is no component renderer in
  * this repo, so they are checked by reading the file's syntax tree.
  *
  * The main-admin check resolves the local name bound to `account.isMainAdmin` and then requires

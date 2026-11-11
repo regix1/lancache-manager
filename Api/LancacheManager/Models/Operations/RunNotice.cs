@@ -12,17 +12,22 @@ public sealed class RunNotice(
     ScheduleActor? actor = null,
     bool restoredOrigin = false)
 {
-    private int _cancelled;
+    private int _canceled;
     private readonly object _lock = new();
     public Guid? OperationId { get; private set; }
     public Guid? PendingId { get; internal set; }
+    /// <summary>
+    /// The detection scan type this run's waiting card named when a download held it. The run performs that
+    /// scan, so a hybrid schedule whose week runs out while the card waits does not start another one.
+    /// </summary>
+    public DetectionScanType? HeldScanType { get; internal set; }
     /// <summary>
     /// The operation this run was parked behind, recorded when the queue promotes it.
     /// A scan uses it to reuse that operation's results instead of starting the same work again.
     /// </summary>
     public Guid? BlockedByOperationId { get; internal set; }
     public CancellationToken Token { get; internal set; }
-    public bool Cancelled => Volatile.Read(ref _cancelled) != 0;
+    public bool Canceled => Volatile.Read(ref _canceled) != 0;
     public NotificationMode Mode { get; } = mode;
     public RunTrigger Trigger { get; internal set; } = trigger;
     public ScheduleActor? Actor { get; internal set; } = actor;
@@ -44,25 +49,25 @@ public sealed class RunNotice(
     {
         Guid? previousId;
         bool waiting;
-        bool cancelled;
+        bool canceled;
         lock (_lock)
         {
             previousId = OperationId;
             if (previousId == operationId) return;
             var previous = previousId.HasValue ? tracker.GetOperation(previousId.Value) : null;
             waiting = previous?.Status == OperationStatus.Waiting;
-            cancelled = Cancelled || previous?.Cancelled == true;
+            canceled = Canceled || previous?.Canceled == true;
             if (previousId.HasValue) tracker.RecordHandoff(previousId.Value, operationId);
             OperationId = operationId;
         }
 
         if (waiting && previousId.HasValue) tracker.CompleteOperation(previousId.Value, success: true);
-        if (cancelled || Cancelled) tracker.CancelOperation(operationId);
+        if (canceled || Canceled) tracker.CancelOperation(operationId);
     }
 
     public void Cancel(IUnifiedOperationTracker? tracker, Guid requestedId)
     {
-        Interlocked.Exchange(ref _cancelled, 1);
+        Interlocked.Exchange(ref _canceled, 1);
         Guid? currentId;
         lock (_lock) currentId = OperationId;
         if (tracker is not null && currentId.HasValue && currentId != requestedId) tracker.CancelOperation(currentId.Value);
@@ -80,7 +85,7 @@ public sealed class RunNotice(
         Guid waiting;
         lock (_lock)
         {
-            if (OperationId is not { } id || Cancelled) return false;
+            if (OperationId is not { } id || Canceled) return false;
             if (id == card) return true;
             waiting = id;
         }
@@ -108,7 +113,7 @@ public sealed class RunNotice(
             keptCard = OperationId;
             // A run already canceled, or whose card a person is dismissing, cannot answer a new request:
             // the request would ride on a run that never happens.
-            if (Cancelled || keptCard is { } ending && tracker?.GetOperation(ending)?.Cancelled == true) return false;
+            if (Canceled || keptCard is { } ending && tracker?.GetOperation(ending)?.Canceled == true) return false;
             if (keptCard is null && dropped.OperationId is { } droppedCard)
             {
                 OperationId = droppedCard;
@@ -135,7 +140,7 @@ public sealed class RunNotice(
             // and the schedule's own type is resolved again later. Only requests for the same scan type join,
             // so a type this run already has is the dropped one's.
             _requestedScanType ??= droppedScanType;
-            raised = !dropped.Cancelled && Rank(dropped.Trigger) > Rank(Trigger);
+            raised = !dropped.Canceled && Rank(dropped.Trigger) > Rank(Trigger);
             if (raised)
             {
                 Trigger = dropped.Trigger;

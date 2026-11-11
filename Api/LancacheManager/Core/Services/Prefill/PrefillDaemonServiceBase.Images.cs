@@ -428,7 +428,7 @@ public abstract partial class PrefillDaemonServiceBase
 
     private async Task ResumeImageChangeAsync(PersistentImageChange change, CancellationToken cancellationToken)
     {
-        if (change.Cancelled)
+        if (change.Canceled)
         {
             // A person's Stop that Docker could not finish is finished here; the change stores no person.
             await CancelPendingImageChangeAsync(change, terminatedBy: "system", cancellationToken);
@@ -559,7 +559,7 @@ public abstract partial class PrefillDaemonServiceBase
         string? terminatedBy,
         CancellationToken cancellationToken)
     {
-        change.Cancelled = true;
+        change.Canceled = true;
         // The person's Stop is recorded before Docker is asked, so a failed removal followed by a restart
         // does not bring the container back.
         if (!change.OldSessionRetired)
@@ -588,7 +588,7 @@ public abstract partial class PrefillDaemonServiceBase
 
             if (!change.ContainerRemoved)
             {
-                await TryBestEffortLogoutAsync(change.Session, "pending image update cancelled by explicit stop");
+                await TryBestEffortLogoutAsync(change.Session, "pending image update canceled by explicit stop");
             }
 
             // The image teardown removes the old container and, on success, releases the old client and its
@@ -622,7 +622,7 @@ public abstract partial class PrefillDaemonServiceBase
             }
             if (volumeResult == PersistentVolumeClearResult.InUse)
             {
-                throw new InvalidOperationException("The persistent login volume could not be cleared while cancelling the pending image update.");
+                throw new InvalidOperationException("The persistent login volume could not be cleared while canceling the pending image update.");
             }
         }
 

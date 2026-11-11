@@ -171,7 +171,7 @@ const runFetchEffect = ({ pageSize, mockMode = false, endpoint, options = {} }) 
       hasInitialDataRef: { current: false },
       requestInFlightRef: { current: false },
       reloadPendingRef: { current: false },
-      followUpQueuedRef: { current: false },
+      followUpWantedRef: { current: false },
       setRefreshVersion: () => undefined,
       setData: (value) => calls.setData.push(value),
       setError: (value) => calls.setError.push(value),

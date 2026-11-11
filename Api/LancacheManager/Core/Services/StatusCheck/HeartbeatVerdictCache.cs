@@ -10,7 +10,7 @@ namespace LancacheManager.Core.Services.StatusCheck;
 /// probe fan-out is bounded. Test-domain requests reuse fresh sweep verdicts for free.
 ///
 /// Probes run detached from caller cancellation (the probe function's own short HTTP timeout
-/// bounds them) so one cancelled caller can never poison the shared cached task; callers still
+/// bounds them) so one canceled caller can never poison the shared cached task; callers still
 /// honor their own token via <see cref="Task.WaitAsync(CancellationToken)"/>.
 /// </summary>
 internal sealed class HeartbeatVerdictCache

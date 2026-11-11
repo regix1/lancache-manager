@@ -11,7 +11,7 @@ import type {
 import { useReconnectRefetch } from './useReconnectRefetch';
 
 /** `unknown` until the server said whether a mapping runs: a status read that failed decides nothing. */
-export type EpicMappingPhase = 'unknown' | 'none' | 'running' | 'done' | 'failed' | 'cancelled';
+export type EpicMappingPhase = 'unknown' | 'none' | 'running' | 'done' | 'failed' | 'canceled';
 
 export interface EpicMappingRun {
   phase: EpicMappingPhase;
@@ -31,7 +31,7 @@ interface EpicMappingRunState {
 const NO_RUN: EpicMappingRun = { phase: 'none', percent: 0, stageKey: null, context: null };
 
 const endedRun = (event: EpicMappingCompleteEvent): EpicMappingRun => ({
-  phase: event.cancelled ? 'cancelled' : event.success ? 'done' : 'failed',
+  phase: event.canceled ? 'canceled' : event.success ? 'done' : 'failed',
   percent: event.percentComplete,
   stageKey: event.stageKey,
   context: event.context
@@ -147,8 +147,8 @@ export function useEpicMappingRun(armed: boolean): EpicMappingRunState {
         }
         // The server keeps an ended run's status for a few minutes; a run it no longer knows ended unseen.
         finish(
-          answer.status === 'cancelled'
-            ? { phase: 'cancelled', stageKey: 'signalr.epicMapping.cancelled', context: null }
+          answer.status === 'canceled'
+            ? { phase: 'canceled', stageKey: 'signalr.epicMapping.canceled', context: null }
             : { phase: 'failed', stageKey: 'signalr.epicMapping.mappingFailed', context: null }
         );
       })
@@ -207,7 +207,7 @@ export function useEpicMappingRun(armed: boolean): EpicMappingRunState {
 
 /** The line that tells where the mapping stands, worded from the stage key it last reported. */
 export function describeEpicMappingRun(run: EpicMappingRun, t: TFunction): string {
-  if (run.phase === 'cancelled') return t('signalr.epicMapping.cancelled');
+  if (run.phase === 'canceled') return t('signalr.epicMapping.canceled');
   if (run.stageKey === null) return t('signalr.epicMapping.codeAccepted');
   return t(run.stageKey, run.context ?? {});
 }

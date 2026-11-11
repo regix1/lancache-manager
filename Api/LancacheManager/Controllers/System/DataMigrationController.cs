@@ -18,8 +18,6 @@ namespace LancacheManager.Controllers;
 [Authorize(Policy = "AccountHolder")]
 public class DataMigrationController : ControllerBase
 {
-    private static readonly SemaphoreSlim _importStartLock = new(1, 1);
-
     /// <summary>
     /// Counts downloads of the same client, datasource, service and depot that contain the source
     /// row's full interval. A merged history has one row per download, so importing its older
@@ -33,20 +31,20 @@ public class DataMigrationController : ControllerBase
     private readonly ILogger<DataMigrationController> _logger;
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly IOperationConflictChecker _conflictChecker;
+    private readonly IOperationWaitlist _operationQueue;
     private readonly IConfiguration _configuration;
 
     public DataMigrationController(
         ILogger<DataMigrationController> logger,
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
-        IOperationConflictChecker conflictChecker,
+        IOperationWaitlist operationQueue,
         IConfiguration configuration)
     {
         _logger = logger;
         _notifications = notifications;
         _operationTracker = operationTracker;
-        _conflictChecker = conflictChecker;
+        _operationQueue = operationQueue;
         _configuration = configuration;
     }
 
@@ -55,7 +53,7 @@ public class DataMigrationController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Streams rows batch by batch, skipping or overwriting rows that already exist by
-    /// (ClientIp, StartTimeUtc). Runs as a tracked, cancellable operation reported over SignalR;
+    /// (ClientIp, StartTimeUtc). Runs as a tracked, cancelable operation reported over SignalR;
     /// the HTTP response only carries the final tally.
     /// </remarks>
     /// <param name="request">
@@ -94,15 +92,19 @@ public class DataMigrationController : ControllerBase
         }
         catch (Exception ex)
         {
-            _operationTracker.CompleteOperation(operationId, false, "Invalid source connection string");
+            _operationTracker.CompleteOperation(operationId, false, "errors.dataImport.invalidSource");
             _logger.LogWarning(ex, "Invalid source connection string for LancacheManager import");
-            return BadRequest(ApiResponse.Error("Invalid source PostgreSQL connection string"));
+            return BadRequest(new ErrorResponse
+            {
+                Error = "Invalid source PostgreSQL connection string",
+                StageKey = "errors.dataImport.invalidSource"
+            });
         }
 
         var targetConnectionString = _configuration.GetConnectionString("DefaultConnection");
         if (string.IsNullOrWhiteSpace(targetConnectionString))
         {
-            _operationTracker.CompleteOperation(operationId, false, "Target connection string is missing");
+            _operationTracker.CompleteOperation(operationId, false, "errors.dataImport.targetMissing");
             return StatusCode(500, new ErrorResponse
             {
                 Error = "Server database connection is not configured",
@@ -138,8 +140,12 @@ public class DataMigrationController : ControllerBase
                 sourceConnBuilder.Port == targetConnBuilder.Port &&
                 string.Equals(sourceConnBuilder.Database, targetConnBuilder.Database, StringComparison.OrdinalIgnoreCase))
             {
-                _operationTracker.CompleteOperation(operationId, false, "Source and target databases are identical");
-                return BadRequest(ApiResponse.Error("Cannot import from the same database that is currently in use"));
+                _operationTracker.CompleteOperation(operationId, false, "errors.dataImport.sameDatabase");
+                return BadRequest(new ErrorResponse
+                {
+                    Error = "Cannot import from the same database that is currently in use",
+                    StageKey = "errors.dataImport.sameDatabase"
+                });
             }
 
             // Open source database (read-only)
@@ -197,7 +203,11 @@ public class DataMigrationController : ControllerBase
 
                 using var reader = await readCmd.ExecuteReaderAsync();
                 var hasRecords = false;
-                var batchChanged = false;
+                // Counted into the totals only once the batch commits, so a batch that never lands
+                // is never reported as imported.
+                ulong batchImported = 0;
+                ulong batchSkipped = 0;
+                ulong batchErrors = 0;
 
                 using var transaction = targetConn.BeginTransaction();
 
@@ -221,6 +231,11 @@ public class DataMigrationController : ControllerBase
 
                     try
                     {
+                        // A statement Postgres refuses aborts the whole transaction, so each row runs
+                        // under its own savepoint and a refused row is undone alone.
+                        await transaction.SaveAsync("import_row");
+                        bool imported;
+
                         // Check if record exists
                         using var checkCmd = targetConn.CreateCommand();
                         checkCmd.Transaction = transaction;
@@ -256,19 +271,11 @@ public class DataMigrationController : ControllerBase
                                 updateCmd.Parameters.AddWithValue("@clientIp", clientIp);
                                 updateCmd.Parameters.AddWithValue("@startTimeUtc", startTimeUtc);
                                 var updated = await updateCmd.ExecuteNonQueryAsync();
-                                if (updated > 0)
-                                {
-                                    recordsImported++;
-                                    batchChanged = true;
-                                }
-                                else
-                                {
-                                    recordsSkipped++;
-                                }
+                                imported = updated > 0;
                             }
                             else
                             {
-                                recordsSkipped++;
+                                imported = false;
                             }
                         }
                         else
@@ -296,7 +303,7 @@ public class DataMigrationController : ControllerBase
 
                             if (covered)
                             {
-                                recordsSkipped++;
+                                imported = false;
                             }
                             else
                             {
@@ -318,18 +325,29 @@ public class DataMigrationController : ControllerBase
                                 insertCmd.Parameters.AddWithValue("@gameAppId", (object?)gameAppId ?? DBNull.Value);
                                 insertCmd.Parameters.AddWithValue("@datasource", datasource);
                                 await insertCmd.ExecuteNonQueryAsync();
-                                recordsImported++;
-                                batchChanged = true;
+                                imported = true;
                             }
+                        }
+
+                        await transaction.ReleaseAsync("import_row");
+                        if (imported)
+                        {
+                            batchImported++;
+                        }
+                        else
+                        {
+                            batchSkipped++;
                         }
                     }
                     catch (Exception ex)
                     {
+                        await transaction.RollbackAsync("import_row");
                         _logger.LogWarning(ex, "Error processing record");
-                        recordsErrors++;
+                        batchErrors++;
                     }
                 }
 
+                var batchChanged = batchImported > 0;
                 var invalidatePlan = batchChanged && !planInvalidated;
                 if (invalidatePlan)
                 {
@@ -340,6 +358,9 @@ public class DataMigrationController : ControllerBase
                 }
 
                 transaction.Commit();
+                recordsImported += batchImported;
+                recordsSkipped += batchSkipped;
+                recordsErrors += batchErrors;
                 if (invalidatePlan)
                 {
                     planInvalidated = true;
@@ -390,10 +411,16 @@ public class DataMigrationController : ControllerBase
                 ? $"Import failed: every one of {recordsErrors:N0} record(s) errored"
                 : completionMessage;
             _operationTracker.CompleteOperation(operationId, success: !importedNothing,
-                error: importedNothing ? finalMessage : null, onCompleting: operation =>
+                error: importedNothing ? "signalr.dataImport.allRecordsFailed" : null, onCompleting: operation =>
                 {
                     operation.PercentComplete = 100;
                     operation.Message = completionMessage;
+                    if (importedNothing)
+                    {
+                        operation.FailureReason = new RunWarning(
+                            "signalr.dataImport.allRecordsFailed",
+                            new Dictionary<string, object?> { ["count"] = recordsErrors });
+                    }
                     result.Message = finalMessage;
                     result.RecordsImported = recordsImported;
                     result.RecordsSkipped = recordsSkipped;
@@ -413,10 +440,10 @@ public class DataMigrationController : ControllerBase
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("LancacheManager import was cancelled");
-            _operationTracker.CompleteOperation(operationId, false, cancelled: true, onCompleting: _ =>
+            _logger.LogInformation("LancacheManager import was canceled");
+            _operationTracker.CompleteOperation(operationId, false, canceled: true, onCompleting: _ =>
             {
-                result.Message = "Import was cancelled";
+                result.Message = "Import was canceled";
                 result.RecordsImported = recordsImported;
                 result.RecordsSkipped = recordsSkipped;
                 result.RecordsErrors = recordsErrors;
@@ -425,8 +452,8 @@ public class DataMigrationController : ControllerBase
 
             return Ok(new MigrationImportResponse
             {
-                Message = $"Import cancelled: {recordsImported} imported before cancellation",
-                StageKey = "management.database.import.cancelledWithCount",
+                Message = $"Import canceled: {recordsImported} imported before cancellation",
+                StageKey = "management.database.import.canceledWithCount",
                 TotalRecords = totalRecords,
                 Imported = recordsImported,
                 Skipped = recordsSkipped,
@@ -436,8 +463,11 @@ public class DataMigrationController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during LancacheManager import");
-            _operationTracker.CompleteOperation(operationId, false, ex.Message, onCompleting: _ =>
+            _operationTracker.CompleteOperation(operationId, false, "signalr.dataImport.failed", onCompleting: operation =>
             {
+                operation.FailureReason = new RunWarning(
+                    "signalr.dataImport.failed",
+                    new Dictionary<string, object?> { ["errorDetail"] = ex.Message });
                 result.Message = $"Import failed: {ex.Message}";
                 result.RecordsImported = recordsImported;
                 result.RecordsSkipped = recordsSkipped;
@@ -541,7 +571,8 @@ public class DataMigrationController : ControllerBase
             return Ok(new ConnectionValidationResponse
             {
                 Valid = false,
-                Message = ex.Message
+                Message = ex.Message,
+                StageKey = "management.database.import.connectionFailed"
             });
         }
     }
@@ -550,18 +581,19 @@ public class DataMigrationController : ControllerBase
         string operationName,
         CancellationToken cancellationToken)
     {
-        await _importStartLock.WaitAsync(cancellationToken);
-        try
-        {
-            var conflict = await _conflictChecker.CheckAsync(
-                OperationType.DataImport,
-                ConflictScope.Bulk(),
-                cancellationToken);
-            if (conflict != null)
-            {
-                return (null, null, null, conflict);
-            }
+        // The queue checks and registers under one lock, so a clear and an import sent at the same moment
+        // cannot both start; a conflicting import is still answered 409, never parked.
+        (Guid? OperationId, CancellationTokenSource? CancellationTokenSource, DataImportMetrics? Result, OperationConflictResponse? Conflict) started = default;
+        var conflict = await _operationQueue.StartUnlessBusyAsync(
+            OperationType.DataImport,
+            ConflictScope.Bulk(),
+            StartAsync,
+            cancellationToken,
+            OperationRequestKey.Plain);
+        return conflict != null ? (null, null, null, conflict) : started;
 
+        Task<Guid?> StartAsync()
+        {
             var cts = new CancellationTokenSource();
             var result = new DataImportMetrics();
             var startingSnapshot = result.CaptureProgress(
@@ -570,7 +602,8 @@ public class DataMigrationController : ControllerBase
                 new Dictionary<string, object?>());
             // Single terminal emit for the whole op: every CompleteOperation (success, cancel,
             // exception, AND the early validation fast-fails) funnels here exactly once. The owning
-            // method fills `result` before completing; cancel/error/validation fall back to info.Error.
+            // method fills `result` before completing when it can; a force stop or a request refused
+            // before the import began leaves `result.Message` unset, and the card reads the stage key.
             Guid registeredId = Guid.Empty;
             var operationId = _operationTracker.RegisterOperation(
                 OperationType.DataImport,
@@ -578,47 +611,58 @@ public class DataMigrationController : ControllerBase
                 cts,
                 metadata: result,
                 onTerminalCleanup: result.ClearProgress,
-                onTerminalEmit: info => info.Cancelled
+                onTerminalEmit: ending => ending.Canceled
                     ? _notifications.NotifyAllAsync(SignalREvents.DataImportComplete,
                         new DataImportComplete(
                             OperationId: registeredId,
                             Success: false,
-                            Message: result.Message ?? "Import cancelled",
-                            Cancelled: true,
+                            StageKey: "signalr.dataImport.canceled",
+                            Message: result.Message,
+                            Canceled: true,
                             RecordsImported: result.RecordsImported,
                             RecordsSkipped: result.RecordsSkipped,
                             RecordsErrors: result.RecordsErrors,
                             TotalRecords: result.TotalRecords))
-                    : info.Success
+                    : ending.Success
                         ? _notifications.NotifyAllAsync(SignalREvents.DataImportComplete,
                             new DataImportComplete(
                                 OperationId: registeredId,
                                 Success: true,
-                                Message: result.Message ?? "Import completed",
+                                StageKey: "management.database.import.completed",
+                                Message: result.Message,
                                 RecordsImported: result.RecordsImported,
                                 RecordsSkipped: result.RecordsSkipped,
                                 RecordsErrors: result.RecordsErrors,
                                 TotalRecords: result.TotalRecords))
-                        : _notifications.NotifyOperationFailedAsync(SignalREvents.DataImportComplete,
-                            new DataImportComplete(
-                                OperationId: registeredId,
-                                Success: false,
-                                Message: result.Message ?? info.Error ?? "Data import failed",
-                                RecordsImported: result.RecordsImported,
-                                RecordsSkipped: result.RecordsSkipped,
-                                RecordsErrors: result.RecordsErrors,
-                                TotalRecords: result.TotalRecords)));
+                        : NotifyImportFailedAsync(registeredId, result));
             registeredId = operationId;
             _operationTracker.UpdateProgress(
                 operationId,
                 startingSnapshot.PercentComplete,
                 startingSnapshot.StageKey);
-            return (operationId, cts, result, null);
+            started = (operationId, cts, result, null);
+            return Task.FromResult<Guid?>(operationId);
         }
-        finally
-        {
-            _importStartLock.Release();
-        }
+    }
+
+    // Called from the terminal emit, which starts only after CompleteOperation stored the key the run
+    // ended on and that key's values, so the live card reads the reason a restored card reads.
+    private Task NotifyImportFailedAsync(Guid operationId, DataImportMetrics result)
+    {
+        var ended = _operationTracker.GetOperation(operationId)!;
+        return _notifications.NotifyOperationFailedAsync(SignalREvents.DataImportComplete,
+            new DataImportComplete(
+                OperationId: operationId,
+                Success: false,
+                StageKey: ended.Message,
+                Message: result.Message,
+                RecordsImported: result.RecordsImported,
+                RecordsSkipped: result.RecordsSkipped,
+                RecordsErrors: result.RecordsErrors,
+                TotalRecords: result.TotalRecords,
+                Context: ended.FailureReason is { } reason && reason.StageKey == ended.Message
+                    ? new Dictionary<string, object?>(reason.Context)
+                    : null));
     }
 
     private async Task ReportProgressAsync(

@@ -39,12 +39,12 @@ const createServer = () => {
         return this.startUnmappedCacheFileCount();
       },
       cancelOperation(operationId) {
-        statuses.set(operationId, 'Cancelled');
+        statuses.set(operationId, 'Canceled');
         return Promise.resolve();
       },
       getCacheFileCountStatus(operationId) {
         return Promise.resolve(
-          statuses.get(operationId) === 'Cancelled'
+          statuses.get(operationId) === 'Canceled'
             ? { operationId, isProcessing: false }
             : { operationId, isProcessing: true, stageKey: 'counting' }
         );
@@ -101,13 +101,13 @@ test('a reopened dialog starts its own count at once, even while the first start
   server.answerFirstStart();
   await flush();
   await flush();
-  assert.equal(server.statuses.get('count-1'), 'Cancelled');
+  assert.equal(server.statuses.get('count-1'), 'Canceled');
   assert.equal(server.statuses.get('count-2'), 'Waiting');
   assert.equal(failed, false);
 
   closeReopened();
   await flush();
-  assert.equal(server.statuses.get('count-2'), 'Cancelled');
+  assert.equal(server.statuses.get('count-2'), 'Canceled');
 });
 
 test('a cancel that fails once is sent again, so a closed dialog does not leave its count running', async () => {
@@ -124,7 +124,7 @@ test('a cancel that fails once is sent again, so a closed dialog does not leave 
   close();
   await waitForRetry();
 
-  assert.equal(server.statuses.get('count-1'), 'Cancelled');
+  assert.equal(server.statuses.get('count-1'), 'Canceled');
 });
 
 // Runs a dialog whose count cancels fail `failures` times, recording when each cancel was sent.
@@ -155,7 +155,7 @@ test('the cancel retry waits before it is sent', async () => {
 
   assert.equal(sentAt.length, 2);
   assert.ok(sentAt[1] - sentAt[0] >= 50, `retry sent after ${sentAt[1] - sentAt[0]} ms`);
-  assert.equal(server.statuses.get('count-1'), 'Cancelled');
+  assert.equal(server.statuses.get('count-1'), 'Canceled');
   assert.deepEqual(errors, []);
 });
 

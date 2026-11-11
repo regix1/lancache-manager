@@ -35,12 +35,12 @@ public partial class XboxCatalogMappingService
 
     // Serializes auth-state mutations so a completing login and a logout cannot interleave.
     private readonly SemaphoreSlim _authSessionLock = new(1, 1);
-    // Serializes device requests after admission; an incumbent attempt must be cancelled explicitly.
+    // Serializes device requests after admission; an incumbent attempt must be canceled explicitly.
     private readonly SemaphoreSlim _loginStartLock = new(1, 1);
 
     // The in-flight sign-in's cancellation owner, so a logout and the modal's cancel can stop it. Held
     // apart from _currentMappingReporter because a scheduled refresh writes that field too
-    // (Scheduling.cs:50), and cancelling a sign-in must never stop a catalog refresh. Non-null for the
+    // (Scheduling.cs:50), and canceling a sign-in must never stop a catalog refresh. Non-null for the
     // WHOLE attempt (approval wait plus the catalog stretch after it), which is what GetAuthStatus
     // reports. Volatile because the poll task clears it and a request thread reads it.
     private volatile MappingOperationReporter? _loginReporter;
@@ -364,16 +364,16 @@ public partial class XboxCatalogMappingService
         }
         catch (OperationCanceledException ex) when (ex.InnerException is not TimeoutException)
         {
-            _logger.LogInformation("Xbox mapping login cancelled");
+            _logger.LogInformation("Xbox mapping login canceled");
             if (reporter.IsStarted)
             {
                 await reporter.CompleteAsync(
                     success: false,
-                    cancelled: true,
+                    canceled: true,
                     context: CreateXboxMappingContext());
             }
 
-            ending = (OperationStatus.Cancelled, "signalr.xbox.mapping.cancelled", "Xbox login cancelled", null, null);
+            ending = (OperationStatus.Canceled, "signalr.xbox.mapping.canceled", "Xbox login canceled", null, null);
         }
         catch (XboxLogonException ex)
         {
@@ -484,7 +484,7 @@ public partial class XboxCatalogMappingService
     /// Cancels an in-flight device-code login poll WITHOUT touching saved credentials or the authenticated
     /// session - safe to call when the user closes the login modal. An account that was already signed in
     /// stays signed in; only a pending (not-yet-approved) poll is stopped, which then emits a terminal
-    /// "cancelled" event. (Distinct from <see cref="LogoutAsync"/>, which also clears credentials.)
+    /// "canceled" event. (Distinct from <see cref="LogoutAsync"/>, which also clears credentials.)
     /// </summary>
     public void CancelLogin(IntegrationCaller caller, Guid? attemptId)
         => _authStorage.CancelIntegrationLogin(caller, attemptId, () => _loginReporter?.RequestCancellation());

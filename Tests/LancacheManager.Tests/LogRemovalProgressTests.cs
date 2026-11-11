@@ -132,7 +132,7 @@ public class LogRemovalProgressTests
             sourceField.SetValue(removal, firstCleanupSource);
             firstRegisteredSource.Cancel();
             tracker.ForceKillOperation(first);
-            tracker.CompleteOperation(first, false, cancelled: true);
+            tracker.CompleteOperation(first, false, canceled: true);
             Assert.Throws<ObjectDisposedException>(() => _ = firstRegisteredSource.Token);
             Assert.Equal(0, firstCleanupSource.DisposeCalls);
             // The next removal registers at once but waits for the cache lock the first one still holds.
@@ -153,12 +153,12 @@ public class LogRemovalProgressTests
             var complete = Assert.Single(messages.Completions);
             Assert.Equal(first, complete.OperationId);
             Assert.Equal("steam", complete.Service);
-            Assert.True(complete.Cancelled);
+            Assert.True(complete.Canceled);
             Assert.DoesNotContain(messages.Progress, id => id == first);
 
             nextRegisteredSource.Cancel();
             tracker.ForceKillOperation(next);
-            tracker.CompleteOperation(next, false, cancelled: true);
+            tracker.CompleteOperation(next, false, canceled: true);
             Assert.Throws<ObjectDisposedException>(() => _ = nextRegisteredSource.Token);
             Assert.Equal(0, nextCleanupSource.DisposeCalls);
             messages.Release[next].TrySetResult();
@@ -175,6 +175,199 @@ public class LogRemovalProgressTests
         }
     }
 
+    // A second start that overlaps the first, here one made while the first registers, must not take the
+    // first start's answer: the first gets its own id, the refused second gets none.
+    [Fact]
+    public async Task OverlappingStartsEachGetTheirOwnAnswer()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "log-removal-overlap-" + Guid.NewGuid().ToString("N"));
+        ServiceProvider? services = null;
+        OperationStateService? repairOwner = null;
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(Path.Combine(root, "logs"));
+        Directory.CreateDirectory(Path.Combine(root, "cache"));
+        Directory.CreateDirectory(Path.Combine(root, "GetOperationsDirectory"));
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, RemovalMessages>();
+        var messages = (RemovalMessages)(object)notifications;
+        Guid? firstRegistered = null;
+        try
+        {
+            var paths = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+            ((PathResolverProxy)(object)paths).Root = root;
+            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["LanCache:DataSources:0:Name"] = "default",
+                ["LanCache:DataSources:0:CachePath"] = Path.Combine(root, "cache"),
+                ["LanCache:DataSources:0:LogPath"] = Path.Combine(root, "logs"),
+                ["LanCache:DataSources:0:Enabled"] = "true"
+            }).Build();
+            var retainedState = StateTestMethods.CreateStateService(root);
+            retainedState.SetSetupCompleted(true);
+            var datasourceService = new DatasourceService(
+                configuration,
+                paths,
+                NullLogger<DatasourceService>.Instance);
+            var logProcessor = (RustLogProcessorService)RuntimeHelpers.GetUninitializedObject(
+                typeof(RustLogProcessorService));
+            typeof(RustLogProcessorService)
+                .GetField("_stateService", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(logProcessor, retainedState);
+            typeof(RustLogProcessorService)
+                .GetField("_pathResolver", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(logProcessor, paths);
+            var cacheManager = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(
+                typeof(CacheManagementService));
+            typeof(CacheManagementService)
+                .GetField("_pathResolver", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(cacheManager, paths);
+            typeof(CacheManagementService)
+                .GetField("_notifications", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(cacheManager, notifications);
+            typeof(CacheManagementService)
+                .GetField("_cacheLock", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(cacheManager, new SemaphoreSlim(1, 1));
+            RustLogRemovalService? removal = null;
+            services = new ServiceCollection()
+                .AddSingleton(datasourceService)
+                .AddSingleton(new DatasourceCapabilityService(datasourceService))
+                .AddSingleton(notifications)
+                .AddSingleton(logProcessor)
+                .AddSingleton(cacheManager)
+                .AddSingleton<RustLogRemovalService>(_ => removal!)
+                .BuildServiceProvider();
+            repairOwner = new OperationStateService(
+                NullLogger<OperationStateService>.Instance,
+                configuration,
+                retainedState,
+                services.GetRequiredService<IServiceScopeFactory>(),
+                DispatchProxy.Create<IHostApplicationLifetime, NullReturningProxy>(),
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                tracker);
+            await repairOwner.StartAsync(CancellationToken.None);
+            // The second start is made inside the first one's registration, before the first signals it.
+            var secondMade = 0;
+            Task<Guid?>? second = null;
+            var forwarding = CacheScanGateHarness.CreateProxy<IUnifiedOperationTracker>((method, args) =>
+            {
+                var result = method.Invoke(tracker, args);
+                if (method.Name == nameof(IUnifiedOperationTracker.RegisterOperation)
+                    && Interlocked.Exchange(ref secondMade, 1) == 0)
+                {
+                    firstRegistered = (Guid)result!;
+                    second = removal!.StartRemovalForDatasourceInBackgroundAsync("epicgames", "default");
+                }
+                return result;
+            });
+            removal = new RustLogRemovalService(NullLogger<RustLogRemovalService>.Instance,
+                paths, notifications, cacheManager,
+                new RustProcessHelper(NullLogger<RustProcessHelper>.Instance,
+                    new ProcessManager(NullLogger<ProcessManager>.Instance), paths, tracker),
+                null!, null!, datasourceService,
+                forwarding, null!, repairOwner);
+
+            var first = await removal.StartRemovalForDatasourceInBackgroundAsync("steam", "default")
+                .WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.NotNull(firstRegistered);
+            Assert.Equal(firstRegistered, first);
+            Assert.Null(await second!.WaitAsync(TimeSpan.FromSeconds(10)));
+        }
+        finally
+        {
+            if (firstRegistered is { } runningId)
+            {
+                // The first run waits at its started event; stopped before it gets there, it would never
+                // send it. It ends its repair last, so its files are written before the folder below is deleted.
+                var started = await messages.Started.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
+                tracker.ForceKillOperation(runningId);
+                tracker.CompleteOperation(runningId, false, canceled: true);
+                messages.Release[started].TrySetResult();
+                for (var attempt = 0; attempt < 400 && repairOwner!.GetPendingRepairs().Any(repair => repair.Id == runningId); attempt++)
+                {
+                    await Task.Delay(25);
+                }
+            }
+            if (repairOwner is not null)
+            {
+                await repairOwner.StopAsync(CancellationToken.None);
+            }
+            services?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // A logs folder that turned read-only after the request was accepted refuses the start at once with
+    // its key and the datasource, so the card says why instead of waiting and ending skipped.
+    [Fact]
+    public async Task ARemovalOverAReadOnlyLogsFolderIsRefusedWithItsKeyAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "log-removal-refused-" + Guid.NewGuid().ToString("N"));
+        // No logs folder: the datasource reads it as not writable.
+        Directory.CreateDirectory(Path.Combine(root, "cache"));
+        try
+        {
+            var removal = CreateRefusingRemoval(root);
+
+            var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.ValidationException>(
+                () => removal.StartRemovalForDatasourceInBackgroundAsync("steam", "default")
+                    .WaitAsync(TimeSpan.FromSeconds(2)));
+
+            Assert.Equal("errors.logs.directoryReadOnly", refusal.StageKey);
+            Assert.Equal("default", refusal.Context!["datasource"]);
+            Assert.False(removal.IsProcessing);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // A datasource that is gone refuses the start at once with its key.
+    [Fact]
+    public async Task ARemovalForAMissingDatasourceIsRefusedWithItsKeyAsync()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "log-removal-refused-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "cache"));
+        try
+        {
+            var removal = CreateRefusingRemoval(root);
+
+            var refusal = await Assert.ThrowsAsync<LancacheManager.Middleware.NotFoundException>(
+                () => removal.StartRemovalForDatasourceInBackgroundAsync("steam", "other")
+                    .WaitAsync(TimeSpan.FromSeconds(2)));
+
+            Assert.Equal("errors.datasources.notFound", refusal.StageKey);
+            Assert.False(removal.IsProcessing);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A removal over one datasource named "default" whose logs folder does not exist. The start refuses
+    /// before it touches anything but the datasource list, so every other service is left out.
+    /// </summary>
+    private static RustLogRemovalService CreateRefusingRemoval(string root)
+    {
+        var paths = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+        ((PathResolverProxy)(object)paths).Root = root;
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["LanCache:DataSources:0:Name"] = "default",
+            ["LanCache:DataSources:0:CachePath"] = Path.Combine(root, "cache"),
+            ["LanCache:DataSources:0:LogPath"] = Path.Combine(root, "logs"),
+            ["LanCache:DataSources:0:Enabled"] = "true"
+        }).Build();
+        var datasources = new DatasourceService(configuration, paths, NullLogger<DatasourceService>.Instance);
+        Assert.False(datasources.GetDatasource("default")!.LogsWritable);
+        return new RustLogRemovalService(NullLogger<RustLogRemovalService>.Instance,
+            paths, null!, null!, null!, null!, null!, datasources, null!, null!, null!);
+    }
+
     [Fact]
     public async Task LogStep_HoldsTheLogLockAndMarksItsSourceAroundTheChildAsync()
     {
@@ -189,6 +382,19 @@ public class LogRemovalProgressTests
         Assert.True(source.LogPositionsKept);
         await harness.Owner.WaitForLogStepAsync(active: false, CancellationToken.None)
             .WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public async Task LogRemoval_TheEndingEventNamesItsKeyNotASentenceAsync()
+    {
+        await using var harness = await LogStepHarness.CreateAsync();
+
+        Assert.True(await harness.RunRemovalAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var ended = await harness.WaitForCompletionEventAsync().WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.True(ended.Success);
+        Assert.False(string.IsNullOrEmpty(ended.StageKey));
+        Assert.Equal(ended.StageKey, ended.Message);
     }
 
     [Fact]
@@ -233,10 +439,10 @@ public class LogRemovalProgressTests
             Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
         }
 
-        Assert.Equal(OperationStatus.Cancelled, (await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10))).Status);
+        Assert.Equal(OperationStatus.Canceled, (await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10))).Status);
         Assert.Empty(harness.Rust.Launches);
         var repair = await harness.WaitForOutcomeAsync(operationId);
-        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        Assert.Equal(OperationStatus.Canceled, repair.Outcome);
         Assert.Null(repair.Error);
         Assert.False(Assert.Single(repair.Sources).LogRewriteStarted);
     }
@@ -258,7 +464,7 @@ public class LogRemovalProgressTests
         Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
 
         var repair = await harness.WaitForOutcomeAsync(operationId);
-        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        Assert.Equal(OperationStatus.Canceled, repair.Outcome);
         Assert.Null(repair.Error);
         var source = Assert.Single(repair.Sources);
         Assert.True(source.LogRewriteStarted);
@@ -359,12 +565,27 @@ public class LogRemovalProgressTests
 
         var ended = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(OperationStatus.Failed, ended.Status);
+        // The card's sentence is a key with its values: the child's own reason, or the service, datasource and exit code.
+        var expectedKey = wroteReason ? "signalr.logRemoval.error.fatal" : "signalr.logRemoval.error.exitCode";
+        Assert.Equal(expectedKey, ended.Message);
+        Assert.Equal(expectedKey, ended.FailureReason!.StageKey);
+        if (wroteReason)
+        {
+            Assert.Equal(reason, ended.FailureReason.Context["errorDetail"]);
+        }
+        else
+        {
+            Assert.Equal("steam", ended.FailureReason.Context["service"]);
+            Assert.Equal("default", ended.FailureReason.Context["datasource"]);
+            Assert.Equal(exitCode, ended.FailureReason.Context["exitCode"]);
+        }
+        // The repair record keeps the same key, so a run a restart restores words its failure as the live card did.
         var repair = await harness.WaitForOutcomeAsync(ended.Id);
+        Assert.Equal(expectedKey, repair.Error);
+        Assert.Equal(expectedKey, repair.FailureReason!.StageKey);
         Assert.Equal(
-            wroteReason
-                ? $"Failed to remove steam entries from default (exit code {exitCode}): {reason}"
-                : $"Failed to remove steam entries from default (exit code {exitCode})",
-            repair.Error);
+            wroteReason ? reason : "default",
+            repair.FailureReason.Context.GetValueOrDefault(wroteReason ? "errorDetail" : "datasource")?.ToString());
     }
 
     [Fact]
@@ -623,6 +844,7 @@ public class LogRemovalProgressTests
             StepRustProcessHelper rust,
             CacheManagementService cache,
             RecordingNotificationProxy countsNotifications,
+            RecordingNotificationProxy removalNotifications,
             RustLogRemovalService removal)
         {
             _root = root;
@@ -632,6 +854,7 @@ public class LogRemovalProgressTests
             Rust = rust;
             Cache = cache;
             CountsNotifications = countsNotifications;
+            RemovalNotifications = removalNotifications;
             Removal = removal;
         }
 
@@ -642,6 +865,7 @@ public class LogRemovalProgressTests
         public StepRustProcessHelper Rust { get; }
         public CacheManagementService Cache { get; }
         public RecordingNotificationProxy CountsNotifications { get; }
+        public RecordingNotificationProxy RemovalNotifications { get; }
         public RustLogRemovalService Removal { get; }
 
         public static async Task<LogStepHarness> CreateAsync(IReadOnlyList<string>? recreatedByReopen = null, bool reopenFails = false)
@@ -686,10 +910,11 @@ public class LogRemovalProgressTests
             typeof(CacheManagementService)
                 .GetField("_notifications", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(cache, countsNotifications);
+            var removalNotifications = DispatchProxy.Create<ISignalRNotificationService, RecordingNotificationProxy>();
             var removal = new RustLogRemovalService(
                 NullLogger<RustLogRemovalService>.Instance,
                 paths,
-                DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
+                removalNotifications,
                 cache,
                 rust,
                 reopenFails
@@ -714,7 +939,24 @@ public class LogRemovalProgressTests
                 rust,
                 cache,
                 (RecordingNotificationProxy)(object)countsNotifications,
+                (RecordingNotificationProxy)(object)removalNotifications,
                 removal);
+        }
+
+        /// <summary>The removal's ending event, which is sent off the completing thread.</summary>
+        public async Task<SignalRNotifications.LogRemovalComplete> WaitForCompletionEventAsync()
+        {
+            for (var attempt = 0; attempt < 400; attempt++)
+            {
+                // Read by index: the recorder appends from the sending thread, which an enumerator would refuse.
+                var calls = RemovalNotifications.Invocations;
+                for (var index = 0; index < calls.Count; index++)
+                {
+                    if (calls[index].Args is [_, SignalRNotifications.LogRemovalComplete sent, ..]) return sent;
+                }
+                await Task.Delay(25);
+            }
+            throw new TimeoutException("The log removal never sent its ending event.");
         }
 
         public Task<bool> RunRemovalAsync() => (Task<bool>)typeof(RustLogRemovalService)

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Eye, Shield, Database, CheckCircle } from 'lucide-react';
+import { Eye, Shield, Database, CheckCircle, AlertCircle, Info } from 'lucide-react';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import CredentialFields from '@components/ui/CredentialFields';
@@ -14,6 +14,11 @@ import { useAuth } from '@contexts/useAuth';
 import { useGuestConfig } from '@contexts/useGuestConfig';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import type { DatabaseResetProgressEvent } from '@contexts/SignalRContext/types';
+import {
+  formatDatabaseResetCompleteMessage,
+  formatDatabaseResetProgressMessage
+} from '@contexts/notifications/detailMessageFormatters';
 import { useTranslation } from 'react-i18next';
 import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
 import { formatPercent } from '@utils/formatters';
@@ -110,6 +115,17 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   });
   const [resetJustCompleted, setResetJustCompleted] = useState(false);
   const scheduleResetBannerHide = useTimeoutCallback(5000);
+  // A reset that did not complete keeps the box up for the same 5 s but must not look like a success:
+  // a failed one is red, a canceled one is gray like canceled runs elsewhere.
+  const resetFailed = resetJustCompleted && resetStatus.status === 'failed';
+  const resetCanceled = resetJustCompleted && resetStatus.status === 'canceled';
+  const resetTextClass = resetFailed
+    ? 'text-error-text'
+    : resetCanceled
+      ? 'text-themed-primary'
+      : resetJustCompleted
+        ? 'text-success-text'
+        : 'text-warning-text';
 
   // Note: Auth state is managed by the session system
   // No need to manually clear auth on mount
@@ -122,12 +138,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
 
   // Subscribe to SignalR database reset progress events (no polling - SignalR only)
   useEffect(() => {
-    const handleDatabaseResetProgress = (event: {
-      isProcessing?: boolean;
-      percentComplete?: number;
-      message?: string;
-      status?: string;
-    }) => {
+    const handleDatabaseResetProgress = (event: DatabaseResetProgressEvent) => {
       const statusLower = (event.status || '').toLowerCase();
       const isComplete = statusLower === 'completed';
       const isError = statusLower === 'failed';
@@ -136,25 +147,27 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         setResetStatus({
           isResetting: false,
           percentComplete: 100,
-          message: event.message || t('modals.auth.databaseReset.completed'),
+          message: formatDatabaseResetCompleteMessage(event),
           status: 'completed'
         });
         setResetJustCompleted(true);
         scheduleResetBannerHide(() => setResetJustCompleted(false));
-      } else if (isError) {
+      } else if (isError || statusLower === 'canceled') {
         setResetStatus({
           isResetting: false,
           percentComplete: 0,
-          message: event.message || t('modals.auth.databaseReset.failed'),
-          status: 'failed'
+          message: formatDatabaseResetProgressMessage(event),
+          status: statusLower
         });
         setResetJustCompleted(true);
         scheduleResetBannerHide(() => setResetJustCompleted(false));
       } else {
+        // A waiting reset can start inside the last one's 5 s banner; that ending is not this run's.
+        setResetJustCompleted(false);
         setResetStatus({
           isResetting: true,
           percentComplete: event.percentComplete || 0,
-          message: event.message || t('modals.auth.databaseReset.resetting'),
+          message: formatDatabaseResetProgressMessage(event),
           status: event.status || 'running'
         });
       }
@@ -232,7 +245,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       if (result.success) {
         onAuthComplete();
       } else {
-        setAuthError(result.message || t('modals.auth.errors.authenticationFailed'));
+        setAuthError(result.message);
         setSignInRefused(true);
       }
     } catch (error: unknown) {
@@ -298,13 +311,10 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       if (result.success) {
         onAuthComplete();
       } else {
-        setAuthError(result.message || t('modals.auth.errors.guestModeUnavailable'));
+        setAuthError(result.message);
       }
-    } catch (err: unknown) {
-      const message = getErrorMessage(err);
-      setAuthError(
-        message.includes('disabled') ? message : t('modals.auth.errors.guestModeUnavailable')
-      );
+    } catch {
+      setAuthError(t('modals.auth.errors.guestModeUnavailable'));
     }
   };
 
@@ -318,34 +328,36 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       {(resetStatus.isResetting || resetJustCompleted) && (
         <div
           className={`mb-6 p-4 rounded-lg border ${
-            resetJustCompleted ? 'bg-success border-success' : 'bg-warning border-warning'
+            resetFailed
+              ? 'bg-error border-error'
+              : resetCanceled
+                ? 'bg-themed-tertiary border-themed-secondary'
+                : resetJustCompleted
+                  ? 'bg-success border-success'
+                  : 'bg-warning border-warning'
           }`}
         >
           <div className="flex items-center gap-3">
-            {resetJustCompleted ? (
+            {resetFailed ? (
+              <AlertCircle className="w-5 h-5 flex-shrink-0 text-error" />
+            ) : resetCanceled ? (
+              <Info className="w-5 h-5 flex-shrink-0 text-themed-secondary" />
+            ) : resetJustCompleted ? (
               <CheckCircle className="w-5 h-5 flex-shrink-0 text-success" />
             ) : (
               <Database className="w-5 h-5 flex-shrink-0 animate-pulse text-warning" />
             )}
             <div className="flex-1 min-w-0">
-              <p
-                className={`font-medium text-sm ${
-                  resetJustCompleted ? 'text-success-text' : 'text-warning-text'
-                }`}
-              >
-                {resetJustCompleted
-                  ? t('modals.auth.databaseReset.complete')
-                  : t('modals.auth.databaseReset.inProgress')}
+              <p className={`font-medium text-sm ${resetTextClass}`}>
+                {resetFailed
+                  ? t('modals.auth.databaseReset.notFinished')
+                  : resetCanceled
+                    ? t('modals.auth.databaseReset.canceled')
+                    : resetJustCompleted
+                      ? t('modals.auth.databaseReset.complete')
+                      : t('modals.auth.databaseReset.inProgress')}
               </p>
-              <p
-                className={`text-xs mt-1 opacity-90 ${
-                  resetJustCompleted ? 'text-success-text' : 'text-warning-text'
-                }`}
-              >
-                {resetJustCompleted
-                  ? t('modals.auth.databaseReset.canLoginNow')
-                  : resetStatus.message || t('modals.auth.databaseReset.pleaseWait')}
-              </p>
+              <p className={`text-xs mt-1 opacity-90 ${resetTextClass}`}>{resetStatus.message}</p>
               {resetStatus.isResetting && resetStatus.percentComplete > 0 && (
                 <div className="mt-2">
                   <ProgressBar

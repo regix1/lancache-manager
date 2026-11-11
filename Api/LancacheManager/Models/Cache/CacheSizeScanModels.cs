@@ -26,7 +26,7 @@ public record CacheSizeScanProgress(
 
 /// <summary>
 /// SignalR event payload emitted when a cache file scan operation completes.
-/// A scan can be cancelled from its card, so <c>Cancelled</c> travels on the wire: without it the
+/// A scan can be canceled from its card, so <c>Canceled</c> travels on the wire: without it the
 /// frontend reads the run as a failure and paints the card red. <c>Status</c> is derived from it.
 /// </summary>
 public record CacheSizeScanComplete(
@@ -38,10 +38,10 @@ public record CacheSizeScanComplete(
     string? FormattedSize = null,
     string? Error = null,
     Dictionary<string, object?>? Context = null,
-    bool Cancelled = false) : IOperationComplete
+    bool Canceled = false) : IOperationComplete
 {
     Guid? IOperationComplete.OperationId => OperationId;
-    OperationStatus IOperationComplete.Status => Cancelled
-        ? OperationStatus.Cancelled
+    OperationStatus IOperationComplete.Status => Canceled
+        ? OperationStatus.Canceled
         : (Success ? OperationStatus.Completed : OperationStatus.Failed);
 }

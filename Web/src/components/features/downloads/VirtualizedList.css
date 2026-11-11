@@ -14,7 +14,7 @@
   overflow-x: hidden;
   contain: strict;
   width: 100%;
-  /* Touch-scroll behaviour:
+  /* Touch-scroll behavior:
    *  - touch-action: pan-y       - explicitly opt the inner scroller into
    *    vertical pan. Without it some mobile browsers route the gesture to
    *    window scroll because `contain: strict` confuses gesture hit-testing.

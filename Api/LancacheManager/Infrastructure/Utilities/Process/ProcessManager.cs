@@ -243,7 +243,7 @@ public class ProcessManager : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Waits for unowned processes with the given executable names to exit without signalling them.
+    /// Waits for unowned processes with the given executable names to exit without signaling them.
     /// </summary>
     public virtual async Task WaitForProcessesExitAsync(
         IReadOnlyCollection<string> processNames,

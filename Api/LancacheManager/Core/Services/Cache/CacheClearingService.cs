@@ -140,17 +140,15 @@ public class CacheClearingService : ScheduledBackgroundService
                 },
                 onTerminalEmit: info => _notifications.NotifyAllAsync(
                     SignalREvents.CacheClearingComplete,
-                    BuildClearCompleteEvent(capturedOperationId, info, completion)),
+                    // The emit runs inside CompleteOperation, before the run can be reaped.
+                    BuildClearCompleteEvent(capturedOperationId, info, completion,
+                        _operationTracker.GetOperation(capturedOperationId)!)),
                 ownerCompletes: true
             );
             var operationId = _currentTrackerOperationId.Value;
             capturedOperationId = operationId;
 
-            // Update the initial message
-            var initialMessage = datasourceName != null
-                ? $"Initializing cache clear for {datasourceName}..."
-                : "Initializing cache clear...";
-            _operationTracker.UpdateProgress(operationId, 0, initialMessage);
+            _operationTracker.UpdateProgress(operationId, 0, "signalr.cacheClear.initializing");
 
             SaveOperationToState(operationId);
 
@@ -195,7 +193,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 StageKey = "signalr.cacheClear.initializing"
             });
 
-            _operationTracker.UpdateProgress(operationId, 0, "Checking permissions...");
+            _operationTracker.UpdateProgress(operationId, 0, "signalr.cacheClear.initializing");
             await ReportProgressAsync(operationId);
 
             _datasourceService.RefreshPermissions();
@@ -213,10 +211,11 @@ public class CacheClearingService : ScheduledBackgroundService
 
                 if (!datasources.Any())
                 {
-                    var errorMessage = $"Datasource '{datasourceName}' not found";
-
-                    // Mark operation as complete (failed) in unified tracker
-                    _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
+                    _operationTracker.CompleteOperation(operationId, success: false,
+                        error: "signalr.cacheClear.datasourceNotFound",
+                        onCompleting: operation => operation.FailureReason = new RunWarning(
+                            "signalr.cacheClear.datasourceNotFound",
+                            new Dictionary<string, object?> { ["datasource"] = datasourceName }));
                     if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
                     await ReportProgressAsync(operationId);
@@ -235,8 +234,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
             if (datasources.Count == 0)
             {
-                var errorMessage = "No enabled datasource is configured for cache clearing";
-                _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
+                _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.cacheClear.noDatasources");
                 if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
                 await ReportProgressAsync(operationId);
                 SaveOperationToState(operationId);
@@ -247,9 +245,11 @@ public class CacheClearingService : ScheduledBackgroundService
                 !Directory.Exists(datasource.CachePath) || !datasource.CacheWritable);
             if (blockedDatasource is not null)
             {
-                var errorMessage =
-                    $"Datasource '{blockedDatasource.Name}' cache root is missing or read-only";
-                _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
+                _operationTracker.CompleteOperation(operationId, success: false,
+                    error: "signalr.cacheClear.datasourceBlocked",
+                    onCompleting: operation => operation.FailureReason = new RunWarning(
+                        "signalr.cacheClear.datasourceBlocked",
+                        new Dictionary<string, object?> { ["datasource"] = blockedDatasource.Name }));
                 if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
                 await ReportProgressAsync(operationId);
                 SaveOperationToState(operationId);
@@ -291,12 +291,11 @@ public class CacheClearingService : ScheduledBackgroundService
 
             if (!validCachePaths.Any())
             {
-                var error = "Cache path does not exist for any datasource";
-                _logger.LogWarning("Cache clear operation {OperationId} failed: {Error}", operationId, error);
+                _logger.LogWarning("Cache clear operation {OperationId} failed: no datasource has a cache folder that exists", operationId);
 
                 // Mark operation as complete (failed) in unified tracker.
                 // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure.
-                _operationTracker.CompleteOperation(operationId, success: false, error: error);
+                _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.cacheClear.pathMissing");
                 if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
                 await ReportProgressAsync(operationId);
@@ -324,11 +323,12 @@ public class CacheClearingService : ScheduledBackgroundService
 
             if (!File.Exists(rustBinaryPath))
             {
-                var error = $"Rust cache_cleaner binary not found at {rustBinaryPath}";
+                _logger.LogError("Cache clear operation {OperationId} failed: cache_cleaner binary not found at {Path}",
+                    operationId, rustBinaryPath);
 
                 // Mark operation as complete (failed) in unified tracker.
                 // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure.
-                _operationTracker.CompleteOperation(operationId, success: false, error: error);
+                _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.cacheClear.cleanerMissing");
                 if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
                 await ReportProgressAsync(operationId);
@@ -381,7 +381,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 trackedOperation.CancellationTokenSource?.Token ?? CancellationToken.None);
             repairPrepared = true;
 
-            _operationTracker.UpdateProgress(operationId, 0, "Starting cache clear...");
+            _operationTracker.UpdateProgress(operationId, 0, "signalr.cacheClear.starting");
             await ReportProgressAsync(operationId);
             SaveOperationToState(operationId);
 
@@ -420,7 +420,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
                 _logger.LogInformation($"Clearing cache for datasource {dsName} ({dsIndex + 1}/{validCachePaths.Count}): {cachePath}");
                 var percentSoFar = (double)dsIndex / validCachePaths.Count * 100;
-                _operationTracker.UpdateProgress(operationId, percentSoFar, $"Clearing {dsName} cache ({dsIndex + 1}/{validCachePaths.Count})...");
+                _operationTracker.UpdateProgress(operationId, percentSoFar, "signalr.cacheClear.clearing");
                 await ReportProgressAsync(operationId);
 
                 // Check for cancellation before starting each datasource
@@ -627,6 +627,14 @@ public class CacheClearingService : ScheduledBackgroundService
             var successMessage = validCachePaths.Count > 1
                 ? $"Successfully cleared {totalDirsProcessed} cache directories across {validCachePaths.Count} datasources ({datasourceNames})"
                 : $"Successfully cleared {totalDirsProcessed} cache directories";
+            // The card words the success from this key and its values, in the reader's language.
+            var successKey = validCachePaths.Count > 1 ? "signalr.cacheClear.clearedAcross" : "signalr.cacheClear.cleared";
+            var successValues = new Dictionary<string, object?>
+            {
+                ["directories"] = totalDirsProcessed,
+                ["count"] = validCachePaths.Count,
+                ["datasources"] = datasourceNames
+            };
 
             // Compute duration BEFORE CompleteOperation: the onTerminalEmit closure fires inside
             // CompleteOperation, so the completion metrics must be captured by value first.
@@ -637,10 +645,10 @@ public class CacheClearingService : ScheduledBackgroundService
 
             var completion = new CacheClearComplete(
                 OperationId: operationId, Success: true, Status: OperationStatus.Completed,
-                Message: successMessage, Cancelled: false,
+                Message: successMessage, Canceled: false,
                 FilesDeleted: (int)totalFilesDeleted, DirectoriesProcessed: totalDirsProcessed,
                 BytesDeleted: totalBytesDeleted, DatasourcesCleared: validCachePaths.Count,
-                Duration: duration);
+                Duration: duration, StageKey: successKey, Context: successValues);
 
             // The next size scan estimates this mode from this run instead of from the scanner's
             // synthetic benchmark. An already-empty cache, or a run whose tracker entry is gone,
@@ -686,8 +694,9 @@ public class CacheClearingService : ScheduledBackgroundService
             await FinishClearRepairAsync(
                 operationId,
                 success: true,
-                cancelled: false,
+                canceled: false,
                 error: null,
+                failureReason: null,
                 runCompleted: false);
 
             // Mark operation as complete in unified tracker (emits CacheClearingComplete via onTerminalEmit)
@@ -706,7 +715,7 @@ public class CacheClearingService : ScheduledBackgroundService
         catch (OperationCanceledException)
         {
             // Handle cancellation gracefully - this is expected when user cancels
-            _logger.LogInformation("Cache clear operation {OperationId} was cancelled", operationId);
+            _logger.LogInformation("Cache clear operation {OperationId} was canceled", operationId);
 
             // A datasource that failed, or files that stayed, before the cancel are named on the canceled card.
             if (failedDatasources.Count > 0)
@@ -733,8 +742,9 @@ public class CacheClearingService : ScheduledBackgroundService
                 await FinishClearRepairAsync(
                     operationId,
                     success: false,
-                    cancelled: true,
+                    canceled: true,
                     error: null,
+                    failureReason: null,
                     runCompleted: false);
             }
 
@@ -742,9 +752,9 @@ public class CacheClearingService : ScheduledBackgroundService
             // CompleteOperation below is a no-op and the onTerminalEmit closure does not re-fire.
             if (_operationTracker.GetOperation(operationId)?.Status.IsTerminal() != true)
             {
-                // Mark operation as complete (cancelled) in unified tracker.
-                // Terminal CacheClearingComplete (cancelled) is emitted by the onTerminalEmit closure.
-                _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
+                // Mark operation as complete (canceled) in unified tracker.
+                // Terminal CacheClearingComplete (canceled) is emitted by the onTerminalEmit closure.
+                _operationTracker.CompleteOperation(operationId, success: false, canceled: true);
 
                 await ReportProgressAsync(operationId);
             }
@@ -753,22 +763,16 @@ public class CacheClearingService : ScheduledBackgroundService
         }
         catch (Exception ex)
         {
-            // Distinguish between expected failures and unexpected errors
-            var isExpectedFailure = ex.Message.Contains("No cache directories found") ||
-                                   ex.Message.Contains("Cache path does not exist");
+            _logger.LogError(ex, "Error in cache clear operation {OperationId}", operationId);
 
-            if (isExpectedFailure)
-            {
-                _logger.LogWarning(ex, "Cache clear operation {OperationId} failed", operationId);
-            }
-            else
-            {
-                _logger.LogError(ex, "Error in cache clear operation {OperationId}", operationId);
-            }
-
-            var failureMessage = clearedDatasourceNames.Count > 0
-                ? $"Cache clear failed after clearing {string.Join(", ", clearedDatasourceNames)}: {ex.Message}"
-                : $"Cache clear failed: {ex.Message}";
+            var failureReason = clearedDatasourceNames.Count > 0
+                ? new RunWarning("signalr.cacheClear.failedAfterClearing", new Dictionary<string, object?>
+                {
+                    ["datasources"] = string.Join(", ", clearedDatasourceNames),
+                    ["errorDetail"] = ex.Message
+                })
+                : new RunWarning("signalr.cacheClear.error.fatal",
+                    new Dictionary<string, object?> { ["errorDetail"] = ex.Message });
 
             if (undeletedFiles > 0)
             {
@@ -796,21 +800,23 @@ public class CacheClearingService : ScheduledBackgroundService
                 await FinishClearRepairAsync(
                     operationId,
                     success: false,
-                    cancelled: false,
-                    error: failureMessage,
+                    canceled: false,
+                    error: failureReason.StageKey,
+                    failureReason,
                     runCompleted: partlyCleared);
             }
 
             // Mark operation as complete (failed) in unified tracker.
             // Terminal CacheClearingComplete (failed) is emitted by the onTerminalEmit closure,
-            // which reads this error string from OperationTerminalInfo.Error.
+            // which reads this key from the run's message and its values from the run's FailureReason.
             if (partlyCleared)
             {
                 _operationTracker.CompleteOperation(operationId, success: true);
             }
             else
             {
-                _operationTracker.CompleteOperation(operationId, success: false, error: failureMessage);
+                _operationTracker.CompleteOperation(operationId, success: false, error: failureReason.StageKey,
+                    onCompleting: operation => operation.FailureReason = failureReason);
             }
             if (_currentTrackerOperationId == operationId) _currentTrackerOperationId = null;
 
@@ -946,12 +952,13 @@ public class CacheClearingService : ScheduledBackgroundService
                 Success: true,
                 Status: OperationStatus.Completed,
                 Message: "Cache clear completed",
-                Cancelled: false,
+                Canceled: false,
                 FilesDeleted: (int)metrics.FilesDeleted,
                 DirectoriesProcessed: metrics.DirectoriesProcessed,
                 BytesDeleted: metrics.BytesDeleted,
                 DatasourcesCleared: metrics.DatasourcesCleared,
-                Duration: metrics.Duration)
+                Duration: metrics.Duration,
+                StageKey: "signalr.cacheClear.completed")
             : null;
         var cts = new CancellationTokenSource();
         var restored = _operationTracker.TryRestoreOperation(
@@ -969,7 +976,7 @@ public class CacheClearingService : ScheduledBackgroundService
             },
             onTerminalEmit: terminal => _notifications.NotifyAllAsync(
                 SignalREvents.CacheClearingComplete,
-                BuildClearCompleteEvent(repair.Id, terminal, completion)),
+                BuildClearCompleteEvent(repair.Id, terminal, completion, _operationTracker.GetOperation(repair.Id)!)),
             startedAt: repair.StartedAt,
             notice: repair.Notice,
             ownerCompletes: true);
@@ -1003,26 +1010,36 @@ public class CacheClearingService : ScheduledBackgroundService
     private async Task FinishClearRepairAsync(
         Guid operationId,
         bool success,
-        bool cancelled,
+        bool canceled,
         string? error,
+        RunWarning? failureReason,
         bool runCompleted)
     {
         var operation = _operationTracker.GetOperation(operationId);
         if (operation?.Status.IsTerminal() == true)
         {
             success = operation.Status == OperationStatus.Completed;
-            cancelled = operation.Status == OperationStatus.Cancelled;
+            canceled = operation.Status == OperationStatus.Canceled;
             error = operation.Status == OperationStatus.Failed
                 ? operation.Message
                 : null;
+            failureReason = operation.Status == OperationStatus.Failed
+                ? operation.FailureReason
+                : null;
         }
 
+        // A failure's values ride beside its key, so a run a restart restores words the failure
+        // as the live card did.
         await _operationStateService.FinishRepairAsync(
             operationId,
             success,
-            cancelled,
+            canceled,
             error,
-            repair => repair.RunCompleted = runCompleted);
+            repair =>
+            {
+                repair.RunCompleted = runCompleted;
+                repair.FailureReason = failureReason;
+            });
     }
 
     /// <summary>
@@ -1031,16 +1048,17 @@ public class CacheClearingService : ScheduledBackgroundService
     /// The winning claim publishes the optional completion record for this run.
     /// </summary>
     private static CacheClearComplete BuildClearCompleteEvent(Guid operationId, OperationTerminalInfo info,
-        CacheClearComplete? completion)
+        CacheClearComplete? completion, OperationInfo run)
     {
-        if (info.Cancelled)
+        if (info.Canceled)
         {
             return new CacheClearComplete(
                 OperationId: operationId,
                 Success: false,
-                Status: OperationStatus.Cancelled,
-                Message: "Cache clear cancelled",
-                Cancelled: true);
+                Status: OperationStatus.Canceled,
+                Message: "Cache clear canceled",
+                Canceled: true,
+                StageKey: "signalr.cacheClear.canceled");
         }
 
         if (info.Success)
@@ -1050,17 +1068,19 @@ public class CacheClearingService : ScheduledBackgroundService
                 Success: true,
                 Status: OperationStatus.Completed,
                 Message: "Cache clear completed",
-                Cancelled: false);
+                Canceled: false,
+                StageKey: "signalr.cacheClear.completed");
         }
 
-        var error = info.Error ?? "Cache clear failed";
+        // The ended run's message is its failure key; its failure reason holds the values that key's sentence names.
         return new CacheClearComplete(
             OperationId: operationId,
             Success: false,
             Status: OperationStatus.Failed,
-            Message: error,
-            Cancelled: false,
-            Error: error);
+            Message: run.Message,
+            Canceled: false,
+            StageKey: run.Message,
+            Context: run.FailureReason is { } reason ? new Dictionary<string, object?>(reason.Context) : null);
     }
 
     // Helper class for deserializing Rust progress data
@@ -1179,7 +1199,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 if (op.Status == OperationStatus.Pending || op.Status == OperationStatus.Running)
                 {
                     op.Status = OperationStatus.Failed;
-                    op.Error = "Operation interrupted by service restart";
+                    op.Error = "signalr.generic.interruptedByRestart";
                     op.EndTime = DateTime.UtcNow;
                     op.Message = op.Error;
                     modifiedCount++;
@@ -1333,6 +1353,10 @@ public class CacheClearingService : ScheduledBackgroundService
                     OperationId = op.Id,
                     Status = op.Status,
                     StatusMessage = op.Message,
+                    // Every stage the run reports is a key in its message; the cleaner's tick values
+                    // are the ones its progress key names.
+                    StageKey = op.Message,
+                    Context = metrics?.CurrentContext == null ? null : new Dictionary<string, object?>(metrics.CurrentContext),
                     StartTime = op.StartedAt,
                     EndTime = op.CompletedAt,
                     DirectoriesProcessed = metrics?.DirectoriesProcessed ?? 0,

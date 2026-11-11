@@ -6,7 +6,7 @@ namespace LancacheManager.Core.Services;
 public partial class OperationStateService
 {
     // Read and written only under _admissionGate, so every grant is decided in one place. A
-    // semaphore would grant in arrival order and let an import that queued first pass a waiting step.
+    // semaphore would grant in arrival order and let an import that arrived first pass a waiting step.
     private LogFileLock? _logHolder;
     private LogFileLock? _reopenHolder;
     private int _logStepWaiters;
@@ -193,7 +193,7 @@ public partial class OperationStateService
                 }
             }
 
-            // Cleared on a cancelled wait too, so a job that gave up stops naming the holder.
+            // Cleared on a canceled wait too, so a job that gave up stops naming the holder.
             if (waited && operationId.HasValue)
             {
                 _operationTracker.SetBlockedByName(operationId.Value, null);

@@ -11,7 +11,7 @@ namespace LancacheManager.Core.Services;
 /// Inherits all shared container management from PrefillDaemonServiceBase.
 ///
 /// Riot prefill is fully anonymous - it prefills public Riot CDN content (League of Legends,
-/// Valorant) with no account login or credentials. A connected daemon reports itself as
+/// Teamfight Tactics, Valorant) with no account login or credentials. A connected daemon reports itself as
 /// logged-in/initialized immediately (the daemon's status update drives the session straight to
 /// <see cref="DaemonAuthState.Authenticated"/> via the base status handler), so there is no
 /// login step, credential challenge, or owned-game-library collection. The

@@ -10,7 +10,7 @@ public class KnownTimeZoneIdTests
 {
     /// <summary>
     /// .NET settles "Eastern Standard Time" into a real zone, but the same zone must land on the
-    /// same cache key from every OS, so the Windows spelling is normalised to the IANA one. UTC is
+    /// same cache key from every OS, so the Windows spelling is normalized to the IANA one. UTC is
     /// spelled the same in both and rides on every UTC reader's request, so it must survive
     /// untouched.
     /// </summary>

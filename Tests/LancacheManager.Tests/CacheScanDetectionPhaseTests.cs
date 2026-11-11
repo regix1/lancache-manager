@@ -32,7 +32,7 @@ namespace LancacheManager.Tests;
 /// <summary>
 /// The first phase of every eviction scan is a full game detection run under the scan's own
 /// operation: started with its card hidden, its percent forwarded onto the scan card, waited on
-/// until its terminal, and cancelled along with the scan. The tracker here is a stand-in the test
+/// until its terminal, and canceled along with the scan. The tracker here is a stand-in the test
 /// drives, so the detection stays "running" exactly as long as each test wants it to.
 /// </summary>
 // A registry holding a run starts it when the process-wide downloads-ended event fires, so these
@@ -73,16 +73,16 @@ public sealed class CacheScanDetectionPhaseTests
             NullLogger<UnifiedOperationTracker>.Instance);
         PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
         var scanId = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource());
-        var queue = new OperationQueueService(tracker,
+        var queue = new OperationWaitlistService(tracker,
             new OperationConflictChecker(
                 tracker,
                 ctx._operationStateService,
                 NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var promoted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var queued = await queue.EnqueueAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), "Cache File Scan",
-            () => { promoted.TrySetResult(); return Task.FromResult<Guid?>(Guid.NewGuid()); }, CancellationToken.None);
-        Assert.True(queued.Queued);
+        var waitingRun = await queue.EnqueueAsync(OperationType.CacheSizeScan, ConflictScope.Bulk(), "Cache File Scan",
+            () => { promoted.TrySetResult(); return Task.FromResult<Guid?>(Guid.NewGuid()); }, CancellationToken.None, OperationRequestKey.Plain);
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
         var terminals = new System.Collections.Concurrent.ConcurrentBag<Guid>();
         var childTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var scanTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -106,13 +106,13 @@ public sealed class CacheScanDetectionPhaseTests
             ctx.Scan.RemoveEvictedRecordsAsync(context, CancellationToken.None),
             TimeSpan.FromSeconds(5));
         Assert.NotEqual(Guid.Empty, removalId);
-        Assert.Equal(cancel ? OperationStatus.Cancelled : OperationStatus.Completed,
+        Assert.Equal(cancel ? OperationStatus.Canceled : OperationStatus.Completed,
             tracker.GetOperation(removalId)!.Status);
         Assert.Equal(populated ? cancel ? 10 : 5 : 0, await context.PrefillCachedApps.CountAsync());
         if (!cancel) Assert.All(await context.PrefillCachedApps.AsNoTracking().ToListAsync(), app => Assert.Equal("456", app.AppId));
         Assert.Equal(OperationStatus.Running, tracker.GetOperation(scanId)!.Status);
         Assert.False(promoted.Task.IsCompleted);
-        Assert.Equal(queued.OperationId, Assert.Single(tracker.GetWaitingOperations()).Id);
+        Assert.Equal(waitingRun.OperationId, Assert.Single(tracker.GetWaitingOperations()).Id);
         // The removal's repair holds the queue as well, and it reports its end to the stand-in
         // tracker, not to this one, so the scan ends only after the repair has.
         await WaitUntilAsync(() => ctx._operationStateService.GetBlockingRepair() is null);
@@ -265,7 +265,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         var removal = Assert.Single(tracker.GetRuns().Runs,
             run => run.OperationType == OperationType.EvictionRemoval.ToWireString());
-        Assert.Equal(OperationStatus.Cancelled.ToWireString(), removal.Status);
+        Assert.Equal(OperationStatus.Canceled.ToWireString(), removal.Status);
         Assert.Empty(removal.Warnings);
         Assert.True(await context.Downloads.AnyAsync(download => download.IsEvicted));
     }
@@ -437,10 +437,10 @@ public sealed class CacheScanDetectionPhaseTests
             tracker,
             operationState,
             NullLogger<OperationConflictChecker>.Instance);
-        var queue = new OperationQueueService(
+        var queue = new OperationWaitlistService(
             tracker,
             conflicts,
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         logProcessor = new RustLogProcessorService(
             NullLogger<RustLogProcessorService>.Instance,
             paths,
@@ -660,7 +660,7 @@ public sealed class CacheScanDetectionPhaseTests
     {
         using var ctx = new PhaseContext();
         var detectionId = Guid.NewGuid();
-        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: true, cancelled: false);
+        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: true, canceled: false);
         var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Manual) { BlockedByOperationId = detectionId };
         var scanId = ctx.RegisterScan(notice: notice);
 
@@ -674,7 +674,7 @@ public sealed class CacheScanDetectionPhaseTests
     {
         using var ctx = new PhaseContext();
         var detectionId = Guid.NewGuid();
-        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: true, cancelled: false);
+        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: true, canceled: false);
         ctx.Detection.InvalidateDetectionCache();
         var notice = new RunNotice(NotificationMode.Hidden, RunTrigger.Manual) { BlockedByOperationId = detectionId };
         var scanId = ctx.RegisterScan(notice: notice);
@@ -691,12 +691,12 @@ public sealed class CacheScanDetectionPhaseTests
     {
         using var ctx = new PhaseContext();
         var detectionId = Guid.NewGuid();
-        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Incremental, success: true, cancelled: false);
-        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: false, cancelled: false);
-        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: true, cancelled: true);
+        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Incremental, success: true, canceled: false);
+        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: false, canceled: false);
+        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: true, canceled: true);
         Assert.False(ctx.Detection.HasReusableFullDetection(detectionId));
 
-        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: true, cancelled: false);
+        ctx.Detection.RememberCompletedDetection(detectionId, DetectionScanType.Full, success: true, canceled: false);
         Assert.True(ctx.Detection.HasReusableFullDetection(detectionId));
         ctx.Detection.InvalidateDetectionCache();
         Assert.False(ctx.Detection.HasReusableFullDetection(detectionId));
@@ -711,65 +711,65 @@ public sealed class CacheScanDetectionPhaseTests
         var detectionId = tracker.RegisterOperation(
             OperationType.GameDetection, "Game Detection", new CancellationTokenSource(),
             new GameDetectionMetrics { ScanType = DetectionScanType.Full });
-        var queue = new OperationQueueService(tracker,
+        var queue = new OperationWaitlistService(tracker,
             new OperationConflictChecker(
                 tracker,
                 ctx._operationStateService,
                 NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
         var started = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var queued = await queue.EnqueueAsync(
+        var waitingRun = await queue.EnqueueAsync(
             OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
             () =>
             {
                 started.TrySetResult(notice.BlockedByOperationId);
                 return Task.FromResult<Guid?>(Guid.NewGuid());
             },
-            CancellationToken.None,
+            CancellationToken.None, OperationRequestKey.Plain,
             notice: notice);
 
-        Assert.True(queued.Queued);
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
         tracker.CompleteOperation(detectionId, success: true);
         Assert.Equal(detectionId, await started.Task.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
     [Fact]
-    public async Task PromotionLeavesTheQueuedScanRunningWhenThatScanKeepsItsId()
+    public async Task PromotionLeavesTheWaitingScanRunningWhenThatScanKeepsItsId()
     {
         using var ctx = new PhaseContext();
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
         var detectionId = tracker.RegisterOperation(
             OperationType.GameDetection, "Game Detection", new CancellationTokenSource());
-        var queue = new OperationQueueService(tracker,
+        var queue = new OperationWaitlistService(tracker,
             new OperationConflictChecker(
                 tracker,
                 ctx._operationStateService,
                 NullLogger<OperationConflictChecker>.Instance),
-            NullLogger<OperationQueueService>.Instance);
+            NullLogger<OperationWaitlistService>.Instance);
         var notice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
         var continued = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var queued = await queue.EnqueueAsync(
+        var waitingRun = await queue.EnqueueAsync(
             OperationType.EvictionScan, ConflictScope.Bulk(), "Eviction Scan",
             () =>
             {
                 var parkedId = notice.OperationId!.Value;
-                Assert.True(tracker.BeginQueuedOperation(parkedId, new Dictionary<string, object?>(), null, null));
+                Assert.True(tracker.BeginWaitingOperation(parkedId, new Dictionary<string, object?>(), null, null));
                 continued.TrySetResult();
                 return Task.FromResult<Guid?>(parkedId);
             },
-            CancellationToken.None,
+            CancellationToken.None, OperationRequestKey.Plain,
             notice: notice);
 
-        Assert.True(queued.Queued);
+        Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
         tracker.CompleteOperation(detectionId, success: true);
         await continued.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(OperationStatus.Running, tracker.GetOperation(queued.OperationId)!.Status);
+        Assert.Equal(OperationStatus.Running, tracker.GetOperation(waitingRun.OperationId)!.Status);
     }
 
     [Fact]
-    public void ARunningScanKeepsItsTerminalWhenItsQueuedTokenIsCancelled()
+    public void ARunningScanKeepsItsTerminalWhenItsWaitingTokenIsCanceled()
     {
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
@@ -780,7 +780,7 @@ public sealed class CacheScanDetectionPhaseTests
             initialStatus: OperationStatus.Waiting);
 
         // Still parked: the queue owns the terminal because no worker exists.
-        Assert.True(tracker.BeginQueuedOperation(parkedId, new Dictionary<string, object?>(), null, null));
+        Assert.True(tracker.BeginWaitingOperation(parkedId, new Dictionary<string, object?>(), null, null));
         Assert.False(tracker.CancelParkedOperation(parkedId));
         Assert.Equal(OperationStatus.Running, tracker.GetOperation(parkedId)!.Status);
 
@@ -793,7 +793,7 @@ public sealed class CacheScanDetectionPhaseTests
     [InlineData(true, true)]
     [InlineData(false, false)]
     [InlineData(true, false)]
-    public async Task CancellingAHeldOrAcknowledgedScanLeavesARunningScansTerminalToItsWorker(bool acknowledged, bool begun)
+    public async Task CancelingAHeldOrAcknowledgedScanLeavesARunningScansTerminalToItsWorker(bool acknowledged, bool begun)
     {
         const string evictionKey = "cacheReconciliation";
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
@@ -819,7 +819,7 @@ public sealed class CacheScanDetectionPhaseTests
         // The scan's worker continues the held operation in place, the way RegisterEvictionScanOperation does.
         if (begun)
         {
-            Assert.True(tracker.BeginQueuedOperation(heldId, new Dictionary<string, object?>(), null, null));
+            Assert.True(tracker.BeginWaitingOperation(heldId, new Dictionary<string, object?>(), null, null));
         }
 
         Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(heldId));
@@ -833,18 +833,18 @@ public sealed class CacheScanDetectionPhaseTests
         if (!begun)
         {
             // No worker exists, so the callback is what ends it.
-            Assert.Equal(OperationStatus.Cancelled, await terminal.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal(OperationStatus.Canceled, await terminal.Task.WaitAsync(TimeSpan.FromSeconds(5)));
             return;
         }
 
         // The callback runs on the thread pool; an early terminal lands well inside this window.
         Assert.NotSame(terminal.Task, await Task.WhenAny(terminal.Task, Task.Delay(TimeSpan.FromMilliseconds(500))));
-        Assert.Equal(OperationStatus.Cancelling, tracker.GetOperation(heldId)!.Status);
+        Assert.Equal(OperationStatus.Canceling, tracker.GetOperation(heldId)!.Status);
         // Still active, so the conflict check keeps every other heavy operation waiting.
         Assert.Contains(heldId, tracker.GetActiveOperations(OperationType.EvictionScan).Select(operation => operation.Id));
 
-        tracker.CompleteOperation(heldId, success: false, cancelled: true);
-        Assert.Equal(OperationStatus.Cancelled, await terminal.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        tracker.CompleteOperation(heldId, success: false, canceled: true);
+        Assert.Equal(OperationStatus.Canceled, await terminal.Task.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
     private sealed class EvictionLoopProbe() : LancacheManager.Infrastructure.Services.Base.ScheduledBackgroundService(
@@ -857,7 +857,7 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
-    public void AParkedScanIsCancelledByTheQueueAndRefusesToStart()
+    public void AParkedScanIsCanceledByTheQueueAndRefusesToStart()
     {
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
             NullLogger<UnifiedOperationTracker>.Instance);
@@ -867,16 +867,16 @@ public sealed class CacheScanDetectionPhaseTests
             initialStatus: OperationStatus.Waiting);
 
         Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(parkedId));
-        // The cancel moved it to Cancelling without giving it a worker, so it is still the queue's.
+        // The cancel moved it to Canceling without giving it a worker, so it is still the queue's.
         Assert.Contains(parkedId, tracker.GetWaitingOperations().Select(operation => operation.Id));
-        Assert.False(tracker.BeginQueuedOperation(parkedId, new Dictionary<string, object?>(), null, null));
+        Assert.False(tracker.BeginWaitingOperation(parkedId, new Dictionary<string, object?>(), null, null));
         Assert.True(tracker.CancelParkedOperation(parkedId));
-        Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(parkedId)!.Status);
+        Assert.Equal(OperationStatus.Canceled, tracker.GetOperation(parkedId)!.Status);
         Assert.False(tracker.CancelParkedOperation(parkedId));
     }
 
     [Fact]
-    public void AQueuedEvictionScanContinuesTheParkedOperation()
+    public void AWaitingEvictionScanContinuesTheParkedOperation()
     {
         using var ctx = new PhaseContext();
         var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
@@ -979,10 +979,11 @@ public sealed class CacheScanDetectionPhaseTests
         {
             Assert.Equal(JsonValueKind.Null, wire.RootElement.GetProperty(nameof(EvictionScanComplete.Error)).ValueKind);
         }
-        // A reload draws the row, which carries the same key or the scan's own reason.
+        // A reload draws the row, which carries the same key, and the child's text as its failure reason's value.
         var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == scanId);
-        Assert.Equal(detail ?? stageKey, row.Message);
-        Assert.Equal(detail ?? stageKey, row.Error);
+        Assert.Equal(stageKey, row.Message);
+        Assert.Equal(stageKey, row.Error);
+        Assert.Equal(detail, row.FailureReason?.Context.GetValueOrDefault("errorDetail"));
     }
 
     [Fact]
@@ -1010,6 +1011,48 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.False(terminal.Context!.ContainsKey("errorDetail"));
         var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == scanId);
         Assert.Equal("signalr.evictionScan.capabilityRefused", row.Error);
+    }
+
+    [Fact]
+    public async Task ACorruptionScanTheCapabilityCheckRefusesEndsWithItsOwnKey()
+    {
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        // With no log file the datasource has no key evidence, so the scan cannot map cache files.
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        File.Delete(Path.Combine(source.LogPath, "access.log"));
+        var detection = (CorruptionDetectionService)RuntimeHelpers.GetUninitializedObject(typeof(CorruptionDetectionService));
+        void Set(string name, object value) => typeof(CorruptionDetectionService)
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(detection, value);
+        Set("_logger", NullLogger<CorruptionDetectionService>.Instance);
+        Set("_operationTracker", tracker);
+        Set("_capabilityService", new DatasourceCapabilityService(ctx.Datasources));
+        Set("_notifications", ctx.Notifications);
+        var metrics = new CorruptionDetectionMetrics();
+        var emit = typeof(CorruptionDetectionService)
+            .GetMethod("EmitTerminalAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var scanId = Guid.Empty;
+        scanId = tracker.RegisterOperation(OperationType.CorruptionDetection, "corruption", new CancellationTokenSource(),
+            onTerminalEmit: ending => (Task)emit.Invoke(detection, [ending, scanId, metrics])!);
+
+        // The check that runs when a waiting scan finally starts, after the evidence may have changed.
+        await (Task)typeof(CorruptionDetectionService)
+            .GetMethod("RunDetectionAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(detection, [scanId, 3, 30, CorruptionDetectionMethod.RepeatedMiss, null,
+                metrics, DateTime.UtcNow, CancellationToken.None])!;
+
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == scanId);
+        Assert.Equal("failed", row.Status);
+        Assert.Equal("signalr.corruptionDetect.capabilityRefused", row.Error);
+        // The ending event names the same key, so the card words the refusal rather than a failure around a key.
+        var ended = Assert.IsType<SignalRNotifications.CorruptionDetectionComplete>(await ctx.Notifications.WaitForAsync(
+            SignalREvents.CorruptionDetectionComplete,
+            value => value is SignalRNotifications.CorruptionDetectionComplete { OperationId: var operationId }
+                && operationId == scanId));
+        Assert.Equal("signalr.corruptionDetect.capabilityRefused", ended.StageKey);
+        Assert.False(ended.Context!.ContainsKey("errorDetail"));
     }
 
     [Fact]
@@ -1245,7 +1288,7 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Fact]
-    public async Task CancellingTheScanCancelsTheDetectionItIsWaitingOn()
+    public async Task CancelingTheScanCancelsTheDetectionItIsWaitingOn()
     {
         using var ctx = new PhaseContext();
         using var cts = new CancellationTokenSource();
@@ -1257,7 +1300,7 @@ public sealed class CacheScanDetectionPhaseTests
         cts.Cancel();
 
         await phase.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Contains(detection.Id, ctx.Tracker.Cancelled);
+        Assert.Contains(detection.Id, ctx.Tracker.Canceled);
         Assert.Empty(ctx.Tracker.Waiting);
     }
 
@@ -1454,12 +1497,12 @@ public sealed class CacheScanDetectionPhaseTests
         await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
 
         var outcome = scan.GetType().GetProperty("Result")!.GetValue(scan)!;
-        Assert.True((bool)outcome.GetType().GetProperty("Cancelled")!.GetValue(outcome)!);
+        Assert.True((bool)outcome.GetType().GetProperty("Canceled")!.GetValue(outcome)!);
         // The scan saved its own outcome before the remove step; the record keeps that the person stopped the run,
         // so a restart restores the gray card the session showed.
         var record = ctx.State.LoadOperationRepairs().Single(repair => repair.Id == scanId);
         Assert.Equal(OperationStatus.Completed, record.Outcome);
-        Assert.True(record.RunCancelled);
+        Assert.True(record.RunCanceled);
     }
 
     [Fact]
@@ -1521,15 +1564,15 @@ public sealed class CacheScanDetectionPhaseTests
         // The scan's run ends at once, before its remove step unwinds, and the record keeps the stop for a restart.
         var run = tracker.GetOperation(scanId)!;
         Assert.Equal(1, run.CompletedFlag);
-        Assert.Equal(OperationStatus.Cancelled, run.Status);
-        Assert.True(ctx.State.LoadOperationRepairs().Single(repair => repair.Id == scanId).RunCancelled);
+        Assert.Equal(OperationStatus.Canceled, run.Status);
+        Assert.True(ctx.State.LoadOperationRepairs().Single(repair => repair.Id == scanId).RunCanceled);
 
         stop.Cancel();
         release.TrySetResult();
         await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
         var record = ctx.State.LoadOperationRepairs().Single(repair => repair.Id == scanId);
         Assert.False(record.RunContinues);
-        Assert.True(record.RunCancelled);
+        Assert.True(record.RunCanceled);
     }
 
     [Fact]
@@ -1587,18 +1630,18 @@ public sealed class CacheScanDetectionPhaseTests
 
         // An app stop here restores the gray card: the stop is saved while the run still goes on.
         var saved = ctx.State.LoadOperationRepairs().Single(repair => repair.Id == scanId);
-        Assert.True(saved.RunCancelled);
+        Assert.True(saved.RunCanceled);
         Assert.True(saved.RunContinues);
 
         stop.Cancel();
         release.TrySetResult();
         await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
         var outcome = scan.GetType().GetProperty("Result")!.GetValue(scan)!;
-        Assert.True((bool)outcome.GetType().GetProperty("Cancelled")!.GetValue(outcome)!);
-        Assert.True(tracker.GetOperation(scanId)!.Cancelled);
+        Assert.True((bool)outcome.GetType().GetProperty("Canceled")!.GetValue(outcome)!);
+        Assert.True(tracker.GetOperation(scanId)!.Canceled);
         var record = ctx.State.LoadOperationRepairs().Single(repair => repair.Id == scanId);
         Assert.False(record.RunContinues);
-        Assert.True(record.RunCancelled);
+        Assert.True(record.RunCanceled);
     }
 
     [Fact]
@@ -1658,7 +1701,7 @@ public sealed class CacheScanDetectionPhaseTests
         await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
         var record = ctx.State.LoadOperationRepairs().Single(repair => repair.Id == scanId);
         Assert.False(record.RunContinues);
-        Assert.False(record.RunCancelled);
+        Assert.False(record.RunCanceled);
         Assert.Null(record.RunError);
     }
 
@@ -1764,21 +1807,20 @@ public sealed class CacheScanDetectionPhaseTests
     // other click, not refused with a 400: the scan meets the download itself and its schedule holds it on
     // a waiting card until downloads end.
     [Fact]
-    public async Task AStorageScanClickDuringADownload_IsQueuedInsteadOfRefused()
+    public async Task AStorageScanClickDuringADownload_WaitsInsteadOfBeingRefused()
     {
         using var ctx = new PhaseContext();
         var snapshot = new DownloadSpeedSnapshot();
         CacheScanGateHarness.MakeBusy(snapshot);
         Assert.NotNull(CacheScanGateHarness.With(snapshot).CheckDownloadInProgress());
-        var enqueued = new List<OperationType>();
-        var queue = CacheScanGateHarness.CreateProxy<IOperationQueue>((method, args) =>
+        var enqueueCalls = new List<OperationType>();
+        var queue = CacheScanGateHarness.CreateProxy<IOperationWaitlist>((method, args) =>
         {
-            enqueued.Add((OperationType)args![0]!);
-            return Task.FromResult(new QueuedOperationResponse
+            enqueueCalls.Add((OperationType)args![0]!);
+            return Task.FromResult(new OperationStartResponse
             {
                 OperationId = Guid.NewGuid(),
-                Queued = false,
-                Status = "started"
+                Status = OperationStartStatus.Started
             });
         });
         var controller = new StatsController(
@@ -1803,7 +1845,7 @@ public sealed class CacheScanDetectionPhaseTests
         var result = await controller.ReconcileAsync(CancellationToken.None);
 
         Assert.IsType<OkObjectResult>(result.Result);
-        Assert.Equal([OperationType.EvictionScan], enqueued);
+        Assert.Equal([OperationType.EvictionScan], enqueueCalls);
     }
 
     // Two tabs saving Remove mode, or a save and the Remove-all button, land together. The second
@@ -1819,7 +1861,7 @@ public sealed class CacheScanDetectionPhaseTests
             tracker,
             ctx._operationStateService,
             NullLogger<OperationConflictChecker>.Instance));
-        var queue = new OperationQueueService(tracker, conflicts, NullLogger<OperationQueueService>.Instance);
+        var queue = new OperationWaitlistService(tracker, conflicts, NullLogger<OperationWaitlistService>.Instance);
         var capability = new DatasourceCapabilityService(ctx.Datasources);
         var save = new StatsController(
             context: null!,
@@ -1870,8 +1912,8 @@ public sealed class CacheScanDetectionPhaseTests
 
         var running = Assert.Single(tracker.GetActiveOperations(OperationType.EvictionRemoval));
         Assert.Equal(running.Id, AnswerField<Guid>(firstAccepted.Value, "operationId"));
-        Assert.False(AnswerField<bool>(firstAccepted.Value, "queued"));
-        Assert.True(AnswerField<bool>(secondAccepted.Value, "queued"));
+        Assert.Equal(OperationStartStatus.Started, AnswerField<OperationStartStatus>(firstAccepted.Value, "status"));
+        Assert.Equal(OperationStartStatus.Waiting, AnswerField<OperationStartStatus>(secondAccepted.Value, "status"));
     }
 
     private static T AnswerField<T>(object? accepted, string name) =>
@@ -1899,7 +1941,7 @@ public sealed class CacheScanDetectionPhaseTests
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
         await ctx.CompleteDetectionAsync(detection.Id);
 
-        Assert.Equal(OperationStatus.Cancelled, (await WaitForTerminalAsync(tracker, scanId)).Status);
+        Assert.Equal(OperationStatus.Canceled, (await WaitForTerminalAsync(tracker, scanId)).Status);
     }
 
     // The scan's own refusal is what marks its row as turned away for a download; the schedule holds the run
@@ -2059,7 +2101,7 @@ public sealed class CacheScanDetectionPhaseTests
     }
 
     [Theory]
-    [InlineData(OperationStatus.Cancelled)]
+    [InlineData(OperationStatus.Canceled)]
     [InlineData(OperationStatus.Failed)]
     public async Task AClearThatDidNotCompleteEvictsNothingAndKeepsThePrefillBadges(OperationStatus outcome)
     {
@@ -2443,10 +2485,10 @@ public sealed class CacheScanDetectionPhaseTests
 
         run.Tracker.CancelOperation(removalId);
 
-        Assert.Equal(OperationStatus.Cancelled, (await WaitForTerminalAsync(run.Tracker, removalId)).Status);
+        Assert.Equal(OperationStatus.Canceled, (await WaitForTerminalAsync(run.Tracker, removalId)).Status);
         // Nothing to reset, so the repair ends while the import still holds the logs.
         var repair = await run.WaitForCompletedRepairAsync(removalId);
-        Assert.Equal(OperationStatus.Cancelled, repair.Outcome);
+        Assert.Equal(OperationStatus.Canceled, repair.Outcome);
         Assert.False(Assert.Single(repair.Sources).LogRewriteStarted);
         Assert.Empty(run.Rust.Runs);
         Assert.Equal(10, run.State.GetLogSourcePositions("alpha")["access.log"]);
@@ -2478,6 +2520,64 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Equal(10, run.State.GetLogSourcePositions("alpha")["access.log"]);
         await using var verify = new AppDbContext(run.Database.Options);
         Assert.True(await verify.Downloads.AnyAsync(download => download.IsEvicted));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AFailedEvictionRemovalIsWordedTheSameLiveAndAfterARestartAsync(bool scoped)
+    {
+        const string failedKey = "signalr.evictionRemove.error.fatal";
+        await using var run = await RepairRun.CreateAsync(("alpha", ["access.log"], false));
+        await SeedEvictedDownloadAsync(run.Database, "alpha", "/remove");
+        // The first purge child fails after it rewrote the log; the repair's purge that redoes the step succeeds.
+        run.Rust.OnRun = (index, _) => index == 1
+            ? throw new IOException("disk gone")
+            : Task.CompletedTask;
+
+        var removalId = scoped
+            ? await run.Scan.StartScopedEvictionRemovalAsync(
+                EvictionScope.Service, "steam", null, null, CancellationToken.None)
+            : await run.Scan.StartBulkEvictionRemovalAsync(CancellationToken.None);
+
+        Assert.Equal(OperationStatus.Failed, (await WaitForTerminalAsync(run.Tracker, removalId)).Status);
+        var live = Assert.Single(run.Tracker.GetRuns().Runs, row => row.OperationId == removalId);
+        var detail = Assert.IsType<string>(live.Error);
+        Assert.DoesNotContain("signalr.", detail, StringComparison.Ordinal);
+        Assert.Equal(failedKey, live.Message);
+        Assert.Equal(failedKey, live.FailureReason?.StageKey);
+        Assert.Equal(detail, live.FailureReason?.Context.GetValueOrDefault("errorDetail")?.ToString());
+        var liveComplete = Assert.IsType<EvictionRemovalComplete>(await run.Notifications.WaitForAsync(
+            SignalREvents.EvictionRemovalComplete,
+            value => value is EvictionRemovalComplete complete && complete.OperationId == removalId));
+        Assert.Equal(failedKey, liveComplete.StageKey);
+        Assert.Equal(failedKey, liveComplete.Error);
+        Assert.Equal(detail, liveComplete.Context?.GetValueOrDefault("errorDetail")?.ToString());
+
+        // The record keeps the key and the text its sentence names.
+        var repair = await run.WaitForCompletedRepairAsync(removalId);
+        Assert.Equal(OperationStatus.Failed, repair.Outcome);
+        Assert.Equal(failedKey, repair.Error);
+        Assert.Equal(failedKey, repair.FailureReason?.StageKey);
+        Assert.Equal(detail, repair.FailureReason?.Context.GetValueOrDefault("errorDetail")?.ToString());
+
+        // A restart restores the record and ends its run from it; the card reads as the live one did.
+        repair.Id = Guid.NewGuid();
+        await run.Scan.RestoreRepairAsync(repair, CancellationToken.None);
+        typeof(OperationStateService)
+            .GetMethod("CompleteRunFromRecord", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(run.Repairs, [repair]);
+        var restored = Assert.Single(run.Tracker.GetRuns().Runs, row => row.OperationId == repair.Id);
+        Assert.Equal("failed", restored.Status);
+        Assert.Equal(live.Message, restored.Message);
+        Assert.Equal(failedKey, restored.FailureReason?.StageKey);
+        Assert.Equal(detail, restored.FailureReason?.Context.GetValueOrDefault("errorDetail")?.ToString());
+        var restoredComplete = Assert.IsType<EvictionRemovalComplete>(await run.Notifications.WaitForAsync(
+            SignalREvents.EvictionRemovalComplete,
+            value => value is EvictionRemovalComplete complete && complete.OperationId == repair.Id));
+        Assert.Equal(failedKey, restoredComplete.StageKey);
+        Assert.Equal(failedKey, restoredComplete.Error);
+        Assert.Equal(detail, restoredComplete.Context?.GetValueOrDefault("errorDetail")?.ToString());
     }
 
     [Theory]
@@ -2524,7 +2624,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         var removalId = await run.Scan.StartBulkEvictionRemovalAsync(CancellationToken.None);
 
-        Assert.Equal(OperationStatus.Cancelled, (await WaitForTerminalAsync(run.Tracker, removalId)).Status);
+        Assert.Equal(OperationStatus.Canceled, (await WaitForTerminalAsync(run.Tracker, removalId)).Status);
         var repair = await run.WaitForCompletedRepairAsync(removalId);
         Assert.All(repair.Sources, source =>
         {
@@ -2581,7 +2681,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         var removalId = await run.Scan.StartBulkEvictionRemovalAsync(CancellationToken.None);
 
-        Assert.Equal(OperationStatus.Cancelled, (await WaitForTerminalAsync(run.Tracker, removalId)).Status);
+        Assert.Equal(OperationStatus.Canceled, (await WaitForTerminalAsync(run.Tracker, removalId)).Status);
         await run.WaitForCompletedRepairAsync(removalId);
         var row = Assert.Single(run.Tracker.GetRuns().Runs, item => item.OperationId == removalId);
         var warning = Assert.Single(row.Warnings);
@@ -2667,7 +2767,7 @@ public sealed class CacheScanDetectionPhaseTests
             OperationType.LogProcessing,
             LogFileLockKind.Ingest,
             CancellationToken.None);
-        await run.Repairs.FinishRepairAsync(earlier.Id, success: false, cancelled: true, error: null);
+        await run.Repairs.FinishRepairAsync(earlier.Id, success: false, canceled: true, error: null);
 
         var removalId = await run.Scan.StartBulkEvictionRemovalAsync(CancellationToken.None);
         await WaitUntilAsync(() => run.State.LoadOperationRepairs().Any(repair => repair.Id == removalId));
@@ -2679,7 +2779,7 @@ public sealed class CacheScanDetectionPhaseTests
         await import.DisposeAsync();
 
         Assert.Equal(OperationStatus.Completed, (await removal).Status);
-        Assert.Equal(OperationStatus.Cancelled, (await run.WaitForCompletedRepairAsync(earlier.Id)).Outcome);
+        Assert.Equal(OperationStatus.Canceled, (await run.WaitForCompletedRepairAsync(earlier.Id)).Outcome);
         await run.WaitForCompletedRepairAsync(removalId);
         await using var verify = new AppDbContext(run.Database.Options);
         Assert.False(await verify.Downloads.AnyAsync());
@@ -3091,7 +3191,7 @@ public sealed class CacheScanDetectionPhaseTests
             tracker.CancelOperation(scanId);
 
             var terminal = await WaitForTerminalAsync(tracker, scanId);
-            Assert.Equal(OperationStatus.Cancelled, terminal.Status);
+            Assert.Equal(OperationStatus.Canceled, terminal.Status);
         }
         finally
         {
@@ -3259,7 +3359,7 @@ public sealed class CacheScanDetectionPhaseTests
 
         var clearId = Assert.IsType<Guid>(await run.Clearing.StartCacheClearAsync());
 
-        Assert.Equal(OperationStatus.Cancelled, (await WaitForTerminalAsync(run.Tracker, clearId)).Status);
+        Assert.Equal(OperationStatus.Canceled, (await WaitForTerminalAsync(run.Tracker, clearId)).Status);
         Assert.Equal([alpha, beta, gamma], run.Rust.ClearedPaths);
         var row = Assert.Single(run.Tracker.GetRuns().Runs, item => item.OperationId == clearId);
         Assert.Equal(2, row.Warnings.Count);
@@ -4967,33 +5067,6 @@ public sealed class CacheScanDetectionPhaseTests
     /// service's own CompleteOperation call (its background run failing) is ignored on purpose:
     /// the phase must keep waiting until the test ends the detection. Not sealed for DispatchProxy.
     /// </summary>
-    /// <summary>Answers from the real checker, then holds the first caller until a second caller has
-    /// asked as well (at most 2 s). Two requests that check outside one lock therefore both act on
-    /// an answer given before either of them started anything.</summary>
-    private sealed class SecondCallerBarrier(IOperationConflictChecker checker) : IOperationConflictChecker
-    {
-        private readonly TaskCompletionSource _secondAsked = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _calls;
-
-        public async Task<OperationConflictResponse?> CheckAsync(OperationType newType, ConflictScope newScope, CancellationToken ct)
-        {
-            var conflict = await checker.CheckAsync(newType, newScope, ct);
-            if (Interlocked.Increment(ref _calls) == 1)
-            {
-                await Task.WhenAny(_secondAsked.Task, Task.Delay(TimeSpan.FromSeconds(2), CancellationToken.None));
-            }
-            else
-            {
-                _secondAsked.TrySetResult();
-            }
-
-            return conflict;
-        }
-
-        public IDisposable HoldRun(OperationType type, IReadOnlyList<ConflictScope> scopes, Func<Guid> currentOperationId) =>
-            checker.HoldRun(type, scopes, currentOperationId);
-    }
-
     public class FakeTracker : DispatchProxy
     {
         private readonly object _sync = new();
@@ -5002,7 +5075,7 @@ public sealed class CacheScanDetectionPhaseTests
         private readonly Dictionary<Guid, Func<OperationTerminalInfo, Task>> _terminalEmits = [];
         private TaskCompletionSource _changed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        internal List<Guid> Cancelled { get; } = [];
+        internal List<Guid> Canceled { get; } = [];
 
         internal IReadOnlyList<OperationInfo> Waiting
         {
@@ -5075,10 +5148,10 @@ public sealed class CacheScanDetectionPhaseTests
                     var id = (Guid)args![0]!;
                     lock (_sync)
                     {
-                        Cancelled.Add(id);
+                        Canceled.Add(id);
                     }
 
-                    End(id, OperationStatus.Cancelled);
+                    End(id, OperationStatus.Canceled);
                     return default(OperationCancelResult);
                 }
                 case "add_OperationTerminal":

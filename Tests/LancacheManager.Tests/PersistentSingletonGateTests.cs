@@ -300,7 +300,7 @@ public class PersistentSingletonGateTests
     [Theory]
     [InlineData(PrefillSessionStatus.Orphaned, true)]
     [InlineData(PrefillSessionStatus.Active, true)]
-    [InlineData(PrefillSessionStatus.Cancelled, true)]
+    [InlineData(PrefillSessionStatus.Canceled, true)]
     [InlineData(PrefillSessionStatus.Terminated, false)] // explicit admin stop -> never auto-resurrect
     public void ShouldRecreatePersistentContainer_FullPersistenceEnabled_TracksPriorRowStatus(
         PrefillSessionStatus priorStatus, bool expected)

@@ -499,7 +499,7 @@ test('mounted owner replacement and reconnect supersede pending availability wit
   assert.equal(f.state.loading, true);
   assert.equal(f.state.values.size, 0);
   const reconnected = f.load();
-  f.pending[2].reject(new DOMException('cancelled', 'AbortError'));
+  f.pending[2].reject(new DOMException('canceled', 'AbortError'));
   f.pending[3].resolve({ available: false });
   await reopened;
   assert.equal(f.state.loading, true);

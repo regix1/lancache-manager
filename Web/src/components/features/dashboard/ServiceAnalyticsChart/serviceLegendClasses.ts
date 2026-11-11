@@ -21,7 +21,7 @@ export function getLegendColorClass(label: string, index: number, activeTab: Tab
   }
 
   // The label goes in as it came, so this row and the slice beside it look the brand up with the
-  // same key. Stripping here only on the legend side could give a row a brand dot beside a grey
+  // same key. Stripping here only on the legend side could give a row a brand dot beside a gray
   // slice, since the canvas passes the raw service name.
   return getServiceLegendClass(label);
 }

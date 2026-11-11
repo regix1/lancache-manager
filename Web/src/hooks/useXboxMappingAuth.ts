@@ -46,7 +46,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const requestRef = useRef(0);
   const statusRequestRef = useRef(0);
   const attemptRef = useRef<string | null>(null);
-  const cancelledAttemptRef = useRef<string | null>(null);
+  const canceledAttemptRef = useRef<string | null>(null);
   // The attempt id the stored status was asked for. Only a status asked for this sign-in after its start answer can
   // say the server no longer knows it.
   const statusAttemptRef = useRef<string | null>(null);
@@ -102,7 +102,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   const resetAuthForm = useCallback(() => {
     requestRef.current += 1;
     busyRef.current = false;
-    if (attemptRef.current) cancelledAttemptRef.current = attemptRef.current;
+    if (attemptRef.current) canceledAttemptRef.current = attemptRef.current;
     attemptRef.current = null;
     setAttemptId(null);
     if (abortController) {
@@ -120,7 +120,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   useEffect(() => {
     formIdentityRef.current = identity;
     resetAuthForm();
-    cancelledAttemptRef.current = null;
+    canceledAttemptRef.current = null;
     setStatus(null);
     setStatusIdentity(null);
     setStatusLoading(hasAccess);
@@ -138,7 +138,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   // backend's own event does.
   const finishLogin = useCallback(() => {
     attemptRef.current = null;
-    cancelledAttemptRef.current = null;
+    canceledAttemptRef.current = null;
     setAttemptId(null);
     loginInProgressRef.current = false;
     setNeedsDeviceCode(false);
@@ -236,7 +236,7 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
     }
     resetAuthForm();
     const submittedAttempt = createUuid();
-    cancelledAttemptRef.current = null;
+    canceledAttemptRef.current = null;
     attemptRef.current = submittedAttempt;
     setAttemptId(submittedAttempt);
     busyRef.current = true;
@@ -304,11 +304,11 @@ export function useXboxMappingAuth(options: UseXboxMappingAuthOptions = {}) {
   // is already reset by resetAuthForm; an already-authenticated account is NOT signed out.
   const cancelLogin = useCallback(async () => {
     if (identityRef.current !== identity || !formCurrent) return;
-    const cancelled = attemptId;
-    if (cancelledAttemptRef.current === cancelled) cancelledAttemptRef.current = null;
-    if (!cancelled) return;
+    const canceled = attemptId;
+    if (canceledAttemptRef.current === canceled) canceledAttemptRef.current = null;
+    if (!canceled) return;
     try {
-      await ApiService.cancelXboxMappingLogin(cancelled);
+      await ApiService.cancelXboxMappingLogin(canceled);
     } catch (error) {
       // Best-effort: the poll will expire on its own if the cancel request fails.
       notifyError('Failed to cancel Xbox mapping login', error, {

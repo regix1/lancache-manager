@@ -104,7 +104,7 @@ public class DaemonSession
     /// session, retained so a SECOND login request arriving while the daemon is still mid-flow (e.g. the
     /// frontend closed/reopened the login modal) can be answered with the SAME challenge instead of issuing
     /// another daemon <c>login</c> command - the daemon replies "already in progress" without re-emitting a
-    /// challenge, and the socket/TCP client destroys its own queued copy the moment a second
+    /// challenge, and the socket/TCP client destroys its own held copy the moment a second
     /// <c>StartLoginAsync</c> is invoked, so a resume must never reach the daemon at all. Cleared on
     /// cancel-login, on any transition to <see cref="DaemonAuthState.Authenticated"/> (see
     /// <see cref="PrefillDaemonServiceBase.NotifyAuthStateChangeAsync(DaemonSession)"/>), on a fail-fast login
@@ -273,7 +273,7 @@ public class DaemonSession
     /// Overlapping calls would race the daemon's single challenge/status stream, clobber each other's
     /// <see cref="LastLoginFailureMessage"/>/<see cref="AuthState"/> writes, and stack duplicate
     /// <c>OnStatusUpdate</c> subscriptions. A second concurrent attempt is rejected outright (try-acquire,
-    /// never queued) rather than silently waiting behind one the caller doesn't know about.
+    /// never held) rather than silently waiting behind one the caller doesn't know about.
     /// </summary>
     public SemaphoreSlim LoginLock { get; } = new(1, 1);
 
@@ -398,6 +398,6 @@ public enum PrefillState
     /// <summary>Prefill run failed (including socket death mid-prefill).</summary>
     Failed,
 
-    /// <summary>Prefill run was cancelled by the user.</summary>
-    Cancelled
+    /// <summary>Prefill run was canceled by the user.</summary>
+    Canceled
 }

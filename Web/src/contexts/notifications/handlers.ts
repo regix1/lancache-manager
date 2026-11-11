@@ -19,6 +19,7 @@ import type {
   NotificationRegistryEntry,
   NotificationType,
   RegistryCompleteConfig,
+  StageContext,
   UnifiedNotification
 } from './types';
 import type { RunDetail } from './runStore';
@@ -26,7 +27,7 @@ import i18n from '@/i18n';
 import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 import {
   FULL_PROGRESS_PERCENT,
-  GENERIC_CANCELLED_I18N_KEY,
+  GENERIC_CANCELED_I18N_KEY,
   GENERIC_COMPLETION_I18N_KEY,
   GENERIC_FAILURE_I18N_KEY,
   OPERATION_WAITING_I18N_KEYS
@@ -37,9 +38,9 @@ interface TerminalEvent {
   success?: boolean;
   error?: string;
   stageKey?: string;
-  context?: Record<string, unknown>;
+  context?: StageContext | null;
   message?: string;
-  cancelled?: boolean;
+  canceled?: boolean;
   skipped?: boolean;
   status?: string;
 }
@@ -83,24 +84,28 @@ function terminalDetail(
   event: TerminalEvent,
   existing: UnifiedNotification | undefined
 ): RunDetail & { message: string } {
-  const isCancelled = event.cancelled === true || event.status === 'cancelled';
-  const isSkipped = !isCancelled && (event.status === 'skipped' || event.skipped === true);
+  const isCanceled = event.canceled === true || event.status === 'canceled';
+  const isSkipped = !isCanceled && (event.status === 'skipped' || event.skipped === true);
   const error = typeof event.error === 'string' && event.error.trim() ? event.error : undefined;
   const succeeded =
     complete.succeeded ?? (event.status !== 'failed' && event.success !== false && !error);
-  const failed = !isCancelled && !isSkipped && !succeeded;
-  const message = isCancelled
-    ? complete.getCancelledMessage
-      ? complete.getCancelledMessage(event, existing)
+  const failed = !isCanceled && !isSkipped && !succeeded;
+  const message = isCanceled
+    ? complete.getCanceledMessage
+      ? complete.getCanceledMessage(event, existing)
       : (event.message ??
         (event.stageKey
           ? i18n.t(event.stageKey, event.context ?? {})
-          : i18n.t(GENERIC_CANCELLED_I18N_KEY)))
+          : i18n.t(GENERIC_CANCELED_I18N_KEY)))
     : failed
       ? // An error the server sent as a key (a restart that cut the run short) reads in the
-        // reader's language; plain text passes through as it is.
+        // reader's language; plain text passes through as it is. A server that sends its stage key
+        // as the error sends the sentence's values in the event's context.
         error !== undefined
-        ? translateStageKeyMessage(error)
+        ? translateStageKeyMessage(
+            error,
+            error === event.stageKey ? (event.context ?? undefined) : undefined
+          )
         : complete.getFailureMessage
           ? complete.getFailureMessage(event)
           : event.stageKey
@@ -116,10 +121,10 @@ function terminalDetail(
     error: failed ? message : undefined,
     progress: isSkipped ? undefined : FULL_PROGRESS_PERCENT,
     details: {
-      ...(isCancelled
-        ? complete.getCancelledDetails?.(event, existing)
+      ...(isCanceled
+        ? complete.getCanceledDetails?.(event, existing)
         : complete.getSuccessDetails?.(event, existing)),
-      ...(isCancelled ? { cancelled: true } : {})
+      ...(isCanceled ? { canceled: true } : {})
     }
   };
   if (complete.getDetailMessage) {
@@ -167,7 +172,7 @@ function buildProgressHandler(
     if (
       status === 'completed' ||
       status === 'failed' ||
-      status === 'cancelled' ||
+      status === 'canceled' ||
       status === 'skipped'
     ) {
       dispatchDetail(
@@ -190,7 +195,7 @@ function buildProgressHandler(
             {
               ...(event as TerminalEvent),
               success: status === 'completed' || status === 'skipped',
-              cancelled: status === 'cancelled',
+              canceled: status === 'canceled',
               status
             },
             existing
@@ -200,14 +205,14 @@ function buildProgressHandler(
       return;
     }
     const stage = (event as { stage?: string }).stage;
-    // A prefill stage change that carries no new line (recovering, cancelling, or running with no
+    // A prefill stage change that carries no new line (recovering, canceling, or running with no
     // counts yet) keeps the card's message, percent and detail line, so a counts line replayed on
     // resume is not replaced by the bare "Prefill in progress".
     const stageKey = (event as { stageKey?: string | null }).stageKey;
     const transitionOnly =
       entry.type === 'scheduled_prefill' &&
       (stage === 'recovering' ||
-        stage === 'cancelling' ||
+        stage === 'canceling' ||
         (stage === 'running' &&
           (!stageKey || stageKey === 'signalr.scheduledPrefill.running') &&
           progress.getProgress(event) == null));

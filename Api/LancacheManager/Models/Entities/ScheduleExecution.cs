@@ -38,6 +38,9 @@ public class ScheduleExecution
     /// <summary>The first warning of a completed run (it worked, with errors); drawn amber with its sentence.</summary>
     public RunWarning? Warning { get; set; }
 
+    /// <summary>Why a failed run failed, as its key and the values its sentence names; null for a failure no producer keyed.</summary>
+    public RunWarning? FailureReason { get; set; }
+
     public Guid? ScheduleId { get; set; }
 
     [MaxLength(256)]

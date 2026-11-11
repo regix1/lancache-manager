@@ -15,8 +15,8 @@ public class SteamService : IDisposable
     // Caches for performance
     private readonly ConcurrentDictionary<long, GameInfo> _gameCache = new();
 
-    // The store API rate-limits, so an app whose lookup failed is asked again only after an hour.
-    private readonly ConcurrentDictionary<long, DateTime> _failedLookupAtUtc = new();
+    // The store API rate-limits, so an app whose lookup failed stores the time it may be asked again, an hour later.
+    private readonly ConcurrentDictionary<long, DateTime> _lookupRetryAtUtc = new();
     private static readonly TimeSpan _failedLookupRetryAfter = TimeSpan.FromHours(1);
 
     public class GameInfo
@@ -27,7 +27,7 @@ public class SteamService : IDisposable
         public string? HeaderImage { get; set; }
         public string? Description { get; set; }
         public bool IsFree { get; set; }
-        public DateTime CacheTime { get; set; } = DateTime.UtcNow;
+        public DateTime CacheExpiresAtUtc { get; set; }
     }
 
     public SteamService(
@@ -55,7 +55,7 @@ public class SteamService : IDisposable
             // Check cache first
             if (_gameCache.TryGetValue(appId, out var cached))
             {
-                if (DateTime.UtcNow - cached.CacheTime < TimeSpan.FromHours(24))
+                if (DateTime.UtcNow < cached.CacheExpiresAtUtc)
                 {
                     return cached;
                 }
@@ -65,8 +65,7 @@ public class SteamService : IDisposable
                 _gameCache.TryRemove(appId, out _);
             }
 
-            if (_failedLookupAtUtc.TryGetValue(appId, out var failedAt) &&
-                DateTime.UtcNow - failedAt < _failedLookupRetryAfter)
+            if (_lookupRetryAtUtc.TryGetValue(appId, out var retryAt) && DateTime.UtcNow < retryAt)
             {
                 return null;
             }
@@ -78,7 +77,7 @@ public class SteamService : IDisposable
                 return gameInfo;
             }
 
-            _failedLookupAtUtc[appId] = DateTime.UtcNow;
+            _lookupRetryAtUtc[appId] = DateTime.UtcNow + _failedLookupRetryAfter;
             return null;
         }
         catch (Exception ex)
@@ -94,9 +93,9 @@ public class SteamService : IDisposable
     /// </summary>
     public long[] GetRecentlyFailedAppIds()
     {
-        var cutoff = DateTime.UtcNow - _failedLookupRetryAfter;
-        return _failedLookupAtUtc
-            .Where(failed => failed.Value > cutoff)
+        var now = DateTime.UtcNow;
+        return _lookupRetryAtUtc
+            .Where(failed => failed.Value > now)
             .Select(failed => failed.Key)
             .ToArray();
     }
@@ -132,8 +131,8 @@ public class SteamService : IDisposable
         }
         catch (TaskCanceledException)
         {
-            // Request was cancelled for other reasons
-            _logger.LogWarning($"Steam Store API request cancelled for app {appId}");
+            // Request was canceled for other reasons
+            _logger.LogWarning($"Steam Store API request canceled for app {appId}");
             return null;
         }
         catch (Exception ex)
@@ -183,7 +182,7 @@ public class SteamService : IDisposable
                 IsFree = data.TryGetProperty("is_free", out var isFree) && isFree.GetBoolean(),
                 HeaderImage = data.TryGetProperty("header_image", out var headerImage) ? headerImage.GetString() : null,
                 Description = data.TryGetProperty("short_description", out var desc) ? desc.GetString() : null,
-                CacheTime = DateTime.UtcNow
+                CacheExpiresAtUtc = DateTime.UtcNow + TimeSpan.FromHours(24)
             };
 
             return gameInfo;

@@ -432,6 +432,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         Key = game.Key,
         DepotId = game.DepotId,
         GameName = game.GameName,
+        GameNameResolved = game.GameNameResolved,
         GameAppId = game.GameAppId,
         Service = game.Service,
         ClientIp = game.ClientIp,
@@ -462,10 +463,9 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         CacheMissBytes = source.CacheMissBytes,
     };
 
-    // Mirror of the frontend buildTrafficKey (Web/src/components/features/downloads/liveDownloadPreviews.ts):
-    // the live-download status dots read activity by this exact client-qualified identity, so this and the
-    // TypeScript version must stay in sync. Identity tiers: app id (Steam always keys by app, never by name),
-    // then unresolved depot, then a resolved title for named services, then the service-only bucket.
+    // Download rows written by older versions can carry the Steam placeholder or a service's own label
+    // as their game name, so DownloadsController.IsRealGameName still reads both tables. The live
+    // tracker no longer decides by them: speed_tracker.rs sends game_name_resolved on each GameSpeedInfo.
     internal static readonly Regex _steamAppPlaceholder = new(@"^Steam App \d+$", RegexOptions.Compiled);
 
     internal static readonly Dictionary<string, string> _serviceFallbackLabels =
@@ -498,6 +498,10 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             ["unknown"] = "Unknown Service",
         };
 
+    // Mirror of the frontend buildTrafficKey (Web/src/components/features/downloads/liveDownloadPreviews.ts):
+    // the live-download status dots read activity by this exact client-qualified identity, so this and the
+    // TypeScript version must stay in sync. Identity tiers: app id (Steam always keys by app, never by name),
+    // then unresolved depot, then a title the tracker resolved, then the service-only bucket.
     internal static string BuildDownloadActivityKey(GameSpeedInfo game)
     {
         var service = NormalizeServiceName(game.Service);
@@ -514,7 +518,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         {
             identity = $"depot:{depotId}";
         }
-        else if (IsResolvedGameName(game.GameName, game.Service))
+        else if (game.GameNameResolved)
         {
             identity = $"name:{NormalizeTitle(game.GameName)}";
         }
@@ -530,30 +534,6 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
 
     private static long? PreviewDepotId(GameSpeedInfo game) =>
         PreviewGameAppId(game) is null && game.DepotId > 0 ? game.DepotId : null;
-
-    private static bool IsResolvedGameName(string? gameName, string? service)
-    {
-        var name = (gameName ?? string.Empty).Trim();
-        if (name.Length == 0)
-        {
-            return false;
-        }
-
-        var normalized = name.ToLowerInvariant();
-        var raw = NormalizeServiceName(service);
-        if (normalized == raw)
-        {
-            return false;
-        }
-
-        if (_serviceFallbackLabels.TryGetValue(raw, out var fallback) &&
-            normalized == fallback.ToLowerInvariant())
-        {
-            return false;
-        }
-
-        return !_steamAppPlaceholder.IsMatch(name);
-    }
 
     private static string NormalizeServiceName(string? service) =>
         (service ?? string.Empty).Trim().ToLowerInvariant();
@@ -791,6 +771,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                     Key = group.Key,
                     DepotId = basis.DepotId,
                     GameName = basis.GameName,
+                    GameNameResolved = basis.GameNameResolved,
                     GameAppId = basis.GameAppId,
                     Service = basis.Service,
                     ClientIp = basis.ClientIp,
@@ -1495,7 +1476,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                         source => source.Root,
                         StringComparer.OrdinalIgnoreCase);
                     var stoppedForStep = false;
-                    // The step that takes the logs waits for this acknowledgement, so it is given on
+                    // The step that takes the logs waits for this acknowledgment, so it is given on
                     // every way out, before any restart delay.
                     try
                     {
@@ -1527,7 +1508,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
 
                         restartedAfterStep = false;
 
-                        // Cancelled once the child ends, so its step wait never outlives it. When a
+                        // Canceled once the child ends, so its step wait never outlives it. When a
                         // step takes the logs first, the cancel ends the child: RunTrackerAsync stops
                         // reading, kills it and waits for it to exit.
                         using var childStop = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);

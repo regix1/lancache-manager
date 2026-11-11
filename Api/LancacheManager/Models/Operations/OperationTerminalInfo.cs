@@ -4,11 +4,11 @@ namespace LancacheManager.Models;
 /// Strongly-typed carrier passed to <see cref="OperationInfo.OnTerminalEmit"/> exactly once when an
 /// operation reaches a terminal state inside <c>UnifiedOperationTracker.CompleteOperation</c>
 /// (CompletedFlag-gated). Lets the owning service's terminal-emit closure decide which terminal
-/// SignalR record to send without re-deriving success/cancelled state from the tracker.
+/// SignalR record to send without re-deriving success/canceled state from the tracker.
 /// NOT an anonymous object — keeps the contract explicit.
 /// </summary>
 /// <param name="Success">True when the operation completed successfully.</param>
-/// <param name="Cancelled">True when the run ended canceled; a successful ending is never canceled here, even when X marked the run.</param>
+/// <param name="Canceled">True when the run ended canceled; a successful ending is never canceled here, even when X marked the run.</param>
 /// <param name="Error">Error/diagnostic message when the operation failed; null on success/cancel.</param>
 /// <param name="Skipped">
 /// True when the run started, found nothing to do, and stopped without doing it. Carried alongside
@@ -17,6 +17,6 @@ namespace LancacheManager.Models;
 /// </param>
 public readonly record struct OperationTerminalInfo(
     bool Success,
-    bool Cancelled,
+    bool Canceled,
     string? Error,
     bool Skipped = false);

@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Text.Json;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
@@ -23,7 +24,7 @@ public sealed class PrefillRunHistoryTests
         var first = await fixture.StartAsync("10");
         var second = await fixture.StartAsync("10");
         fixture.Client.Set(first, "completed", 100, "success");
-        fixture.Client.Set(second, "cancelled", 12, "cancelled");
+        fixture.Client.Set(second, "canceled", 12, "canceled");
         await fixture.RefreshAsync();
         await using var context = new AppDbContext(fixture.Options);
         var history = await context.PrefillHistoryEntries.ToListAsync();
@@ -159,6 +160,84 @@ public sealed class PrefillRunHistoryTests
         }
     }
 
+    [Fact]
+    public async Task CanceledSpellingMigrationAsync()
+    {
+        await using var fixture = await TestDatabase.CreateAsync();
+        await using var existing = new AppDbContext(fixture.Options);
+        // Same scratch database and command timeout as FreshMigrationAsync: CREATE DATABASE waits for a checkpoint.
+        var connection = new NpgsqlConnectionStringBuilder(existing.Database.GetConnectionString())
+        {
+            Database = $"lancache_migration_tests_{Guid.NewGuid():N}",
+            SearchPath = "public",
+            Pooling = false,
+            CommandTimeout = 120
+        };
+        await using var context = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(connection.ConnectionString, options =>
+                options.EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null)).Options);
+        var finishedRun = Guid.NewGuid();
+        var runningRun = Guid.NewGuid();
+        try
+        {
+            await context.GetService<IMigrator>().MigrateAsync("20261110120000_AddCachedGameDetectionUnresolvedDepot");
+            // 'Halted' and 'halted' stand for a stored name that is not one of today's names.
+            await context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO \"PrefillSessions\" (\"SessionId\", \"CreatedBySessionId\", \"Status\", \"Platform\", \"CreatedAtUtc\", " +
+                "\"ExpiresAtUtc\", \"LastLoginAtUtc\", \"IsAuthenticated\", \"IsPersistent\", \"IsPrefilling\", " +
+                "\"LoggedInWhilePersonCanceled\", \"LoginCanceledByPerson\", \"SignedOut\") " +
+                "VALUES ('legacy', 'creator', 'Halted', 'Steam', now(), now(), now(), false, false, false, false, false, false)");
+            await context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO \"PrefillRuns\" (\"Id\", \"SessionId\", \"DaemonInstanceId\", \"OptionsJson\", \"SnapshotJson\", \"Source\", " +
+                "\"State\", \"StartedAtUtc\", \"CompletedAtUtc\", \"Revision\", \"Sequence\", \"CancelRequested\", \"HistoryIncomplete\") " +
+                "VALUES ({0}, 'legacy', 'daemon', '{{}}', {1}, 'manual', 'halted', now(), now(), 1, 1, false, false), " +
+                "({2}, 'legacy', 'daemon', '{{}}', {1}, 'manual', 'halted', now(), NULL, 1, 1, false, false)",
+                finishedRun,
+                """{"OperationId":"op","DaemonInstanceId":"daemon","State":"halted","CurrentItem":{"AppId":"10","Name":"Legacy game"}}""",
+                runningRun);
+            await context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO \"PrefillHistoryEntries\" (\"SessionId\", \"RunId\", \"AppId\", \"AppName\", \"Status\", \"StartedAtUtc\", " +
+                "\"BytesDownloaded\", \"TotalBytes\", \"Sequence\") VALUES ('legacy', {0}, '10', 'Legacy game', 'Halted', now(), 0, 0, 1)",
+                finishedRun);
+            // 'Operation halted' stands for the sentence the old version stored on a canceled run.
+            var haltedExecution = Guid.NewGuid();
+            var failedExecution = Guid.NewGuid();
+            await context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO \"ScheduleExecutions\" (\"ServiceKey\", \"OperationId\", \"Status\", \"ActorKind\", \"StartedAt\", \"CompletedAt\", " +
+                "\"WorkerStarted\", \"Detail\") VALUES ('logProcessing', {0}, 'Halted', 'Server', now(), now(), true, 'Operation halted'), " +
+                "('logProcessing', {1}, 'Failed', 'Server', now(), now(), true, 'Disk full')",
+                haltedExecution,
+                failedExecution);
+
+            await context.Database.MigrateAsync();
+
+            var session = await context.PrefillSessions.AsNoTracking().SingleAsync();
+            Assert.Equal(PrefillSessionStatus.Canceled, session.Status);
+            var entry = await context.PrefillHistoryEntries.AsNoTracking().SingleAsync();
+            Assert.Equal(PrefillHistoryEntryStatus.Canceled, entry.Status);
+            Assert.Equal("Legacy game", entry.AppName);
+            var finished = await context.PrefillRuns.AsNoTracking().SingleAsync(run => run.Id == finishedRun);
+            Assert.Equal("canceled", finished.State);
+            var snapshot = JsonSerializer.Deserialize<DaemonRunSnapshot>(finished.SnapshotJson)!;
+            Assert.Equal("canceled", snapshot.State);
+            Assert.Equal("Legacy game", snapshot.CurrentItem!.Name);
+            var running = await context.PrefillRuns.AsNoTracking().SingleAsync(run => run.Id == runningRun);
+            Assert.Equal("halted", running.State);
+            var execution = await context.ScheduleExecutions.AsNoTracking()
+                .SingleAsync(row => row.OperationId == haltedExecution);
+            Assert.Equal(OperationStatus.Canceled, execution.Status);
+            Assert.Equal("signalr.generic.canceled", execution.Detail);
+            var failed = await context.ScheduleExecutions.AsNoTracking()
+                .SingleAsync(row => row.OperationId == failedExecution);
+            Assert.Equal(OperationStatus.Failed, failed.Status);
+            Assert.Equal("Disk full", failed.Detail);
+        }
+        finally
+        {
+            await context.Database.EnsureDeletedAsync();
+        }
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
@@ -267,7 +346,7 @@ public sealed class PrefillRunHistoryTests
             BeforeSave = async cancellationToken =>
             {
                 var winner = await fixture.History.SaveRunAsync(run, snapshot with
-                { Sequence = snapshot.Sequence + 1, State = "cancelled" }, [], true, cancellationToken);
+                { Sequence = snapshot.Sequence + 1, State = "canceled" }, [], true, cancellationToken);
                 Assert.True(winner.Applied);
             }
         };
@@ -287,7 +366,7 @@ public sealed class PrefillRunHistoryTests
         Assert.Single(writes.Contexts);
         Assert.False(await verification.PrefillHistoryEntries.AnyAsync(entry => entry.RunId == run.PrefillRunId && entry.AppId == "20"));
         var row = await verification.PrefillRuns.SingleAsync(row => row.Id == run.PrefillRunId);
-        Assert.Equal("cancelled", row.State);
+        Assert.Equal("canceled", row.State);
         Assert.Equal(snapshot.Sequence + 1, row.Sequence);
     }
 
@@ -344,6 +423,32 @@ public sealed class PrefillRunHistoryTests
     }
 
     [Fact]
+    public async Task FailedGamesTellsTheUserToEnableTheCacheDomainsWhenTheCacheReturnedNothing()
+    {
+        await using var fixture = await RunFixture.CreateAsync();
+        await using (var context = new AppDbContext(fixture.Options))
+        {
+            var session = await context.PrefillSessions.SingleAsync(row => row.SessionId == fixture.Session.Id);
+            session.IsPersistent = true;
+            session.Platform = PrefillPlatform.Xbox;
+            await context.SaveChangesAsync();
+        }
+        var run = await fixture.StartAsync("10");
+        var sequence = run.Snapshot.Sequence + 10;
+        await fixture.History.SaveRunAsync(run, run.Snapshot with
+        { Sequence = sequence + 10, State = "failed", Reason = "download-failed", UpdatedAt = DateTimeOffset.UtcNow },
+        [
+            new DaemonRunItem { AppId = "10", Sequence = sequence + 1, Result = "failed", Reason = "cache-domain-missing" },
+            new DaemonRunItem { AppId = "20", Sequence = sequence + 2, Result = "failed", Reason = "reason-this-version-does-not-know" }
+        ], true, CancellationToken.None);
+
+        var games = await fixture.History.GetFailedGamesAsync(run.PrefillRunId, PrefillPlatform.Xbox, CancellationToken.None);
+
+        Assert.Equal(["errors.prefill.cacheDomainMissing", "errors.prefill.gameDownloadFailed"],
+            games!.Select(game => game.ReasonKey));
+    }
+
+    [Fact]
     public async Task FailedGamesIncludesGamesLeftUnfinishedByStalledRun()
     {
         await using var fixture = await RunFixture.CreateAsync();
@@ -365,19 +470,19 @@ public sealed class PrefillRunHistoryTests
     }
 
     [Fact]
-    public async Task FailedGamesIncludesGamesTheDaemonMarkedCancelledOrSkippedWhenTheRunFailed()
+    public async Task FailedGamesIncludesGamesTheDaemonMarkedCanceledOrSkippedWhenTheRunFailed()
     {
         await using var fixture = await RunFixture.CreateAsync();
         await MarkPersistentAsync(fixture);
         var stalled = await fixture.StartAsync("10");
         var sequence = stalled.Snapshot.Sequence + 10;
-        // The daemon's terminal page after a server cancel: every game without a result is cancelled.
+        // The daemon's terminal page after a server cancel: every game without a result is canceled.
         await fixture.History.SaveRunAsync(stalled, stalled.Snapshot with
         { Sequence = sequence + 10, State = "failed", Reason = "stalled", UpdatedAt = DateTimeOffset.UtcNow },
         [
             new DaemonRunItem { AppId = "10", Sequence = sequence + 1, Result = "success" },
-            new DaemonRunItem { AppId = "20", Name = "In flight", Sequence = sequence + 2, State = "cancelled", Result = "cancelled", Reason = "notAttempted", BytesTransferred = 5 },
-            new DaemonRunItem { AppId = "30", Name = "Queued", Sequence = sequence + 3, State = "cancelled", Result = "cancelled", Reason = "notAttempted" }
+            new DaemonRunItem { AppId = "20", Name = "In flight", Sequence = sequence + 2, State = "canceled", Result = "canceled", Reason = "notAttempted", BytesTransferred = 5 },
+            new DaemonRunItem { AppId = "30", Name = "Not started", Sequence = sequence + 3, State = "canceled", Result = "canceled", Reason = "notAttempted" }
         ], true, CancellationToken.None);
         var signedOut = await fixture.StartAsync("40");
         sequence = signedOut.Snapshot.Sequence + 10;
@@ -393,8 +498,8 @@ public sealed class PrefillRunHistoryTests
         var canceled = await fixture.StartAsync("60");
         sequence = canceled.Snapshot.Sequence + 10;
         await fixture.History.SaveRunAsync(canceled, canceled.Snapshot with
-        { Sequence = sequence + 10, State = "cancelled", UpdatedAt = DateTimeOffset.UtcNow },
-        [new DaemonRunItem { AppId = "60", Sequence = sequence + 1, State = "cancelled", Result = "cancelled", Reason = "notAttempted" }],
+        { Sequence = sequence + 10, State = "canceled", UpdatedAt = DateTimeOffset.UtcNow },
+        [new DaemonRunItem { AppId = "60", Sequence = sequence + 1, State = "canceled", Result = "canceled", Reason = "notAttempted" }],
         true, CancellationToken.None);
 
         var stalledGames = await fixture.History.GetFailedGamesAsync(stalled.PrefillRunId, PrefillPlatform.Steam, CancellationToken.None);
@@ -429,7 +534,7 @@ public sealed class PrefillRunHistoryTests
         sequence = changed.Snapshot.Sequence + 10;
         await fixture.History.SaveRunAsync(changed, changed.Snapshot with
         { Sequence = sequence + 10, State = "failed", Reason = "instance-changed", UpdatedAt = DateTimeOffset.UtcNow },
-        [new DaemonRunItem { AppId = "30", Sequence = sequence + 1, State = "cancelled", Result = "cancelled", Reason = "notAttempted", BytesTransferred = 7 }],
+        [new DaemonRunItem { AppId = "30", Sequence = sequence + 1, State = "canceled", Result = "canceled", Reason = "notAttempted", BytesTransferred = 7 }],
         true, CancellationToken.None);
 
         var noCodeGames = await fixture.History.GetFailedGamesAsync(noCode.PrefillRunId, PrefillPlatform.Steam, CancellationToken.None);

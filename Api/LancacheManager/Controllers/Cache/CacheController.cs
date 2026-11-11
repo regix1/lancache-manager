@@ -31,18 +31,27 @@ public class CacheController : ControllerBase
     // so a malicious {service} route value can't traverse paths via Path.Combine downstream.
     private static readonly Regex _serviceNameRegex = new("^[A-Za-z0-9._-]+$", RegexOptions.Compiled);
     private static readonly SemaphoreSlim _corruptionSnapshotMutationGate = new(1, 1);
-    // A queued Remove all, by its scan and services. It parks on whichever service is busy and moves when
+    // A waiting Remove all, by its scan and services. It parks on whichever service is busy and moves when
     // that one frees, so its scope does not name it and the queue leaves matching it to this map.
     // An ended id is removed when that waiting operation ends, including from the queue's completion.
-    private static readonly ConcurrentDictionary<string, QueuedRemoveAll> _queuedRemoveAllRequests = new();
+    private static readonly ConcurrentDictionary<string, WaitingRemoveAll> _waitingRemoveAllRequests = new();
     // Taken around the dedup read and the enqueue write, so two requests at the same moment cannot both
     // miss the map and park twice. Removing an ended id does not take it: the queue completes that id
     // while a request may already hold this gate.
-    private static readonly SemaphoreSlim _queuedRemoveAllGate = new(1, 1);
+    private static readonly SemaphoreSlim _waitingRemoveAllGate = new(1, 1);
+    // The parked one-service removal of each service and detection method, and the request it will remove. The
+    // queue joins a later request for that service and method to the parked card, so that request's scan is
+    // merged into the parked one before it enqueues. The service is keyed as the queue compares the target,
+    // ordinally.
+    private static readonly ConcurrentDictionary<(string Service, CorruptionDetectionMethod Method), (Guid WaitingId, CorruptionRemovalRequest Request)>
+        _parkedCorruptionRemovals = new();
+    // Taken around the merge, the enqueue and the map write, so a request cannot join a card parked
+    // a moment earlier whose request it never saw.
+    private static readonly SemaphoreSlim _parkedCorruptionRemovalGate = new(1, 1);
     // The scan each Remove all still needs, from before its first read of that row until the run ends.
     private static readonly ConcurrentDictionary<BulkCorruptionRemovalState, Guid> _removeAllRunScans = new();
     // The id on the 202, kept until that all-services run ends. The gap between services
-    // registers no step, and a queued run has no row yet, so this id is what still says the run is going.
+    // registers no step, and a waiting run has no row yet, so this id is what still says the run is going.
     private static readonly ConcurrentDictionary<Guid, byte> _removeAllRunIds = new();
     // Delete holds this across its check and its delete. Publish takes it only for the map write, so the
     // check cannot pass and then lose the row to a write that lands after the check.
@@ -50,7 +59,7 @@ public class CacheController : ControllerBase
 
     static CacheController()
     {
-        OperationQueueService.QueuedRemoveAllEnded = ForgetQueuedRemoveAll;
+        OperationWaitlistService.WaitingRemoveAllEnded = ForgetWaitingRemoveAll;
     }
 
     private readonly CacheManagementService _cacheService;
@@ -66,7 +75,7 @@ public class CacheController : ControllerBase
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly CacheReconciliationService _reconciliationService;
     private readonly IOperationConflictChecker _conflictChecker;
-    private readonly IOperationQueue _operationQueue;
+    private readonly IOperationWaitlist _operationQueue;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly CacheScanGate _cacheScanGate;
     private readonly CacheSizeScanScheduledService _cacheSizeScan;
@@ -87,7 +96,7 @@ public class CacheController : ControllerBase
         IDbContextFactory<AppDbContext> dbContextFactory,
         CacheReconciliationService reconciliationService,
         IOperationConflictChecker conflictChecker,
-        IOperationQueue operationQueue,
+        IOperationWaitlist operationQueue,
         DatasourceCapabilityService capabilityService,
         CacheScanGate cacheScanGate,
         CacheSizeScanScheduledService cacheSizeScan,
@@ -133,7 +142,7 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// Reads the cached cache size, or starts a queued rescan when force is true.
+    /// Reads the cached cache size, or asks the operation queue for a rescan when force is true.
     /// </summary>
     /// <remarks>
     /// An ordinary read never triggers the scan itself: it returns the last persisted result, a
@@ -141,14 +150,14 @@ public class CacheController : ControllerBase
     /// exists yet. Per-datasource reads are always computed live and are never cached.
     /// </remarks>
     /// <param name="datasource">When set, scopes the read to one datasource instead of the combined total; per-datasource reads are always computed live.</param>
-    /// <param name="force">Starts a queued full rescan instead of reading the cached result. Ignored when <paramref name="datasource"/> is set.</param>
+    /// <param name="force">Asks the operation queue for a full rescan instead of reading the cached result. Ignored when <paramref name="datasource"/> is set.</param>
     [Authorize(Policy = "AccountHolder")]
     [HttpGet("size")]
     [Authorize]
     [ProducesResponseType(typeof(CacheSizeResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(CacheSizeUnavailableResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(CacheSizeScanningResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> GetCacheSizeAsync(
         [FromQuery] string? datasource = null,
         [FromQuery] bool force = false,
@@ -181,6 +190,7 @@ public class CacheController : ControllerBase
                 "Cache File Scan",
                 StartCacheSizeScanAsync,
                 cancellationToken,
+                OperationRequestKey.Plain,
                 notice: notice));
         }
 
@@ -259,16 +269,14 @@ public class CacheController : ControllerBase
         // RelayCacheSizeScanProgressAsync), so it doubles as the i18n stageKey the frontend
         // recovery card interpolates. The tracker's OperationInfo carries no context dictionary,
         // so CacheManagementService exposes the latest progress context for placeholder-bearing
-        // keys like signalr.cacheSizeScan.scanning.
-        var stageKey = string.IsNullOrWhiteSpace(activeScan.Message) ? null : activeScan.Message;
-
+        // keys like signalr.cacheSizeScan.scanning. The tracker writes a key from registration on, so it is never empty.
         return Ok(new
         {
             isProcessing = true,
             status = activeScan.Status,
             percentComplete = activeScan.PercentComplete,
-            message = stageKey ?? "Scanning cache files...",
-            stageKey,
+            message = activeScan.Message,
+            stageKey = activeScan.Message,
             context = _cacheService.CurrentCacheSizeScanProgressContext,
             operationId = activeScan.Id
         });
@@ -285,7 +293,7 @@ public class CacheController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ClearAllCacheAsync(CancellationToken cancellationToken)
     {
         _datasourceService.RefreshPermissions();
@@ -314,33 +322,22 @@ public class CacheController : ControllerBase
             return await _cacheClearingService.StartCacheClearAsync();
         }
 
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.CacheClearing,
-            ConflictScope.Bulk(),
-            cancellationToken);
-        if (conflict != null)
+        // The queue checks and starts under one lock, so a clear and a waiting job sent at the same
+        // moment cannot both start; a conflicting clear is parked (visible waiting card), never 409'd.
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.CacheClearing, ConflictScope.Bulk(), "Cache Clear (All)",
+            StartClearAllAsync, cancellationToken, OperationRequestKey.Plain);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.CacheClearing, ConflictScope.Bulk(), "Cache Clear (All)",
-                StartClearAllAsync, cancellationToken));
+            return Accepted(queueResponse);
         }
 
-        var operationId = await StartClearAllAsync();
-
-        if (operationId == null)
-        {
-            // Race: clearing began between our check and StartCacheClearAsync - park it.
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.CacheClearing, ConflictScope.Bulk(), "Cache Clear (All)",
-                StartClearAllAsync, cancellationToken));
-        }
-
-        _logger.LogInformation("Started cache clear operation for all datasources: {OperationId}", operationId);
+        _logger.LogInformation("Started cache clear operation for all datasources: {OperationId}", queueResponse.OperationId);
 
         return Accepted(new CacheOperationResponse
         {
             Message = "Cache clearing started in background for all datasources",
-            OperationId = operationId,
+            OperationId = queueResponse.OperationId,
             Status = OperationStatus.Running
         });
     }
@@ -356,7 +353,7 @@ public class CacheController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("datasources/{name}")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ClearDatasourceCacheAsync(string name, CancellationToken cancellationToken)
     {
         _datasourceService.RefreshPermissions();
@@ -387,33 +384,22 @@ public class CacheController : ControllerBase
             return await _cacheClearingService.StartCacheClearAsync(name);
         }
 
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.CacheClearing,
-            ConflictScope.Bulk(),
-            cancellationToken);
-        if (conflict != null)
+        // The queue checks and starts under one lock, so a clear and a waiting job sent at the same
+        // moment cannot both start; a conflicting clear is parked (visible waiting card), never 409'd.
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.CacheClearing, ConflictScope.Bulk(), $"Cache Clear ({name})",
+            StartClearDatasourceAsync, cancellationToken, OperationRequestKey.Plain, target: name);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.CacheClearing, ConflictScope.Bulk(), $"Cache Clear ({name})",
-                StartClearDatasourceAsync, cancellationToken, target: name));
+            return Accepted(queueResponse);
         }
 
-        var operationId = await StartClearDatasourceAsync();
-
-        if (operationId == null)
-        {
-            // Race: clearing began between our check and StartCacheClearAsync - park it.
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.CacheClearing, ConflictScope.Bulk(), $"Cache Clear ({name})",
-                StartClearDatasourceAsync, cancellationToken, target: name));
-        }
-
-        _logger.LogInformation("Started cache clear operation for datasource {Datasource}: {OperationId}", name, operationId);
+        _logger.LogInformation("Started cache clear operation for datasource {Datasource}: {OperationId}", name, queueResponse.OperationId);
 
         return Accepted(new CacheOperationResponse
         {
             Message = $"Cache clearing started for datasource: {name}",
-            OperationId = operationId,
+            OperationId = queueResponse.OperationId,
             Status = OperationStatus.Running
         });
     }
@@ -573,9 +559,9 @@ public class CacheController : ControllerBase
             };
         }
 
-        // The queued-request gate is first: a Remove all records its waiter while holding that gate, and
+        // The waiting-request gate is first: a Remove all records its waiter while holding that gate, and
         // this check has to see that waiter before the row can disappear.
-        await _queuedRemoveAllGate.WaitAsync(cancellationToken);
+        await _waitingRemoveAllGate.WaitAsync(cancellationToken);
         try
         {
             await _corruptionSnapshotMutationGate.WaitAsync(cancellationToken);
@@ -587,7 +573,7 @@ public class CacheController : ControllerBase
                     var activeRemovals = _operationTracker.GetActiveOperations(OperationType.CorruptionRemoval);
                     if (HasActiveCorruptionRemovalForScan(activeRemovals, scanId)
                         || _removeAllRunScans.Values.Contains(scanId)
-                        || QueuedRemoveAllWaitsFor(scanId))
+                        || WaitingRemoveAllWaitsFor(scanId))
                     {
                         throw new ConflictException(
                             "The corruption scan cannot be deleted while its cache removal is active")
@@ -610,7 +596,7 @@ public class CacheController : ControllerBase
         }
         finally
         {
-            _queuedRemoveAllGate.Release();
+            _waitingRemoveAllGate.Release();
         }
 
         return NoContent();
@@ -649,7 +635,7 @@ public class CacheController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("corruption/detect")]
     [ProducesResponseType(typeof(CorruptionDetectionStartResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> StartCorruptionDetectionAsync(
         [FromQuery] int threshold = 3,
         [FromQuery] int lookbackDays = CorruptionDetectionService.DefaultLookbackDays,
@@ -692,7 +678,7 @@ public class CacheController : ControllerBase
                 structuralScanMode);
 
         // Asked before the conflict check below, because that check parks a conflicting request
-        // and answers 202. A person waiting on this response needs the refusal now, not a queued
+        // and answers 202. A person waiting on this response needs the refusal now, not a waiting
         // card that fails later.
         var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
         if (downloadDenial != null)
@@ -702,36 +688,22 @@ public class CacheController : ControllerBase
             return BadRequest(ApiResponse.DownloadInProgress(downloadDenial));
         }
 
-        var conflict = await _conflictChecker.CheckAsync(
+        // The queue checks and starts under one lock, so a second scan sent at the same moment parks
+        // behind this one instead of reaching the start and its "different scan" refusal.
+        var queueResponse = await _operationQueue.EnqueueAsync(
             OperationType.CorruptionDetection,
             ConflictScope.Bulk(),
-            cancellationToken);
-        if (conflict != null)
+            CorruptionDetectionService.DetectionOperationName(method, structuralScanMode),
+            StartDetectionAsync, cancellationToken,
+            new CorruptionDetectionRequestKey(structuralScanMode, threshold, lookbackDays));
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.CorruptionDetection,
-                ConflictScope.Bulk(),
-                CorruptionDetectionService.DetectionOperationName(method, structuralScanMode),
-                StartDetectionAsync, cancellationToken,
-                scanMode: structuralScanMode, scanThreshold: threshold, scanLookbackDays: lookbackDays));
-        }
-
-        var operationId = await StartDetectionAsync();
-        if (operationId == null)
-        {
-            // A Retry claimed a repair between the conflict check and the start; park the request
-            // behind it like any other conflict.
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.CorruptionDetection,
-                ConflictScope.Bulk(),
-                CorruptionDetectionService.DetectionOperationName(method, structuralScanMode),
-                StartDetectionAsync, cancellationToken,
-                scanMode: structuralScanMode, scanThreshold: threshold, scanLookbackDays: lookbackDays));
+            return Accepted(queueResponse);
         }
 
         return Accepted(new CorruptionDetectionStartResponse
         {
-            OperationId = operationId.Value,
+            OperationId = queueResponse.OperationId,
             Message = "Corruption detection started",
             Status = OperationStatus.Running,
             DetectionMethod = method.ToWireString(),
@@ -767,11 +739,11 @@ public class CacheController : ControllerBase
 
         return Ok(new CorruptionDetectionStatusResponse
         {
-            IsRunning = activeOp.Status == OperationStatus.Running || activeOp.Status == OperationStatus.Cancelling,
+            IsRunning = activeOp.Status == OperationStatus.Running || activeOp.Status == OperationStatus.Canceling,
             OperationId = activeOp.Id,
             Status = activeOp.Status,
             Message = activeOp.Message,
-            StageKey = snapshot?.StageKey ?? activeOp.Message,
+            StageKey = snapshot?.StageKey,
             Context = context,
             PercentComplete = snapshot?.PercentComplete ?? activeOp.PercentComplete,
             StartTime = activeOp.StartedAt.ToString("o"),
@@ -825,21 +797,18 @@ public class CacheController : ControllerBase
     /// Removes the corrupted chunks a prior detection scan found for one service.
     /// </summary>
     /// <remarks>
-    /// Can be limited to a caller-selected subset via <paramref name="candidateIds"/>. Deleting
-    /// rewrites that service's access log and cache files, so it revalidates the scan-bound
-    /// selection and write permissions again immediately before starting, in case either changed
-    /// since the scan.
+    /// Removes every candidate the scan found for this service. Deleting rewrites that service's
+    /// access log and cache files, so it revalidates the scan-bound selection and write permissions
+    /// again immediately before starting, in case either changed since the scan.
     /// </remarks>
-    /// <param name="candidateIds">Comma-separated candidate IDs to remove; omit to remove every candidate the scan found for this service.</param>
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("services/{service}/corruption")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveCorruptedChunksAsync(
         string service,
         CancellationToken cancellationToken,
-        [FromQuery] Guid scanId,
-        [FromQuery] string? candidateIds = null)
+        [FromQuery] Guid scanId)
     {
         var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityError != null)
@@ -863,12 +832,21 @@ public class CacheController : ControllerBase
             };
         }
 
-        var requestedCandidateIds = ParseCsvValues(candidateIds, StringComparer.Ordinal);
+        // This route no longer removes a chosen subset. A caller still naming one is refused, so the
+        // removal never widens to every candidate without the caller knowing.
+        if (Request.Query.ContainsKey("candidateIds"))
+        {
+            throw new ValidationException(
+                "candidateIds is no longer accepted: this route removes every candidate the scan found for the service")
+            {
+                StageKey = "errors.http.invalidParameters"
+            };
+        }
+
         var previewSelection = await _corruptionDetectionService.GetRemovalSelectionAsync(
             scanId,
             service,
-            requestedCandidateIds,
-            cancellationToken);
+            cancellationToken: cancellationToken);
         var datasources = ResolveDatasourcesForSelection(
             previewSelection,
             _datasourceService.GetDatasources());
@@ -880,16 +858,30 @@ public class CacheController : ControllerBase
             throw permissionRefusal;
         }
 
+        var request = new CorruptionRemovalRequest(scanId, previewSelection.ScanStartedUtc);
+
         // The whole start path lives in this local function so the wait-queue can run it
         // verbatim at promotion time (captures only singleton services + this controller).
         async Task<Guid?> StartCorruptionRemovalAsync()
         {
-            // A queued request may be promoted after a new scan replaces the preview.
+            // Read at start, so a newer scan a request joined this card with while it waited is the one removed.
+            var startScanId = request.Read();
+            // A waiting request may be promoted after a new scan replaces the preview.
             // Resolve the exact scope again at start time and fail closed if it is stale.
-            var selection = await _corruptionDetectionService.GetRemovalSelectionAsync(
-                scanId,
-                service,
-                requestedCandidateIds);
+            CorruptionRemovalSelection selection;
+            try
+            {
+                selection = await _corruptionDetectionService.GetRemovalSelectionAsync(startScanId, service);
+            }
+            catch (NotFoundException ex) when (ex.StageKey == "errors.corruption.candidatesNotFound")
+            {
+                // An earlier run for this service removed every candidate while this request waited. Its
+                // card ends skipped, as Remove all's does, not failed.
+                throw new NothingToDoException("Corruption candidates")
+                {
+                    StageKey = "errors.corruption.candidatesNotFound"
+                };
+            }
             var currentDatasources = ResolveDatasourcesForSelection(
                 selection,
                 _datasourceService.GetDatasources());
@@ -923,32 +915,52 @@ public class CacheController : ControllerBase
             return startedId == Guid.Empty ? null : startedId;
         }
 
-        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.CorruptionRemoval,
-            ConflictScope.Service(service),
-            cancellationToken);
-        if (conflict != null)
+        // Wait-queue model: the queue checks and starts under one lock, so two requests sent
+        // together cannot both start; a conflicting one is parked (visible waiting card), never 409'd.
+        OperationStartResponse queueResponse;
+        await _parkedCorruptionRemovalGate.WaitAsync(cancellationToken);
+        try
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
+            // Merged before the enqueue: the queue joins a card only before its start runs, and that start
+            // reads the request when it runs. A merge into a card that started meanwhile is not joined, and
+            // this request then runs on its own.
+            // Each detection method keeps its own current scan, so only a request of the same method joins: the
+            // method is the request key the queue compares, and the parked card is kept per method.
+            var parkedKey = (service, previewSelection.DetectionMethod);
+            Guid? joinedId = null;
+            if (_parkedCorruptionRemovals.TryGetValue(parkedKey, out var parked)
+                && _operationTracker.GetOperation(parked.WaitingId)?.Status == OperationStatus.Waiting)
+            {
+                parked.Request.Merge(scanId, previewSelection.ScanStartedUtc);
+                joinedId = parked.WaitingId;
+            }
+
+            queueResponse = await _operationQueue.EnqueueAsync(
                 OperationType.CorruptionRemoval, ConflictScope.Service(service),
-                $"Corruption Removal ({service})", StartCorruptionRemovalAsync, cancellationToken, target: service));
+                $"Corruption Removal ({service})", StartCorruptionRemovalAsync, cancellationToken,
+                new CorruptionRemovalRequestKey(previewSelection.DetectionMethod), target: service);
+            // A request that joined the parked card leaves that card's request in place; only a newly parked one
+            // records its own.
+            if (queueResponse.Status == OperationStartStatus.Waiting && queueResponse.OperationId != joinedId)
+            {
+                _parkedCorruptionRemovals[parkedKey] = (queueResponse.OperationId, request);
+            }
+        }
+        finally
+        {
+            _parkedCorruptionRemovalGate.Release();
         }
 
-        var operationId = await StartCorruptionRemovalAsync();
-        if (operationId == null)
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            // Race: the core refused to start - park it.
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.CorruptionRemoval, ConflictScope.Service(service),
-                $"Corruption Removal ({service})", StartCorruptionRemovalAsync, cancellationToken, target: service));
+            return Accepted(queueResponse);
         }
 
         return Accepted(new CacheOperationResponse
         {
             Message = $"Started corruption removal for service: {service}",
             Service = service,
-            OperationId = operationId,
+            OperationId = queueResponse.OperationId,
             Status = OperationStatus.Running
         });
     }
@@ -957,7 +969,7 @@ public class CacheController : ControllerBase
     /// Whether the all-services removal accepted under <paramref name="operationId"/> is still going.
     /// </summary>
     /// <remarks>
-    /// True while that run is queued, selecting its services, or between services. False once the run
+    /// True while that run is waiting, selecting its services, or between services. False once the run
     /// has ended, which is how a dropped completion lets the click that stored this id leave Removing.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
@@ -975,7 +987,8 @@ public class CacheController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("corruption")]
     [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(MessageOnlyResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveAllCorruptedChunksAsync(
         CancellationToken cancellationToken,
         [FromQuery] Guid scanId,
@@ -1065,6 +1078,8 @@ public class CacheController : ControllerBase
         var removeAllClaim = new BulkCorruptionRemovalState();
         var removeAllClaimHeldByRun = false;
         var removeAllWaiterRecorded = false;
+        // The generation this request's own attempt published before it parked; 0 means no attempt parked.
+        var parkedGeneration = 0;
         async Task<Guid?> StartAllCorruptionRemovalAsync()
         {
             await PublishRemoveAllScanAsync(removeAllClaim, scanId);
@@ -1141,7 +1156,7 @@ public class CacheController : ControllerBase
             {
                 try
                 {
-                    var cancelled = false;
+                    var canceled = false;
                     Exception? serviceError = null;
 
                     for (var serviceIndex = 0; serviceIndex < selections.Count; serviceIndex++)
@@ -1165,7 +1180,7 @@ public class CacheController : ControllerBase
                         }
                         catch (OperationCanceledException)
                         {
-                            cancelled = true;
+                            canceled = true;
                             break;
                         }
                         catch (Exception ex)
@@ -1201,12 +1216,12 @@ public class CacheController : ControllerBase
                         return;
                     }
 
-                    cancelled |= bulkState.Cancelled;
+                    canceled |= bulkState.Canceled;
                     var lastOperationId = bulkState.LastOperationId;
                     var processedCount = bulkState.SucceededServices + bulkState.FailedServices;
                     // A service that failed for a real reason after the stop keeps its red card, and the summary on it says
                     // services failed rather than that all of them were canceled.
-                    if (cancelled && _operationTracker.GetOperation(lastOperationId)?.Status != OperationStatus.Failed)
+                    if (canceled && _operationTracker.GetOperation(lastOperationId)?.Status != OperationStatus.Failed)
                     {
                         var context = new Dictionary<string, object?>
                         {
@@ -1222,12 +1237,12 @@ public class CacheController : ControllerBase
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(false, "all",
                                 StageKey: cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural
-                                    ? "signalr.corruptionRemove.allCancelledStructural"
-                                    : "signalr.corruptionRemove.allCancelled",
+                                    ? "signalr.corruptionRemove.allCanceledStructural"
+                                    : "signalr.corruptionRemove.allCanceled",
                                 OperationId: lastOperationId,
                                 DetectionMethod: cachedDetection.DetectionMethod.ToWireString(),
                                 Context: context,
-                                Cancelled: true));
+                                Canceled: true));
                     }
                     else if (bulkState.FailedServices > 0 || bulkState.SucceededServices != selections.Count)
                     {
@@ -1239,11 +1254,11 @@ public class CacheController : ControllerBase
                         await SetServicesFailedWarningAsync(lastOperationId, bulkState);
                         // Stopped by X after the current service failed: the services after it never ran, so the summary says
                         // where the removal stopped.
-                        if (cancelled) context["completedCount"] = processedCount;
+                        if (canceled) context["completedCount"] = processedCount;
                         AddReportedOperationId(context, bulkState.ReportedOperationId);
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(false, "all",
-                                StageKey: cancelled
+                                StageKey: canceled
                                     ? cachedDetection.DetectionMethod == CorruptionDetectionMethod.Structural
                                         ? "signalr.corruptionRemove.allStoppedWithFailuresStructural"
                                         : "signalr.corruptionRemove.allStoppedWithFailures"
@@ -1335,6 +1350,9 @@ public class CacheController : ControllerBase
             }
             catch (OperationBlockedException)
             {
+                // The queue runs this under its own lock, so no promotion has published since this attempt
+                // did. The full fence makes the store visible before the flag below is read.
+                Interlocked.Exchange(ref parkedGeneration, removeAllClaim.PublishedGeneration);
                 // This request keeps the claim until it records its own waiter. A re-park of a request
                 // that already recorded one drops the claim it just published; that waiter is what delete refuses.
                 if (removeAllWaiterRecorded)
@@ -1350,84 +1368,78 @@ public class CacheController : ControllerBase
             }
         }
 
-        // Wait-queue model: a busy service parks the whole all-services run on that service. Once started,
-        // the run holds every service's scope in the check until its last service ends.
-        Guid? startedOperationId;
+        // Wait-queue model: the queue checks and starts under one lock, so a single-service removal
+        // sent at the same moment cannot start beside this run. A busy service parks the whole run on
+        // that service. Once started, the run holds every service's scope in the check until its last
+        // service ends.
+        var requestKey = $"{scanId}:{string.Join(',', servicesToRemove.Order(StringComparer.Ordinal))}";
+        // The wait sits in this try so a cancel before the waiter is stored still drops the claim.
+        var gateHeld = false;
         try
         {
-            startedOperationId = await StartAllCorruptionRemovalAsync();
+            await _waitingRemoveAllGate.WaitAsync(cancellationToken);
+            gateHeld = true;
+            if (_waitingRemoveAllRequests.TryGetValue(requestKey, out var waiting)
+                && _operationTracker.GetOperation(waiting.WaitingId)?.Status == OperationStatus.Waiting)
+            {
+                removeAllWaiterRecorded = true;
+                return Accepted(new OperationStartResponse
+                {
+                    OperationId = waiting.WaitingId,
+                    Status = OperationStartStatus.Waiting
+                });
+            }
+            // The queue checks the first service; the start checks every service and parks the run on
+            // whichever is busy.
+            var queueResponse = await _operationQueue.EnqueueAsync(
+                OperationType.CorruptionRemoval, ConflictScope.Service(servicesToRemove[0]),
+                "Corruption Removal (all services)", StartAllCorruptionRemovalAsync, cancellationToken,
+                new CorruptionRemovalRequestKey(cachedDetection.DetectionMethod));
+            if (queueResponse.Status != OperationStartStatus.Waiting)
+            {
+                return Accepted(new CacheOperationResponse
+                {
+                    Message = "Corruption removal started for all services",
+                    OperationId = queueResponse.OperationId
+                });
+            }
+
+            _logger.LogInformation("[CorruptionRemoval] All-services removal waiting as {OperationId}", queueResponse.OperationId);
+            var waitingId = queueResponse.OperationId;
+            _waitingRemoveAllRequests[requestKey] = new WaitingRemoveAll(
+                waitingId,
+                () => ReportWaitingRemoveAllEnded(waitingId, cachedDetection.DetectionMethod));
+            removeAllWaiterRecorded = true;
+            // The 202 body is this waiting id. The summary carries it too, including while
+            // promotion has not registered a service row yet.
+            RememberRemoveAllRun(removeAllClaim, waitingId);
+            // A waiter that ended before the write above found no entry to report its ending from.
+            if (_operationTracker.GetOperation(waitingId)?.Status.IsTerminal() == true)
+            {
+                ForgetWaitingRemoveAll(waitingId);
+            }
+            return Accepted(queueResponse);
         }
-        catch (OperationBlockedException blocked)
+        finally
         {
-            // Read before this catch awaits. A promotion that publishes again before this finally
-            // advances the generation, and the finally then leaves that claim in place.
-            var publishedGeneration = removeAllClaim.PublishedGeneration;
-            _logger.LogInformation("[CorruptionRemoval] All-services removal queued: '{Scope}' conflicts with active {ActiveType}",
-                blocked.Scope.ToTrackerKey(), blocked.Conflict.ActiveOperationType);
-            var requestKey = $"{scanId}:{string.Join(',', servicesToRemove.Order(StringComparer.Ordinal))}";
-            // The wait sits in this try so a cancel before the waiter is stored still drops the claim.
-            var gateHeld = false;
             try
             {
-                await _queuedRemoveAllGate.WaitAsync(cancellationToken);
-                gateHeld = true;
-                if (_queuedRemoveAllRequests.TryGetValue(requestKey, out var waiting)
-                    && _operationTracker.GetOperation(waiting.WaitingId)?.Status == OperationStatus.Waiting)
+                // Read after the waiter is recorded: a park that lands after this read sees the record and
+                // drops its own claim. A promotion that published since this park leaves a newer generation.
+                var parked = Interlocked.CompareExchange(ref parkedGeneration, 0, 0);
+                if (parked != 0)
                 {
-                    removeAllWaiterRecorded = true;
-                    return Accepted(new QueuedOperationResponse
-                    {
-                        OperationId = waiting.WaitingId,
-                        Queued = true,
-                        AlreadyRunning = true,
-                        Status = "waiting"
-                    });
+                    await UnpublishRemoveAllScanAsync(removeAllClaim, () => removeAllClaimHeldByRun, parked);
                 }
-                var queued = await _operationQueue.EnqueueAsync(
-                    OperationType.CorruptionRemoval, blocked.Scope,
-                    "Corruption Removal (all services)", StartAllCorruptionRemovalAsync, cancellationToken);
-                if (queued.Queued)
-                {
-                    var waitingId = queued.OperationId;
-                    _queuedRemoveAllRequests[requestKey] = new QueuedRemoveAll(
-                        waitingId,
-                        () => ReportQueuedRemoveAllEnded(waitingId, cachedDetection.DetectionMethod));
-                    removeAllWaiterRecorded = true;
-                    // The 202 body is this waiting id. The summary carries it too, including while
-                    // promotion has not registered a service row yet.
-                    RememberRemoveAllRun(removeAllClaim, waitingId);
-                    // A waiter that ended before the write above found no entry to report its ending from.
-                    if (_operationTracker.GetOperation(waitingId)?.Status.IsTerminal() == true)
-                    {
-                        ForgetQueuedRemoveAll(waitingId);
-                    }
-                }
-                return Accepted(queued);
             }
             finally
             {
-                try
+                if (gateHeld)
                 {
-                    await UnpublishRemoveAllScanAsync(
-                        removeAllClaim,
-                        () => removeAllClaimHeldByRun,
-                        publishedGeneration);
-                }
-                finally
-                {
-                    if (gateHeld)
-                    {
-                        _queuedRemoveAllGate.Release();
-                    }
+                    _waitingRemoveAllGate.Release();
                 }
             }
         }
-
-        return Accepted(new CacheOperationResponse
-        {
-            Message = "Corruption removal started for all services",
-            OperationId = startedOperationId
-        });
     }
 
     private static HashSet<string>? ParseCsvValues(
@@ -1454,10 +1466,10 @@ public class CacheController : ControllerBase
             && operation.Metadata is RemovalMetrics { CorruptionScanId: { } activeScanId }
             && activeScanId == scanId);
 
-    private bool QueuedRemoveAllWaitsFor(Guid scanId)
+    private bool WaitingRemoveAllWaitsFor(Guid scanId)
     {
         var prefix = $"{scanId}:";
-        foreach (var entry in _queuedRemoveAllRequests)
+        foreach (var entry in _waitingRemoveAllRequests)
         {
             if (entry.Key.StartsWith(prefix, StringComparison.Ordinal)
                 && _operationTracker.GetOperation(entry.Value.WaitingId)?.Status == OperationStatus.Waiting)
@@ -1512,14 +1524,14 @@ public class CacheController : ControllerBase
         }
     }
 
-    private static void ForgetQueuedRemoveAll(Guid operationId)
+    private static void ForgetWaitingRemoveAll(Guid operationId)
     {
-        QueuedRemoveAll? ended = null;
-        foreach (var entry in _queuedRemoveAllRequests)
+        WaitingRemoveAll? ended = null;
+        foreach (var entry in _waitingRemoveAllRequests)
         {
             // Removing the entry claims its report, so the queue's ending and a request that recorded
             // its waiter late never both send it.
-            if (entry.Value.WaitingId == operationId && _queuedRemoveAllRequests.TryRemove(entry))
+            if (entry.Value.WaitingId == operationId && _waitingRemoveAllRequests.TryRemove(entry))
             {
                 ended = entry.Value;
             }
@@ -1547,24 +1559,24 @@ public class CacheController : ControllerBase
 
     // The click that stored this waiting id leaves Removing only on an "all" completion. A promotion
     // that started the run completes the waiting row, and the run sends that completion itself.
-    private void ReportQueuedRemoveAllEnded(Guid waitingId, CorruptionDetectionMethod detectionMethod)
+    private void ReportWaitingRemoveAllEnded(Guid waitingId, CorruptionDetectionMethod detectionMethod)
     {
         if (_operationTracker.GetOperation(waitingId) is not { Status: not OperationStatus.Completed } waiting)
         {
             return;
         }
 
-        var cancelled = waiting.Status == OperationStatus.Cancelled;
+        var canceled = waiting.Status == OperationStatus.Canceled;
         var context = new Dictionary<string, object?>();
         AddReportedOperationId(context, waitingId);
         _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalComplete,
             new CorruptionRemovalComplete(waiting.Status == OperationStatus.Skipped, "all",
                 // A refusal or a nothing-to-do ending keeps the key its waiting row already shows.
-                StageKey: cancelled ? "signalr.corruptionRemove.cancelled" : waiting.Message,
+                StageKey: canceled ? "signalr.corruptionRemove.canceled" : waiting.Message,
                 OperationId: waitingId,
                 DetectionMethod: detectionMethod.ToWireString(),
                 Context: context,
-                Cancelled: cancelled));
+                Canceled: canceled));
     }
 
     // A service that failed before it registered has no card of its own, so the warning names every such
@@ -1855,7 +1867,7 @@ public class CacheController : ControllerBase
         // The services that failed before they registered a step, so they have no card of their own.
         public readonly List<string> UnstartedServices = new();
         public readonly List<string> UnstartedErrorKeys = new();
-        public bool Cancelled;
+        public bool Canceled;
         public Guid LastOperationId;
         // The id on the 202 and on CorruptionRemovalComplete. The last service's operation is a different id.
         public Guid ReportedOperationId;
@@ -1865,8 +1877,40 @@ public class CacheController : ControllerBase
         public CorruptionRemovalCounts Totals { get; } = new();
     }
 
-    // A queued Remove all's waiting id, and how its request reports an ending that ran no service.
-    private sealed record QueuedRemoveAll(Guid WaitingId, Action ReportEnded);
+    // A waiting Remove all's id, and how its request reports an ending that ran no service.
+    private sealed record WaitingRemoveAll(Guid WaitingId, Action ReportEnded);
+
+    // The scan a one-service removal removes every candidate of when it starts. Requests of the same detection
+    // method joined to its waiting card merge their scan into it.
+    private sealed class CorruptionRemovalRequest(Guid scanId, string scanStartedUtc)
+    {
+        private readonly object _sync = new();
+        private Guid _scanId = scanId;
+        private string _scanStartedUtc = scanStartedUtc;
+
+        public void Merge(Guid scanId, string scanStartedUtc)
+        {
+            lock (_sync)
+            {
+                // Only a newer scan replaces the card's: a start on an older one fails closed for every request
+                // on the card. A request validated just before a newer scan replaced its own can arrive after
+                // the newer one's. The start times are canonical UTC text, so ordinal order is time order.
+                if (string.CompareOrdinal(scanStartedUtc, _scanStartedUtc) > 0)
+                {
+                    _scanId = scanId;
+                    _scanStartedUtc = scanStartedUtc;
+                }
+            }
+        }
+
+        public Guid Read()
+        {
+            lock (_sync)
+            {
+                return _scanId;
+            }
+        }
+    }
 
     internal static StructuralRemovalCompletion ValidateStructuralRemovalCompletion(
         Dictionary<string, object?> context,
@@ -1956,7 +2000,7 @@ public class CacheController : ControllerBase
     /// progress monitoring, and completes the operation. A repeated-miss removal rewrites the logs
     /// only in each datasource's own locked log step. Caller responsibilities (NOT done here):
     /// conflict/permission checks and the HTTP response. On cancellation the operation is
-    /// completed as cancelled and an <see cref="OperationCanceledException"/> is rethrown so the all-services loop can break;
+    /// completed as canceled and an <see cref="OperationCanceledException"/> is rethrown so the all-services loop can break;
     /// non-cancellation failures complete the operation as failed and are swallowed so the
     /// all-services loop continues with the next service. <paramref name="onRegistered"/> fires
     /// synchronously with the operationId the moment the operation is registered.
@@ -2013,8 +2057,8 @@ public class CacheController : ControllerBase
                 // what made completions race each other on the singleton notification card.
                 if (bulk != null)
                 {
-                    if (info.Cancelled)
-                        bulk.Cancelled = true;
+                    if (info.Canceled)
+                        bulk.Canceled = true;
                     else if (info.Success)
                         bulk.SucceededServices++;
                     else
@@ -2026,23 +2070,31 @@ public class CacheController : ControllerBase
 
                 terminalCompletion.TrySetResult(info);
 
-                if (info.Cancelled)
+                if (info.Canceled)
                 {
                     return _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(false, serviceName,
-                                StageKey: "signalr.corruptionRemove.cancelled",
+                                StageKey: "signalr.corruptionRemove.canceled",
                                 OperationId: operationId,
                                 DetectionMethod: detectionMethod.ToWireString(),
-                                Cancelled: true));
+                                Canceled: true));
                 }
 
                 if (!info.Success)
                 {
+                    // The run's own key and values, read inside CompleteOperation after onCompleting set them: the
+                    // card prefers an event's error, which is a key here and has no values of its own. The
+                    // tracker's generic failure reads as this removal's own failure line.
+                    var failedRun = _operationTracker.GetOperation(operationId)!;
                     return _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                         new CorruptionRemovalComplete(false, serviceName,
-                            StageKey: "signalr.corruptionRemove.failed.generic",
+                            StageKey: failedRun.Message == "signalr.generic.failed"
+                                ? "signalr.corruptionRemove.failed.generic"
+                                : failedRun.Message,
                             OperationId: operationId,
-                            Error: info.Error,
+                            Context: failedRun.FailureReason is { } reason
+                                ? new Dictionary<string, object?>(reason.Context)
+                                : null,
                             DetectionMethod: detectionMethod.ToWireString()));
                 }
 
@@ -2089,40 +2141,53 @@ public class CacheController : ControllerBase
         {
             // X while the repair waited to be prepared: nothing ran, and the person's cancel is gray.
             // Rethrown as the main cancel path does, so Remove all stops and the single-service start does not queue the removal again.
-            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
+            _operationTracker.CompleteOperation(operationId, success: false, canceled: true);
             await terminalCompletion.Task;
             throw new OperationCanceledException(cancellationToken);
         }
         catch (Exception ex)
         {
-            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.generic.failed",
+                onCompleting: operation => operation.ErrorDetail = ex.Message);
             await terminalCompletion.Task;
             return false;
         }
 
-        async Task FinishAndCompleteAsync(bool success, bool cancelled, string? error)
+        async Task FinishAndCompleteAsync(bool success, bool canceled, string? error)
         {
             var operation = _operationTracker.GetOperation(operationId);
             var terminalWon = operation?.Status.IsTerminal() == true;
             var finalSuccess = terminalWon ? operation!.Success : success;
-            var finalCancelled = terminalWon ? operation!.Cancelled : cancelled;
+            var finalCanceled = terminalWon ? operation!.Canceled : canceled;
+            // An ending that already landed keeps its own message, so only this path's failure text needs a key: it
+            // travels as the value of the removal's failure sentence, on the run and on its repair record alike.
+            var failureReason = error is null
+                ? null
+                : new RunWarning(
+                    "signalr.corruptionRemove.error.fatal",
+                    new Dictionary<string, object?> { ["errorDetail"] = error });
             var finalError = terminalWon
-                ? finalSuccess || finalCancelled ? null : operation!.Message
-                : error;
+                ? finalSuccess || finalCanceled ? null : operation!.Message
+                : failureReason?.StageKey;
 
             await _corruptionDetectionService.FinishRepairAsync(
                 operationId,
                 finalSuccess,
-                finalCancelled,
-                finalError);
+                finalCanceled,
+                finalError,
+                terminalWon ? (finalError is null ? null : operation!.FailureReason) : failureReason);
 
             var finalCounts = CopyRemovalCounts(totals);
             _operationTracker.CompleteOperation(
                 operationId,
                 finalSuccess,
-                finalError,
-                finalCancelled,
-                onCompleting: _ => terminalTotals = finalCounts);
+                failureReason?.StageKey,
+                finalCanceled,
+                onCompleting: operation =>
+                {
+                    terminalTotals = finalCounts;
+                    if (failureReason is not null) operation.FailureReason = failureReason;
+                });
         }
 
         // Send start notification via SignalR
@@ -2478,7 +2543,7 @@ public class CacheController : ControllerBase
             if (allSucceeded)
             {
                 _logger.LogInformation("Corruption removal completed for service: {Service} across all datasources", service);
-                await FinishAndCompleteAsync(success: true, cancelled: false, error: null);
+                await FinishAndCompleteAsync(success: true, canceled: false, error: null);
             }
             else if (finishedDatasources > 0)
             {
@@ -2489,28 +2554,28 @@ public class CacheController : ControllerBase
                 await _operationStateService.SetRunWarningAsync(operationId, new RunWarning(
                     "common.notifications.warnings.datasourcesFailed",
                     new Dictionary<string, object?> { ["datasources"] = string.Join(", ", failedDatasources) }));
-                await FinishAndCompleteAsync(success: true, cancelled: false, error: null);
+                await FinishAndCompleteAsync(success: true, canceled: false, error: null);
             }
             else
             {
                 _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
-                await FinishAndCompleteAsync(success: false, cancelled: false, error: lastError);
+                await FinishAndCompleteAsync(success: false, canceled: false, error: lastError);
             }
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
-            await FinishAndCompleteAsync(success: false, cancelled: true, error: null);
+            _logger.LogInformation("Corruption removal canceled for service: {Service}", service);
+            await FinishAndCompleteAsync(success: false, canceled: true, error: null);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
-            await FinishAndCompleteAsync(success: false, cancelled: false, error: ex.Message);
+            await FinishAndCompleteAsync(success: false, canceled: false, error: ex.Message);
         }
         var terminal = await terminalCompletion.Task;
         // X or a force stop on this service stops Remove all whatever the service's ending: a successful ending reports no
         // cancel and a failure clears the run's cancel mark, so the person's stop is read from the token it canceled.
-        if (terminal.Cancelled || cancellationToken.IsCancellationRequested)
+        if (terminal.Canceled || cancellationToken.IsCancellationRequested)
             throw new OperationCanceledException(cancellationToken);
         return terminal.Success;
 
@@ -2529,7 +2594,7 @@ public class CacheController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("services/{name}")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ClearServiceCacheAsync(string name, CancellationToken requestCt, [FromQuery] string? scope = null)
     {
         var scopeError = EnsureCacheFileScopeDeclared(_logger, scope, $"[ClearServiceCache] service '{name}':");
@@ -2612,15 +2677,15 @@ public class CacheController : ControllerBase
                     report.LogEntriesRemoved,
                     new Dictionary<string, object?> { ["name"] = name },
                     EntityKept: report.EntityKept),
-                BuildCancelled: id => new ServiceRemovalComplete(
+                BuildCanceled: id => new ServiceRemovalComplete(
                     false,
                     name,
                     id,
-                    "signalr.serviceRemove.cancelled",
+                    "signalr.serviceRemove.canceled",
                     Context: new Dictionary<string, object?> { ["name"] = name },
                     // Same reason as the game removal path: success:false on its own reads as a
                     // genuine error, so a stopped run would show red and announce as an alert.
-                    Cancelled: true),
+                    Canceled: true),
                 // A refusal names its reason by key, so the card shows that reason in the reader's language.
                 BuildErrorProgress: (id, ex) => new ServiceRemovalProgress(
                     name,
@@ -2632,10 +2697,11 @@ public class CacheController : ControllerBase
                     false,
                     name,
                     id,
-                    ex is ApiException { StageKey: { } refusalKey } ? refusalKey : "signalr.serviceRemove.failed.generic",
-                    Context: new Dictionary<string, object?> { ["name"] = name },
-                    // The browser shows an error ahead of the stage key, so a keyed refusal sends none.
-                    Error: ex is ApiException { StageKey: not null } ? null : ex.Message),
+                    ex is ApiException { StageKey: { } refusalKey } ? refusalKey : "signalr.serviceRemove.error.default",
+                    Context: new Dictionary<string, object?> { ["name"] = name, ["errorDetail"] = ex.Message },
+                    // The browser shows an error ahead of the stage key, so none is sent: the error key
+                    // names the text as its errorDetail value.
+                    Error: null),
                 ExecuteAsync: (opId, ct, onProgress) => _cacheService.RemoveServiceFromCacheAsync(
                     name,
                     ct,
@@ -2680,9 +2746,9 @@ public class CacheController : ControllerBase
                         report.CacheFilesDeleted,
                         report.TotalBytesFreed);
                 },
-                LogCancelled: _ =>
+                LogCanceled: _ =>
                 {
-                    _logger.LogInformation("Service removal cancelled for: {Service}", name);
+                    _logger.LogInformation("Service removal canceled for: {Service}", name);
                 },
                 LogFailure: (_, ex) =>
                 {
@@ -2690,24 +2756,20 @@ public class CacheController : ControllerBase
                 }));
         }
 
-        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.ServiceRemoval,
-            ConflictScope.Service(name),
-            requestCt);
-        if (conflict != null)
+        // Wait-queue model: the queue checks and starts under one lock, so two requests sent
+        // together cannot both start; a conflicting one is parked (visible waiting card), never 409'd.
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.ServiceRemoval, ConflictScope.Service(name),
+            $"Service Removal ({name})", StartServiceRemovalAsync, requestCt, OperationRequestKey.Plain, target: name);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.ServiceRemoval, ConflictScope.Service(name),
-                $"Service Removal ({name})", StartServiceRemovalAsync, requestCt, target: name));
+            return Accepted(queueResponse);
         }
-
-        var operationId = await StartServiceRemovalAsync();
 
         return Accepted(new CacheOperationResponse
         {
             Message = $"Started removal of {name} service from cache",
-            OperationId = operationId,
+            OperationId = queueResponse.OperationId,
             ServiceName = name,
             Status = OperationStatus.Running
         });
@@ -2726,7 +2788,7 @@ public class CacheController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("count/service/{name}")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public Task<IActionResult> StartServiceCacheFileCountAsync(string name, CancellationToken requestCt) =>
         StartCacheFileCountAsync(
             ConflictScope.Service(name),
@@ -2745,7 +2807,7 @@ public class CacheController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("count/game/{appId:long}")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public Task<IActionResult> StartGameCacheFileCountAsync(long appId, CancellationToken requestCt) =>
         StartCacheFileCountAsync(
             ConflictScope.SteamGame(appId),
@@ -2764,7 +2826,7 @@ public class CacheController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("count/game/epic/{gameName}")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public Task<IActionResult> StartEpicGameCacheFileCountAsync(string gameName, CancellationToken requestCt) =>
         StartCacheFileCountAsync(
             ConflictScope.EpicGame(null, gameName),
@@ -2783,7 +2845,7 @@ public class CacheController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("count/game/named/{service}/{gameName}")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public Task<IActionResult> StartNamedGameCacheFileCountAsync(
         string service,
         string gameName,
@@ -2808,7 +2870,7 @@ public class CacheController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("count/unmapped")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public Task<IActionResult> StartUnmappedCacheFileCountAsync(CancellationToken requestCt) =>
         StartCacheFileCountAsync(
             ConflictScope.Bulk(),
@@ -2883,12 +2945,12 @@ public class CacheController : ControllerBase
                 }
                 catch (OperationCanceledException)
                 {
-                    _logger.LogInformation("Cache file count cancelled for: {Entity}", entityName);
+                    _logger.LogInformation("Cache file count canceled for: {Entity}", entityName);
                     // Each ending is also kept with the count's answers: the tracker drops the
                     // operation 10 s after it ends, and a dialog that slept asks later.
                     _cacheService.PublishCount(new CacheManagementService.CacheFileCountState(
                         countOperationId, null, null, null, null, "errors.cache.countStopped"));
-                    _operationTracker.CompleteOperation(countOperationId, false, cancelled: true);
+                    _operationTracker.CompleteOperation(countOperationId, false, canceled: true);
                 }
                 catch (ApiException refusal) when (refusal.StageKey != null)
                 {
@@ -2921,20 +2983,20 @@ public class CacheController : ControllerBase
             return Task.FromResult<Guid?>(countOperationId);
         }
 
-        var conflict = await _conflictChecker.CheckAsync(OperationType.CacheFileCount, scope, requestCt);
-        if (conflict != null)
+        // The queue checks and starts under one lock, so a count and a waiting job sent at the same
+        // moment cannot both start.
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.CacheFileCount, scope, $"Cache File Count ({entityName})", StartCountAsync, requestCt,
+            OperationRequestKey.Plain);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.CacheFileCount, scope,
-                $"Cache File Count ({entityName})", StartCountAsync, requestCt));
+            return Accepted(queueResponse);
         }
-
-        var operationId = await StartCountAsync();
 
         return Accepted(new CacheOperationResponse
         {
             Message = $"Started counting cache files for {entityName}",
-            OperationId = operationId,
+            OperationId = queueResponse.OperationId,
             Status = OperationStatus.Running
         });
     }
@@ -3000,9 +3062,10 @@ public class CacheController : ControllerBase
                 OperationId = operationId,
                 PercentComplete = operation.PercentComplete,
                 // UpdateProgress stores the current stage key in Message, so it doubles as the
-                // i18n key the confirmation renders. A cancel writes a plain sentence there, so a
-                // stopping count answers no key and the dialog keeps its last progress line.
-                StageKey = operation.Status == OperationStatus.Cancelling
+                // i18n key the confirmation renders. A cancel writes the generic canceling key there,
+                // which is not a progress line, so a stopping count answers no key and the dialog
+                // keeps its last progress line.
+                StageKey = operation.Status == OperationStatus.Canceling
                     || string.IsNullOrWhiteSpace(operation.Message)
                         ? null
                         : operation.Message,
@@ -3021,10 +3084,10 @@ public class CacheController : ControllerBase
             });
         }
 
-        // The dialog never reads a cancel it made itself, so a cancelled count was stopped by
+        // The dialog never reads a cancel it made itself, so a canceled count was stopped by
         // something else: most often the server, after nothing asked for it. The key comes from
-        // the status because a queued count cancelled while waiting holds a plain sentence.
-        if (operation is { Type: OperationType.CacheFileCount, Status: OperationStatus.Cancelled })
+        // the status because a count canceled while waiting holds the generic canceled key.
+        if (operation is { Type: OperationType.CacheFileCount, Status: OperationStatus.Canceled })
         {
             return Ok(new CacheFileCountStatusResponse
             {
@@ -3052,7 +3115,7 @@ public class CacheController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("unmapped")]
     [ProducesResponseType(typeof(CacheOperationResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveUnmappedFilesAsync(
         [FromQuery] long maxFiles,
         [FromQuery] long maxBytes,
@@ -3087,24 +3150,24 @@ public class CacheController : ControllerBase
         // inside the run.
         _cacheService.EnsureUnmappedFileRemovalAllowed();
 
-        Task<Guid?> StartRemovalAsync() =>
-            _cacheService.StartUnmappedFileRemovalAsync(new UnmappedFilesLimits(maxFiles, maxBytes));
+        // The start and the request key read one value, so the work asked for is the work the key names.
+        var limits = new UnmappedFilesLimits(maxFiles, maxBytes);
+        Task<Guid?> StartRemovalAsync() => _cacheService.StartUnmappedFileRemovalAsync(limits);
 
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.UnmappedFileRemoval, ConflictScope.Bulk(), requestCt);
-        if (conflict != null)
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.UnmappedFileRemoval, ConflictScope.Bulk(),
+            "Unmapped File Removal", StartRemovalAsync, requestCt,
+            // Other limits are other work: that request waits on its own card instead of joining this one.
+            new UnmappedFileRemovalRequestKey(limits));
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.UnmappedFileRemoval, ConflictScope.Bulk(),
-                "Unmapped File Removal", StartRemovalAsync, requestCt));
+            return Accepted(queueResponse);
         }
-
-        var operationId = await StartRemovalAsync();
 
         return Accepted(new CacheOperationResponse
         {
             Message = "Started removing unmapped files",
-            OperationId = operationId,
+            OperationId = queueResponse.OperationId,
             Status = OperationStatus.Running
         });
     }
@@ -3228,12 +3291,12 @@ public class CacheController : ControllerBase
     /// which rewrote the logs once per entity and emitted no SignalR events.
     /// Progress/cancel/recovery flow through the standard eviction_removal notification
     /// (EvictionRemovalStarted with the bulk stage key, Progress ticks, terminal Complete).
-    /// Returns 202 Accepted with { operationId, queued }: started, or parked behind a conflicting
+    /// Returns 202 Accepted with { operationId, status }: started, or parked behind a conflicting
     /// operation, another eviction removal included.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("evicted")]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveAllEvictedAsync(CancellationToken cancellationToken = default)
     {
         var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
@@ -3258,7 +3321,7 @@ public class CacheController : ControllerBase
 
         return Accepted(await _operationQueue.EnqueueAsync(
             OperationType.EvictionRemoval, ConflictScope.Bulk(),
-            "Evicted Data Removal (all)", StartBulkEvictedRemovalAsync, cancellationToken));
+            "Evicted Data Removal (all)", StartBulkEvictedRemovalAsync, cancellationToken, OperationRequestKey.Plain));
     }
 
     /// <summary>
@@ -3273,8 +3336,8 @@ public class CacheController : ControllerBase
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("evicted/{scope}")]
-    [ProducesResponseType(typeof(EvictionRemovalEntityStartResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(EvictionRemovalStartResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveEvictedForEntityAsync(string scope, [FromQuery] string? key, CancellationToken cancellationToken = default)
     {
         var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
@@ -3289,7 +3352,7 @@ public class CacheController : ControllerBase
             return BadRequest(ApiResponse.Error("Query parameter 'key' is required and must not be empty."));
         }
 
-        // Normalise and validate scope.
+        // Normalize and validate scope.
         var scopeLower = scope.ToLowerInvariant();
         if (scopeLower == "named")
         {
@@ -3332,10 +3395,6 @@ public class CacheController : ControllerBase
             "service" => ConflictScope.Service(key),
             _ => ConflictScope.Bulk()
         };
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.EvictionRemoval,
-            conflictScope,
-            cancellationToken);
 
         var evictionScope = scopeLower switch
         {
@@ -3376,7 +3435,8 @@ public class CacheController : ControllerBase
             }
         }
 
-        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        // Wait-queue model: the queue checks and starts under one lock, so two requests sent
+        // together cannot both start; a conflicting one is parked (visible waiting card), never 409'd.
         // CancellationToken.None in the closure: at promotion the HTTP request is long gone;
         // the started op runs on its own registered CTS.
         async Task<Guid?> StartScopedEvictedRemovalAsync() =>
@@ -3388,16 +3448,16 @@ public class CacheController : ControllerBase
                 CancellationToken.None,
                 resolvedEpicAppId: evictionScope == EvictionScope.Epic ? key : null);
 
-        if (conflict != null)
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.EvictionRemoval, conflictScope,
+            $"Evicted Data Removal ({scopeLower}: {key})", StartScopedEvictedRemovalAsync, cancellationToken,
+            OperationRequestKey.Plain, target: key);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.EvictionRemoval, conflictScope,
-                $"Evicted Data Removal ({scopeLower}: {key})", StartScopedEvictedRemovalAsync, cancellationToken, target: key));
+            return Accepted(queueResponse);
         }
 
-        var operationId = await StartScopedEvictedRemovalAsync();
-
-        return Accepted(new EvictionRemovalEntityStartResponse { OperationId = operationId!.Value, Scope = scopeLower, Key = key });
+        return Accepted(new EvictionRemovalStartResponse { OperationId = queueResponse.OperationId, Scope = scopeLower, Key = key });
     }
 
     /// <summary>
@@ -3410,12 +3470,12 @@ public class CacheController : ControllerBase
     /// dedicated two-segment route (the generic <c>evicted/{scope}</c> endpoint cannot carry both
     /// halves of the key).
     /// Returns 202 Accepted with { operationId, scope = "named", service, gameName }. Returns 202
-    /// Accepted with a queued operationId if a conflicting removal is already in progress.
+    /// Accepted with a waiting operationId if a conflicting removal is already in progress.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("evicted/named/{service}/{gameName}")]
     [ProducesResponseType(typeof(EvictionRemovalNamedGameStartResponse), StatusCodes.Status202Accepted)]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveEvictedForNamedGameAsync(string service, string gameName, CancellationToken cancellationToken = default)
     {
         var capabilityError = DenyIfKeyDependentUnavailable(_capabilityService);
@@ -3446,12 +3506,9 @@ public class CacheController : ControllerBase
 
         // Scope-aware concurrency check - reuse the same NamedGame conflict scope as full removal.
         var conflictScope = ConflictScope.NamedGame(serviceLower, gameName);
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.EvictionRemoval,
-            conflictScope,
-            cancellationToken);
 
-        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        // Wait-queue model: the queue checks and starts under one lock, so two requests sent
+        // together cannot both start; a conflicting one is parked (visible waiting card), never 409'd.
         // CancellationToken.None in the closure: at promotion the HTTP request is long gone;
         // the started op runs on its own registered CTS.
         async Task<Guid?> StartScopedEvictedRemovalAsync() =>
@@ -3464,15 +3521,15 @@ public class CacheController : ControllerBase
                 resolvedEpicAppId: null,
                 namedGameName: gameName);
 
-        if (conflict != null)
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.EvictionRemoval, conflictScope,
+            $"Evicted Data Removal (named: {serviceLower}:{gameName})", StartScopedEvictedRemovalAsync, cancellationToken,
+            OperationRequestKey.Plain, target: gameName);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.EvictionRemoval, conflictScope,
-                $"Evicted Data Removal (named: {serviceLower}:{gameName})", StartScopedEvictedRemovalAsync, cancellationToken, target: gameName));
+            return Accepted(queueResponse);
         }
 
-        var operationId = await StartScopedEvictedRemovalAsync();
-
-        return Accepted(new EvictionRemovalNamedGameStartResponse { OperationId = operationId!.Value, Service = serviceLower, GameName = gameName });
+        return Accepted(new EvictionRemovalNamedGameStartResponse { OperationId = queueResponse.OperationId, Service = serviceLower, GameName = gameName });
     }
 }

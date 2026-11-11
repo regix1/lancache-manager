@@ -29,11 +29,17 @@
     "Call of Duty": "embedded://call-of-duty",
     "Avowed": "embedded://avowed",
     "Crash Bandicoot 4": "embedded://crash-bandicoot-4",
-    "Sea of Thieves": "embedded://sea-of-thieves"
+    "Sea of Thieves": "embedded://sea-of-thieves",
+    "DOOM: The Dark Ages": "embedded://doom-the-dark-ages",
+    "The Outer Worlds 2": "embedded://the-outer-worlds-2",
+    "Tony Hawk's Pro Skater 3 + 4": "embedded://tony-hawk-s-pro-skater-3-4",
+    "The Witcher 3: Wild Hunt — Remastered": "embedded://the-witcher-3-wild-hunt-remastered",
+    "Cyberpunk 2077": "embedded://cyberpunk-2077"
   },
   "riot": {
     "League of Legends": "embedded://league-of-legends",
     "Valorant": "embedded://valorant",
-    "Legends of Runeterra": "embedded://legends-of-runeterra"
+    "Legends of Runeterra": "embedded://legends-of-runeterra",
+    "Teamfight Tactics": "embedded://teamfight-tactics"
   }
 }

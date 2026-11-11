@@ -1,3 +1,4 @@
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
@@ -18,12 +19,16 @@ public partial class SteamKit2Service
         CancellationToken cancellationToken = default,
         bool incrementalOnly = false,
         RunTrigger trigger = RunTrigger.Manual,
-        RunNotice? notice = null)
+        RunNotice? notice = null,
+        TaskCompletionSource<Guid?>? started = null)
     {
         if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
         {
             return false;
         }
+        // The progress answer must not carry the phase an earlier run ended on: a polled "completed"
+        // reads as this run having finished.
+        _currentStatus = DepotScanPhase.Connecting;
 
         // Built once, under the single-flight guard, before any lifecycle event is emitted: a direct
         // (REST) rebuild defaults to a manual trigger in the effective notification mode, while the
@@ -36,7 +41,7 @@ public partial class SteamKit2Service
         _activeDepotScanMode = incrementalOnly ? DepotScanMode.Incremental : DepotScanMode.Full;
 
         // The scanned set only exists to stop one crawl re-fetching an app that its own owner-app
-        // expansion queued a second time. Held across crawls it also drops an app that changed again
+        // expansion added a second time. Held across crawls it also drops an app that changed again
         // since the last one, which is never rescanned until the process restarts, so it starts empty
         // on every run and not just on a full scan. Orphan resolution reads the set later in the same
         // run, so the reset belongs here rather than anywhere after the batch pass.
@@ -66,11 +71,10 @@ public partial class SteamKit2Service
                 await reporter.StartAsync(new Dictionary<string, object?>
                 {
                     ["scanMode"] = _activeDepotScanMode,
-                    ["message"] = incrementalOnly
-                        ? "Starting incremental depot mapping scan..."
-                        : "Starting full depot mapping scan...",
                 });
                 _currentPicsOperationId = reporter.OperationId;
+                // Lets a caller hold the queue lock until this run is registered, and no longer.
+                started?.TrySetResult(reporter.OperationId);
                 _picsCrawlRunning = true;
 
                 await ConnectAndBuildIndexAsync(reporter.Token, incrementalOnly).ConfigureAwait(false);
@@ -78,29 +82,28 @@ public partial class SteamKit2Service
             }
             catch (OperationCanceledException)
             {
-                _logger.LogInformation("Steam PICS depot crawl cancelled");
+                _logger.LogInformation("Steam PICS depot crawl canceled");
+                // Also a run stopped while it connects, before the depot scan writes its own end state.
+                _currentStatus = DepotScanPhase.Canceled;
                 _depotRunFailures.TryRemove(reporter.OperationId, out var failure);
                 await reporter.CompleteAsync(
                     success: false,
                     error: failure,
-                    cancelled: failure is null,
+                    canceled: failure is null,
                     stageKey: failure is null
-                        ? "signalr.depotMapping.cancelled"
+                        ? "signalr.depotMapping.canceled"
                         : "signalr.depotMapping.failed",
-                    context: CreateDepotContext(
-                        message: failure ?? "Depot mapping scan cancelled",
-                        errorDetail: failure));
+                    context: CreateDepotContext(errorDetail: failure));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Steam PICS depot crawl failed");
+                _currentStatus = DepotScanPhase.Error;
                 await reporter.CompleteAsync(
                     success: false,
                     error: ex.Message,
                     stageKey: "signalr.depotMapping.failed",
-                    context: CreateDepotContext(
-                        message: $"Depot mapping failed: {ex.Message}",
-                        errorDetail: ex.Message));
+                    context: CreateDepotContext(errorDetail: ex.Message));
             }
             finally
             {
@@ -137,8 +140,64 @@ public partial class SteamKit2Service
         // Raise the schedule/activity broadcast before starting the worker so manual rebuilds light the
         // depot status dot immediately and an instantly terminating worker cannot clear the state first.
         RaiseExecutionStateChanged();
-        _currentBuildTask = Task.Run(RunAsync, CancellationToken.None);
+        _currentBuildTask = Task.Run(async () =>
+        {
+            try
+            {
+                await RunAsync();
+            }
+            finally
+            {
+                started?.TrySetResult(null);
+            }
+        }, CancellationToken.None);
         return true;
+    }
+
+    /// <summary>
+    /// Starts a depot crawl with its conflict check and its start under the operation queue's lock.
+    /// A crawl blocked by another job waits on the queue's card and starts when that job ends.
+    /// Returns whether a crawl started now; false when one was already running or this one is waiting.
+    /// </summary>
+    public async Task<bool> StartRebuildThroughQueueAsync(bool incrementalOnly, RunNotice notice, CancellationToken cancellationToken)
+    {
+        IOperationWaitlist queue;
+        using (var scope = _scopeFactory.CreateScope())
+        {
+            queue = scope.ServiceProvider.GetRequiredService<IOperationWaitlist>();
+        }
+
+        var started = false;
+        async Task<Guid?> StartAsync(CancellationToken runToken)
+        {
+            var registered = new TaskCompletionSource<Guid?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!TryStartRebuild(runToken, incrementalOnly, notice: notice, started: registered))
+            {
+                return null;
+            }
+
+            // A run that failed before it registered resolves null and did no work.
+            var operationId = await registered.Task;
+            started = operationId is not null;
+            return operationId;
+        }
+
+        // A crawl joins only a crawl of the same mode; a full crawl asked during an incremental one runs after it.
+        var requestKey = DepotMappingRequestKey.Crawl(incrementalOnly);
+        var conflict = await queue.StartUnlessBusyAsync(
+            OperationType.DepotMapping, ConflictScope.Bulk(), () => StartAsync(cancellationToken), cancellationToken,
+            requestKey);
+        if (conflict != null)
+        {
+            // A crawl blocked by another job waits on the queue's card and starts when that job ends.
+            // The caller's token belongs to a request or schedule tick that has ended by the time a
+            // waiting crawl starts; the crawl's own card cancels it from then on.
+            await queue.EnqueueAsync(
+                OperationType.DepotMapping, ConflictScope.Bulk(), "Depot Mapping",
+                () => StartAsync(CancellationToken.None), cancellationToken, requestKey, notice: notice);
+        }
+
+        return started;
     }
 
     /// <summary>
@@ -163,7 +222,7 @@ public partial class SteamKit2Service
 
         try
         {
-            _logger.LogInformation("Cancelling active PICS rebuild (operationId: {OperationId})", operationId);
+            _logger.LogInformation("Canceling active PICS rebuild (operationId: {OperationId})", operationId);
 
             // The crawl's token stops its own waits. Shared connection waits may belong to a sign-in.
 
@@ -182,7 +241,7 @@ public partial class SteamKit2Service
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error cancelling PICS rebuild");
+            _logger.LogError(ex, "Error canceling PICS rebuild");
             return false;
         }
     }
@@ -236,7 +295,6 @@ public partial class SteamKit2Service
                 started.StageKey,
                 started.Context,
                 _activeDepotScanMode,
-                ContextString(started.Context, "message") ?? "Starting depot mapping...",
                 IsSteamAuthenticated,
                 DateTime.UtcNow,
                 TotalApps: ContextInt(started.Context, "totalApps"),
@@ -244,12 +302,11 @@ public partial class SteamKit2Service
             progress => new DepotMappingProgress(
                 progress.ServiceKey,
                 progress.OperationId,
-                ContextString(progress.Context, "status") ?? progress.Status,
+                progress.Status,
                 progress.StageKey,
                 progress.PercentComplete,
                 progress.Context,
                 _activeDepotScanMode,
-                ContextString(progress.Context, "message"),
                 IsSteamAuthenticated,
                 DateTime.UtcNow,
                 TotalApps: ContextInt(progress.Context, "totalApps"),
@@ -268,13 +325,8 @@ public partial class SteamKit2Service
             complete => new DepotMappingComplete(
                 complete.OperationId,
                 complete.Success,
-                ContextString(complete.Context, "message")
-                    ?? (complete.Cancelled
-                        ? "Depot mapping scan cancelled"
-                        : complete.Success
-                            ? $"Depot mapping completed - {_emitTotalMappings} mappings, {_emitDownloadsUpdated} downloads updated"
-                            : $"Depot mapping failed: {complete.Error}"),
-                complete.Cancelled,
+                complete.Status,
+                complete.Canceled,
                 TotalMappings: ContextNullableInt(complete.Context, "totalMappings") ?? _emitTotalMappings,
                 DownloadsUpdated: ContextNullableInt(complete.Context, "mappingsApplied") ?? _emitDownloadsUpdated,
                 ScanMode: _activeDepotScanMode,
@@ -289,8 +341,6 @@ public partial class SteamKit2Service
                 TotalBatches: ContextNullableInt(complete.Context, "totalBatches")));
 
     private Dictionary<string, object?> CreateDepotContext(
-        string? status = null,
-        string? message = null,
         int? depotMappingsFound = null,
         int? totalMappings = null,
         int? processedMappings = null,
@@ -300,8 +350,6 @@ public partial class SteamKit2Service
         string? errorDetail = null) =>
         new()
         {
-            ["status"] = status,
-            ["message"] = message,
             ["totalApps"] = _totalAppsToProcess,
             ["processedApps"] = _processedApps,
             ["totalBatches"] = _totalBatches,
@@ -317,9 +365,6 @@ public partial class SteamKit2Service
             ["errorDetail"] = errorDetail,
             ["scanMode"] = _activeDepotScanMode,
         };
-
-    private static string? ContextString(Dictionary<string, object?>? context, string key) =>
-        context?.TryGetValue(key, out var value) == true ? value?.ToString() : null;
 
     private static int ContextInt(Dictionary<string, object?>? context, string key) =>
         ContextNullableInt(context, key) ?? 0;
@@ -379,8 +424,8 @@ public partial class SteamKit2Service
         catch (OperationCanceledException)
         {
             // Cancellation is expected - don't log as error
-            _currentStatus = DepotScanPhase.Cancelled;
-            _logger.LogDebug("Depot mapping scan was cancelled");
+            _currentStatus = DepotScanPhase.Canceled;
+            _logger.LogDebug("Depot mapping scan was canceled");
             // Notification is sent by RunAsync when it catches this exception
             throw;
         }
@@ -455,10 +500,7 @@ public partial class SteamKit2Service
             _depotOwners.Clear();
             _depotNames.Clear();
             _lastChangeNumberSeen = 0; // Reset to ensure Web API enumeration is used
-
-            // Clear game data from the Steam downloads so they get fresh mappings
-            _logger.LogInformation("Full scan detected - clearing existing game data from Steam downloads for fresh mapping");
-            await ClearDownloadGameDataAsync();
+            // Downloads keep their names here; they are renamed only after the crawl's mappings are saved.
         }
         else if (incrementalOnly)
         {
@@ -501,8 +543,8 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task ProcessAppBatchesAsync(List<uint> appIds, CancellationToken ct)
     {
-        // The total counts the work actually queued: every id here is chunked into a batch below, and
-        // the apps discovered mid-run are added to it as they are queued.
+        // The total counts the work actually scheduled for a batch: every id here is chunked into a batch below, and
+        // the apps discovered mid-run are counted as they join a batch.
         var allBatches = appIds.Chunk(AppBatchSize).ToList();
 
         _totalAppsToProcess = appIds.Count;
@@ -616,10 +658,7 @@ public partial class SteamKit2Service
                 double percentComplete = (_processedBatches * 100.0 / allBatches.Count);
 
                 // Send progress via SignalR
-                await SendDepotMappingProgressAsync(
-                    "Scanning Steam PICS data",
-                    $"Scanning Steam PICS: {_processedBatches}/{allBatches.Count} batches"
-                );
+                await SendDepotMappingProgressAsync();
 
                 // Log progress every 50 batches (JSON save deferred to FinalizeAndNotifyAsync)
                 if (_processedBatches % 50 == 0)
@@ -661,7 +700,6 @@ public partial class SteamKit2Service
 
         // Send progress update for post-processing phase
         await SendPostProcessingProgressAsync(
-            "Saving depot mappings to JSON...",
             80,
             _depotToAppMappings.Count,
             "signalr.depotMapping.saving");
@@ -674,7 +712,6 @@ public partial class SteamKit2Service
         // Must run while Steam connection is still active (before disconnect in RunAsync.finally)
         _currentStatus = DepotScanPhase.ResolvingOrphans;
         await SendPostProcessingProgressAsync(
-            "Resolving orphan depots...",
             85,
             _depotToAppMappings.Count,
             "signalr.depotMapping.resolvingOrphans");
@@ -698,7 +735,6 @@ public partial class SteamKit2Service
 
         _currentStatus = DepotScanPhase.Importing;
         await SendPostProcessingProgressAsync(
-            "Importing to database...",
             90,
             _depotToAppMappings.Count,
             "signalr.depotMapping.importing");
@@ -709,7 +745,7 @@ public partial class SteamKit2Service
             await ImportJsonToDatabaseAsync(ct);
             _logger.LogInformation("Database import completed successfully");
 
-            // Tag orphan-resolved mappings with distinct source so GitHub import preserves them
+            // Tag orphan-resolved mappings with a distinct source so their rows say how they were found
             if (orphanDepotIds.Count > 0)
             {
                 using var scopedDb = _scopeFactory.CreateScopedDbContext();
@@ -730,17 +766,21 @@ public partial class SteamKit2Service
         // Auto-apply depot mappings to downloads after PICS data is ready
         _currentStatus = DepotScanPhase.ApplyingMappings;
         await SendPostProcessingProgressAsync(
-            "Applying mappings to downloads...",
             95,
             _depotToAppMappings.Count,
             "signalr.depotMapping.applyingToDownloads");
         _logger.LogInformation("Automatically applying depot mappings after PICS completion");
 
+        // A full crawl holds only what it found, while the table also holds every other source's
+        // mappings; naming from the table renames a depot whose owner changed and keeps the names of
+        // depots only another source maps.
+        if (!incrementalOnly) await LoadDepotMappingsAsync(replace: true, ct);
         var (downloadsUpdated, downloadsNotFound) = await ApplyDepotMappingsAsync(
             _currentMappingReporter,
             ct,
             progressStart: 95,
-            progressEnd: 99);
+            progressEnd: 99,
+            replace: !incrementalOnly);
 
         // Capture the success metrics BY VALUE so the onTerminalEmit closure (which fires exactly
         // once inside CompleteOperation, after RunAsync sets success=true) builds the typed
@@ -767,7 +807,6 @@ public partial class SteamKit2Service
             success: true,
             stageKey: "signalr.depotMapping.finalized",
             context: CreateDepotContext(
-                message: $"Depot mapping completed - {_emitTotalMappings} mappings, {_emitDownloadsUpdated} downloads updated",
                 depotMappingsFound: _emitTotalMappings,
                 totalMappings: _emitTotalMappings,
                 mappingsApplied: _emitDownloadsUpdated),
@@ -792,9 +831,12 @@ public partial class SteamKit2Service
             var common = appinfo != KeyValue.Invalid ? appinfo["common"] : kv["common"];
             var depots = appinfo != KeyValue.Invalid ? appinfo["depots"] : kv["depots"];
 
-            var appName = common?["name"]?.AsString() ?? $"App {appId}";
+            var appName = common?["name"]?.AsString();
             var appType = common?["type"]?.AsString()?.ToLower() ?? "unknown";
-            _appNames[appId] = appName;
+            if (appName != null)
+            {
+                _appNames[appId] = appName;
+            }
 
             // Extract DLC list for DLC depot discovery
             var listofdlc = common?["listofdlc"];
@@ -815,6 +857,8 @@ public partial class SteamKit2Service
 
             if (depots == KeyValue.Invalid || depots.Children == null)
             {
+                // Fetched once: a nameless owner app with no depots is not added again by a later batch.
+                _scannedApps.Add(appId);
                 return dlcAppIdsToScan;
             }
 
@@ -843,10 +887,10 @@ public partial class SteamKit2Service
 
                 // Queue owner app for scanning if we don't have its name yet
                 // This handles redistributables/launchers (e.g., Ubisoft Connect, Rockstar Launcher)
-                if (ownerFromPics.HasValue && !_appNames.ContainsKey(ownerAppId) && !_scannedApps.Contains(ownerAppId))
+                if (ownerFromPics.HasValue && !_appNames.ContainsKey(ownerAppId) && !_scannedApps.Contains(ownerAppId)
+                    && !dlcAppIdsToScan.Contains(ownerAppId))
                 {
                     dlcAppIdsToScan.Add(ownerAppId);
-                    _appNames[ownerAppId] = $"App {ownerAppId}"; // Temporary placeholder until scanned
                 }
             }
 
@@ -1211,7 +1255,7 @@ public partial class SteamKit2Service
     /// Send SignalR progress update for depot mapping operations.
     /// Centralizes the progress notification pattern used across Pics.cs, Mapping.cs, and Connection.cs.
     /// </summary>
-    private async Task SendDepotMappingProgressAsync(string status, string? message = null, bool isReconnecting = false, int? reconnectAttempt = null)
+    private async Task SendDepotMappingProgressAsync(bool isReconnecting = false, int? reconnectAttempt = null)
     {
         var reporter = _currentMappingReporter;
         if (reporter is null)
@@ -1224,10 +1268,8 @@ public partial class SteamKit2Service
             : 0;
         await reporter.ReportAsync(
             percent,
-            "signalr.depotMapping.batchProgress",
+            isReconnecting ? "signalr.depotMapping.reconnecting" : "signalr.depotMapping.batchProgress",
             CreateDepotContext(
-                status,
-                message,
                 isReconnecting: isReconnecting,
                 reconnectAttempt: reconnectAttempt));
     }
@@ -1236,7 +1278,6 @@ public partial class SteamKit2Service
     /// Send SignalR progress update during post-processing phases (after batch loop)
     /// </summary>
     private async Task SendPostProcessingProgressAsync(
-        string message,
         double percentComplete,
         int depotMappingsFound,
         string stageKey)
@@ -1250,6 +1291,6 @@ public partial class SteamKit2Service
         await reporter.ReportAsync(
             percentComplete,
             stageKey,
-            CreateDepotContext(message, message, depotMappingsFound));
+            CreateDepotContext(depotMappingsFound));
     }
 }

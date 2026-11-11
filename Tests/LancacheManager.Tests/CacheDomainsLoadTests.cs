@@ -117,9 +117,9 @@ public sealed class CacheDomainsLoadTests : IDisposable
 
         var load = await Record.ExceptionAsync(() => service.GetDomainsAsync(true, leave.Token));
 
-        var domainsDirectory = Path.Combine(_rootDirectory, "cache-domains");
-        Assert.Contains("epic.txt", await File.ReadAllTextAsync(Path.Combine(domainsDirectory, "cache_domains.json")));
-        Assert.Equal("new.steamcontent.com\n", await File.ReadAllTextAsync(Path.Combine(domainsDirectory, "steam.txt")));
+        var listDirectory = CurrentListDirectory();
+        Assert.Contains("epic.txt", await File.ReadAllTextAsync(Path.Combine(listDirectory, "cache_domains.json")));
+        Assert.Equal("new.steamcontent.com\n", await File.ReadAllTextAsync(Path.Combine(listDirectory, "steam.txt")));
         Assert.Null(load);
 
         // A restart serves the copy on disk.
@@ -139,9 +139,9 @@ public sealed class CacheDomainsLoadTests : IDisposable
             ("steam.txt", "new.steamcontent.com\n"),
             ("epic.txt", "epicgames-download1.akamaized.net\n"));
         _handler.Release();
-        // A folder where epic.txt belongs makes that one file write throw, on Windows and Linux alike.
+        // A folder where current.txt belongs makes the switch to the new list throw, on Windows and Linux alike.
         var domainsDirectory = Path.Combine(_rootDirectory, "cache-domains");
-        Directory.CreateDirectory(Path.Combine(domainsDirectory, "epic.txt"));
+        Directory.CreateDirectory(Path.Combine(domainsDirectory, "current.txt"));
 
         var loading = service.GetDomainsAsync(true, CancellationToken.None);
         Assert.Null(await Record.ExceptionAsync(() => loading));
@@ -151,12 +151,49 @@ public sealed class CacheDomainsLoadTests : IDisposable
         var source = service.GetCurrentSource();
         Assert.Null(source.Error);
         Assert.False(source.FromCache);
-        Assert.DoesNotContain("epic.txt", await File.ReadAllTextAsync(Path.Combine(domainsDirectory, "cache_domains.json")));
+        Assert.Empty(Directory.GetFiles(domainsDirectory, "*.tmp", SearchOption.AllDirectories));
+        Assert.Empty(Directory.GetDirectories(domainsDirectory, "list-*"));
 
-        // A restart serves the old manifest, not a new one beside a missing domain file.
+        // A restart serves the whole old list, not any part of the new one.
         _environment.NoFetch = "true";
         var restarted = await NewService().GetDomainsAsync(false, CancellationToken.None);
-        Assert.Equal("steam", Assert.Single(restarted.Services).Name);
+        var steam = Assert.Single(restarted.Services);
+        Assert.Equal("steam", steam.Name);
+        Assert.Equal(new[] { "lancache.steamcontent.com" }, steam.Domains);
+    }
+
+    [Fact]
+    public async Task SaveSwitches_KeepsOnlyTheNewListFolder()
+    {
+        var service = NewService();
+        await PrimeFromStaleDiskCopy(service);
+        var domainsDirectory = Path.Combine(_rootDirectory, "cache-domains");
+
+        foreach (var steamDomain in new[] { "a.steamcontent.com", "b.steamcontent.com" })
+        {
+            _handler.Archive = Archive(
+                ("cache_domains.json", """{"cache_domains":[{"name":"steam","description":"Steam","domain_files":["steam.txt"]}]}"""),
+                ("steam.txt", steamDomain + "\n"));
+            _handler.Release();
+            await service.GetDomainsAsync(true, CancellationToken.None);
+
+            var listDirectory = CurrentListDirectory();
+            Assert.True(File.Exists(Path.Combine(listDirectory, "cache_domains.json")));
+            Assert.Equal(
+                new[] { Path.Combine(domainsDirectory, "current.txt"), listDirectory }.Order(),
+                Directory.GetFileSystemEntries(domainsDirectory).Order());
+        }
+
+        _environment.NoFetch = "true";
+        var restarted = await NewService().GetDomainsAsync(false, CancellationToken.None);
+        Assert.Equal(new[] { "b.steamcontent.com" }, Assert.Single(restarted.Services).Domains);
+    }
+
+    /// <summary>The list folder that cache-domains/current.txt names.</summary>
+    private string CurrentListDirectory()
+    {
+        var domainsDirectory = Path.Combine(_rootDirectory, "cache-domains");
+        return Path.Combine(domainsDirectory, File.ReadAllText(Path.Combine(domainsDirectory, "current.txt")).Trim());
     }
 
     [Fact]

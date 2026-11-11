@@ -20,7 +20,7 @@ public class GameDetectionService : ScheduledBackgroundService
     private readonly IPathResolver _pathResolver;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly CacheReconciliationService _cacheReconciliationService;
-    private readonly IOperationQueue _operationQueue;
+    private readonly IOperationWaitlist _operationQueue;
 
     public GameDetectionService(
         GameCacheDetectionService detectionService,
@@ -28,7 +28,7 @@ public class GameDetectionService : ScheduledBackgroundService
         IPathResolver pathResolver,
         IServiceScopeFactory scopeFactory,
         CacheReconciliationService cacheReconciliationService,
-        IOperationQueue operationQueue,
+        IOperationWaitlist operationQueue,
         ILogger<GameDetectionService> logger,
         IConfiguration configuration)
         : base(logger, configuration)
@@ -53,11 +53,11 @@ public class GameDetectionService : ScheduledBackgroundService
             : DetectionScanType.Full;
 
     protected internal override DetectionScanType? ScanTypeOf(RunNotice notice)
-        => notice.RequestedScanType ?? ResolveScanType(_stateService);
+        => notice.RequestedScanType ?? notice.HeldScanType ?? ResolveScanType(_stateService);
 
     /// <summary>
     /// Route automatic detection through the same heavy-operation queue as manual requests.
-    /// This closes the conflict-check/start race and gives a blocked scheduled run a cancellable
+    /// This closes the conflict-check/start race and gives a blocked scheduled run a cancelable
     /// purple waiting card in the universal notification menu instead of silently skipping it.
     /// </summary>
     private async Task QueueDetectionAsync(string runKind, CancellationToken ct)
@@ -69,8 +69,9 @@ public class GameDetectionService : ScheduledBackgroundService
         // log one scan and start the other. Read at the top of each run rather than held on this
         // instance, so a mode saved while a run is in flight takes effect on the next run and not
         // partway through this one. A run held for a download on a person's Games-page request keeps the
-        // type that person asked for.
-        var scanType = ScanTypeOf(notice);
+        // type that person asked for, and any other held run keeps the type its waiting card named.
+        // ScanTypeOf's rule, kept as a value because the request key needs a scan type.
+        var scanType = notice.RequestedScanType ?? notice.HeldScanType ?? ResolveScanType(_stateService);
         var incremental = scanType == DetectionScanType.Incremental;
 
         // Reported where the mode is resolved rather than beside the outcome below. A run the
@@ -97,15 +98,16 @@ public class GameDetectionService : ScheduledBackgroundService
             "Game Detection",
             StartDetectionAsync,
             ct,
+            new GameDetectionRequestKey(scanType),
             reportRefusal: true,
-            notice: notice,
-            detectionScanType: scanType);
+            notice: notice);
 
-        var disposition = outcome.Queued
-            ? "queued"
-            : outcome.AlreadyRunning
-                ? "already requested"
-                : "started";
+        var disposition = outcome.Status switch
+        {
+            OperationStartStatus.Waiting => "waiting",
+            OperationStartStatus.AlreadyRunning => "already requested",
+            _ => "started"
+        };
         _logger.LogInformation(
             "[GameDetection] {RunKind} detection {Disposition} (operation: {OperationId})",
             runKind,
@@ -129,8 +131,6 @@ public class GameDetectionService : ScheduledBackgroundService
     {
         try
         {
-            await _detectionService.RestoreInterruptedOperations(stoppingToken);
-
             // Check for required binary upfront before waiting for setup
             var rustBinaryPath = _pathResolver.GetRustGameDetectorPath();
             if (!File.Exists(rustBinaryPath))
@@ -202,7 +202,7 @@ public class GameDetectionService : ScheduledBackgroundService
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("[GameDetection] Cancelled during startup wait");
+            _logger.LogInformation("[GameDetection] Canceled during startup wait");
         }
         // The queue has already recorded the decline and the schedule holds the run until downloads stop.
         catch (DownloadInProgressException ex)

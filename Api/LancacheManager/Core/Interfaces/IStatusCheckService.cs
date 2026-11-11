@@ -19,7 +19,7 @@ public interface IStatusCheckService
     /// <summary>
     /// Starts a sweep in the background and returns its operation ID immediately. Returns
     /// <c>null</c> without starting anything when a sweep is already running (caller returns 409).
-    /// The sweep's lifetime is owned by the service: it is cancelled only through the operation
+    /// The sweep's lifetime is owned by the service: it is canceled only through the operation
     /// tracker, never by the HTTP request that started it disconnecting after the 202.
     /// </summary>
     Guid? StartSweep();

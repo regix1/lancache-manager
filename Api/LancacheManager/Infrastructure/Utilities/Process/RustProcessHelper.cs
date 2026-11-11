@@ -266,7 +266,7 @@ public partial class RustProcessHelper
         // run the child to completion past a cancel that landed during startup.
         if (cancellationToken.IsCancellationRequested)
         {
-            _processManager.KillProcessTree(process, $"{processLabel} already-cancelled at start");
+            _processManager.KillProcessTree(process, $"{processLabel} already-canceled at start");
         }
 
         try
@@ -277,7 +277,7 @@ public partial class RustProcessHelper
         {
             cancelRegistration.Dispose();
 
-            // The card must not read Cancelled while the killed child can still write to the cache,
+            // The card must not read Canceled while the killed child can still write to the cache,
             // the logs or the database. 5 s is the post-kill wait GracefulCancelAsync already uses.
             if (cancellationToken.IsCancellationRequested)
             {
@@ -431,16 +431,16 @@ public partial class RustProcessHelper
             var content = await task.WaitAsync(TimeSpan.FromSeconds(2));
             if (streamName == "stderr" && !string.IsNullOrWhiteSpace(content))
             {
-                _logger.LogDebug("Cancelled/exited process stderr: {Stderr}", content);
+                _logger.LogDebug("Canceled/exited process stderr: {Stderr}", content);
             }
         }
         catch (TimeoutException)
         {
-            _logger.LogDebug("Timed out draining cancelled/exited process {Stream}", streamName);
+            _logger.LogDebug("Timed out draining canceled/exited process {Stream}", streamName);
             _ = task.ContinueWith(
                 completed => _logger.LogDebug(
                     completed.Exception,
-                    "Late cancelled/exited process {Stream} drain faulted",
+                    "Late canceled/exited process {Stream} drain faulted",
                     streamName),
                 CancellationToken.None,
                 TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
@@ -448,7 +448,7 @@ public partial class RustProcessHelper
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Cancelled/exited process {Stream} drain faulted", streamName);
+            _logger.LogDebug(ex, "Canceled/exited process {Stream} drain faulted", streamName);
         }
     }
 
@@ -676,7 +676,7 @@ public partial class RustProcessHelper
                 var stderr = await errorTask;
                 if (!string.IsNullOrWhiteSpace(stderr))
                 {
-                    _logger.LogDebug("[{ProcessLabel}] Cancelled/exited process stderr: {Stderr}", processLabel, stderr);
+                    _logger.LogDebug("[{ProcessLabel}] Canceled/exited process stderr: {Stderr}", processLabel, stderr);
                 }
             }
             catch { /* read may fault when the child was killed */ }
@@ -1224,10 +1224,10 @@ public partial class RustProcessHelper
                 $"log_service_manager {command}",
                 cancellationToken);
 
-            if (string.Equals(progress.Status, "cancelled", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(progress.Status, "canceled", StringComparison.OrdinalIgnoreCase))
             {
                 throw new OperationCanceledException(
-                    $"log_service_manager {command} was cancelled.",
+                    $"log_service_manager {command} was canceled.",
                     cancellationToken);
             }
 

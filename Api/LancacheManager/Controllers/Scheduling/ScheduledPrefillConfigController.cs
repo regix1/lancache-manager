@@ -115,6 +115,11 @@ public class ScheduledPrefillConfigController : ControllerBase
     [HttpPut("config")]
     public async Task<ActionResult> SetConfigAsync([FromBody] ScheduledPrefillConfigDto config)
     {
+        // A missing service or schedule is refused by the config validation after this.
+        foreach (var service in config.GetServicesInRunOrder())
+            if (service?.Schedules is { } schedules)
+                foreach (var schedule in schedules)
+                    ScheduledPrefillConfigFactory.RefuseTopCountAboveLimit(service.ServiceId, schedule?.TopCount);
         await UpdateAsync(_ => config);
         return NoContent();
     }
@@ -122,7 +127,10 @@ public class ScheduledPrefillConfigController : ControllerBase
     [HttpPost("services/{platform}/schedules")]
     public async Task<ActionResult<ScheduledPrefillConfigDto>> CreateScheduleAsync(
         PrefillPlatform platform, [FromBody] ScheduledPrefillSchedule schedule)
-        => Ok(await UpdateAsync(config => ChangeService(config, platform, schedules => [.. schedules, schedule])));
+    {
+        ScheduledPrefillConfigFactory.RefuseTopCountAboveLimit(platform, schedule.TopCount);
+        return Ok(await UpdateAsync(config => ChangeService(config, platform, schedules => [.. schedules, schedule])));
+    }
 
     [HttpPut("services/{platform}/schedules/{scheduleId:guid}")]
     public async Task<ActionResult<ScheduledPrefillConfigDto>> SetScheduleAsync(
@@ -130,6 +138,7 @@ public class ScheduledPrefillConfigController : ControllerBase
     {
         if (schedule.Id != scheduleId)
             throw new ValidationException("The schedule ID must match the route.");
+        ScheduledPrefillConfigFactory.RefuseTopCountAboveLimit(platform, schedule.TopCount);
         return Ok(await UpdateAsync(config => ChangeSchedule(config, platform, scheduleId, _ => schedule)));
     }
 

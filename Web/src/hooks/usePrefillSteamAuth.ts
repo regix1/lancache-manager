@@ -129,6 +129,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   // the sequential login flow is still waiting on, collapsing the modal. Track which challenge ids
   // we have already acked so the ack is sent at most once per unique challenge.
   const confirmedChallengeIdsRef = useRef<Set<string>>(new Set());
+  // The challenge whose failed ack wrote the error on screen, so a later send of it that succeeds
+  // clears only that error.
+  const confirmationErrorRef = useRef<string | null>(null);
 
   // Track if we've started authentication (to avoid showing error on initial NotAuthenticated state)
   const hasStartedAuthRef = useRef(false);
@@ -221,6 +224,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       const expiry = Date.parse(challenge.expiresAt);
       if (!stage || !Number.isFinite(expiry)) {
         finishAuthStep();
+        confirmationErrorRef.current = null;
         setError(t('prefill.auth.errors.noChallenge'));
         setLoading(false);
         return false;
@@ -251,6 +255,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       } else {
         if (expiry <= Date.now()) {
           finishAuthStep();
+          confirmationErrorRef.current = null;
           setError(t('prefill.auth.errors.noChallenge'));
           setLoading(false);
           return false;
@@ -483,11 +488,25 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             challenge,
             'confirm'
           );
+          // The resent approval reached the daemon and the wait goes on.
+          if (
+            confirmationErrorRef.current === challenge.challengeId &&
+            waitRef.current?.challengeId === challenge.challengeId
+          ) {
+            confirmationErrorRef.current = null;
+            setError(null);
+          }
         } catch (err) {
-          notifyError('Failed to send device confirmation acknowledgement', err, {
+          // Freed so the next push of this challenge sends it again.
+          confirmedChallengeIdsRef.current.delete(challenge.challengeId);
+          notifyError('Failed to send device confirmation acknowledgment', err, {
             silent: true,
             logLabel: 'usePrefillSteamAuth device confirmation ack'
           });
+          if (waitRef.current?.challengeId === challenge.challengeId) {
+            confirmationErrorRef.current = challenge.challengeId;
+            setError(getErrorMessage(err));
+          }
         }
         if (epoch !== loginEpochRef.current || sessionIdRef.current !== sessionId) return;
       }

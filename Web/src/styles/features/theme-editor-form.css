@@ -74,3 +74,11 @@
 .theme-color-hex--invalid {
   border-color: var(--theme-error);
 }
+
+/* The color picker popup. Dark themes separate a floating layer from what it floats over with
+   a lighter fill and a border, never a shadow; light themes keep the shadow. */
+[data-theme='dark'] .theme-color-popup {
+  background-color: var(--theme-bg-surface);
+  border-color: var(--theme-card-border);
+  box-shadow: none;
+}

@@ -86,11 +86,10 @@ public class SpeedsController : ControllerBase
         // Query downloads within the time period
         var query = context.Downloads
             .Where(d => d.EndTimeUtc >= periodStart && d.StartTimeUtc <= periodEnd)
-            .Where(d => hiddenClientIps.Count == 0 || !hiddenClientIps.Contains(d.ClientIp));
+            .ApplyClientFilters(hiddenClientIps, [], _stateRepository.GetHiddenPrefillRules());
 
         // Apply eviction filter (hide/remove modes exclude evicted downloads)
-        query = query.ApplyEvictedFilter(evictedMode)
-            .ApplyPrefillFilter(_stateRepository.GetHiddenPrefillRules());
+        query = query.ApplyEvictedFilter(evictedMode);
 
         // Summed in the database rather than over loaded entities: a busy cache has hundreds of
         // thousands of downloads in a 24 hour window, and the response only needs these two numbers.

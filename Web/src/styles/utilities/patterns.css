@@ -1,7 +1,7 @@
 /* Shared structural/text patterns reused across pages.
 
    These are BASE styles a component's own rule is meant to be able to override (e.g. a
-   label keeps .caps-label for weight/case/colour but sets a smaller font-size). The
+   label keeps .caps-label for weight/case/color but sets a smaller font-size). The
    production build STRIPS @layer and code-splits CSS, so a plain single-class override
    (.dl-stat-label) ties with the shared single class (.caps-label) at 0,1,0 and the
    winner is decided by bundle order - which Vite derives from the module graph, not
@@ -100,7 +100,7 @@
 }
 
 /* Square, centered container for a non-interactive icon (brand tiles, stat glyphs).
-   Distinct from .btn-icon-square, which is for actual icon BUTTONS. Colour/background
+   Distinct from .btn-icon-square, which is for actual icon BUTTONS. Color/background
    are set by the caller; size comes from a modifier. */
 .icon-box {
   display: flex;
@@ -126,7 +126,7 @@
 }
 
 /* App-wide status dot: a small round indicator with a ring halo. Promoted here from the
-   user page so schedule/prefill/connection/session dots can share one base. The colour
+   user page so schedule/prefill/connection/session dots can share one base. The color
    and any pulse come from a state class. */
 .status-dot {
   width: 0.5rem;

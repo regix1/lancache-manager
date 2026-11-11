@@ -13,38 +13,29 @@ public static class DownloadQueryExtensions
         return query;
     }
 
-    public static IQueryable<Download> ApplyHiddenClientFilter(this IQueryable<Download> query, List<string> hiddenClientIps)
+    /// <summary>
+    /// Drops the rows the client settings keep off a reader: downloads from hidden clients, from
+    /// clients excluded from stats only (they stay visible in lists), and prefill rows a prefill rule
+    /// covers (its address, or any address when empty; its services, or every service when empty).
+    /// A reader passes the lists it applies and <c>[]</c> for each part it does not. Added to cache
+    /// figures pass no prefill rules: a prefill still fills the cache.
+    /// </summary>
+    public static IQueryable<Download> ApplyClientFilters(
+        this IQueryable<Download> query,
+        List<string> hiddenClientIps,
+        List<string> statsExcludedOnlyIps,
+        List<ClientExclusionRule> prefillRules)
     {
-        if (hiddenClientIps.Count == 0)
+        if (hiddenClientIps.Count > 0)
         {
-            return query;
+            query = query.Where(d => !hiddenClientIps.Contains(d.ClientIp));
         }
 
-        return query.Where(d => !hiddenClientIps.Contains(d.ClientIp));
-    }
-
-    /// <summary>
-    /// Drops downloads from clients excluded from stats calculations only (they stay visible in
-    /// lists). Shared by the stats endpoint and the dashboard batch.
-    /// </summary>
-    public static IQueryable<Download> ApplyStatsExcludedClientFilter(this IQueryable<Download> query, List<string> statsExcludedOnlyIps)
-    {
-        if (statsExcludedOnlyIps.Count == 0)
+        if (statsExcludedOnlyIps.Count > 0)
         {
-            return query;
+            query = query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
         }
 
-        return query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
-    }
-
-    /// <summary>
-    /// Drops rows marked as prefill traffic that a prefill rule covers (its address, or any address
-    /// when empty; its services, or every service when empty). This stays a separate step from the
-    /// client filters because added to cache figures read the same rows without it: a prefill
-    /// still fills the cache.
-    /// </summary>
-    public static IQueryable<Download> ApplyPrefillFilter(this IQueryable<Download> query, List<ClientExclusionRule> prefillRules)
-    {
         foreach (var rule in prefillRules)
         {
             var ip = rule.Ip;

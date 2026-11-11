@@ -69,6 +69,9 @@ const normalizeService = (service: string | null | undefined): string =>
 const normalizeTitle = (title: string | null | undefined): string =>
   (title ?? '').trim().toLowerCase();
 
+// Download rows written by older versions can carry the Steam placeholder or a service's own label
+// as their game name, so Download rows are still read by text here. The current speed tracker
+// sends gameNameResolved on each GameSpeedInfo instead.
 export const isResolvedGameName = (
   gameName: string | null | undefined,
   service: string | null | undefined
@@ -122,11 +125,19 @@ const previewDepotId = (game: GameSpeedInfo): number | null =>
 /** The server validates and publishes the stable client-qualified identity. */
 export const buildTrafficKey = (game: GameSpeedInfo): string => game.key;
 
+/**
+ * A live game's title. The tracker's flag says whether its name is a title the lookup found, so a
+ * game named like its service ("Epic Games") keeps its title; otherwise the shared rule applies.
+ */
+export const getLiveGameDisplayName = (game: GameSpeedInfo, emptyName: string): string => {
+  const name = (game.gameName ?? '').trim();
+  return game.gameNameResolved && name ? name : getGameDisplayName(name, game.service, emptyName);
+};
+
 const previewDisplayName = (
   game: GameSpeedInfo
 ): { displayName: string; displayNameKey: string | null } => {
-  const name = (game.gameName ?? '').trim();
-  const displayName = getGameDisplayName(name, game.service, '');
+  const displayName = getLiveGameDisplayName(game, '');
   if (displayName) return { displayName, displayNameKey: null };
   const depotId = previewDepotId(game);
   if (depotId !== null) {
@@ -158,16 +169,17 @@ const matchesPreview = (preview: LiveDownloadPreview, download: Download): boole
   if (preview.depotId !== null) {
     return download.depotId === preview.depotId && downloadService === preview.service;
   }
+  // The log processor leaves a row's name empty when no title resolved (the Riot and Blizzard
+  // arms of rust-processor/src/log_processor.rs), and only rows newer than the preview reach
+  // here, so whether the row has a name is the test, not how the name reads.
   if (preview.hasResolvedGame) {
     return (
-      isResolvedGameName(download.gameName, download.service) &&
+      normalizeTitle(download.gameName) !== '' &&
       normalizeTitle(download.gameName) === normalizeTitle(preview.gameName) &&
       servicesCompatibleForNamedMatch(preview.service, downloadService)
     );
   }
-  return (
-    downloadService === preview.service && !isResolvedGameName(download.gameName, download.service)
-  );
+  return downloadService === preview.service && normalizeTitle(download.gameName) === '';
 };
 
 const representsSession = (preview: LiveDownloadPreview, download: Download): boolean => {
@@ -193,7 +205,7 @@ const toPreview = (game: GameSpeedInfo, windowSeconds: number): LiveDownloadPrev
     displayName: display.displayName,
     gameName: game.gameName,
     displayNameKey: display.displayNameKey,
-    hasResolvedGame: isResolvedGameName(game.gameName, game.service),
+    hasResolvedGame: game.gameNameResolved,
     gameAppId: previewGameAppId(game),
     depotId: previewDepotId(game),
     datasources: Array.from(

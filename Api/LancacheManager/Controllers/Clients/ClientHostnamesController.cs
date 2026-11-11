@@ -81,13 +81,13 @@ public class ClientHostnamesController : ControllerBase
         }
 
         // Clients an admin hid or excluded from stats appear on no screen, so a name for one is a
-        // reverse query that buys nothing and a slot taken from a machine that is on screen. The
+        // reverse query that buys nothing and a slot taken from a machine that is on screen. Prefill
+        // rows that a prefill rule hides or keeps out of stats are left out for the same reason. The
         // filters are the ones both client-stats surfaces apply.
         var statsExcludedOnlyIps = _stateService.GetStatsExcludedOnlyClientIps();
         var query = _context.Downloads.AsNoTracking()
-            .ApplyHiddenClientFilter(_stateService.GetHiddenClientIps())
             .ApplyEvictedFilter(_stateService.GetEvictedDataMode())
-            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+            .ApplyClientFilters(_stateService.GetHiddenClientIps(), statsExcludedOnlyIps, _stateService.GetPrefillRules());
 
         // The recency cut is part of the query so the database returns at most MaxClientsResolved
         // rows, the same shape the top-clients grouping already uses.

@@ -90,13 +90,27 @@ public partial class CacheManagementService
         var entityKept = repair.Warnings is { } warnings
             && warnings.Any(warning => warning.StageKey == "common.notifications.warnings.datasourcesFailed");
         var target = repair.Target!;
+        // A failure is worded by its key with the values its run kept (the error text as errorDetail), and sends no
+        // error, which the browser would show ahead of the key. A saved refusal or restart key is the ending itself, as
+        // on the live run; only the unkeyed failure takes the removal's own key, whose sentence names the text. Read
+        // here, inside the completion, before the run can be reaped.
+        var failureValues = terminal.Success || terminal.Canceled
+            ? null
+            : _operationTracker.GetOperation(repair.Id)?.FailureReason?.Context;
+        var savedKey = terminal.Success || terminal.Canceled || terminal.Error == "signalr.generic.failedWithDetail"
+            ? null
+            : terminal.Error;
         if (repair.Type == OperationType.ServiceRemoval)
         {
             var stageKey = terminal.Success
                 ? "signalr.serviceRemove.success"
-                : terminal.Cancelled
-                    ? "signalr.serviceRemove.cancelled"
-                    : "signalr.serviceRemove.failed.generic";
+                : terminal.Canceled
+                    ? "signalr.serviceRemove.canceled"
+                    : savedKey is not null
+                        ? savedKey
+                        : failureValues?.ContainsKey("errorDetail") == true
+                            ? "signalr.serviceRemove.error.default"
+                            : "signalr.serviceRemove.failed.generic";
             return _notifications.NotifyAllAsync(
                 SignalREvents.ServiceRemovalComplete,
                 new ServiceRemovalComplete(
@@ -107,9 +121,9 @@ public partial class CacheManagementService
                     metrics.FilesDeleted,
                     metrics.BytesFreed,
                     metrics.LogEntriesRemoved,
-                    new Dictionary<string, object?> { ["name"] = target.Service },
-                    terminal.Error,
-                    terminal.Cancelled,
+                    WithFailureValues(new Dictionary<string, object?> { ["name"] = target.Service }, failureValues),
+                    null,
+                    terminal.Canceled,
                     EntityKept: entityKept));
         }
 
@@ -121,13 +135,15 @@ public partial class CacheManagementService
                 : named
                     ? "signalr.namedRemove.complete"
                     : "signalr.gameRemove.complete"
-            : terminal.Cancelled
+            : terminal.Canceled
                 ? epic
-                    ? "signalr.epicRemove.cancelled"
-                    : "signalr.gameRemove.cancelled"
-                : epic
-                    ? "signalr.epicRemove.error.fatal"
-                    : "signalr.gameRemove.error.fatal";
+                    ? "signalr.epicRemove.canceled"
+                    : "signalr.gameRemove.canceled"
+                : savedKey is not null
+                    ? savedKey
+                    : epic
+                        ? "signalr.epicRemove.error.fatal"
+                        : "signalr.gameRemove.error.fatal";
         var gameName = epic ? target.EpicGame : named ? target.GameName : metrics.EntityName;
         return _notifications.NotifyAllAsync(
             SignalREvents.GameRemovalComplete,
@@ -141,14 +157,33 @@ public partial class CacheManagementService
                 metrics.FilesDeleted,
                 metrics.BytesFreed,
                 metrics.LogEntriesRemoved,
-                new Dictionary<string, object?>
-                {
-                    ["gameName"] = gameName,
-                    ["service"] = target.Service
-                },
-                terminal.Error,
-                terminal.Cancelled,
+                WithFailureValues(
+                    new Dictionary<string, object?>
+                    {
+                        ["gameName"] = gameName,
+                        ["service"] = target.Service
+                    },
+                    failureValues),
+                null,
+                terminal.Canceled,
                 EntityKept: entityKept));
+    }
+
+    // The ending's own values win; the failure adds the ones it names (errorDetail, a refusal's values).
+    private static Dictionary<string, object?> WithFailureValues(
+        Dictionary<string, object?> context,
+        IReadOnlyDictionary<string, object?>? failureValues)
+    {
+        if (failureValues is null)
+        {
+            return context;
+        }
+
+        foreach (var (name, value) in failureValues)
+        {
+            context.TryAdd(name, value);
+        }
+        return context;
     }
 
     private static void ValidateRemovalRepair(OperationRepair repair)
@@ -207,14 +242,16 @@ public partial class CacheManagementService
     internal async Task FinishRemovalRepairAsync(
         Guid operationId,
         bool success,
-        bool cancelled,
-        string? error)
+        bool canceled,
+        string? error,
+        RunWarning? failureReason)
     {
         await _operationStateService.FinishRepairAsync(
             operationId,
             success,
-            cancelled,
-            error);
+            canceled,
+            error,
+            update: failureReason is null ? null : repair => repair.FailureReason = failureReason);
     }
 
     private async Task<long> ReadNewestLogEntryIdAsync(CancellationToken cancellationToken)

@@ -158,7 +158,7 @@ public class GlobalExceptionMiddleware
         }
         catch (OperationCanceledException)
         {
-            // Request was cancelled - don't log as error
+            // Request was canceled - don't log as error
             context.Response.StatusCode = 499; // Client Closed Request
         }
         catch (DockerTimeoutException ex)

@@ -548,7 +548,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         // PER-GAME METRICS (top N with labels)
         // ============================================
-        // Gauges, and deliberately without the _total suffix their neighbours carry. Rows are
+        // Gauges, and deliberately without the _total suffix their neighbors carry. Rows are
         // deleted from Downloads when a service stops appearing in the logs, so a per-game
         // cumulative figure can fall; a counter would report every such deletion as a reset and
         // produce a fake rate() spike.
@@ -883,10 +883,10 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// The download set every query in a cycle reads from. Metrics are statistics, so they honour
+    /// The download set every query in a cycle reads from. Metrics are statistics, so they honor
     /// the same client exclusions every other stats surface does. Hidden and stats-only are two
     /// independent toggles on the Client Management page, so both lists have to be applied:
-    /// honouring only the first leaves stats-only clients in the endpoint while the dashboard drops
+    /// honoring only the first leaves stats-only clients in the endpoint while the dashboard drops
     /// them. Composed in one place, matching DashboardBatchService and StatsController, so no query
     /// can be left out. Internal so the tests exercise this composition rather than a copy of
     /// it.
@@ -897,8 +897,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         List<string> statsExcludedOnlyIps)
     {
         return context.Downloads
-            .ApplyHiddenClientFilter(hiddenClientIps)
-            .ApplyStatsExcludedClientFilter(statsExcludedOnlyIps);
+            .ApplyClientFilters(hiddenClientIps, statsExcludedOnlyIps, []);
     }
 
     /// <summary>
@@ -957,7 +956,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             stateService.GetHiddenClientIps(),
             stateService.GetStatsExcludedOnlyClientIps());
         var prefillRules = stateService.GetPrefillRules();
-        var downloads = allDownloads.ApplyPrefillFilter(prefillRules);
+        var downloads = allDownloads.ApplyClientFilters([], [], prefillRules);
 
         // ============================================
         // CACHE STORAGE METRICS
@@ -1524,7 +1523,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             // key. When this game also reports download traffic this cycle its labels are
             // copied from there rather than derived a second way: the download side resolves
             // the name with a server-side max over every row recorded for the id, so a game
-            // renamed since it was detected would otherwise be labelled one way here and
+            // renamed since it was detected would otherwise be labeled one way here and
             // another way there. A game held only on disk has no partner series, so it falls
             // back to its own row, lowercased to match the download arms and reading a missing
             // service as steam, which is what a NULL service column means.

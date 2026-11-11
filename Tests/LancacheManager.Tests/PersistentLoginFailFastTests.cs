@@ -1,4 +1,5 @@
 using System.Reflection;
+using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
@@ -6,6 +7,8 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -24,7 +27,7 @@ namespace LancacheManager.Tests;
 /// daemon's <c>StartLoginAsync</c> blocks for <see cref="FailFastLoginDaemonClient.BlindWaitDelay"/>
 /// (5s) before the manager's old code ever looks at the failure broadcast, so the test failed on the
 /// elapsed-time assertion (observed ~5s, generic null result, no captured failure text) - the same
-/// shape as the pre-fix "Login timeout - daemon may not be ready" symptom. With the fix, the race
+/// shape as the pre-fix login timeout answer (<c>prefill.persistent.loginTimedOut</c>). With the fix, the race
 /// short-circuits within ~50-100ms.
 /// </summary>
 public class PersistentLoginFailFastTests
@@ -70,13 +73,13 @@ public class PersistentLoginFailFastTests
         var challenge = await daemon.StartLoginAsync(session.Id, TimeSpan.FromSeconds(30), CancellationToken.None);
 
         Assert.Null(challenge);
-        // No failure was ever observed, so the controller must fall back to the generic timeout text.
+        // No failure was ever observed, so the route answers with its login timeout key.
         Assert.Null(session.LastLoginFailureMessage);
     }
 
     /// <summary>
     /// A second <c>StartLoginAsync</c> call on the same session while the first is still mid-flight
-    /// must be rejected rather than silently queued behind it - overlapping calls would otherwise race
+    /// must be rejected rather than silently left waiting behind it - overlapping calls would otherwise race
     /// the daemon's single challenge/status stream. The rejection waits out the bounded
     /// <see cref="DaemonSession.LoginLock"/> wait first (the first call here never releases until the
     /// test says so), and it must arrive as a <see cref="ConflictException"/> carrying the real
@@ -146,6 +149,71 @@ public class PersistentLoginFailFastTests
         Assert.Equal(2, blockingClient.StartLoginCallCount);
     }
 
+    /// <summary>
+    /// The route's answer when the daemon stayed silent names its reason by key, so the sign-in card shows it in
+    /// the reader's language; the English sentence stays as <c>error</c> for older readers.
+    /// </summary>
+    [Fact]
+    public async Task LoginRoute_DaemonGenuinelySilent_AnswersWithTheLoginTimedOutKey()
+    {
+        var (daemon, session) = CreateSessionWithClient(new SilentLoginDaemonClient());
+        var controller = CreateController(daemon);
+
+        var result = await controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = session.Id
+        }, CancellationToken.None);
+
+        var refusal = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var body = Assert.IsType<ErrorResponse>(refusal.Value);
+        Assert.Equal("prefill.persistent.loginTimedOut", body.StageKey);
+    }
+
+    /// <summary>A login request without its id is refused by key before any daemon is asked.</summary>
+    [Fact]
+    public async Task LoginRoute_EmptyLoginId_AnswersWithTheLoginIdKey()
+    {
+        var (daemon, session) = CreateSessionWithClient(new SilentLoginDaemonClient());
+        var controller = CreateController(daemon);
+
+        var result = await controller.StartLoginAsync(new PersistentLoginRequest
+        {
+            Service = PrefillPlatform.Steam,
+            SessionId = session.Id,
+            LoginId = Guid.Empty
+        }, CancellationToken.None);
+
+        var refusal = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var body = Assert.IsType<ErrorResponse>(refusal.Value);
+        Assert.Equal("errors.prefill.loginIdInvalid", body.StageKey);
+    }
+
+    private static PersistentPrefillController CreateController(PrefillDaemonServiceBase daemon)
+    {
+        var database = new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"login_fail_fast_controller_{Guid.NewGuid():N}")
+            .Options);
+        var controller = new PersistentPrefillController(
+            new OneDaemonLookup(daemon),
+            (IStateService)DispatchProxy.Create<IStateService, NullReturningProxy>(),
+            new PrefillCacheService(database, NullLogger<PrefillCacheService>.Instance),
+            NullLogger<PersistentPrefillController>.Instance);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        controller.HttpContext.Items["Session"] = new UserSession
+        {
+            Id = Guid.NewGuid(),
+            SessionType = SessionType.Admin
+        };
+        return controller;
+    }
+
+    /// <summary>Hands the controller the one daemon under test for every daemon lookup.</summary>
+    private sealed class OneDaemonLookup(PrefillDaemonServiceBase daemon) : IServiceProvider
+    {
+        public object? GetService(Type serviceType) => serviceType.IsInstanceOfType(daemon) ? daemon : null;
+    }
+
     private static (PrefillDaemonServiceBase Daemon, DaemonSession Session) CreateSessionWithClient(IDaemonClient client)
     {
         var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
@@ -204,8 +272,9 @@ public class PersistentLoginFailFastTests
 
         public Task ConnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+        // A status the daemon did not answer, as the real client returns it: a Log in reads it before it signs in.
         public virtual Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException("Unexpected GetStatusAsync in this scenario.");
+            => Task.FromResult<DaemonStatus?>(null);
 
         public Task<CommandResponse> SendCommandAsync(
             string type, Dictionary<string, string>? parameters = null, TimeSpan? timeout = null,
@@ -314,8 +383,8 @@ public class PersistentLoginFailFastTests
 
     /// <summary>
     /// Scenario: the daemon never broadcasts anything and never produces a challenge (genuinely
-    /// silent) - proves the generic "Login timeout" fallback (session.LastLoginFailureMessage staying
-    /// null) is preserved for the case nothing was ever heard from the daemon.
+    /// silent) - proves the route's login timeout answer (<c>prefill.persistent.loginTimedOut</c>, with
+    /// session.LastLoginFailureMessage staying null) is kept for the case nothing was ever heard from the daemon.
     /// </summary>
     private sealed class SilentLoginDaemonClient : TestDaemonClientBase
     {

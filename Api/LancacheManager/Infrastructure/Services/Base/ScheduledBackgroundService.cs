@@ -191,7 +191,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                 await OnStartupAsync(startupCts.Token);
                 LastRunUtc = DateTime.UtcNow;
             }
-            catch (OperationCanceledException) when (startupNotice.Cancelled && !stoppingToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (startupNotice.Canceled && !stoppingToken.IsCancellationRequested)
             {
                 // The next scheduled occurrence remains enabled after cancellation.
             }
@@ -202,7 +202,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             }
             finally
             {
-                await EndRunAsync(startupNotice, ServiceKey, startupError, startupNotice.Cancelled,
+                await EndRunAsync(startupNotice, ServiceKey, startupError, startupNotice.Canceled,
                     report: !stoppingToken.IsCancellationRequested);
                 // Whether startup succeeded or failed, the next thing is the main loop's skip-first
                 // sleep, so set the countdown to that before the END broadcast rather than shipping a
@@ -308,7 +308,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                 IntervalJustChanged = false;
                 intervalChanged = true;
             }
-            // `schedule is null` short-circuits to the unchanged behaviour: without a schedule this
+            // `schedule is null` short-circuits to the unchanged behavior: without a schedule this
             // branch is still taken unconditionally, and a paused service is stopped by the sleep at
             // the bottom rather than here. With a schedule, the loop only reaches this after sleeping
             // to an occurrence, so the gate is whether the schedule can fire at all - a schedule with
@@ -374,11 +374,11 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
                 }
             }
 
-            // A Run Now that arrived while ExecuteWorkAsync was running cancelled the delay CTS that
+            // A Run Now that arrived while ExecuteWorkAsync was running canceled the delay CTS that
             // belonged to the already-finished prior sleep, so it cannot interrupt the sleep we are
             // about to start below. Detect it here and loop straight into another run instead of
             // sleeping - otherwise a positive-interval service defers it to the next natural wake
-            // (mislabelled Manual) and a paused service (interval <= 0) sleeps forever, dropping the
+            // (mislabeled Manual) and a paused service (interval <= 0) sleeps forever, dropping the
             // accepted run entirely. The request is taken exactly once at the loop top, which tags the
             // follow-up run Manual; peek without taking here. A request posted after this peek finds no
             // sleep to cancel, so its wake is recorded and the sleep below returns at once.
@@ -408,7 +408,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             {
                 // A schedule with no next run at all cannot be waited for, so it idles on the ordinary
                 // interval sleep and re-checks on every wake rather than recomputing the same null in
-                // a tight loop. Below that, unchanged interval behaviour: zero disables and negative
+                // a tight loop. Below that, unchanged interval behavior: zero disables and negative
                 // means startup-only, and both wait until the schedule or interval changes.
                 if (schedule is not null)
                 {

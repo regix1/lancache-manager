@@ -14,7 +14,7 @@ import {
 } from '@contexts/notifications/notificationStatus';
 
 // ============================================================================
-// Cancellable Operation Types (derived from the registry — single source)
+// Cancelable Operation Types (derived from the registry — single source)
 // ============================================================================
 
 interface CancelConfig {
@@ -74,7 +74,7 @@ export const willForceStop = (notification: UnifiedNotification): boolean =>
  * card captured at click time. The cancel round trip is async and `updateNotification` merges at the
  * top level, so a value-shaped patch built from the click-time card replaces the whole `details`
  * object and erases anything the terminal handler wrote while the request was in flight - including
- * the `cancelled: true` that makes the card read as canceled and draw gray.
+ * the `canceled: true` that makes the card read as canceled and draw gray.
  */
 const pendingCancels = new Set<string>();
 
@@ -92,7 +92,7 @@ export const handleCancel = async (
       isTerminalNotificationStatus(current.status)
         ? {}
         : {
-            details: { ...current.details, cancelRequested: true, cancelling: true }
+            details: { ...current.details, cancelRequested: true, canceling: true }
           }
     );
     return;
@@ -152,8 +152,8 @@ export const handleCancel = async (
       updateNotification(live.id, (current) =>
         !isTerminalNotificationStatus(current.status)
           ? {
-              status: 'cancelling',
-              details: { ...current.details, cancelPending: false, cancelling: true }
+              status: 'canceling',
+              details: { ...current.details, cancelPending: false, canceling: true }
             }
           : {}
       );
@@ -190,7 +190,7 @@ export const handleCancel = async (
               cancelPending: false,
               cancelRequested: false,
               cancelSent: false,
-              cancelling: false
+              canceling: false
             }
           }
         : {}
@@ -210,8 +210,8 @@ export const handleCancel = async (
  * written once, in the `notification-status--*` rules (styles/utilities/animations.css).
  */
 export const getNotificationVariant = (notification: UnifiedNotification): BadgeVariant => {
-  if (notification.details?.cancelled) {
-    return VARIANT_BY_STATUS['cancelled'];
+  if (notification.details?.canceled) {
+    return VARIANT_BY_STATUS['canceled'];
   }
 
   // A card that carries its real semantic in details.notificationType reads it before its status:
@@ -224,7 +224,7 @@ export const getNotificationVariant = (notification: UnifiedNotification): Badge
 
   // `skipped` is gray: the run had nothing to do or was put off. A run that could not start because
   // something is missing ends failed on the server, so it reads red.
-  // `pending` and `cancelling` carry no row of their own: both are still in flight, so they
+  // `pending` and `canceling` carry no row of their own: both are still in flight, so they
   // read the way a running run does.
   return VARIANT_BY_STATUS[notification.status] ?? 'info';
 };

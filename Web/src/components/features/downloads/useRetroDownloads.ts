@@ -222,7 +222,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
   const reloadPendingRef = useRef<boolean>(false);
   // Between a settle queuing its follow-up and the effect starting it, an event must fold into that
   // follow-up instead of bumping the version again and aborting it.
-  const followUpQueuedRef = useRef<boolean>(false);
+  const followUpWantedRef = useRef<boolean>(false);
   // Lets the fetch effect tell a background SignalR-driven refetch (only refreshVersion changed)
   // apart from a user-initiated one (a page/filter/sort dependency changed): the fade below is
   // wanted for the latter and must stay off for the former.
@@ -231,7 +231,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
   // A refresh event that lands while a request is running, or while its follow-up has not started,
   // folds into one later request. Page, filter and sort changes still replace through cleanup.
   const reload = useCallback((): void => {
-    if (requestInFlightRef.current || followUpQueuedRef.current) {
+    if (requestInFlightRef.current || followUpWantedRef.current) {
       reloadPendingRef.current = true;
       return;
     }
@@ -315,7 +315,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       setIsLoading(false);
       requestInFlightRef.current = false;
       reloadPendingRef.current = false;
-      followUpQueuedRef.current = false;
+      followUpWantedRef.current = false;
       return;
     }
 
@@ -357,13 +357,13 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       setIsLoading(false);
       requestInFlightRef.current = false;
       reloadPendingRef.current = false;
-      followUpQueuedRef.current = false;
+      followUpWantedRef.current = false;
       return;
     }
 
     const controller = new AbortController();
     requestInFlightRef.current = true;
-    followUpQueuedRef.current = false;
+    followUpWantedRef.current = false;
 
     // Written on every run rather than only on user-initiated ones. The settle below returns early
     // on an aborted request, so a user fetch that a version bump cancels partway leaves the flag
@@ -416,7 +416,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
         requestInFlightRef.current = false;
         if (reloadPendingRef.current) {
           reloadPendingRef.current = false;
-          followUpQueuedRef.current = true;
+          followUpWantedRef.current = true;
           setRefreshVersion((version) => version + 1);
         }
         setIsFetching(false);

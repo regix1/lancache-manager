@@ -324,7 +324,7 @@ class ThemeService {
           // the label at 5.17:1, and the hover takes the step below that.
           buttonBg: '#2563eb',
           buttonHover: '#1d4ed8',
-          // These four are shades the schema can now grow from a theme's own colours, and the
+          // These four are shades the schema can now grow from a theme's own colors, and the
           // shades it grows land a little off the Tailwind steps this palette was cut from: the
           // ramp turns toward cyan as it lightens, and this theme's badge ground is brighter than
           // most. Stating them keeps the shipped blues exactly where they have always been while
@@ -362,9 +362,9 @@ class ThemeService {
         })
       },
       // Modern, clean light theme (GitHub Primer / Radix pattern):
-      // clearly-grey page canvas, crisp white cards with subtle borders + shadows.
+      // clearly-gray page canvas, crisp white cards with subtle borders + shadows.
       // Radix scale: cards = steps 1-2 (near-white), card borders = step 6 (subtle),
-      // interactive borders = step 7 (slate-300). Grey canvas kills the glare.
+      // interactive borders = step 7 (slate-300). Gray canvas kills the glare.
       {
         meta: {
           id: 'light-default',
@@ -383,9 +383,9 @@ class ThemeService {
           secondaryColor: '#7c3aed',
           accentColor: '#0e7490', // 5.36:1 on white; the old #0891b2 sat at 3.68
 
-          // Backgrounds - Grey canvas, white surfaces
-          // Key: the page itself is visibly grey; cards/modals/nav are white and pop
-          bgPrimary: '#eef1f6', // Cool grey page canvas - kills the white glare
+          // Backgrounds - Gray canvas, white surfaces
+          // Key: the page itself is visibly gray; cards/modals/nav are white and pop
+          bgPrimary: '#eef1f6', // Cool gray page canvas - kills the white glare
           bgSecondary: '#ffffff', // White panels: sidebar/dropdowns/list rows
           bgTertiary: '#eff3f8', // Nested elements, table headers (on white cards)
           bgHover: '#e2e8f0', // slate-200 - hover state
@@ -428,7 +428,7 @@ class ThemeService {
           borderElevated: '#dde3ec', // Borders within elevated panels
           borderHover: '#94a3b8', // slate-400 - border hover state
 
-          // Navigation - White bar over the grey canvas, subtle border
+          // Navigation - White bar over the gray canvas, subtle border
           navBg: '#ffffff',
           navBorder: '#dde3ec',
           navTabActive: '#2563eb',
@@ -439,13 +439,13 @@ class ThemeService {
           navMobileItemHover: '#eef1f6',
 
           // Status colors - Vibrant and accessible
-          // Badge backgrounds use -100 shades; -50 shades disappear on grey cards
+          // Badge backgrounds use -100 shades; -50 shades disappear on gray cards
           // Each of these four is the ink for its own -100 badge ground as well as for icons on a
           // white card, and the 600 steps could not carry both: amber-600 read 2.86:1 on amber-100
           // and 3.19:1 on white, emerald-600 3.32:1 and 3.77:1. Every one drops far enough down its
           // own ramp to clear 4.5:1 on the tinted ground, which leaves it well clear on white too.
           // Green goes a step further than the other three: the live pill draws its label in this
-          // colour on a 20% wash of the same colour, so the wash eats into whatever margin the
+          // color on a 20% wash of the same color, so the wash eats into whatever margin the
           // green has on the card and 4.5:1 there needs 6.5:1 on white.
           success: '#046b4b', // 5.77:1 on successBg, 6.54:1 on a white card, 4.81:1 on the live pill
           successBg: '#d1fae5', // emerald-100
@@ -454,7 +454,7 @@ class ThemeService {
           warningBg: '#fef3c7', // amber-100
           warningText: '#b25015', // Burnt orange rather than the chocolate amber-800 was: the same hue at the most chroma the gamut holds, lifted to where 4.5:1 still binds. 4.66:1 on warningBg, 5.18:1 on a white card, and 7.0 dE from the error text under simulated deuteranopia where the old value sat at 5.0
           // Two steps rather than one: at red-600 this sat 2.5 dE from the amber above under
-          // simulated deuteranopia, so warning text and error text were the same colour. Red-800
+          // simulated deuteranopia, so warning text and error text were the same color. Red-800
           // holds 17.2 there and 31.6 under protanopia, and reads better on both grounds as well.
           error: '#991b1b', // 6.80:1 on errorBg, 8.31:1 on a white card
           errorBg: '#fee2e2', // red-100
@@ -527,7 +527,7 @@ class ThemeService {
           sliderTrack: '#cbd5e1', // slate-300 - visible track on white cards
           progressBg: '#cbd5e1', // slate-300 - visible track on white cards
 
-          // Hit rate specific - -100 shades so badges read on grey cards
+          // Hit rate specific - -100 shades so badges read on gray cards
           hitRateHighBg: '#d1fae5',
           hitRateHighText: '#047857',
           hitRateMediumBg: '#dbeafe',
@@ -647,7 +647,7 @@ class ThemeService {
       },
       // Neutral charcoal dark theme, the counterpart to the blue-slate default:
       // red and green are held equal and blue three points lower, so the ramp reads
-      // as flat warm grey instead of as a second blue theme.
+      // as flat warm gray instead of as a second blue theme.
       {
         meta: {
           id: 'graphite',
@@ -661,7 +661,7 @@ class ThemeService {
           disableTooltips: false
         },
         colors: complete({
-          // Core colors - Softer blue, legible against a warm grey ground.
+          // Core colors - Softer blue, legible against a warm gray ground.
           // Secondary and accent are set here rather than inherited: the shared defaults are the
           // dark slate theme's own violet and cyan, so without these the two dark themes showed an
           // identical pair in the theme slider's swatch strip. Both sit at the same hue offsets from
@@ -765,7 +765,7 @@ class ThemeService {
           hitRateMediumBg: '#1a3f70',
           hitRateMediumText: '#a9cdf9',
 
-          // Warning grounds - the shared default #44403c is a near-neutral warm grey, which reads
+          // Warning grounds - the shared default #44403c is a near-neutral warm gray, which reads
           // as a distinct chip on the slate theme's blue card but nearly merges into this theme's
           // own warm charcoal card: only lightness separates them, so CIE76 dE falls from 17.5 to
           // 12.4. Carrying the amber into the ground instead of lifting it restores the gap
@@ -816,11 +816,11 @@ class ThemeService {
           nexusmodsColor: '#f97316',
           nintendoColor: '#e4000f',
           pathofexileColor: '#9c7000', // Darker goldenrod, stepped down clear of Nexus Mods' orange and Wargaming's olive
-          renegadexColor: '#4e7b82', // Slate turned cool; at its old blue-grey hue it tracked PlayStation's blue
+          renegadexColor: '#4e7b82', // Slate turned cool; at its old blue-gray hue it tracked PlayStation's blue
           sonyColor: '#3d8bd9', // PlayStation navy lightened from 1.41:1
           squareColor: '#c84455', // Deep red, lightened from 1.24:1 and moved off Riot's brand red
           tesoColor: '#b95685', // Same wine, lightened from 1.23:1 and turned pink of Square Enix's red
-          testColor: '#a1a1aa', // One step lighter on the same grey ramp, clear of renegadexColor
+          testColor: '#a1a1aa', // One step lighter on the same gray ramp, clear of renegadexColor
           warframeColor: '#54b6b6',
           wargamingColor: '#9d9a66' // Olive lifted from 2.01:1 and shifted clear of Path of Exile's gold
         })
@@ -938,7 +938,7 @@ class ThemeService {
     // Helper: use theme override if provided, else computed value
     const v = (key: string, computed: string): string => colors[key] || computed;
 
-    // Status glow tone: the light a status colour casts, not a surface it paints. One alpha for
+    // Status glow tone: the light a status color casts, not a surface it paints. One alpha for
     // every status - the -strong ladder cannot be reused here because its alpha varies by status
     // (success 0.4, the rest 0.3), which makes a green segment outshine a red one on the same
     // condensed strip. Tuned against the 2.5px line: the blur halves it, so the brightest visible
@@ -1178,7 +1178,7 @@ class ThemeService {
       --theme-chart-miss-deep: ${v('chartMissDeep', rgba(error, 0.8))};
       /* The area wash under a cache-hit or cache-miss line. Both are declared together at the
          same 0.15 alpha every other -subtle tier uses, so a line that moves onto one of these
-         colours cannot end up with a fill from a different family. */
+         colors cannot end up with a fill from a different family. */
       --theme-chart-cache-hit-subtle: ${v('chartCacheHitSubtle', rgba(chartCacheHit, 0.15))};
       --theme-chart-cache-miss-subtle: ${v('chartCacheMissSubtle', rgba(chartCacheMiss, 0.15))};
       --theme-chart-1-muted: ${v('chartColor1Muted', rgba(chartColor1, 0.3))};

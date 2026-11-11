@@ -16,7 +16,7 @@ export function formatIntervalLabel(hours: number, t: TranslateFn): string {
 /**
  * Relative "last run" label shared by the generic schedule cards and the Scheduled Prefill
  * per-service rows: Never / Just now / {count}m|h|d ago. Kept framework-agnostic (it takes the
- * `t` function) so it can live outside a component file and honour the Fast-Refresh rule that
+ * `t` function) so it can live outside a component file and honor the Fast-Refresh rule that
  * `.tsx` files export only React components.
  */
 export function formatLastRun(lastRunUtc: string | null, t: TranslateFn): string {

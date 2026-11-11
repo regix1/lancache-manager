@@ -66,7 +66,7 @@ export type NotificationStatus = OperationStatus | 'repairing';
  */
 export interface NotificationTerminal {
   operationId: string;
-  status: 'completed' | 'failed' | 'cancelled' | 'skipped' | 'gone';
+  status: 'completed' | 'failed' | 'canceled' | 'skipped' | 'gone';
   error?: string;
   /** The run completed with a warning (it left something undone). */
   warned?: boolean;
@@ -145,7 +145,7 @@ export interface UnifiedNotification {
     cancelPending?: boolean;
     /** Set after cancel/force-kill API call was invoked for this notification. */
     cancelSent?: boolean;
-    cancelling?: boolean;
+    canceling?: boolean;
 
     // For service_removal
     service?: string;
@@ -243,7 +243,7 @@ export interface UnifiedNotification {
     totalRecords?: number;
 
     // Cancellation flag
-    cancelled?: boolean;
+    canceled?: boolean;
     /** The run's cache repair gave up; the card offers Retry. */
     repairFailed?: boolean;
   };
@@ -284,7 +284,7 @@ export interface NotificationsContextType {
   addNotification: (notification: LocalNotificationInput) => string;
   /**
    * Updates an existing notification. A card the browser owns merges the patch. A run card takes
-   * only the cancel flags and a `cancelling` status: the server owns the rest of a run's state.
+   * only the cancel flags and a `canceling` status: the server owns the rest of a run's state.
    * @param id - The notification ID to update
    * @param updates - Partial notification data to merge, or a function handed the live
    * notification that returns it. Use the function form for a read-modify-write of a nested
@@ -410,10 +410,10 @@ export interface RegistryCompleteConfig<TEvent = LifecycleEvent> {
     event: TEvent,
     existing?: UnifiedNotification
   ) => UnifiedNotification['details'];
-  /** Optional function to get the cancelled message */
-  getCancelledMessage?: (event: TEvent, existing?: UnifiedNotification) => string;
-  /** Optional function to get cancelled details */
-  getCancelledDetails?: (
+  /** Optional function to get the canceled message */
+  getCanceledMessage?: (event: TEvent, existing?: UnifiedNotification) => string;
+  /** Optional function to get canceled details */
+  getCanceledDetails?: (
     event: TEvent,
     existing?: UnifiedNotification
   ) => UnifiedNotification['details'];
@@ -435,12 +435,12 @@ export interface RegistryCompleteConfig<TEvent = LifecycleEvent> {
 
 /**
  * How the X button cancels a notification.
- *   - 'serverOp': cancellable server operation (soft-cancel → force-kill) through
+ *   - 'serverOp': cancelable server operation (soft-cancel → force-kill) through
  *     `details.operationId`, which every run card carries from its first row; a
  *     card without one (a sign-in card before its challenge) shows no X.
  *   - 'clientQueue': client-side bulk queue (flag flip only; the
  *     BulkRemovalProvider's always-mounted cascade effect performs the cancel).
- *   - 'none': not cancellable (no X button shown).
+ *   - 'none': not cancelable (no X button shown).
  */
 export type CancelKind = 'serverOp' | 'clientQueue' | 'none';
 
@@ -516,7 +516,7 @@ export type RecoveryConfig =
  * Cancel wiring for a registry entry, as a type-level constraint that pairs
  * `cancelKind` with `cancelTooltipKey`:
  *   - `cancelKind: 'none'` → no tooltip key (the X button is never shown).
- *   - any other `cancelKind` → `cancelTooltipKey` is REQUIRED, so a cancellable
+ *   - any other `cancelKind` → `cancelTooltipKey` is REQUIRED, so a cancelable
  *     entry can never compile without the tooltip key that
  *     `UniversalNotificationBar` needs to render its cancel button.
  */

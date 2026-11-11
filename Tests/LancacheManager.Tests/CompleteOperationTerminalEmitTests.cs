@@ -24,15 +24,15 @@ public class CompleteOperationTerminalEmitTests
         var id = tracker.RegisterOperation(OperationType.DepotMapping, "Depots", source);
         var operation = tracker.GetOperation(id)!;
         if (signalToken) tracker.CancelOperation(id);
-        else operation.Cancelled = true;
+        else operation.Canceled = true;
         Assert.Equal(signalToken, source.IsCancellationRequested);
         var committed = false;
         Assert.Throws<OperationCanceledException>(() => tracker.CompleteOperation(id, true, commit: () => committed = true));
         Assert.False(committed);
         Assert.Equal(0, operation.CompletedFlag);
         Assert.Null(operation.CompletedAt);
-        tracker.CompleteOperation(id, false, cancelled: true);
-        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+        tracker.CompleteOperation(id, false, canceled: true);
+        Assert.Equal(OperationStatus.Canceled, operation.Status);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class CompleteOperationTerminalEmitTests
             Assert.True(release.Wait(TimeSpan.FromSeconds(10)));
         }));
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        var cancelling = Task.Run(() =>
+        var canceling = Task.Run(() =>
         {
             cancelEntered.TrySetResult();
             return tracker.CancelOperation(id);
@@ -68,11 +68,11 @@ public class CompleteOperationTerminalEmitTests
         await cancelEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         release.Set();
         await completing;
-        Assert.Equal(OperationCancelResult.AlreadyFinished, await cancelling);
+        Assert.Equal(OperationCancelResult.AlreadyFinished, await canceling);
         await killing;
         var terminal = await emitted.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.True(terminal.Success);
-        Assert.False(terminal.Cancelled);
+        Assert.False(terminal.Canceled);
         Assert.Equal(1, commits);
         Assert.Equal(OperationStatus.Completed, tracker.GetOperation(id)!.Status);
     }
@@ -97,9 +97,9 @@ public class CompleteOperationTerminalEmitTests
     [Theory]
     [InlineData(true, false, false, OperationStatus.Completed)]
     [InlineData(true, false, true, OperationStatus.Skipped)]
-    [InlineData(false, true, false, OperationStatus.Cancelled)]
+    [InlineData(false, true, false, OperationStatus.Canceled)]
     [InlineData(false, false, false, OperationStatus.Failed)]
-    public async Task WinningCompletionFreezesEveryTrackerMutation(bool success, bool cancelled, bool skipped, OperationStatus status)
+    public async Task WinningCompletionFreezesEveryTrackerMutation(bool success, bool canceled, bool skipped, OperationStatus status)
     {
         var tracker = CreateTracker();
         var counts = new int[1];
@@ -124,7 +124,7 @@ public class CompleteOperationTerminalEmitTests
             notified.TrySetResult();
         };
         var operation = Assert.IsType<OperationInfo>(tracker.GetOperation(id));
-        var winner = Task.Run(() => tracker.CompleteOperation(id, success, "Final reason", cancelled, skipped, current =>
+        var winner = Task.Run(() => tracker.CompleteOperation(id, success, "Final reason", canceled, skipped, current =>
         {
             counts[0] = 7;
             current.PercentComplete = 81;
@@ -151,8 +151,8 @@ public class CompleteOperationTerminalEmitTests
         await notified.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(status, operation.Status);
         Assert.Equal(success, operation.Success);
-        Assert.Equal(cancelled, operation.Cancelled);
-        Assert.Equal(success && !skipped ? "Operation completed successfully" : "Final reason", operation.Message);
+        Assert.Equal(canceled, operation.Canceled);
+        Assert.Equal(success && !skipped ? "signalr.generic.complete" : "Final reason", operation.Message);
         Assert.Equal(81, operation.PercentComplete);
         Assert.Equal(7, counts[0]);
         Assert.Equal(start, operation.StartedAt);
@@ -205,7 +205,7 @@ public class CompleteOperationTerminalEmitTests
         using var registration = cts.Token.Register(() =>
         {
             Assert.False(Monitor.IsEntered(operation));
-            tracker.CompleteOperation(id, false, cancelled: true);
+            tracker.CompleteOperation(id, false, canceled: true);
             callback.TrySetResult();
         });
         operation.OnTerminalEmit = _ =>
@@ -216,7 +216,7 @@ public class CompleteOperationTerminalEmitTests
         operation.OnTerminalCleanup = () => cleanupHeldLock = Monitor.IsEntered(operation);
         Assert.Equal(OperationCancelResult.Requested, tracker.CancelOperation(id));
         await callback.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Equal(OperationStatus.Cancelled, operation.Status);
+        Assert.Equal(OperationStatus.Canceled, operation.Status);
         Assert.False(emitHeldLock);
         Assert.False(cleanupHeldLock);
     }
@@ -262,7 +262,7 @@ public class CompleteOperationTerminalEmitTests
         Assert.Equal(1, Volatile.Read(ref emitCount));
         Assert.NotNull(captured);
         Assert.True(captured!.Value.Success);
-        Assert.False(captured.Value.Cancelled);
+        Assert.False(captured.Value.Canceled);
         Assert.Null(captured.Value.Error);
     }
 
@@ -291,13 +291,13 @@ public class CompleteOperationTerminalEmitTests
         var info = await emitGate.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(info.Success);
-        Assert.False(info.Cancelled);
+        Assert.False(info.Canceled);
         Assert.Equal("Stopped before finishing", info.Error);
         Assert.Equal(OperationStatus.Failed, tracker.GetOperation(operationId)!.Status);
     }
 
     [Fact]
-    public async Task XPressedThenTheOwnersCancelEndsCancelledAsync()
+    public async Task XPressedThenTheOwnersCancelEndsCanceledAsync()
     {
         var tracker = CreateTracker();
         var emitGate = new TaskCompletionSource<OperationTerminalInfo>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -315,12 +315,12 @@ public class CompleteOperationTerminalEmitTests
             });
 
         tracker.CancelOperation(operationId);
-        tracker.CompleteOperation(operationId, success: false, cancelled: true);
+        tracker.CompleteOperation(operationId, success: false, canceled: true);
 
         var terminal = await emitGate.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(terminal.Success);
-        Assert.True(terminal.Cancelled);
-        Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(operationId)!.Status);
+        Assert.True(terminal.Canceled);
+        Assert.Equal(OperationStatus.Canceled, tracker.GetOperation(operationId)!.Status);
     }
 }

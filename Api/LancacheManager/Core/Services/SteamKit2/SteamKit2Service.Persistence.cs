@@ -116,7 +116,14 @@ public partial class SteamKit2Service
             {
                 for (int i = 0; i < mapping.AppIds.Count; i++)
                 {
-                    _appNames.TryAdd(mapping.AppIds[i], mapping.AppNames[i]);
+                    var appName = mapping.AppNames[i];
+                    // This file can be the published one from lancache-pics
+                    // (PicsDataCollector/Services/DataPersistenceService.cs:144), which still writes
+                    // "App {id}" for an app it has no name for; that placeholder is no name.
+                    if (appName != null && appName != $"App {mapping.AppIds[i]}")
+                    {
+                        _appNames.TryAdd(mapping.AppIds[i], appName);
+                    }
                 }
             }
         }
@@ -163,6 +170,10 @@ public partial class SteamKit2Service
                     owners.TryAdd(depotIdUint, appIdUint);
                 }
 
+                // Rows older versions wrote can hold the "App {id}" placeholder as a name. The current
+                // writers no longer store it (PicsDataService.ImportToDatabaseAsync and
+                // PrefillCacheService.EnsureDepotMappingExistsAsync store null for a missing name), so
+                // this read exists for those rows.
                 if (!string.IsNullOrEmpty(mapping.AppName) && mapping.AppName != $"App {mapping.AppId}")
                 {
                     names[appIdUint] = mapping.AppName;
@@ -185,7 +196,9 @@ public partial class SteamKit2Service
             }
             foreach (var (depotId, apps) in mappings)
                 _depotToAppMappings.GetOrAdd(depotId, _ => new HashSet<uint>()).UnionWith(apps);
-            foreach (var (depotId, appId) in owners) _depotOwners.TryAdd(depotId, appId);
+            // The table holds the committed owner, which an owner still in memory from an older run
+            // must not outvote: the incremental merge writes the memory owner back into the import.
+            foreach (var (depotId, appId) in owners) _depotOwners[depotId] = appId;
             foreach (var (appId, name) in names) _appNames[appId] = name;
             foreach (var (depotId, name) in depotNames) _depotNames.TryAdd(depotId, name);
 

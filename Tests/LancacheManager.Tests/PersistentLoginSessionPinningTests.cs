@@ -27,11 +27,11 @@ namespace LancacheManager.Tests;
 ///
 /// RC3: the persistent-login REST surface re-resolved "the current active session" fresh on every
 /// call with zero pinning, so an in-flight login for a stopped session A transparently operated on a
-/// replacement session B (leaking A's queued username challenge onto a fresh container). These tests
+/// replacement session B (leaking A's pending username challenge onto a fresh container). These tests
 /// prove the pinned REST contract: challenge/credential pinned to a since-replaced session return a
 /// 409 <c>session_replaced</c> and NEVER touch the replacement session's daemon; cancel is an
 /// idempotent 200 that also never cancels the replacement; sessionId is required (400 when missing);
-/// and a queued challenge for a terminated session is ignored instead of repopulating its cache.
+/// and a pending challenge for a terminated session is ignored instead of repopulating its cache.
 ///
 /// RC4: a fixed daemon reports <c>Success=false</c> when it had no matching pending challenge; the
 /// manager surfaces that as a 409 <c>credential_rejected</c> instead of celebrating a dropped
@@ -212,7 +212,7 @@ public class PersistentLoginSessionPinningTests
     }
 
     [Fact]
-    public async Task GetGames_ExpiryCancelsOwnedGamesReadWithoutCancellingCaller()
+    public async Task GetGames_ExpiryCancelsOwnedGamesReadWithoutCancelingCaller()
     {
         var now = new DateTimeOffset(2026, 9, 21, 1, 0, 0, TimeSpan.Zero);
         var clock = new CacheStatusClock(now);
@@ -237,7 +237,7 @@ public class PersistentLoginSessionPinningTests
     }
 
     [Fact]
-    public async Task GetGames_ExpiryCancelsCachedAppReadWithoutCancellingCaller()
+    public async Task GetGames_ExpiryCancelsCachedAppReadWithoutCancelingCaller()
     {
         var now = new DateTimeOffset(2026, 9, 21, 1, 0, 0, TimeSpan.Zero);
         var clock = new CacheStatusClock(now);
@@ -765,7 +765,7 @@ public class PersistentLoginSessionPinningTests
 
         await daemon.InvokeOnCredentialChallengeAsync(
             session,
-            new CredentialChallenge { ChallengeId = "queued-1", CredentialType = "username" });
+            new CredentialChallenge { ChallengeId = "pending-1", CredentialType = "username" });
 
         Assert.Null(session.PendingLoginChallenge);
     }
@@ -1162,6 +1162,27 @@ public class PersistentLoginSessionPinningTests
         else
             Assert.Equal(JsonValueKind.Null, limit.ValueKind);
         Assert.Equal(0, row.GetProperty("activeRunCount").GetInt32());
+    }
+
+    // A stop that removes the session while the list waits on its status read leaves the list answering for every
+    // session it took, from the session object it holds.
+    [Fact]
+    public async Task TheListAnswersWhenASessionEndsDuringItsStatusRead()
+    {
+        var (controller, daemon, client) = CreateControllerWithActiveSession("session-A");
+        var sessions = (ConcurrentDictionary<string, DaemonSession>)typeof(PrefillDaemonServiceBase)
+            .GetField("_sessions", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(daemon)!;
+        client.StatusRead = () =>
+        {
+            // A stop removes the session from the live set first thing.
+            sessions.TryRemove("session-A", out _);
+            return Task.FromResult<DaemonStatus?>(new DaemonStatus { Status = "logged-in" });
+        };
+
+        var row = await ListSingleRowAsync(controller).WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal("session-A", row.GetProperty("sessionId").GetString());
+        Assert.Equal(0, row.GetProperty("runs").GetArrayLength());
     }
 
     private static async Task<JsonElement> ListSingleRowAsync(PersistentPrefillController controller)

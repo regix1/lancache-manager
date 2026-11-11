@@ -117,7 +117,7 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
     /// <summary>
     /// The live view picks no range and the header calls it all of history, so a count on it is
     /// every download the game ever made, however old. This was a thirty-day window once, which
-    /// answered a narrower range than the reader had chosen while the panel went on labelling it
+    /// answered a narrower range than the reader had chosen while the panel went on labeling it
     /// with the wider one. A reader who names a start time gets the same figures, which is what the
     /// second half checks.
     /// </summary>
@@ -194,7 +194,7 @@ public sealed class DashboardRecentGroupingTests(ITestOutputHelper output)
 
     /// <summary>
     /// Every group gets its own five hundred rather than a share of one budget. A quiet game whose
-    /// rows are all older than a loud neighbour's must still carry its own ids, because a group
+    /// rows are all older than a loud neighbor's must still carry its own ids, because a group
     /// with no ids draws no event badges and nothing on screen or in the log says why. The loud
     /// game here has more rows than any whole-read bound would have left room for.
     /// </summary>

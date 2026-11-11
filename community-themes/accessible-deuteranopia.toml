@@ -3,7 +3,7 @@ name = "Accessible - Deuteranopia"
 id = "accessible-deuteranopia"
 description = "Deuteranopia-accessible theme with neutral dark backgrounds and vibrant orange-blue contrast"
 author = "System"
-version = "2.3.4"
+version = "2.3.5"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -14,25 +14,25 @@ primaryColor = "#ea580c"        # Vivid orange
 secondaryColor = "#1d4ed8"      # Cobalt blue
 accentColor = "#e11d48"         # Rose pink
 
-# Backgrounds - Neutral dark grey (VSCode-inspired)
+# Backgrounds - Neutral dark gray (VSCode-inspired)
 bgPrimary = "#1e1e1e"           # VSCode dark background
 bgSecondary = "#252526"         # VSCode sidebar
-bgTertiary = "#2d2d2d"          # Slightly lighter grey
-bgHover = "#3c3c3c"             # Hover state grey
+bgTertiary = "#2d2d2d"          # Slightly lighter gray
+bgHover = "#3c3c3c"             # Hover state gray
 bgElevated = "#222223"          # Slightly lighter than bgPrimary
 bgSurface = "#2a2a2b"           # Surface within elevated panels
-bgSurfaceHover = "#323233"      # Hover on surface elements
+bgSurfaceHover = "#3a3a3b"      # Hover on surface elements
 bgSurfaceActive = "#3a3a3b"     # Active/pressed surface elements
 bgOverlay = "rgba(0,0,0,0.6)"   # Backdrop overlay
 
 # Text - Clean neutral tones
-textPrimary = "#e0e0e0"         # Light grey
-textSecondary = "#b0b0b0"       # Medium grey
-textMuted = "#808080"           # Muted grey
+textPrimary = "#e0e0e0"         # Light gray
+textSecondary = "#b0b0b0"       # Medium gray
+textMuted = "#808080"           # Muted gray
 textAccent = "#fb923c"          # Light orange accent
-textPlaceholder = "#5a5a5a"     # Placeholder grey
+textPlaceholder = "#5a5a5a"     # Placeholder gray
 
-# Borders - Neutral grey
+# Borders - Neutral gray
 borderPrimary = "#333333"       # Dark border
 borderSecondary = "#444444"     # Medium border
 borderFocus = "#ea580c"         # Orange focus ring
@@ -45,7 +45,7 @@ navBg = "#1b1b1b"               # Dark navigation background
 navBorder = "#333333"           # Nav border
 navTabActive = "#ea580c"        # Active tab orange
 navTabInactive = "#808080"      # Muted inactive tabs
-navTabHover = "#e0e0e0"         # Light grey hover
+navTabHover = "#e0e0e0"         # Light gray hover
 navTabActiveBorder = "#ea580c"  # Active tab border orange
 floatingIconColor = "#ea580c"   # Header icon matches primary
 navMobileMenuBg = "#1b1b1b"    # Mobile menu background
@@ -93,11 +93,11 @@ renegadexColor = "#8c9db2"      # Cool slate
 sonyColor = "#38508e"           # Muted navy
 squareColor = "#b0536f"         # Dusty rose
 tesoColor = "#b4a2df"           # Light lavender
-testColor = "#66614f"           # Warm grey (neutral)
+testColor = "#66614f"           # Warm gray (neutral)
 warframeColor = "#74d6ec"       # Light cyan
 wargamingColor = "#a18a6b"      # Warm taupe
 
-# Components - Neutral grey cards with orange accents
+# Components - Neutral gray cards with orange accents
 cardBg = "#252526"              # Card background
 cardBorder = "#333333"          # Card border
 cardOutline = "#ea580c"         # Orange card outline
@@ -189,7 +189,7 @@ chartTextColor = "#808080"      # Muted text
 chartCacheHitColor = "#1d4ed8"  # Cobalt blue for hits
 chartCacheMissColor = "#ea580c" # Orange for misses
 
-# Scrollbar - Neutral grey with orange hover
+# Scrollbar - Neutral gray with orange hover
 scrollbarTrack = "#252526"      # Dark track
 scrollbarThumb = "#444444"      # Thumb
 scrollbarHover = "#ea580c"      # Orange hover

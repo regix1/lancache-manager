@@ -153,10 +153,10 @@ public class EpicGameMappingController : ControllerBase
     [ProducesResponseType(typeof(EpicRefreshCancelResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<EpicRefreshCancelResponse>> CancelRefreshAsync([FromBody] IntegrationLoginRequest? request = null)
     {
-        var cancelled = await _epicMappingService.CancelRefreshAsync(await IntegrationLease.ResolveCallerAsync(HttpContext), request?.AttemptId);
-        if (cancelled)
+        var canceled = await _epicMappingService.CancelRefreshAsync(await IntegrationLease.ResolveCallerAsync(HttpContext), request?.AttemptId);
+        if (canceled)
         {
-            return Ok(new EpicRefreshCancelResponse { Cancelled = true, Message = "Epic catalog refresh cancelled" });
+            return Ok(new EpicRefreshCancelResponse { Canceled = true, Message = "Epic catalog refresh canceled" });
         }
         return NotFound(new NotFoundResponse
         {

@@ -19,7 +19,7 @@ export function resolveClientLabel(
 ): ClientLabel {
   // A blank-but-present value counts as absent, matching the rule the server applies to the display
   // name it computes. Without this a nickname of only spaces renders as an empty label here while
-  // the server-labelled tables show a hostname.
+  // the server-labeled tables show a hostname.
   if (nickname?.trim()) {
     return { text: nickname, substitutesAddress: true };
   }

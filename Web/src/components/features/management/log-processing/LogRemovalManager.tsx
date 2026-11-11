@@ -150,7 +150,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const { runLogRemoval, isLogRemovalRunning: isBatchRunning } = useBulkRemoval();
   const isUnmappedRemovalRunning = useOperationBusy({
     types: ['unmapped_file_removal'],
-    status: ['running', 'cancelling']
+    status: ['running', 'canceling']
   });
   const unmappedRemovalReason = t('management.storage.unmappedRemovalRunning');
   const { on, off, isConnected } = useSignalR();
@@ -210,28 +210,28 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   // Derive active log removal from the server's run list. A canceling run still names the service
   // it is removing, and every datasource's row for that service shows it; a waiting one names none.
   const activeLogRemovalNotification = runs.find(
-    (n) => n.type === 'log_removal' && (n.status === 'running' || n.status === 'cancelling')
+    (n) => n.type === 'log_removal' && (n.status === 'running' || n.status === 'canceling')
   );
   const activeLogRemoval =
     (activeLogRemovalNotification?.details?.service as string | null) ?? null;
-  // Own-card gate: any running OR queued log removal disables every remove button
+  // Own-card gate: any running OR waiting log removal disables every remove button
   // in this card (per-service rows and log-file deletion gate together).
   const isLogRemovalActive = useOperationBusy({
     types: ['log_removal'],
     status: ['running', 'waiting']
   });
-  // Cancelling leaves `running`. The batch queue stays busy, and Select all has to keep the
+  // Canceling leaves `running`. The batch queue stays busy, and Select all has to keep the
   // same sentence it showed while the run was running.
-  const isLogRemovalCancelling = useOperationBusy({
+  const isLogRemovalCanceling = useOperationBusy({
     types: ['log_removal'],
-    status: ['cancelling']
+    status: ['canceling']
   });
-  const logRemovalRowBusy = isLogRemovalActive || isLogRemovalCancelling;
+  const logRemovalRowBusy = isLogRemovalActive || isLogRemovalCanceling;
   // A Clear the server has not listed yet disables the same controls, so it gives the same reason.
   const logRemovalActiveReason =
     logRemovalRowBusy || anyServiceRemovalPending ? t('management.logRemoval.removalRunning') : '';
   const activeOtherRemoval = runs.find(
-    (n) => REMOVAL_TYPES.includes(n.type) && (n.status === 'running' || n.status === 'cancelling')
+    (n) => REMOVAL_TYPES.includes(n.type) && (n.status === 'running' || n.status === 'canceling')
   );
   const otherRemovalTitleKey = activeOtherRemoval
     ? NOTIFICATION_TITLE_KEYS[activeOtherRemoval.type]
@@ -243,7 +243,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         })
       : '';
   const selectAllLogRemovalBusy =
-    isLogRemovalActive || isLogRemovalCancelling || isBatchRunning || anyServiceRemovalPending;
+    isLogRemovalActive || isLogRemovalCanceling || isBatchRunning || anyServiceRemovalPending;
   // Another kind of removal does not block selecting: Remove selected queues behind it, so Select
   // all stays open like the row checkboxes.
   const selectAllDisabled = mockMode || authMode !== 'authenticated' || selectAllLogRemovalBusy;
@@ -336,8 +336,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
     try {
       const result = await ApiService.removeServiceFromDatasourceLogs(datasourceName, serviceName);
-      if (result?.queued || result?.alreadyRunning || result?.status === 'waiting') {
-        // Wait-queue model: a queued/deduplicated response is a SUCCESS, not an error - the
+      if (result?.status === 'waiting' || result?.status === 'alreadyRunning') {
+        // Wait-queue model: a waiting/deduplicated response is a SUCCESS, not an error - the
         // run's purple waiting card owns the UI until promotion. Release the button's
         // optimistic pending now: the waiting card carries no per-service details, so the
         // running-notification matcher would never clear it.

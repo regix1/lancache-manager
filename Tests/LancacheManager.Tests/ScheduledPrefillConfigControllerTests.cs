@@ -40,6 +40,41 @@ public sealed class ScheduledPrefillConfigControllerTests
             test.State.GetScheduledPrefillConfig().Steam.Schedules[0].OperatingSystems);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task XboxTopCountAboveItsLimitIsRefusedWithItsKeyAndEpicKeepsItsCount(bool create)
+    {
+        using var test = new Harness();
+        var stored = test.State.GetScheduledPrefillConfig().Xbox.Schedules[0];
+        ScheduledPrefillSchedule Top(Guid id, int count) => new()
+        {
+            Id = id,
+            Name = create ? "Top games" : stored.Name,
+            IntervalHours = 24,
+            Preset = ScheduledPrefillPreset.Top,
+            TopCount = count
+        };
+
+        var xbox = Top(create ? Guid.NewGuid() : stored.Id, 150);
+        var refused = await Assert.ThrowsAsync<ValidationException>(() => create
+            ? test.Controller.CreateScheduleAsync(PrefillPlatform.Xbox, xbox)
+            : test.Controller.SetScheduleAsync(PrefillPlatform.Xbox, xbox.Id, xbox));
+        Assert.Equal("errors.prefill.topCountAboveLimit", refused.StageKey);
+        Assert.Equal(100, refused.Context!["max"]);
+        var saved = test.State.GetScheduledPrefillConfig().Xbox.Schedules;
+        Assert.Equal(stored.Id, Assert.Single(saved).Id);
+        Assert.Equal(stored.Preset, saved[0].Preset);
+
+        var epicStored = test.State.GetScheduledPrefillConfig().Epic.Schedules[0];
+        var epic = Top(create ? Guid.NewGuid() : epicStored.Id, 150);
+        if (create)
+            await test.Controller.CreateScheduleAsync(PrefillPlatform.Epic, epic);
+        else
+            await test.Controller.SetScheduleAsync(PrefillPlatform.Epic, epic.Id, epic);
+        Assert.Equal(150, test.State.GetScheduledPrefillConfig().Epic.Schedules.Single(schedule => schedule.Id == epic.Id).TopCount);
+    }
+
     [Fact]
     public async Task NarrowWritesPreserveOtherServicesAndRootSettings()
     {

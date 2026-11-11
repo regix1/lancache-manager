@@ -115,7 +115,7 @@ test('useTimeoutCallback: a second schedule cancels the first, so only the secon
   await sleep(30); // well inside the 60ms window
   schedule(() => firings++); // reschedule - must cancel the pending one above
   await sleep(45); // 75ms since the FIRST call, but only 45ms since the second: not due yet
-  assert.equal(firings, 0, 'the first schedule should have been cancelled, not fired early');
+  assert.equal(firings, 0, 'the first schedule should have been canceled, not fired early');
   await sleep(30); // now 75ms since the second call, past its 60ms delay
   assert.equal(firings, 1, 'exactly the second schedule should fire, exactly once');
 });

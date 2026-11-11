@@ -205,7 +205,7 @@ public abstract partial class PrefillDaemonServiceBase
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Pending {ServiceName} image update could not be cancelled at shutdown", ServiceName);
+                    _logger.LogWarning(ex, "Pending {ServiceName} image update could not be canceled at shutdown", ServiceName);
                 }
             }
             var sessions = _sessions.Values.ToList();
@@ -213,7 +213,7 @@ public abstract partial class PrefillDaemonServiceBase
             // Detach KeepAcrossRestart / FullPersistence persistent sessions CONCURRENTLY: each detach is an
             // independent bounded drain + local-handle release (no shared mutable state, container untouched),
             // so several stuck drains share one shutdown-wide budget instead of costing the timeout x N
-            // sequentially. The host cancellation token is threaded in so a cancelled shutdown cuts each drain
+            // sequentially. The host cancellation token is threaded in so a canceled shutdown cuts each drain
             // short. Guest / KillOnRestart terminations all start before any is awaited too: each stops its
             // container before its database writes, so a database that fails one write leaves no later
             // container running until the next start.
@@ -1885,7 +1885,7 @@ public abstract partial class PrefillDaemonServiceBase
             {
                 // Older daemon image: its pre-login command gate rejects "logout" outright while the
                 // session hasn't finished authenticating (see the erase-on-stop regression diagnosis) -
-                // this is expected for a container being cancelled mid-challenge, not a real failure.
+                // this is expected for a container being canceled mid-challenge, not a real failure.
                 _logger.LogInformation(
                     "Best-effort logout for persistent {ServiceName} session {SessionId} ({Context}): " +
                     "daemon declined logout before authentication (older daemon image); nothing to log out",

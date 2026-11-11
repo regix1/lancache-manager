@@ -44,7 +44,7 @@ public class BattleNetMappingStartupResolveService : BackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            _logger.LogInformation("Startup Blizzard mapping pass cancelled by shutdown");
+            _logger.LogInformation("Startup Blizzard mapping pass canceled by shutdown");
         }
         catch (Exception ex)
         {

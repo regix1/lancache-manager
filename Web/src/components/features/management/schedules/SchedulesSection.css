@@ -333,7 +333,7 @@
   color: var(--theme-text-primary);
 }
 
-/* Pressed reads as an accent tint rather than another grey, because the greys either side of
+/* Pressed reads as an accent tint rather than another gray, because the grays either side of
    this panel run in opposite directions in the two themes and a neutral press would land
    lighter than hover in one of them. The tint is translucent, so it holds in both. */
 .incremental-check-dismiss:active {
@@ -404,7 +404,7 @@
   .schedule-table-cols {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     /* Taller than the desktop rows on purpose: each folded row reads as its own card
-       here, so the extra top/bottom air is what separates it from its neighbours. */
+       here, so the extra top/bottom air is what separates it from its neighbors. */
     padding-top: 1.25rem;
     padding-bottom: 1.25rem;
   }
@@ -1409,7 +1409,7 @@
   color: var(--theme-button-text);
 }
 
-/* Shape-matching skeleton: nav rail + stacked detail blocks (not a centred spinner) */
+/* Shape-matching skeleton: nav rail + stacked detail blocks (not a centered spinner) */
 
 .scheduled-prefill-config-modal__empty {
   padding: 0.75rem;
@@ -1570,7 +1570,7 @@
 /* A switched-off schedule's pane and its wells recede toward the modal color and take the
    quieter border, so the whole section reads as muted next to a live one. The header row that
    switches it back on sits above the section and is untouched. Fills rather than opacity, so
-   the greyed-out controls inside keep their own disabled look instead of fading twice. */
+   the grayed-out controls inside keep their own disabled look instead of fading twice. */
 .scheduled-prefill-platform-section--off,
 .scheduled-prefill-platform-section--off .scheduled-prefill-platform-block {
   background: var(--theme-bg-tertiary-muted);
@@ -1895,7 +1895,7 @@
    The floor here is deliberately left at the default min-width: auto. A `min-width: 0` waives
    each option's min-content floor, which reads as a harmless "let it shrink" but is what lets a
    0% basis crush the longest label until its text spills past its own padding and collides with
-   the neighbouring option. It also silently zeroes what these options contribute to the config
+   the neighboring option. It also silently zeroes what these options contribute to the config
    modal's auto-sized actions column, so that track measures narrower than the control it is
    supposed to be sized by. Equal thirds are still the outcome wherever the row can afford them:
    the floor only binds when it cannot, and then the options size to their labels instead. */

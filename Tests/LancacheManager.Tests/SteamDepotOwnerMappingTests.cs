@@ -4,12 +4,60 @@ using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 
 namespace LancacheManager.Tests;
 
 public sealed class SteamDepotOwnerMappingTests
 {
+    // Earlier imports could leave a depot with several owner rows. Upgrading keeps one per depot, the
+    // one the naming queries already show, and removes no row.
+    [Fact]
+    public async Task SettlingStoredOwnersKeepsOneOwnerPerDepot()
+    {
+        await using var fixture = await TestDatabase.CreateAsync();
+        await using var existing = new AppDbContext(fixture.Options);
+        // A scratch database with a long command timeout: CREATE DATABASE waits for a checkpoint.
+        var connection = new NpgsqlConnectionStringBuilder(existing.Database.GetConnectionString())
+        {
+            Database = $"lancache_migration_tests_{Guid.NewGuid():N}",
+            SearchPath = "public",
+            Pooling = false,
+            CommandTimeout = 120
+        };
+        await using var context = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(connection.ConnectionString, options =>
+                options.EnableRetryOnFailure(3, TimeSpan.FromSeconds(5), null)).Options);
+        try
+        {
+            await context.GetService<IMigrator>().MigrateAsync("20261110230000_UseCanceledSpelling");
+            await context.Database.ExecuteSqlRawAsync(
+                "INSERT INTO \"SteamDepotMappings\" (\"DepotId\", \"AppId\", \"AppName\", \"IsOwner\", \"DiscoveredAt\", \"Source\") VALUES " +
+                "(1000, 5, 'Crawl owner', true, now(), 'SteamKit2-PICS'), " +
+                "(1000, 3, 'File owner', true, now(), 'SteamKit2-PICS'), " +
+                "(1000, 1, 'Prefill game', true, now(), 'Prefill'), " +
+                "(1000, 8, 'Reference', false, now(), 'SteamKit2-PICS'), " +
+                "(2000, 8, 'Only owner', true, now(), 'SteamKit2-PICS'), " +
+                "(3000, 12, 'Second prefill', true, now(), 'Prefill'), " +
+                "(3000, 9, 'First prefill', true, now(), 'Prefill')");
+
+            await context.Database.MigrateAsync();
+
+            var rows = await context.SteamDepotMappings.AsNoTracking().ToListAsync();
+            Assert.Equal(7, rows.Count);
+            Assert.Equal(3, Assert.Single(rows, row => row.DepotId == 1000 && row.IsOwner).AppId);
+            Assert.Equal(8, Assert.Single(rows, row => row.DepotId == 2000 && row.IsOwner).AppId);
+            Assert.Equal(9, Assert.Single(rows, row => row.DepotId == 3000 && row.IsOwner).AppId);
+        }
+        finally
+        {
+            await context.Database.EnsureDeletedAsync();
+        }
+    }
+
     [Fact]
     public async Task PrefillMapping_DoesNotReplaceExistingPicsOwner()
     {
@@ -124,6 +172,7 @@ public sealed class SteamDepotOwnerMappingTests
             {
                 GameAppId = 1770481,
                 GameName = "Unknown Game (Depot 1770481)",
+                IsUnresolvedDepot = true,
                 DepotIdsJson = JsonSerializer.Serialize(new[] { 1770481u })
             });
             await context.SaveChangesAsync();
@@ -169,6 +218,7 @@ public sealed class SteamDepotOwnerMappingTests
                 {
                     GameAppId = 1770481,
                     GameName = "Unknown Game (Depot 1770481)",
+                    IsUnresolvedDepot = true,
                     DepotIdsJson = JsonSerializer.Serialize(new[] { 1770481u }),
                     SliceSizes = "8388608"
                 });

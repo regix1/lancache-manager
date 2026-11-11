@@ -157,7 +157,7 @@ public class DatabaseService
     /// </summary>
     public Guid StartFullResetAsync()
     {
-        // A queued reset starts after its request scope, and the request's context, are disposed.
+        // A waiting reset starts after its request scope, and the request's context, are disposed.
         using var context = _dbContextFactory.CreateDbContext();
         return StartResetAsync(ResolveFullResetTables(context), fullReset: true);
     }
@@ -196,15 +196,15 @@ public class DatabaseService
                     Volatile.Write(ref _currentResetProgress, null);
                 }
             },
-            onTerminalEmit: info => info.Cancelled
+            onTerminalEmit: info => info.Canceled
                 ? _notifications.NotifyAllAsync(
                     SignalREvents.DatabaseResetComplete,
                     new LancacheManager.Infrastructure.Utilities.SignalRNotifications.DatabaseResetComplete(
                         OperationId: opId,
                         Success: false,
-                        StageKey: "signalr.dbReset.cancelled",
-                        Status: OperationStatus.Cancelled,
-                        Cancelled: true,
+                        StageKey: "signalr.dbReset.canceled",
+                        Status: OperationStatus.Canceled,
+                        Canceled: true,
                         Error: info.Error))
                 : info.Success
                     ? _notifications.NotifyAllAsync(
@@ -219,10 +219,14 @@ public class DatabaseService
                         new LancacheManager.Infrastructure.Utilities.SignalRNotifications.DatabaseResetComplete(
                             OperationId: opId,
                             Success: false,
-                            StageKey: "signalr.dbReset.failed",
+                            // The error is the ending's key; a thrown failure keeps its text in
+                            // FailureReason, set before this emit, which runs inside CompleteOperation.
+                            StageKey: info.Error!,
                             Status: OperationStatus.Failed,
                             Error: info.Error,
-                            Context: new Dictionary<string, object?> { ["errorDetail"] = info.Error })));
+                            Context: _operationTracker.GetOperation(opId)!.FailureReason is { } reason
+                                ? new Dictionary<string, object?>(reason.Context)
+                                : null)));
         var operationId = opId;
 
         if (_activeResetOperations.TryAdd(operationId, true))
@@ -277,19 +281,19 @@ public class DatabaseService
                     }
                     catch (OperationCanceledException)
                     {
-                        // Cancelled while a cache operation still held the lock, so DoResetAsync never
+                        // Canceled while a cache operation still held the lock, so DoResetAsync never
                         // ran and never released the operation. Without this the wipe stays in progress
                         // forever and every later reset is refused.
                         await ReportProgressAsync(
                             operationId,
                             false,
                             0,
-                            OperationStatus.Cancelled,
-                            "signalr.dbReset.cancelled",
+                            OperationStatus.Canceled,
+                            "signalr.dbReset.canceled",
                             new Dictionary<string, object?>(),
-                            "Database reset was cancelled");
+                            "Database reset was canceled");
 
-                        _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
+                        _operationTracker.CompleteOperation(operationId, success: false, canceled: true);
                         ReleaseResetOperation(operationId);
                     }
                 });
@@ -352,7 +356,7 @@ public class DatabaseService
                     stageKey: "signalr.dbReset.noTablesSelected",
                     context: new Dictionary<string, object?>(),
                     message: "No valid tables selected for reset");
-                _operationTracker.CompleteOperation(operationId, success: false, error: "No valid tables selected for reset");
+                _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.dbReset.noTablesSelected");
                 return;
             }
 
@@ -1164,7 +1168,7 @@ public class DatabaseService
 
                 _logger.LogInformation($"Selective database reset completed successfully. Cleared {tablesToClear.Count} table(s)");
 
-                // Final cancellation check before committing - don't commit if user cancelled
+                // Final cancellation check before committing - don't commit if user canceled
                 cancellationToken.ThrowIfCancellationRequested();
                 await deleteTransaction.CommitAsync(cancellationToken);
 
@@ -1258,20 +1262,20 @@ public class DatabaseService
         }
         catch (OperationCanceledException)
         {
-            terminalOutcome = OperationStatus.Cancelled;
-            _logger.LogInformation("Database reset operation {OperationId} was cancelled", operationId);
+            terminalOutcome = OperationStatus.Canceled;
+            _logger.LogInformation("Database reset operation {OperationId} was canceled", operationId);
 
             var current = Volatile.Read(ref _currentResetProgress);
             await ReportProgressAsync(
                 operationId,
                 false,
                 current?.Snapshot.PercentComplete ?? 0,
-                OperationStatus.Cancelled,
-                "signalr.dbReset.cancelled",
+                OperationStatus.Canceled,
+                "signalr.dbReset.canceled",
                 new Dictionary<string, object?>(),
-                "Database reset was cancelled");
+                "Database reset was canceled");
 
-            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
+            _operationTracker.CompleteOperation(operationId, success: false, canceled: true);
         }
         catch (Exception ex)
         {
@@ -1288,7 +1292,10 @@ public class DatabaseService
                 new Dictionary<string, object?> { ["errorDetail"] = ex.Message },
                 $"Database reset failed: {ex.Message}");
 
-            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.dbReset.failed",
+                onCompleting: operation => operation.FailureReason = new RunWarning(
+                    "signalr.dbReset.failed",
+                    new Dictionary<string, object?> { ["errorDetail"] = ex.Message }));
         }
         finally
         {

@@ -7,34 +7,34 @@ namespace LancacheManager.Tests;
 /// <summary>
 /// A stopped run must reach the UI as a cancellation, not as a failure.
 ///
-/// The completion payloads default <c>Cancelled</c> to false, so a cancel path that omits the
+/// The completion payloads default <c>Canceled</c> to false, so a cancel path that omits the
 /// argument still compiles and still sends <c>Success: false</c>. The browser cannot tell that
 /// apart from a genuine error: it paints the card red and announces it as an alert, even though
-/// the message it shows says the run was cancelled. Both removal controllers shipped with that
+/// the message it shows says the run was canceled. Both removal controllers shipped with that
 /// omission while every other cancel emitter passed the flag.
 /// </summary>
-public sealed class RemovalCancelledContractTests
+public sealed class RemovalCanceledContractTests
 {
     [Fact]
-    public void GameRemovalCancelledPayload_ReportsCancelled()
+    public void GameRemovalCanceled_ReportsCanceled()
     {
-        var block = CancelledPayloadBlock(
+        var block = CanceledBlock(
             ReadSource("Controllers", "Cache", "GamesController.cs"));
 
-        Assert.Contains("Cancelled: true", block);
+        Assert.Contains("Canceled: true", block);
     }
 
     [Fact]
-    public void ServiceRemovalCancelledPayload_ReportsCancelled()
+    public void ServiceRemovalCanceled_ReportsCanceled()
     {
-        var block = CancelledPayloadBlock(
+        var block = CanceledBlock(
             ReadSource("Controllers", "Cache", "CacheController.cs"));
 
-        Assert.Contains("Cancelled: true", block);
+        Assert.Contains("Canceled: true", block);
     }
 
     [Fact]
-    public void OmittingTheFlag_MakesACancelledRunLookLikeAFailure()
+    public void OmittingTheFlag_MakesACanceledRunLookLikeAFailure()
     {
         // Why the two assertions above matter: the only difference between the two payloads
         // below is the argument, and it is what decides the status the frontend reads.
@@ -43,32 +43,32 @@ public sealed class RemovalCancelledContractTests
             OperationId: Guid.NewGuid(),
             GameAppId: 730,
             EpicAppId: null,
-            StageKey: "signalr.gameRemove.cancelled");
+            StageKey: "signalr.gameRemove.canceled");
 
         var withFlag = new SignalRNotifications.GameRemovalComplete(
             Success: false,
             OperationId: Guid.NewGuid(),
             GameAppId: 730,
             EpicAppId: null,
-            StageKey: "signalr.gameRemove.cancelled",
-            Cancelled: true);
+            StageKey: "signalr.gameRemove.canceled",
+            Canceled: true);
 
         Assert.Equal(OperationStatus.Failed, ((IOperationComplete)withoutFlag).Status);
-        Assert.Equal(OperationStatus.Cancelled, ((IOperationComplete)withFlag).Status);
+        Assert.Equal(OperationStatus.Canceled, ((IOperationComplete)withFlag).Status);
     }
 
     /// <summary>
-    /// The <c>BuildCancelled</c> argument, from its name up to the next builder argument.
-    /// Scoped so a <c>Cancelled: true</c> belonging to a different payload in the same file cannot
+    /// The <c>BuildCanceled</c> argument, from its name up to the next builder argument.
+    /// Scoped so a <c>Canceled: true</c> belonging to a different payload in the same file cannot
     /// satisfy the assertion.
     /// </summary>
-    private static string CancelledPayloadBlock(string source)
+    private static string CanceledBlock(string source)
     {
-        var start = source.IndexOf("BuildCancelled", StringComparison.Ordinal);
-        Assert.True(start >= 0, "BuildCancelled not found; the cancel path was removed");
+        var start = source.IndexOf("BuildCanceled", StringComparison.Ordinal);
+        Assert.True(start >= 0, "BuildCanceled not found; the cancel path was removed");
 
         var next = source.IndexOf("BuildErrorProgress", start, StringComparison.Ordinal);
-        Assert.True(next > start, "BuildCancelled is no longer followed by BuildErrorProgress");
+        Assert.True(next > start, "BuildCanceled is no longer followed by BuildErrorProgress");
 
         return source[start..next];
     }

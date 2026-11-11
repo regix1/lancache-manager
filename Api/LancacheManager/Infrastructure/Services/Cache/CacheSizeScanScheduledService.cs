@@ -14,7 +14,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
 {
     private readonly CacheManagementService _cacheService;
     private readonly IPathResolver _pathResolver;
-    private readonly IOperationQueue _operationQueue;
+    private readonly IOperationWaitlist _operationQueue;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly TimeSpan _defaultInterval;
 
@@ -32,7 +32,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
     public CacheSizeScanScheduledService(
         CacheManagementService cacheService,
         IPathResolver pathResolver,
-        IOperationQueue operationQueue,
+        IOperationWaitlist operationQueue,
         IStateService stateService,
         RustProcessHelper rustProcessHelper,
         ILogger<CacheSizeScanScheduledService> logger,
@@ -86,17 +86,18 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
                 "Cache File Scan",
                 StartScanAsync,
                 stoppingToken,
+                OperationRequestKey.Plain,
                 reportRefusal: true,
                 notice: notice);
 
-            if (outcome.Queued)
+            if (outcome.Status == OperationStartStatus.Waiting)
             {
                 _logger.LogInformation(
-                    "[CacheSizeScan] Cache file scan queued (trigger: {Trigger}, waiting operation: {OperationId})",
+                    "[CacheSizeScan] Cache file scan waiting (trigger: {Trigger}, waiting operation: {OperationId})",
                     trigger,
                     outcome.OperationId);
             }
-            else if (outcome.AlreadyRunning)
+            else if (outcome.Status == OperationStartStatus.AlreadyRunning)
             {
                 _logger.LogInformation(
                     "[CacheSizeScan] Cache file scan already requested (trigger: {Trigger}, operation: {OperationId})",
@@ -113,7 +114,7 @@ public class CacheSizeScanScheduledService : ScheduledBackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            _logger.LogInformation("[CacheSizeScan] Scan request cancelled (trigger: {Trigger})", trigger);
+            _logger.LogInformation("[CacheSizeScan] Scan request canceled (trigger: {Trigger})", trigger);
         }
         // A download that began after the gate said yes: the queue has already recorded the decline, and
         // the schedule holds the run until downloads stop, so it is not a failure of this run.

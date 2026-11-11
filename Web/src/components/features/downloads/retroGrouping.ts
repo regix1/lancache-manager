@@ -11,6 +11,7 @@ export interface DepotGroupedData {
   service: string;
   gameName: string;
   gameAppId: number | null;
+  hasRealGameName: boolean;
   epicAppId: string | null;
   depotId: number | null;
   clientIp: string;
@@ -65,6 +66,7 @@ export const mapDtoToDepotGroupedData = (dto: RetroDownloadDto): DepotGroupedDat
     service: dto.service,
     gameName: dto.appName,
     gameAppId: dto.steamAppId,
+    hasRealGameName: dto.hasRealGameName,
     epicAppId: dto.epicAppId,
     depotId: dto.depotId,
     clientIp: dto.clientIp,

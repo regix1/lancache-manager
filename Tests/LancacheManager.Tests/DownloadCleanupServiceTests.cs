@@ -524,7 +524,7 @@ public class DownloadCleanupServiceTests
     }
 
     [Fact]
-    public async Task CancellingWhileWaitingForTheTableLockReleasesTheTransactionAsync()
+    public async Task CancelingWhileWaitingForTheTableLockReleasesTheTransactionAsync()
     {
         await using var database = await TestDatabase.CreateAsync();
         var now = DateTime.UtcNow;
@@ -576,7 +576,7 @@ public class DownloadCleanupServiceTests
     }
 
     [Fact]
-    public async Task CancellingAfterSelectionKeepsCommittedBatchesAndReleasesTheTransactionAsync()
+    public async Task CancelingAfterSelectionKeepsCommittedBatchesAndReleasesTheTransactionAsync()
     {
         await using var database = await TestDatabase.CreateAsync();
         var now = DateTime.UtcNow;

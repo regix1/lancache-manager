@@ -58,10 +58,10 @@ export const useClientInfoReporter = (enabled: boolean, sessionId: string | null
     if (reportedSessionRef.current === sessionId) return;
     reportedSessionRef.current = sessionId;
 
-    let cancelled = false;
+    let canceled = false;
     const run = async () => {
       const info = collectClientInfo();
-      if (cancelled) return;
+      if (canceled) return;
       try {
         await ApiService.updateOwnClientInfo({
           timezone: info.timezone,
@@ -75,7 +75,7 @@ export const useClientInfoReporter = (enabled: boolean, sessionId: string | null
     void run();
 
     return () => {
-      cancelled = true;
+      canceled = true;
     };
   }, [enabled, sessionId]);
 };

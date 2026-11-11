@@ -64,6 +64,18 @@ public sealed partial class UnmappedFileRemovalTests
     }
 
     [Fact]
+    public async Task ATrackerChildThatStopsRightAfterTheWatchStarts_IsRefusedAsNotReportedAsync()
+    {
+        await using var run = await Run.CreateAsync();
+        // The child reports when the watch starts and stops before the download check reads it.
+        CacheScanGateHarness.SetField(run.Tracker, "_clock", new ChildStopsOnFirstRead(run.Tracker));
+
+        var refusal = Assert.Throws<DownloadInProgressException>(() => run.Service.EnsureUnmappedFileRemovalAllowed());
+
+        Assert.Equal("errors.unmappedRemoval.trackerNotReported", refusal.StageKey);
+    }
+
+    [Fact]
     public async Task ADownloadDuringAClaimQuery_StopsTheChildAndKeepsTheListAsync()
     {
         await using var run = await Run.CreateAsync();
@@ -257,7 +269,7 @@ public sealed partial class UnmappedFileRemovalTests
 
         var ended = await run.RemoveAsync();
 
-        Assert.Equal(OperationStatus.Cancelled, ended.Status);
+        Assert.Equal(OperationStatus.Canceled, ended.Status);
         Assert.Null(await run.StoredBucketAsync());
     }
 
@@ -302,7 +314,7 @@ public sealed partial class UnmappedFileRemovalTests
 
         var ended = await run.RemoveAsync();
 
-        Assert.Equal(OperationStatus.Cancelled, ended.Status);
+        Assert.Equal(OperationStatus.Canceled, ended.Status);
         Assert.Single(run.Rust.Launches);
         Assert.Null(await run.StoredBucketAsync());
     }
@@ -423,6 +435,57 @@ public sealed partial class UnmappedFileRemovalTests
         run.Service.EnsureUnmappedFileRemovalAllowed();
     }
 
+    // A removal confirmed with other limits is other work: it waits on its own card, never on the card of a
+    // removal that would delete within the first limits. The same limits join the card already waiting.
+    [Fact]
+    public async Task ARemovalWithOtherLimitsWaitsOnItsOwnCardAsync()
+    {
+        await using var run = await Run.CreateAsync();
+        var tracker = run.Repairs.Tracker;
+        var checker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
+        var controller = new CacheController(
+            cacheService: run.Service,
+            cacheClearingService: null!,
+            corruptionDetectionService: null!,
+            logger: NullLogger<CacheController>.Instance,
+            pathResolver: run.Paths,
+            notifications: null!,
+            rustProcessHelper: null!,
+            nginxLogRotationService: null!,
+            operationTracker: tracker,
+            datasourceService: run.Datasources,
+            dbContextFactory: null!,
+            reconciliationService: null!,
+            conflictChecker: checker,
+            operationQueue: new OperationWaitlistService(tracker, checker, NullLogger<OperationWaitlistService>.Instance),
+            capabilityService: new DatasourceCapabilityService(run.Datasources),
+            cacheScanGate: CacheScanGateHarness.Idle(),
+            cacheSizeScan: null!,
+            operationStateService: null!,
+            stateService: null!);
+        var clearing = tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear (All)", new CancellationTokenSource());
+
+        async Task<OperationStartResponse> RemoveAsync(long maxFiles, long maxBytes)
+        {
+            var result = await controller.RemoveUnmappedFilesAsync(maxFiles, maxBytes, CancellationToken.None, CacheRemovalScope.CacheFiles);
+            var waitingRun = Assert.IsType<OperationStartResponse>(Assert.IsType<AcceptedResult>(result).Value);
+            Assert.Equal(OperationStartStatus.Waiting, waitingRun.Status);
+            return waitingRun;
+        }
+
+        var first = await RemoveAsync(5, 5_000);
+        var wider = await RemoveAsync(50, 50_000);
+        var firstAgain = await RemoveAsync(5, 5_000);
+
+        Assert.NotEqual(first.OperationId, wider.OperationId);
+        Assert.NotEqual(OperationStartStatus.AlreadyRunning, wider.Status);
+        Assert.Equal(first.OperationId, firstAgain.OperationId);
+
+        foreach (var waiting in tracker.GetWaitingOperations().ToList())
+            tracker.CancelOperation(waiting.Id);
+        tracker.CompleteOperation(clearing, success: true);
+    }
+
     [Fact]
     public async Task EveryLogIsReadToTheEndBeforeTheFirstDeleteAsync()
     {
@@ -469,7 +532,7 @@ public sealed partial class UnmappedFileRemovalTests
     }
 
     [Fact]
-    public async Task CancelWhileWaitingForTheCacheLock_EndsCancelledAsync()
+    public async Task CancelWhileWaitingForTheCacheLock_EndsCanceledAsync()
     {
         await using var run = await Run.CreateAsync();
         await run.CacheLock.WaitAsync();
@@ -480,7 +543,7 @@ public sealed partial class UnmappedFileRemovalTests
 
             var ended = await run.FinishedAsync(id);
 
-            Assert.Equal(OperationStatus.Cancelled, ended.Status);
+            Assert.Equal(OperationStatus.Canceled, ended.Status);
             Assert.Equal(0, run.CacheLock.CurrentCount);
         }
         finally
@@ -504,7 +567,7 @@ public sealed partial class UnmappedFileRemovalTests
     }
 
     [Fact]
-    public async Task AStopAfterTheLastDatasource_EndsCancelledAsync()
+    public async Task AStopAfterTheLastDatasource_EndsCanceledAsync()
     {
         await using var run = await Run.CreateAsync();
         var original = await run.StoredBucketAsync();
@@ -528,7 +591,7 @@ public sealed partial class UnmappedFileRemovalTests
 
         var ended = await run.RemoveAsync();
 
-        Assert.Equal(OperationStatus.Cancelled, ended.Status);
+        Assert.Equal(OperationStatus.Canceled, ended.Status);
         Assert.Equal(original, await run.StoredBucketAsync());
     }
 
@@ -681,7 +744,7 @@ public sealed partial class UnmappedFileRemovalTests
 
         // The dialog went away before its first poll, as after a reload or a lost start answer.
         var unwatched = StartedCount(await controller.StartUnmappedCacheFileCountAsync(CancellationToken.None));
-        Assert.Equal(OperationStatus.Cancelled, (await EndedAsync(run, unwatched)).Status);
+        Assert.Equal(OperationStatus.Canceled, (await EndedAsync(run, unwatched)).Status);
 
         // A device that sleeps wakes long after the tracker dropped the count, and another count
         // may have started meanwhile.
@@ -712,7 +775,7 @@ public sealed partial class UnmappedFileRemovalTests
 
         Assert.Null(run.Repairs.Tracker.GetOperation(watched)!.CompletedAt);
         run.Repairs.Tracker.CancelOperation(watched);
-        Assert.Equal(OperationStatus.Cancelled, (await EndedAsync(run, watched)).Status);
+        Assert.Equal(OperationStatus.Canceled, (await EndedAsync(run, watched)).Status);
     }
 
     [Fact]
@@ -841,7 +904,7 @@ public sealed partial class UnmappedFileRemovalTests
     }
 
     [Fact]
-    public async Task AStopWhileTheEmptiedFoldersAreRemoved_EndsCancelledAndClearsTheListAsync()
+    public async Task AStopWhileTheEmptiedFoldersAreRemoved_EndsCanceledAndClearsTheListAsync()
     {
         await using var run = await Run.CreateAsync();
         run.Rust.OnRun = async (process, operationId, token, onProgress) =>
@@ -857,7 +920,7 @@ public sealed partial class UnmappedFileRemovalTests
 
         var ended = await run.RemoveAsync();
 
-        Assert.Equal(OperationStatus.Cancelled, ended.Status);
+        Assert.Equal(OperationStatus.Canceled, ended.Status);
         // Every file the report names was deleted, so the saved list no longer holds.
         Assert.Null(await run.StoredBucketAsync());
     }
@@ -1120,27 +1183,34 @@ public sealed partial class UnmappedFileRemovalTests
         public ResolvedDatasource Datasource { get; }
         public DatasourceService Datasources { get; }
 
-        /// <summary>The count routes over this run's service, with no conflicting operation.</summary>
-        public CacheController CountController(ILogger<CacheController> logger) => new(
-            cacheService: Service,
-            cacheClearingService: null!,
-            corruptionDetectionService: null!,
-            logger: logger,
-            pathResolver: null!,
-            notifications: null!,
-            rustProcessHelper: null!,
-            nginxLogRotationService: null!,
-            operationTracker: Repairs.Tracker,
-            datasourceService: null!,
-            dbContextFactory: null!,
-            reconciliationService: null!,
-            conflictChecker: DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
-            operationQueue: null!,
-            capabilityService: new DatasourceCapabilityService(Datasources),
-            cacheScanGate: CacheScanGateHarness.Idle(),
-            cacheSizeScan: null!,
-            operationStateService: null!,
-            stateService: null!);
+        /// <summary>
+        /// The count routes over this run's service, with no conflicting operation. It starts through the
+        /// queue like every count, which starts it at once when nothing conflicts.
+        /// </summary>
+        public CacheController CountController(ILogger<CacheController> logger)
+        {
+            var noConflict = DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>();
+            return new(
+                cacheService: Service,
+                cacheClearingService: null!,
+                corruptionDetectionService: null!,
+                logger: logger,
+                pathResolver: null!,
+                notifications: null!,
+                rustProcessHelper: null!,
+                nginxLogRotationService: null!,
+                operationTracker: Repairs.Tracker,
+                datasourceService: null!,
+                dbContextFactory: null!,
+                reconciliationService: null!,
+                conflictChecker: noConflict,
+                operationQueue: new OperationWaitlistService(Repairs.Tracker, noConflict, NullLogger<OperationWaitlistService>.Instance),
+                capabilityService: new DatasourceCapabilityService(Datasources),
+                cacheScanGate: CacheScanGateHarness.Idle(),
+                cacheSizeScan: null!,
+                operationStateService: null!,
+                stateService: null!);
+        }
 
         public SemaphoreSlim CacheLock => (SemaphoreSlim)typeof(CacheManagementService)
             .GetField("_cacheLock", BindingFlags.Instance | BindingFlags.NonPublic)!
@@ -1233,6 +1303,27 @@ public sealed partial class UnmappedFileRemovalTests
 
         [GeneratedRegex("\"([^\"]*)\"")]
         private static partial Regex QuotedRegex();
+    }
+
+    /// <summary>
+    /// The tracker's clock that marks its child as stopped on the first read. The tracker reads
+    /// whether a child reports before it reads the clock, so that first answer still sees a
+    /// reporting child and every later read sees the stop.
+    /// </summary>
+    private sealed class ChildStopsOnFirstRead(RustSpeedTrackerService tracker) : TimeProvider
+    {
+        private bool _stopped;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            var now = TimeProvider.System.GetUtcNow();
+            if (!_stopped)
+            {
+                _stopped = true;
+                CacheScanGateHarness.SetField(tracker, "_unreportedSinceUtc", now.UtcDateTime);
+            }
+            return now;
+        }
     }
 
     /// <summary>Runs <see cref="OnSaved"/> after each save the database has committed.</summary>

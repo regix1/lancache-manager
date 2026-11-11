@@ -134,7 +134,7 @@ const EventCard = React.memo(
         style={colorStyle}
         {...rowToggleHandlers(() => onExpandClick(event.id))}
       >
-        {/* Event's own colour, now that the status pill no longer carries it */}
+        {/* Event's own color, now that the status pill no longer carries it */}
         <div className="event-list-row-color" />
 
         <div className="p-4">
@@ -277,7 +277,7 @@ const EventCard = React.memo(
 
 EventCard.displayName = 'EventCard';
 
-/** Section header component. Its one colour feeds the icon box, the heading and the count
+/** Section header component. Its one color feeds the icon box, the heading and the count
  *  badge, so it rides in as custom properties and events.css does the painting. */
 const SectionHeader: React.FC<{
   icon: React.ReactNode;

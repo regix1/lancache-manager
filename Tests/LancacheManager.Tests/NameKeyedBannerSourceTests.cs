@@ -63,4 +63,19 @@ public class NameKeyedBannerSourceTests
         Assert.False(NameKeyedBannerSource.TryGetEmbeddedBytesForSlug("blizzard", "definitely-not-a-real-game", out _, out _));
         Assert.False(NameKeyedBannerSource.TryGetEmbeddedBytesForSlug("steam", NameKeyedBannerSource.EmbeddedBannerSlugs().First(), out _, out _));
     }
+
+    [Fact]
+    public void TeamfightTacticsTrafficGetsItsEmbeddedRiotBanner()
+    {
+        // The Rust processor names teamfighttactics.* Riot traffic "Teamfight Tactics".
+        var slug = NameKeyedBannerSource.Slug("Teamfight Tactics");
+
+        Assert.Equal("teamfight-tactics", slug);
+        Assert.Equal("embedded://teamfight-tactics", NameKeyedBannerSource.TryGetUrl("riot", "Teamfight Tactics"));
+        Assert.Contains(slug, NameKeyedBannerSource.EmbeddedBannerSlugs());
+        Assert.True(NameKeyedBannerSource.TryGetEmbeddedBytesForSlug("riot", slug, out var bytes, out var contentType));
+        Assert.Equal("image/jpeg", contentType);
+        Assert.Equal("d1b267bd6a34678f38eeb030afb87809c85c540e53244c58e376faeb1a3b3e04",
+            Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)));
+    }
 }

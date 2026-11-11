@@ -7,10 +7,10 @@ namespace LancacheManager.Tests;
 public sealed class PrefillRunRecoveryTests
 {
     [Fact]
-    public async Task LostAcknowledgementAsync()
+    public async Task LostAcknowledgmentAsync()
     {
         await using var fixture = await RunFixture.CreateAsync();
-        fixture.Client.LoseAcknowledgement = true;
+        fixture.Client.LoseAcknowledgment = true;
         var run = await fixture.StartAsync("10");
         Assert.Equal(1, fixture.Client.StartCount);
         Assert.False(run.Recovering);
@@ -48,7 +48,7 @@ public sealed class PrefillRunRecoveryTests
         Assert.Equal("silent", restored.NotificationMode);
         Assert.Equal("10", Assert.Single(restored.Options.AppIds!));
         Assert.True(restored.CancelRequested);
-        Assert.Equal("cancelled", (await restored.Completion.Task).Snapshot.State);
+        Assert.Equal("canceled", (await restored.Completion.Task).Snapshot.State);
         Assert.Equal(1, fixture.Client.StartCount);
     }
 

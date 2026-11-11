@@ -391,7 +391,7 @@ pub fn key_header_residue(
         .filter(|entry| entry.file_type().is_file())
         .par_bridge()
         .filter_map(|entry| {
-            if cancel::is_cancelled() {
+            if cancel::is_canceled() {
                 return None;
             }
 
@@ -537,7 +537,7 @@ pub fn remove_cache_files(
     paths_to_check.par_iter().for_each(|(path, expected_key)| {
         // Cooperative cancellation: skip remaining files if cancel was requested.
         // Already-deleted files stay deleted — consistent partial state that C# reconciles.
-        if cancel::is_cancelled() {
+        if cancel::is_canceled() {
             return;
         }
 
@@ -733,7 +733,7 @@ pub fn remove_cache_files(
     }
 
     // After the parallel deletion phase: flush partial progress on cancel.
-    if cancel::is_cancelled() {
+    if cancel::is_canceled() {
         eprintln!("Cancellation requested — flushing partial progress and stopping.");
         let _ = write_progress(
             progress_path,
@@ -899,7 +899,7 @@ pub fn run_url_removal_steps(
     )?;
 
     // If cancellation arrived during cache removal, do directory cleanup and exit 0.
-    if cancel::is_cancelled() {
+    if cancel::is_canceled() {
         eprintln!("Cancellation confirmed — cleaning up partial directories and exiting.");
         cache_utils::cleanup_empty_directories(cache_dir, outcome.parent_dirs);
         return Ok(None);

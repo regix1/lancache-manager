@@ -90,11 +90,11 @@ export const MOBILE_FULL_CARD_CAP = 3;
  * Cancel state that lives ONLY in this browser session and that no server payload can know:
  * the X button's two-stage soft-cancel -> force-kill intent (`cancelRequested`/`cancelSent`,
  * written and read by the cancel handler in components/common/notificationCancel.ts) and the
- * bulk queue's cancel signal (`cancelling`, the only flag useBatchQueue's cascade honours).
+ * bulk queue's cancel signal (`canceling`, the only flag useBatchQueue's cascade honors).
  *
- * These are NOT `details.cancelled`, which is the TERMINAL outcome the server reports and which
+ * These are NOT `details.canceled`, which is the TERMINAL outcome the server reports and which
  * renders the card in the neutral gray a stop earns rather than the red a failure does - see
- * cacheRemovalHelpers, which sets both at once as `{ cancelled: true, cancelling: false }`.
+ * cacheRemovalHelpers, which sets both at once as `{ canceled: true, canceling: false }`.
  *
  * They are the only part of a run card the browser writes: `updateNotification` keeps exactly
  * these keys from a run card's patch, and the server's rows own everything else.
@@ -103,7 +103,7 @@ export const LIVE_ONLY_CANCEL_DETAIL_KEYS = [
   'cancelRequested',
   'cancelPending',
   'cancelSent',
-  'cancelling'
+  'canceling'
 ] as const;
 
 // ============================================================================
@@ -123,7 +123,7 @@ export const GENERIC_COMPLETION_I18N_KEY = 'signalr.generic.complete';
 export const GENERIC_FAILURE_I18N_KEY = 'signalr.generic.failed';
 
 /** Generic cancellation fallback for an operation that stopped without its own message. */
-export const GENERIC_CANCELLED_I18N_KEY = 'signalr.generic.cancelled';
+export const GENERIC_CANCELED_I18N_KEY = 'signalr.generic.canceled';
 
 /** Generic fallback for a run that was declined before it started and carried no reason. */
 export const GENERIC_SKIPPED_I18N_KEY = 'signalr.generic.skipped';

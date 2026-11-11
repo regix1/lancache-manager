@@ -104,7 +104,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
           <span
             key={option.value}
             className={`flex items-center justify-center gap-1.5 ${textClasses[size]} h-full rounded-full transition ${
-              isActive ? 'shadow-sm' : 'text-themed-muted'
+              isActive ? 'shadow-sm no-dark-shadow' : 'text-themed-muted'
             }`}
             style={getActiveStyles(option, isActive)}
           >

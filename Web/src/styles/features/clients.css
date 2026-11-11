@@ -57,7 +57,7 @@
 }
 
 /* House table text convention (matches TopClientsTable + the old Clients table):
-   only the client NAME is primary; figures are grey secondary; hits/misses carry
+   only the client NAME is primary; figures are gray secondary; hits/misses carry
    the cache tokens; dates are muted. The compound selectors below out-rank the
    base .clients-cell color so the tones survive any import order. */
 .clients-cell {

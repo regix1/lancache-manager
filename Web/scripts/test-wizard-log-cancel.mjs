@@ -5,8 +5,8 @@ import { bindLifted, findSoleNode, parseSource } from './transpile-module.mjs';
 
 /**
  * Cancel on the setup wizard's log step force stops the pass. A pass that saved its success just
- * before the stop still completes, so the "cancelled" notice has to come from the completion event
- * (its `cancelled` flag), never from the click, and a success must clear any notice.
+ * before the stop still completes, so the "canceled" notice has to come from the completion event
+ * (its `canceled` flag), never from the click, and a success must clear any notice.
  */
 
 const stepFile = 'src/components/initialization/steps/LogProcessingStep.tsx';
@@ -19,9 +19,9 @@ const handlerText = (name) =>
     (node) => ts.isVariableDeclaration(node) && node.name.getText(source) === name
   ).getText(source);
 
-test('the cancel click does not write the cancelled notice', () => {
+test('the cancel click does not write the canceled notice', () => {
   assert.ok(
-    !handlerText('handleCancelProcessing').includes('initialization.logProcessing.cancelled'),
+    !handlerText('handleCancelProcessing').includes('initialization.logProcessing.canceled'),
     'the notice comes from the completion event, not from the click'
   );
 });
@@ -44,7 +44,7 @@ test("the watchdog reads the pass's own ending", () => {
   ).getText(source);
   assert.ok(watchdogEffect.includes('getTrackedOperation'), 'the run says how the pass ended');
   assert.ok(
-    watchdogEffect.includes('initialization.logProcessing.cancelled'),
+    watchdogEffect.includes('initialization.logProcessing.canceled'),
     'a canceled run shows the canceled notice'
   );
 });
@@ -222,7 +222,7 @@ async function startWizard(overrides) {
     statusReads: 0,
     killed: [],
     runGone: false,
-    endingOnForceStop: 'cancelled',
+    endingOnForceStop: 'canceled',
     operationId: 'op',
     ...overrides
   };
@@ -271,7 +271,7 @@ async function startWizard(overrides) {
         // A dropped run is kept for 5 minutes after the 10 second drop, then the id answers 200 with no status.
         const forgotten =
           !run ||
-          ((run.status === 'completed' || run.status === 'cancelled') &&
+          ((run.status === 'completed' || run.status === 'canceled') &&
             ref.runner.now - run.endedAt >= 310000);
         // The REST answer omits null fields, so a run without an error has no `error` key.
         const body = forgotten
@@ -298,13 +298,13 @@ async function startWizard(overrides) {
         const status = server.endingOnForceStop;
         server.runs.set(server.operationId, {
           status,
-          endedAt: status === 'completed' || status === 'cancelled' ? ref.runner.now : 0
+          endedAt: status === 'completed' || status === 'canceled' ? ref.runner.now : 0
         });
-        return Promise.resolve({ message: 'Operation force killed' });
+        return Promise.resolve({ operationId: server.operationId });
       },
       resetLogPosition: () => Promise.resolve(),
-      // The start endpoints answer the new pass's id (OperationResponse.operationId); a queued start answers the queued
-      // run's id with `queued: true` (QueuedOperationResponse.cs), and the processing status still names the run in front.
+      // The start endpoints answer the new pass's id (OperationResponse.operationId); a waiting start answers the waiting
+      // run's id with `status: 'waiting'` (OperationStartResponse.cs), and the processing status still names the run in front.
       processAllLogs: () =>
         Promise.resolve(server.startAnswer ?? { operationId: server.operationId }),
       getLogPositions: () => Promise.resolve([])
@@ -402,12 +402,12 @@ async function startWizard(overrides) {
 }
 
 test('a force stop whose completion event is lost shows the canceled notice', async () => {
-  const wizard = await startWizard({ endingOnForceStop: 'cancelled' });
+  const wizard = await startWizard({ endingOnForceStop: 'canceled' });
   await wizard.forceStop();
   await wizard.advanceTo(40);
   const view = wizard.view();
   assert.ok(
-    view.texts.includes('initialization.logProcessing.cancelled'),
+    view.texts.includes('initialization.logProcessing.canceled'),
     'the canceled run is read before it is dropped'
   );
   assert.equal(view.spinner, false);
@@ -480,7 +480,7 @@ test("a lost completion event of a datasource failure shows the run's datasource
 test('a cancel that finds the run already gone shows no error', async () => {
   const wizard = await startWizard({ runGone: true });
   wizard.server.processing = false;
-  wizard.server.runs.set('op', { status: 'cancelled', endedAt: -60000 });
+  wizard.server.runs.set('op', { status: 'canceled', endedAt: -60000 });
   await wizard.forceStop();
   assert.ok(
     !wizard.view().texts.includes('Operation not found or already completed'),
@@ -505,13 +505,13 @@ test('a stale tick leaves a new pass running', async () => {
   const wizard = await startWizard({});
   const release = wizard.holdRunReads();
   wizard.server.processing = false;
-  wizard.server.runs.set('op', { status: 'cancelled', endedAt: 0 });
+  wizard.server.runs.set('op', { status: 'canceled', endedAt: 0 });
   // The tick at 30 seconds reads the idle status, and its run read stays out.
   await wizard.advanceTo(30);
   await wizard.emit('LogProcessingComplete', {
     operationId: 'op',
     success: false,
-    cancelled: true
+    canceled: true
   });
   wizard.server.processing = true;
   wizard.server.operationId = 'op2';
@@ -520,7 +520,7 @@ test('a stale tick leaves a new pass running', async () => {
   const view = wizard.view();
   assert.equal(view.spinner, true, 'the new pass keeps its running view');
   assert.equal(view.processAllButton, false);
-  assert.ok(!view.texts.includes('initialization.logProcessing.cancelled'));
+  assert.ok(!view.texts.includes('initialization.logProcessing.canceled'));
   wizard.dispose();
 });
 
@@ -592,12 +592,12 @@ test('a canceled pass shows the localized notice, not the English text the serve
   await wizard.emit('LogProcessingComplete', {
     operationId: 'op',
     success: false,
-    cancelled: true,
-    message: 'Log processing was cancelled'
+    canceled: true,
+    message: 'Log processing was canceled'
   });
   const view = wizard.view();
-  assert.ok(view.texts.includes('initialization.logProcessing.cancelled'));
-  assert.ok(!view.texts.includes('Log processing was cancelled'));
+  assert.ok(view.texts.includes('initialization.logProcessing.canceled'));
+  assert.ok(!view.texts.includes('Log processing was canceled'));
   wizard.dispose();
 });
 
@@ -609,12 +609,12 @@ test("another tab's pass does not replace the pass this step started", async () 
   wizard.server.operationId = 'op2';
   await wizard.advanceTo(30);
   wizard.server.processing = false;
-  wizard.server.runs.set('op2', { status: 'cancelled', endedAt: 30000 });
+  wizard.server.runs.set('op2', { status: 'canceled', endedAt: 30000 });
   await wizard.advanceTo(70);
   const view = wizard.view();
   assert.deepEqual(wizard.server.asked, ['op'], 'only the pass this step started is read');
   assert.equal(view.continueButton, true);
-  assert.ok(!view.texts.includes('initialization.logProcessing.cancelled'));
+  assert.ok(!view.texts.includes('initialization.logProcessing.canceled'));
   wizard.dispose();
 });
 
@@ -629,7 +629,7 @@ test("a pass that ended before the start answer returned is read by the start an
   wizard.dispose();
 });
 
-test("a pass queued behind another tab's pass keeps its running view", async () => {
+test("a pass waiting behind another tab's pass keeps its running view", async () => {
   const wizard = await startWizard({});
   wizard.server.runs.set('op', { status: 'waiting', endedAt: 0 });
   wizard.server.runs.set('op2', { status: 'running', endedAt: 0 });
@@ -641,19 +641,17 @@ test("a pass queued behind another tab's pass keeps its running view", async () 
   wizard.dispose();
 });
 
-test('a queued pass is force-stopped by its own id', async () => {
+test('a waiting pass is force-stopped by its own id', async () => {
   const wizard = await startWizard({ processing: false });
   wizard.server.processing = true;
   wizard.server.operationId = 'saving-a';
   wizard.server.startAnswer = {
-    operationId: 'queued-b',
-    queued: true,
-    alreadyRunning: false,
+    operationId: 'waiting-b',
     status: 'waiting'
   };
   await wizard.processAll();
   await wizard.forceStop();
-  assert.deepEqual(wizard.server.killed, ['queued-b'], 'the run in front is left alone');
+  assert.deepEqual(wizard.server.killed, ['waiting-b'], 'the run in front is left alone');
   wizard.dispose();
 });
 
@@ -701,20 +699,20 @@ test('after following a hand-off to a run still processing the step reads every 
   first.dispose();
 
   // The pass reads as waiting in the queue first, then hands off.
-  const queued = await startWizard({});
-  queued.server.operationId = 'op3';
-  queued.server.runs.set('op', { status: 'waiting', endedAt: 0 });
-  queued.server.runs.set('op3', { status: 'running', endedAt: 0 });
-  await queued.advanceTo(30);
-  queued.server.runs.set('op', handedOff);
-  await queued.advanceTo(35);
-  const queuedBaseline = queued.server.statusReads;
-  await queued.advanceTo(95);
+  const waiting = await startWizard({});
+  waiting.server.operationId = 'op3';
+  waiting.server.runs.set('op', { status: 'waiting', endedAt: 0 });
+  waiting.server.runs.set('op3', { status: 'running', endedAt: 0 });
+  await waiting.advanceTo(30);
+  waiting.server.runs.set('op', handedOff);
+  await waiting.advanceTo(35);
+  const waitingBaseline = waiting.server.statusReads;
+  await waiting.advanceTo(95);
   assert.ok(
-    queued.server.statusReads - queuedBaseline <= 3,
-    `${queued.server.statusReads - queuedBaseline} status reads in the 60 seconds after the hand-off`
+    waiting.server.statusReads - waitingBaseline <= 3,
+    `${waiting.server.statusReads - waitingBaseline} status reads in the 60 seconds after the hand-off`
   );
-  queued.dispose();
+  waiting.dispose();
 });
 
 test("another tab's pass that starts after this step's pass completed keeps Continue", async () => {
@@ -722,7 +720,7 @@ test("another tab's pass that starts after this step's pass completed keeps Cont
   await wizard.emit('LogProcessingComplete', {
     operationId: 'op',
     success: true,
-    cancelled: false,
+    canceled: false,
     entriesProcessed: 5,
     linesProcessed: 5
   });
@@ -736,7 +734,7 @@ test("another tab's pass that starts after this step's pass completed keeps Cont
   await wizard.emit('LogProcessingComplete', {
     operationId: 'other-tab-pass',
     success: false,
-    cancelled: false,
+    canceled: false,
     message: 'Other pass failed'
   });
   const view = wizard.view();
@@ -745,7 +743,7 @@ test("another tab's pass that starts after this step's pass completed keeps Cont
   wizard.dispose();
 });
 
-test('a queued pass the queue could not start says so', async () => {
+test('a waiting pass the queue could not start says so', async () => {
   const wizard = await startWizard({});
   wizard.server.processing = false;
   wizard.server.runs.set('op', { status: 'skipped', endedAt: 0 });

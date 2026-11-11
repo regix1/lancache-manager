@@ -96,7 +96,7 @@ const GameCard: React.FC<GameCardProps> = ({
       : 'themed-badge game-card-service-badge game-card-service-badge--steam';
 
   // Named-service label: prefer an explicit translation (blizzard/riot), otherwise capitalize the
-  // raw service id so unrecognised name-keyed services still render a sensible label.
+  // raw service id so unrecognized name-keyed services still render a sensible label.
   const namedServiceLabel = (service: string): string => {
     const key = `management.gameDetection.service${service.charAt(0).toUpperCase()}${service.slice(1)}`;
     const translated = t(key);
@@ -156,6 +156,7 @@ const GameCard: React.FC<GameCardProps> = ({
       <ExpandableItemCard
         id={gameUniqueId}
         title={game.game_name}
+        isUnresolvedDepot={game.is_unresolved_depot}
         subtitle={subtitle}
         gameAppId={game.game_app_id}
         epicAppId={game.epic_app_id}

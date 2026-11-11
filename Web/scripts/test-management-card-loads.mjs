@@ -622,7 +622,7 @@ const liftSteamSignIn = (fetch) => {
       access: { canSignIn: true },
       refresh: async () => undefined
     },
-    cancelledAttemptRef: { current: null },
+    canceledAttemptRef: { current: null },
     attemptRef,
     setError: (value) => state.errors.push(value),
     setLoading: (value) => state.loading.push(value),
@@ -777,8 +777,8 @@ test('a Steam sign-in that ends after the wait shows its own reason', async (t) 
       steamStatus({
         loginEnding: {
           attemptId: 'attempt-a',
-          status: 'cancelled',
-          stageKey: 'errors.steam.signInCancelled'
+          status: 'canceled',
+          stageKey: 'errors.steam.signInCanceled'
         }
       })
   ]);
@@ -788,7 +788,7 @@ test('a Steam sign-in that ends after the wait shows its own reason', async (t) 
   t.mock.timers.tick(120000);
   await signIn;
 
-  assert.equal(state.errors.at(-1), 'errors.steam.signInCancelled');
+  assert.equal(state.errors.at(-1), 'errors.steam.signInCanceled');
   assert.deepEqual(state.successes, []);
   assert.equal(
     state.deadlines.at(-1),
@@ -961,7 +961,7 @@ test('resetting the Steam sign-in form ends its countdown', () => {
   const noop = () => undefined;
   const resetAuthForm = bindLifted(liftConstArrow(STEAM_LOGIN_FLOW, 'resetAuthForm'), {
     attemptRef: { current: null },
-    cancelledAttemptRef: { current: null },
+    canceledAttemptRef: { current: null },
     setAttemptId: noop,
     cancelPendingRequest: noop,
     setError: noop,

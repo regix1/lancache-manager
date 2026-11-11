@@ -181,9 +181,9 @@
     overflow: hidden;
   }
 
-  /* The header's centre rule carries justify-content as well, because a cell whose child is a flex
+  /* The header's center rule carries justify-content as well, because a cell whose child is a flex
      or block element (an icon button, for one) is not moved by text-align at all. Without the flex
-     pair here a centred column centres its header label and leaves its control sitting against the
+     pair here a centered column centers its header label and leaves its control sitting against the
      left padding. */
   .data-table-cell-center {
     text-align: center;

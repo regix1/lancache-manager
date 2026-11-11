@@ -3,7 +3,7 @@ name = "Accessible - Protanopia"
 id = "accessible-protanopia"
 description = "Protanopia-accessible theme with neutral dark backgrounds and sapphire-amber accents"
 author = "System"
-version = "2.3.4"
+version = "2.3.5"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -14,29 +14,29 @@ primaryColor = "#2563eb"       # Sapphire blue
 secondaryColor = "#e69f00"     # Warm amber (Okabe-Ito standard)
 accentColor = "#0891b2"        # Vivid teal-cyan
 
-# Backgrounds - Neutral dark grey (VSCode-inspired)
+# Backgrounds - Neutral dark gray (VSCode-inspired)
 bgPrimary = "#1e1e1e"          # VSCode dark background
 bgSecondary = "#252526"        # VSCode sidebar
-bgTertiary = "#2d2d2d"         # Slightly lighter grey
-bgHover = "#3c3c3c"            # Hover state grey
+bgTertiary = "#2d2d2d"         # Slightly lighter gray
+bgHover = "#3c3c3c"            # Hover state gray
 bgElevated = "#222223"         # Slightly lighter than bgPrimary
 bgSurface = "#2a2a2b"          # Surface within elevated panels
-bgSurfaceHover = "#323233"     # Hover on surface elements
+bgSurfaceHover = "#3a3a3b"     # Hover on surface elements
 bgSurfaceActive = "#3a3a3b"    # Active/pressed surface elements
 bgOverlay = "rgba(0,0,0,0.6)"  # Backdrop overlay
 
 # Text - Clean neutral tones
-textPrimary = "#e0e0e0"        # Light grey
-textSecondary = "#b0b0b0"      # Medium grey
-textMuted = "#808080"          # Muted grey
+textPrimary = "#e0e0e0"        # Light gray
+textSecondary = "#b0b0b0"      # Medium gray
+textMuted = "#808080"          # Muted gray
 textAccent = "#60a5fa"         # Bright blue accent
-textPlaceholder = "#5a5a5a"    # Placeholder grey
+textPlaceholder = "#5a5a5a"    # Placeholder gray
 
 # Drag handle
 dragHandleColor = "#5a5a5a"    # Matches textPlaceholder
 dragHandleHover = "#60a5fa"    # Matches textAccent
 
-# Borders - Neutral grey
+# Borders - Neutral gray
 borderPrimary = "#333333"      # Dark border
 borderSecondary = "#444444"    # Medium border
 borderFocus = "#2563eb"        # Sapphire focus ring
@@ -49,11 +49,11 @@ navBg = "#1b1b1b"              # Dark navigation background
 navBorder = "#333333"          # Nav border
 navTabActive = "#2563eb"       # Sapphire active tab
 navTabInactive = "#808080"     # Muted inactive
-navTabHover = "#e0e0e0"        # Light grey hover
+navTabHover = "#e0e0e0"        # Light gray hover
 navTabActiveBorder = "#2563eb" # Sapphire border
 floatingIconColor = "#2563eb"  # Header icon matches primary
 navMobileMenuBg = "#1b1b1b"   # Match nav bg
-navMobileItemHover = "#2d2d2d" # Grey hover
+navMobileItemHover = "#2d2d2d" # Gray hover
 
 # Status colors - All clearly distinct, Okabe-Ito inspired (no red/green)
 success = "#0072B2"            # Ocean blue (distinct from sapphire primary)
@@ -93,15 +93,15 @@ neverwinterColor = "#664ba8"    # Deep violet
 nexusmodsColor = "#c29224"      # Gold
 nintendoColor = "#ecdf9e"       # Pale straw
 pathofexileColor = "#7f3369"    # Dark plum
-renegadexColor = "#9a9a9a"      # Neutral grey
+renegadexColor = "#9a9a9a"      # Neutral gray
 sonyColor = "#324b8c"           # Muted navy
 squareColor = "#c06e9e"         # Dusty magenta
 tesoColor = "#c6b7a4"           # Warm greige
-testColor = "#615d53"           # Dark warm grey (neutral)
+testColor = "#615d53"           # Dark warm gray (neutral)
 warframeColor = "#219bb4"       # Cyan teal
 wargamingColor = "#a2486f"      # Deep raspberry
 
-# Components - Neutral grey cards
+# Components - Neutral gray cards
 cardBg = "#252526"             # Card background
 cardBorder = "#333333"         # Card border
 cardOutline = "#2563eb"        # Sapphire outline
@@ -189,11 +189,11 @@ gameColor20 = "#5b21b6"
 gameColorOther = "#6b7280"
 chartBorderColor = "#1b1b1b"   # Dark border
 chartGridColor = "#333333"     # Grid lines
-chartTextColor = "#808080"     # Muted grey
+chartTextColor = "#808080"     # Muted gray
 chartCacheHitColor = "#0072B2" # Ocean blue for hits
 chartCacheMissColor = "#e69f00" # Amber for misses
 
-# Scrollbar - Neutral grey
+# Scrollbar - Neutral gray
 scrollbarTrack = "#252526"     # Dark track
 scrollbarThumb = "#444444"     # Thumb
 scrollbarHover = "#555555"     # Lighter hover

@@ -133,7 +133,7 @@ const EmptyState: React.FC = () => {
     <div className="flex flex-col items-center justify-center py-16 px-4">
       <div className="relative mb-6 retro-empty-float">
         {/* Animated icon container */}
-        <div className="w-20 h-20 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[var(--theme-bg-tertiary)] to-[var(--theme-bg-secondary)] shadow-[0_8px_32px_rgba(0,0,0,0.2)]">
+        <div className="w-20 h-20 rounded-2xl flex items-center justify-center bg-gradient-to-br from-[var(--theme-bg-tertiary)] to-[var(--theme-bg-secondary)] light-card-shadow">
           <HardDrive size={36} className="text-[var(--theme-text-muted)] opacity-60" />
         </div>
         {/* Decorative elements */}
@@ -411,11 +411,19 @@ const RetroView = memo(
             const onDiskSizeBytes = detection?.total_size_bytes;
             return {
               timeLines: formatTimeRangeLines(data.startTimeUtc, data.endTimeUtc, clock),
-              appName: getGameDisplayName(
-                data.gameName,
-                data.service,
-                getServiceDisplayName(data.service)
-              ),
+              // Same rule as the grouped Downloads rows (DownloadsTab.tsx:844): an unnamed
+              // Steam game is labeled by its app id in the reader's language, and unidentified
+              // Steam content with no app id by the locale's Unknown/Other label.
+              appName:
+                data.gameAppId && !data.hasRealGameName
+                  ? t('downloads.tab.groups.steamApp', { appId: data.gameAppId })
+                  : data.service.toLowerCase() === 'steam' && !data.hasRealGameName
+                    ? t('downloads.tab.groups.unknownOther')
+                    : getGameDisplayName(
+                        data.gameName,
+                        data.service,
+                        getServiceDisplayName(data.service)
+                      ),
               serviceBadge: getServiceDisplayName(data.service).toUpperCase(),
               evictionLabel: data.isPartiallyEvicted
                 ? t('common.partiallyEvicted')

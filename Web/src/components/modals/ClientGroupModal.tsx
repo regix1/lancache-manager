@@ -179,7 +179,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   const [lookup, setLookup] = useState<HostnameLookup>({ status: 'idle' });
   /**
    * The name each address was found under, so a chip for a machine that has never downloaded
-   * anything reads as the machine rather than as a number nobody recognises. Kept here because a
+   * anything reads as the machine rather than as a number nobody recognizes. Kept here because a
    * forward lookup is the only thing that knows it: the reverse-name map is built from addresses
    * the install has already seen.
    */

@@ -330,7 +330,7 @@ test('a superseded first read that fails leaves the list loading until the newer
 
 // Renders the Client Hostnames body the admin sees, from the branch the component ships, and
 // returns every element in it. The shared components are stand-ins so each can be counted.
-const renderHostnamesBody = (hostnamesError) => {
+const renderHostnamesBody = (hostnamesError, state = {}) => {
   const sourceFile = parseComponent();
   const body = findSoleNode(
     sourceFile,
@@ -386,7 +386,8 @@ const renderHostnamesBody = (hostnamesError) => {
       noAutofill: {},
       hostnamesChanged: false,
       handleHostnamesSave: async () => undefined,
-      hostnamesLoading: false
+      hostnamesLoading: false,
+      ...state
     },
     { jsx: typescript.JsxEmit.React }
   );
@@ -877,6 +878,52 @@ test('typing in the hostnames form survives a change pushed from another tab', (
   // This tab's own save then reads back what it wrote.
   push(false, { ...STORED_SETTINGS, resolver: '10.0.0.99' });
   assert.deepEqual(form.current, { enabled: false, ...STORED_SETTINGS, resolver: '10.0.0.99' });
+});
+
+test('the hostnames form holds still and stays usable through both writes of its save', async () => {
+  const { form, push } = hostnameReset();
+  push(false, STORED_SETTINGS);
+  form.current = { ...form.current, enabled: true, resolver: '10.0.0.99' };
+  const edited = { ...form.current };
+  const steps = [];
+  const check = (step) => {
+    steps.push(step);
+    assert.deepEqual(form.current, edited, `no form value moves after ${step}`);
+    const { elements, components } = renderHostnamesBody(null, {
+      hostnameForm: form.current,
+      savingHostnames: true,
+      hostnamesChanged: true
+    });
+    const fields = elements.filter(
+      (element) => element.type === components.SettingRow || element.type === 'input'
+    );
+    assert.equal(fields.length, 5, 'four switches and the resolver');
+    for (const field of fields)
+      assert.ok(!field.props.disabled, `a field is disabled after ${step}`);
+  };
+  const save = bindLifted(liftHookCallback(COMPONENT_PATH, 'useCallback', 'setHostnameSettings('), {
+    savingHostnamesRef: { current: false },
+    setSavingHostnames: () => undefined,
+    // Each write's answer reaches the form through the stored settings, as the hook pushes them.
+    setHostnameSettings: async (settings) => {
+      push(false, settings);
+      check('the settings write');
+    },
+    setHostnamesEnabled: async (enabled) => {
+      push(enabled, { ...STORED_SETTINGS, resolver: '10.0.0.99' });
+      check('the enable write');
+    },
+    hostnameForm: edited,
+    hostnamesEnabled: false,
+    onSuccess: () => undefined,
+    onError: (_message, error) => {
+      throw error;
+    },
+    t: (key) => key
+  });
+
+  await save();
+  assert.deepEqual(steps, ['the settings write', 'the enable write']);
 });
 
 test('removing a rule and adding it back is not an unsaved change', async () => {

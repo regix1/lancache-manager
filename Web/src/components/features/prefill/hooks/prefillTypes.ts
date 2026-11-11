@@ -6,7 +6,7 @@ export interface PrefillProgress {
   daemonInstanceId?: string;
   sequence?: number;
   skippedApps?: number;
-  cancelledApps?: number;
+  canceledApps?: number;
   stageKey?: string;
   errorMessage?: string;
   totalBytesTransferred?: number;
@@ -77,7 +77,7 @@ export interface PrefillRun {
     completedApps: number;
     cachedApps: number;
     failedApps: number;
-    cancelledApps: number;
+    canceledApps: number;
     skippedApps: number;
     bytesTransferred: number;
   };
@@ -89,7 +89,7 @@ export interface PrefillRun {
 }
 
 export function isPrefillRunActive(run: PrefillRun): boolean {
-  return !['completed', 'failed', 'cancelled'].includes(run.snapshot.state);
+  return !['completed', 'failed', 'canceled'].includes(run.snapshot.state);
 }
 
 // The run a session row describes, picked as the server picks it: the oldest active run, else the run that
@@ -280,7 +280,7 @@ export function getPrefillRunProgress(run: PrefillRun): PrefillProgress {
     updatedApps: snapshot.completedApps,
     alreadyUpToDate: snapshot.cachedApps,
     failedApps: snapshot.failedApps,
-    cancelledApps: snapshot.cancelledApps,
+    canceledApps: snapshot.canceledApps,
     skippedApps: snapshot.skippedApps,
     operationId: run.runId,
     daemonInstanceId: run.daemonInstanceId,
@@ -316,7 +316,7 @@ export function applyPrefillRunProgress(
         cachedApps: progress.alreadyUpToDate ?? run.snapshot.cachedApps,
         failedApps: progress.failedApps ?? run.snapshot.failedApps,
         skippedApps: progress.skippedApps ?? run.snapshot.skippedApps,
-        cancelledApps: progress.cancelledApps ?? run.snapshot.cancelledApps,
+        canceledApps: progress.canceledApps ?? run.snapshot.canceledApps,
         currentItem:
           progress.currentAppId && progress.currentAppId !== '0'
             ? {

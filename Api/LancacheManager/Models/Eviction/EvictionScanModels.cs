@@ -26,7 +26,7 @@ public record EvictionScanProgress(
 
 /// <summary>
 /// SignalR event payload emitted when an eviction scan operation completes.
-/// A scan can be cancelled from its card, so <c>Cancelled</c> travels on the wire: without it the
+/// A scan can be canceled from its card, so <c>Canceled</c> travels on the wire: without it the
 /// frontend reads the run as a failure and paints the card red. <c>Status</c> is derived from it.
 /// </summary>
 public record EvictionScanComplete(
@@ -41,7 +41,7 @@ public record EvictionScanComplete(
     int UnEvicted,
     string? Error = null,
     Dictionary<string, object?>? Context = null,
-    bool Cancelled = false,
+    bool Canceled = false,
     bool Skipped = false) : IOperationComplete
 {
     Guid? IOperationComplete.OperationId => OperationId;
@@ -57,8 +57,8 @@ public record EvictionScanComplete(
     /// an explicit implementation is invisible to System.Text.Json, which left the frontend
     /// reading no status at all and falling back to the success wording.
     /// </summary>
-    public OperationStatus Status => Cancelled
-        ? OperationStatus.Cancelled
+    public OperationStatus Status => Canceled
+        ? OperationStatus.Canceled
         : Skipped
             ? OperationStatus.Skipped
             : (Success ? OperationStatus.Completed : OperationStatus.Failed);
@@ -84,7 +84,7 @@ public record EvictionRemovalProgress(
 /// <summary>
 /// SignalR event payload emitted when an eviction removal operation completes.
 /// Implements <see cref="IOperationComplete"/>; <c>Status</c> is derived from
-/// <c>Success</c>/<c>Cancelled</c> via explicit interface implementation, so the wire shape is unchanged.
+/// <c>Success</c>/<c>Canceled</c> via explicit interface implementation, so the wire shape is unchanged.
 /// </summary>
 public record EvictionRemovalComplete(
     bool Success,
@@ -93,10 +93,10 @@ public record EvictionRemovalComplete(
     int DownloadsRemoved,
     int LogEntriesRemoved,
     string? Error = null,
-    bool Cancelled = false,
+    bool Canceled = false,
     Dictionary<string, object?>? Context = null) : IOperationComplete
 {
     Guid? IOperationComplete.OperationId => OperationId;
     OperationStatus IOperationComplete.Status =>
-        Cancelled ? OperationStatus.Cancelled : Success ? OperationStatus.Completed : OperationStatus.Failed;
+        Canceled ? OperationStatus.Canceled : Success ? OperationStatus.Completed : OperationStatus.Failed;
 }

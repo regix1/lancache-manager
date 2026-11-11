@@ -19,7 +19,7 @@ public class ImageCacheService : IImageCacheService
 
     /// <summary>
     /// CancellationTokenSource used to bulk-evict all cached image entries.
-    /// When cancelled, all cache entries linked to it are automatically removed.
+    /// When canceled, all cache entries linked to it are automatically removed.
     /// </summary>
     private CancellationTokenSource _evictionTokenSource = new();
 
@@ -108,7 +108,7 @@ public class ImageCacheService : IImageCacheService
         var oldTokenSource = _evictionTokenSource;
         _evictionTokenSource = new CancellationTokenSource();
 
-        // Cancelling the old token evicts every cache entry that was linked to it
+        // Canceling the old token evicts every cache entry that was linked to it
         oldTokenSource.Cancel();
         oldTokenSource.Dispose();
 

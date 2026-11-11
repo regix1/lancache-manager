@@ -61,12 +61,12 @@ public sealed partial class OperationTerminalContractTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task CacheClearExternalTerminalRejectsTheSuccessfulWorker(bool cancelled)
+    public async Task CacheClearExternalTerminalRejectsTheSuccessfulWorker(bool canceled)
     {
         await using var run = await TerminalRun.CreateAsync();
         var first = await run.StartClearAsync();
         await run.ClearProgressAsync(first);
-        run.Tracker.CompleteOperation(first.Id, false, cancelled ? null : "Original clear failure", cancelled: cancelled);
+        run.Tracker.CompleteOperation(first.Id, false, canceled ? null : "Original clear failure", canceled: canceled);
         var frozen = run.Freeze(first.Id);
         var progressCount = run.Messages.ProgressCount(first.Id);
         await run.FinishClearAsync(first, 7, 4096);
@@ -76,7 +76,7 @@ public sealed partial class OperationTerminalContractTests
         Assert.Equal(0, run.Observer.Entries[first.Id].Publications);
         Assert.Equal(1, run.Observer.Entries[first.Id].Cleanups);
         var terminal = Assert.Single(run.Messages.Terminals(first.Id));
-        Assert.Equal(cancelled ? "cancelled" : "failed", terminal.GetProperty("status").GetString());
+        Assert.Equal(canceled ? "canceled" : "failed", terminal.GetProperty("status").GetString());
         // The worker saves the status after its last progress report, which can come after the
         // completion this test waited for.
         var saved = run.State.GetCacheClearOperations().Single(item => item.Id == first.Id);
@@ -85,7 +85,7 @@ public sealed partial class OperationTerminalContractTests
             await Task.Delay(50);
             saved = run.State.GetCacheClearOperations().Single(item => item.Id == first.Id);
         }
-        Assert.Equal(cancelled ? OperationStatus.Cancelled : OperationStatus.Failed, saved.Status);
+        Assert.Equal(canceled ? OperationStatus.Canceled : OperationStatus.Failed, saved.Status);
         Assert.Equal(run.Tracker.GetOperation(first.Id)!.CompletedAt, saved.EndTime);
         run.AssertHealthy();
     }
@@ -184,14 +184,14 @@ public sealed partial class OperationTerminalContractTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task CorruptionExternalTerminalRejectsLateRelayAndSuccessfulFinalizer(bool cancelled)
+    public async Task CorruptionExternalTerminalRejectsLateRelayAndSuccessfulFinalizer(bool canceled)
     {
         await using var run = await TerminalRun.CreateAsync();
         var connection = await run.StartDetectionAsync(CorruptionDetectionMethod.Structural);
         await run.DetectionProgressAsync(connection, CorruptionDetectionMethod.Structural, "detection.partial", false);
         var other = run.Tracker.RegisterOperation(OperationType.GameDetection, "Other detection", new CancellationTokenSource());
         run.OperationState.SaveState(other.ToString(), new LancacheManager.Core.Services.OperationState { Key = other.ToString(), Type = "gameDetection", Status = "running" });
-        run.Tracker.CompleteOperation(connection.Id, false, cancelled ? null : "Original detection failure", cancelled: cancelled);
+        run.Tracker.CompleteOperation(connection.Id, false, canceled ? null : "Original detection failure", canceled: canceled);
         Assert.NotNull(run.OperationState.GetState(other.ToString()));
         Assert.Null(run.OperationState.GetState(connection.Id.ToString()));
         var frozen = run.Freeze(connection.Id);
@@ -202,7 +202,7 @@ public sealed partial class OperationTerminalContractTests
         Assert.Equal(count, run.Messages.ProgressCount(connection.Id));
         Assert.Equal(0, run.Observer.Entries[connection.Id].Publications);
         Assert.Equal(1, run.Observer.Entries[connection.Id].Cleanups);
-        Assert.Equal(cancelled ? "cancelled" : "failed", Assert.Single(run.Messages.Terminals(connection.Id)).GetProperty("status").GetString());
+        Assert.Equal(canceled ? "canceled" : "failed", Assert.Single(run.Messages.Terminals(connection.Id)).GetProperty("status").GetString());
         var metrics = Assert.IsType<CorruptionDetectionMetrics>(run.Tracker.GetOperation(connection.Id)!.Metadata);
         Assert.Null(metrics.CurrentProgress);
         Assert.Null(metrics.ScanId);
@@ -571,7 +571,7 @@ public sealed partial class OperationTerminalContractTests
             {
                 operation.Status,
                 operation.Success,
-                operation.Cancelled,
+                operation.Canceled,
                 operation.Message,
                 operation.PercentComplete,
                 operation.StartedAt,
@@ -591,7 +591,7 @@ public sealed partial class OperationTerminalContractTests
             }
             foreach (var connection in _connections) await connection.DisposeAsync();
             await Task.WhenAll(Pending).WaitAsync(TimeSpan.FromSeconds(10));
-            foreach (var operation in Tracker.GetActiveOperations().ToList()) Tracker.CompleteOperation(operation.Id, false, cancelled: true);
+            foreach (var operation in Tracker.GetActiveOperations().ToList()) Tracker.CompleteOperation(operation.Id, false, canceled: true);
             _lifetime.StopApplication();
             await OperationState.StopAsync(CancellationToken.None);
             await _services.DisposeAsync();
@@ -876,7 +876,7 @@ public sealed partial class OperationTerminalContractTests
             Assert.Equal(typeof(Action<OperationInfo>), method.GetParameters()[publishing].ParameterType);
         }
         var completion = contract.GetMethod(nameof(IUnifiedOperationTracker.CompleteOperation))!.GetParameters();
-        Assert.Equal(new[] { "operationId", "success", "error", "cancelled", "skipped", "onCompleting", "commit" }, completion.Select(parameter => parameter.Name));
+        Assert.Equal(new[] { "operationId", "success", "error", "canceled", "skipped", "onCompleting", "commit" }, completion.Select(parameter => parameter.Name));
         Assert.True(completion[^1].IsOptional);
         Assert.Equal(typeof(Action), completion[^1].ParameterType);
         Assert.True(contract.GetMethod(nameof(IUnifiedOperationTracker.GetOperation))!.GetParameters()[1].IsOptional);
@@ -924,7 +924,7 @@ public sealed partial class OperationTerminalContractTests
             StartedAt = start,
             ParentOperationId = parent,
             NextOperationId = Guid.NewGuid(),
-            NextStatus = OperationStatus.Cancelled,
+            NextStatus = OperationStatus.Canceled,
             Error = "Read failed"
         };
         var options = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
@@ -938,7 +938,7 @@ public sealed partial class OperationTerminalContractTests
         Assert.Equal("failed", json.RootElement.GetProperty("status").GetString());
         Assert.Equal(start, json.RootElement.GetProperty("startedAt").GetDateTime());
         Assert.Equal(parent, json.RootElement.GetProperty("parentOperationId").GetGuid());
-        Assert.Equal("cancelled", json.RootElement.GetProperty("nextStatus").GetString());
+        Assert.Equal("canceled", json.RootElement.GetProperty("nextStatus").GetString());
         Assert.Equal("Read failed", json.RootElement.GetProperty("error").GetString());
         var standalone = tracker.RegisterOperation(OperationType.GameDetection, "Standalone", new CancellationTokenSource());
         Assert.Null(tracker.GetOperation(standalone)!.ParentOperationId);
@@ -969,17 +969,17 @@ public sealed partial class OperationTerminalContractTests
 
     /// <summary>
     /// A terminal record may hide interface members it does not put on the wire, which is deliberate
-    /// (see <see cref="IOperationComplete"/>). <c>Cancelled</c> is the one member that may not be
+    /// (see <see cref="IOperationComplete"/>). <c>Canceled</c> is the one member that may not be
     /// hidden: an explicit implementation is invisible to the serializer, so the browser reads it as
-    /// false and routes a cancelled run down the FAILED branch. Both cache scans shipped that way,
+    /// false and routes a canceled run down the FAILED branch. Both cache scans shipped that way,
     /// hardcoded to <c>false</c> with a comment claiming the scan had no cancellation concept, while
     /// their cards carried a cancel button.
     /// </summary>
     [Fact]
-    public void EveryTerminalRecord_SerializesCancelled()
+    public void EveryTerminalRecord_SerializesCanceled()
     {
         var offenders = TerminalRecordTypes()
-            .Where(type => !SerializesCancelled(type))
+            .Where(type => !SerializesCanceled(type))
             .Select(type => type.Name)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
@@ -989,23 +989,23 @@ public sealed partial class OperationTerminalContractTests
 
     /// <summary>
     /// Proves the check above can actually fail. Without this a detector that silently matched
-    /// nothing would pass forever and read as a guarantee. <see cref="HiddenCancelledProbe"/> hides
-    /// Cancelled exactly the way the two cache scans did.
+    /// nothing would pass forever and read as a guarantee. <see cref="HiddenCanceledProbe"/> hides
+    /// Canceled exactly the way the two cache scans did.
     /// </summary>
     [Fact]
-    public void CancelledDetector_CatchesAnExplicitImplementation()
+    public void CanceledDetector_CatchesAnExplicitImplementation()
     {
-        Assert.False(SerializesCancelled(typeof(HiddenCancelledProbe)));
-        Assert.True(SerializesCancelled(typeof(VisibleCancelledProbe)));
+        Assert.False(SerializesCanceled(typeof(HiddenCanceledProbe)));
+        Assert.True(SerializesCanceled(typeof(VisibleCanceledProbe)));
     }
 
     /// <summary>
-    /// A cancelled operation that carries no error must not describe itself as a failure. Callers
+    /// A canceled operation that carries no error must not describe itself as a failure. Callers
     /// used to pass a message purely to dodge the old "Operation failed" default, and the message
     /// they reached for was an attribution the code cannot support.
     /// </summary>
     [Fact]
-    public void CancelledOperationWithNoError_DoesNotReadAsAFailure()
+    public void CanceledOperationWithNoError_DoesNotReadAsAFailure()
     {
         var tracker = new UnifiedOperationTracker(
             new ProcessManager(NullLogger<ProcessManager>.Instance),
@@ -1013,17 +1013,17 @@ public sealed partial class OperationTerminalContractTests
 
         var operationId = tracker.RegisterOperation(
             OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
-        tracker.CompleteOperation(operationId, success: false, cancelled: true);
+        tracker.CompleteOperation(operationId, success: false, canceled: true);
 
         var operation = tracker.GetOperation(operationId);
-        Assert.Equal(OperationStatus.Cancelled, operation!.Status);
+        Assert.Equal(OperationStatus.Canceled, operation!.Status);
         Assert.DoesNotContain("failed", operation.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
     /// Nothing may claim a cancellation came from a person. Every run links its token to the host's
     /// shutdown token, so a container restart reaches the same catch block as a click and would be
-    /// recorded as a user action. This scans sources rather than behaviour because the claim is the
+    /// recorded as a user action. This scans sources rather than behavior because the claim is the
     /// text itself, and it came back repeatedly after being removed from the spots that were noticed.
     /// </summary>
     [Fact]
@@ -1035,7 +1035,7 @@ public sealed partial class OperationTerminalContractTests
             .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}")
                 && !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
             .Where(path => File.ReadAllText(path)
-                .Contains("cancelled by user", StringComparison.OrdinalIgnoreCase))
+                .Contains("canceled by user", StringComparison.OrdinalIgnoreCase))
             .Select(Path.GetFileName)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
@@ -1050,13 +1050,13 @@ public sealed partial class OperationTerminalContractTests
                 && typeof(IOperationComplete).IsAssignableFrom(type));
 
     /// <summary>
-    /// True when <c>Cancelled</c> reaches the wire: a public instance property that is not ignored.
+    /// True when <c>Canceled</c> reaches the wire: a public instance property that is not ignored.
     /// An explicit interface implementation is private, so it does not survive this check.
     /// </summary>
-    private static bool SerializesCancelled(Type type)
+    private static bool SerializesCanceled(Type type)
     {
         var property = type.GetProperty(
-            nameof(IOperationComplete.Cancelled),
+            nameof(IOperationComplete.Canceled),
             BindingFlags.Public | BindingFlags.Instance);
 
         return property != null && property.GetCustomAttribute<JsonIgnoreAttribute>() == null;
@@ -1096,23 +1096,23 @@ public sealed partial class OperationTerminalContractTests
     [GeneratedRegex(@"'([a-zA-Z]+)'")]
     private static partial Regex QuotedNameRegex();
 
-    /// <summary>Hides Cancelled behind an explicit implementation, so it never serializes.</summary>
-    private sealed record HiddenCancelledProbe : IOperationComplete
+    /// <summary>Hides Canceled behind an explicit implementation, so it never serializes.</summary>
+    private sealed record HiddenCanceledProbe : IOperationComplete
     {
         public Guid? OperationId => null;
         public bool Success => false;
         public OperationStatus Status => OperationStatus.Failed;
         public string? Error => null;
-        bool IOperationComplete.Cancelled => false;
+        bool IOperationComplete.Canceled => false;
     }
 
-    /// <summary>Carries Cancelled as an ordinary property, the shape every wire record needs.</summary>
-    private sealed record VisibleCancelledProbe : IOperationComplete
+    /// <summary>Carries Canceled as an ordinary property, the shape every wire record needs.</summary>
+    private sealed record VisibleCanceledProbe : IOperationComplete
     {
         public Guid? OperationId => null;
         public bool Success => false;
-        public OperationStatus Status => OperationStatus.Cancelled;
+        public OperationStatus Status => OperationStatus.Canceled;
         public string? Error => null;
-        public bool Cancelled => true;
+        public bool Canceled => true;
     }
 }

@@ -240,7 +240,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
     public async Task CompleteAsync(
         bool success,
         string? error = null,
-        bool cancelled = false,
+        bool canceled = false,
         string? stageKey = null,
         Dictionary<string, object?>? context = null,
         bool skipped = false,
@@ -259,10 +259,24 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
             if (Volatile.Read(ref _completed) == 0)
             {
                 var finalContext = context is null ? null : new Dictionary<string, object?>(context);
-                _tracker.CompleteOperation(_operationId, success, error, cancelled, skipped, operation =>
+                // A failure that sent text (an exception message or a sentence) ends on its own stage key, or on the
+                // tracker's generic failed key when it has none; the text stays on the run as its error detail.
+                var failed = !success && !canceled && !skipped;
+                var errorText = failed && error is not null && error != stageKey ? error : null;
+                var runError = errorText is null ? error : stageKey;
+                _tracker.CompleteOperation(_operationId, success, runError, canceled, skipped, operation =>
                 {
                     _terminalStageKey = stageKey ?? _completeStageKey;
                     _terminalStagePublished = true;
+                    if (errorText is not null) operation.ErrorDetail = errorText;
+                    // A failure that ends on its own stage key keeps the values its sentence names, so the run row and
+                    // Schedule History can word it after the live event is gone. The GitHub depot import's failures,
+                    // Steam's not-started run, the Epic and Xbox sign-ins that ran out of time and every mapping
+                    // failure end so. An Xbox XErr refusal ends before its run starts, so it has no run row to word.
+                    if (failed && stageKey is not null && runError == stageKey && finalContext is not null)
+                    {
+                        operation.FailureReason = new RunWarning(stageKey, finalContext);
+                    }
                     if (finalContext is not null)
                     {
                         _lastContext = finalContext;
@@ -287,7 +301,7 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         var terminal = await _terminalEmitted.Task;
         if (commit != null && !committed)
         {
-            if (terminal.Cancelled) throw new OperationCanceledException("Operation cancelled before its checkpoint");
+            if (terminal.Canceled) throw new OperationCanceledException("Operation canceled before its checkpoint");
             throw new InvalidOperationException("The checkpoint could not be committed because the operation ended");
         }
     }
@@ -316,35 +330,40 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         // Mark terminal immediately so no new progress starts, then join the same send gate so the
         // already-started lifecycle send finishes before Complete is constructed and published.
         Interlocked.Exchange(ref _completed, 1);
+        // Read before the first await: this runs inside CompleteOperation, after the run's message is set to the key
+        // its failure ended on and before the run can be reaped.
+        var failedRunKey = info.Success || info.Canceled || info.Skipped
+            ? null
+            : _tracker.GetOperation(_operationId)?.Message;
         await _sendGate.WaitAsync(CancellationToken.None);
         try
         {
             // A skipped run keeps whatever percent it actually reached, which for a run that stopped
             // before doing anything is 0. Stamping 100 would claim work that never happened.
             var percent = info.Success && !info.Skipped ? 100d : _highestPercent;
-            var status = info.Cancelled
-                ? OperationStatus.Cancelled
+            var status = info.Canceled
+                ? OperationStatus.Canceled
                 : info.Skipped
                     ? OperationStatus.Skipped
                     : info.Success ? OperationStatus.Completed : OperationStatus.Failed;
             var terminalStageKey = _terminalStagePublished
                 ? _terminalStageKey
                 : _externalTerminalStageKey?.Invoke(info) ?? _terminalStageKey;
-            // A cancelled run carries no error: it did not fail, it was stopped. A failure that
-            // supplied no error keeps one only while the key above is the run's all-outcomes complete
-            // key, which reads as success text on a failed card. Once the key was picked for THIS
-            // outcome the frontend translates it, but only while this field is null, so a generic
-            // English sentence here would take precedence and hide the real reason.
+            // A canceled run carries no error: it did not fail, it was stopped. A failure carries the
+            // key its run ended on only while the key above is the run's all-outcomes complete key,
+            // which reads as success text on a failed card. Once the key was picked for THIS outcome
+            // the frontend translates it with the context, but only while this field is null, so
+            // anything here would take precedence and hide the real reason.
             // A skipped run keeps whatever reason it was given and gains none it was not: it stopped
             // for something outside itself, and that sentence is the only part of the card worth
-            // reading. It never picks up the failure fallback below, because it did not fail.
-            var error = info.Cancelled
+            // reading.
+            var error = info.Canceled
                 ? null
                 : info.Skipped
                     ? info.Error
                     : info.Success
                         ? null
-                        : info.Error ?? (terminalStageKey == _completeStageKey ? "Scheduled run failed" : null);
+                        : terminalStageKey == _completeStageKey ? failedRunKey : null;
             var terminal = new ScheduledRunCompleteEvent(
                 _serviceKey,
                 _operationId,
@@ -353,11 +372,11 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
                 percent,
                 error,
                 _lastContext,
-                info.Cancelled,
+                info.Canceled,
                 status);
             var payload = _payloadFactories?.Complete(terminal) ?? terminal;
 
-            if (info.Success || info.Cancelled)
+            if (info.Success || info.Canceled)
             {
                 await _notifications.NotifyAllAsync(_events.Complete, payload);
             }
@@ -403,11 +422,11 @@ public sealed class ScheduledRunReporter : IAsyncDisposable
         // still reaches a single terminal here. A run that never started leaves nothing to complete.
         if (_started && Volatile.Read(ref _completed) == 0)
         {
-            var cancelled = _cts.IsCancellationRequested;
+            var canceled = _cts.IsCancellationRequested;
             await CompleteAsync(
                 success: false,
-                error: cancelled ? null : "Scheduled run ended without completion",
-                cancelled: cancelled);
+                error: canceled ? null : "Scheduled run ended without completion",
+                canceled: canceled);
         }
 
         if (_started)

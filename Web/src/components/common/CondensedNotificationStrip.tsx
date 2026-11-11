@@ -73,7 +73,7 @@ interface ExitingSegment {
  * One segment of the line: the status color dimmed as an underlay across the whole width, the
  * same color solid up to the run's progress (or a sweep while a run reports no numeric
  * progress), breathing softly while non-terminal. A leaving segment fades and hands its width
- * to its neighbours in the same motion. The color comes from the shared status class.
+ * to its neighbors in the same motion. The color comes from the shared status class.
  */
 const StripSegment: React.FC<{ segment: CondensedStripSegment; leaving?: boolean }> = ({
   segment,
@@ -172,7 +172,7 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
 
   // Per-segment exits, for when ONE service's notifications go away while others stay: the
   // departed segment is kept as a ghost at its old position and fades while handing its width
-  // to its neighbours, instead of blinking off and snapping the survivors wider. When ALL
+  // to its neighbors, instead of blinking off and snapping the survivors wider. When ALL
   // segments depart together the whole-line fade above owns the goodbye, so no ghosts then.
   //
   // This runs as a layout effect, not a passive one: a passive effect fires AFTER paint, so the
@@ -285,7 +285,7 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
     panelWasOpenRef.current = panelVisible;
   }, [panelVisible]);
 
-  // A hover-open waiting out HOVER_OPEN_DELAY_MS, cancelled by anything that takes the pointer
+  // A hover-open waiting out HOVER_OPEN_DELAY_MS, canceled by anything that takes the pointer
   // off the line before the delay elapses.
   useEffect(() => cancelPendingOpen, [cancelPendingOpen]);
 
@@ -414,10 +414,10 @@ export const CondensedNotificationStrip: React.FC<CondensedNotificationStripProp
     lastStatusesRef.current = next;
     if (transitioned && !open) {
       // A canceled run still ends with status 'completed', which is why the color reads
-      // details.cancelled first. Speaking the raw status would say the opposite of the gray
+      // details.canceled first. Speaking the raw status would say the opposite of the gray
       // beside it.
-      const spokenStatus = transitioned.notification.details?.cancelled
-        ? 'cancelled'
+      const spokenStatus = transitioned.notification.details?.canceled
+        ? 'canceled'
         : transitioned.notification.status;
       const statusLabel = t(`common.notifications.condensedStatus.${spokenStatus}`);
       const titleKey = NOTIFICATION_TITLE_KEYS[transitioned.notification.type];

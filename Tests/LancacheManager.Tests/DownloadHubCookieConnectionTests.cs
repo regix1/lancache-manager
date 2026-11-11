@@ -329,12 +329,12 @@ public sealed class DownloadHubCookieConnectionTests
         // the connection polled after each batch never queues a write while the unpolled one does.
         const int batchSize = 32;
         var hubContext = host.Application.Services.GetRequiredService<IHubContext<DownloadHub>>();
-        for (var batchStart = 0; batchStart < 2 * DownloadHubLifetimeManager.MaxQueuedWrites; batchStart += batchSize)
+        for (var batchStart = 0; batchStart < 2 * DownloadHubLifetimeManager.MaxPendingWrites; batchStart += batchSize)
         {
             var marker = string.Empty;
             for (var index = batchStart; index < batchStart + batchSize; index++)
             {
-                marker = $"queued-update-{index}-{Guid.NewGuid():N}";
+                marker = $"pending-update-{index}-{Guid.NewGuid():N}";
                 await hubContext.Clients.Group(DownloadHub.AdminGroup)
                     .SendAsync(SignalREvents.ActivityUpdated, marker.PadRight(1000, '.'));
             }

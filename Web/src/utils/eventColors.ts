@@ -9,7 +9,7 @@
 
 import type { ServiceColorToken } from '@utils/serviceColors';
 
-/** The colour indexes the theme defines event variables for. */
+/** The color indexes the theme defines event variables for. */
 type EventColorIndex = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 /** Pin a color index to the 1-8 range the theme defines variables for. */
@@ -18,9 +18,9 @@ export function clampEventColorIndex(colorIndex: number): EventColorIndex {
 }
 
 /**
- * Theme colour variables that also define the suffixed tier variables below. The union is
+ * Theme color variables that also define the suffixed tier variables below. The union is
  * closed on purpose: a name the theme never declares is a compile error here rather than a
- * `var()` that resolves to nothing and silently paints no colour.
+ * `var()` that resolves to nothing and silently paints no color.
  */
 export type ColorToken =
   | `--theme-event-${EventColorIndex}`
@@ -31,9 +31,9 @@ export type ColorToken =
   | '--theme-text-muted';
 
 /**
- * The suffixed variants the theme defines alongside a colour variable. Every theme colour
+ * The suffixed variants the theme defines alongside a color variable. Every theme color
  * that gets a tier spells the suffixes the same way, so the same names work for the event
- * colours and for the status/primary/text colours the shared UI components pass in.
+ * colors and for the status/primary/text colors the shared UI components pass in.
  */
 export type ColorTier =
   | 'subtle'
@@ -46,7 +46,7 @@ export type ColorTier =
   | 'on-bg-strong';
 
 /**
- * Build the CSS reference for a colour token, optionally at one of its tiers.
+ * Build the CSS reference for a color token, optionally at one of its tiers.
  * `var()` takes a literal name, so the name has to be assembled here rather than in CSS.
  * @returns a string like "var(--theme-event-1)" or "var(--theme-event-1-subtle)"
  */
@@ -54,7 +54,7 @@ export function themeColorVar(token: ColorToken, tier?: ColorTier): string {
   return `var(${token}${tier ? `-${tier}` : ''})`;
 }
 
-/** The colour token for an event colour index. */
+/** The color token for an event color index. */
 export function eventColorToken(colorIndex: number): ColorToken {
   return `--theme-event-${clampEventColorIndex(colorIndex)}`;
 }

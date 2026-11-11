@@ -84,11 +84,12 @@ public class DataImportStatusResponse
 /// </summary>
 public class MigrationImportResponse
 {
+    /// <summary>English text for logs and older callers. The browser shows <see cref="StageKey"/>.</summary>
     public string Message { get; set; } = string.Empty;
 
     /// <summary>i18n key for the localized headline, interpolated by the browser from the counts
-    /// below. The English <see cref="Message"/> stays as the fallback.</summary>
-    public string? StageKey { get; set; }
+    /// below. Always set.</summary>
+    public required string StageKey { get; set; }
 
     public ulong TotalRecords { get; set; }
     public ulong Imported { get; set; }
@@ -102,11 +103,13 @@ public class MigrationImportResponse
 public class ConnectionValidationResponse
 {
     public bool Valid { get; set; }
+
+    /// <summary>English text for logs and older callers. On the failure branch it is the database
+    /// driver's own text, which the browser shows as the <c>detail</c> of <see cref="StageKey"/>.</summary>
     public string Message { get; set; } = string.Empty;
 
-    /// <summary>i18n key for the localized <see cref="Message"/>. Null on the failure branch, whose
-    /// text is the database driver's own and cannot be keyed.</summary>
-    public string? StageKey { get; set; }
+    /// <summary>i18n key for the localized sentence. Always set.</summary>
+    public required string StageKey { get; set; }
 
     /// <summary>Row count read from the source database's Downloads table. Null when <see cref="Valid"/> is false.</summary>
     public int? RecordCount { get; set; }

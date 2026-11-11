@@ -96,19 +96,18 @@ export const durationOptions = [
 
 // Parse UserAgent into friendly browser/OS info
 interface ParsedUserAgent {
-  browser: string;
+  browser: string | null; // null when no known browser matched
   browserVersion: string;
-  os: string;
+  os: string | null; // null when no known system matched
   title: string; // e.g. "Chrome on Windows"
 }
 
 export const parseUserAgent = (ua: string | null): ParsedUserAgent => {
-  if (!ua)
-    return { browser: 'Unknown', browserVersion: '', os: 'Unknown', title: 'Unknown Device' };
+  if (!ua) return { browser: null, browserVersion: '', os: null, title: 'Unknown Device' };
 
-  let browser = 'Unknown';
+  let browser: string | null = null;
   let browserVersion = '';
-  let os = 'Unknown';
+  let os: string | null = null;
 
   // Detect browser (order matters - check specific before generic)
   if (ua.includes('Edg/')) {
@@ -161,7 +160,7 @@ export const parseUserAgent = (ua: string | null): ParsedUserAgent => {
     os = 'Chrome OS';
   }
 
-  const title = os !== 'Unknown' ? `${browser} on ${os}` : browser;
+  const title = [browser, os].filter((part): part is string => part !== null).join(' on ');
 
   return { browser, browserVersion, os, title };
 };

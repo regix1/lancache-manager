@@ -138,7 +138,7 @@
    comfortably holds two controls, and spans that track so it reads as one deliberate control
    rather than an offcut. It is rendered fullWidth, which splits the two halves evenly: sized
    to their own text instead, "AM" and "PM" come out at different widths and the divider sits
-   off centre. */
+   off center. */
 .custom-schedule-period {
   flex: 1 0 100%;
 }
@@ -337,7 +337,7 @@
    sits at its natural width instead of spanning a track, so fullWidth on its own cannot even
    them out: with nothing but its own content to size against, each segment's text width becomes
    its floor and "24h" comes out wider than "12h" (48.1px against 44.8px measured), putting the
-   divider off centre. Equal columns settle it at any width and in any language, because an
+   divider off center. Equal columns settle it at any width and in any language, because an
    auto-sized grid gives every fr column the width of the widest one. */
 .segmented-control-container.custom-schedule-clock {
   display: grid;

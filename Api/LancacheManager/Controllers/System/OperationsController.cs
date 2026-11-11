@@ -88,7 +88,7 @@ public class OperationsController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Recovery endpoint for the purple waiting cards: page refresh re-creates them from this
-    /// list. Queued ops do not survive an app restart (in-memory queue), so after a restart this
+    /// list. Waiting ops do not survive an app restart (in-memory queue), so after a restart this
     /// list is empty by design.
     /// </remarks>
     [HttpGet("waiting")]
@@ -133,7 +133,7 @@ public class OperationsController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Aggressively cancels a running operation: kills any associated process tree, then cancels
-    /// the token. Idempotent — returns 200 OK if already cancelling (re-attempts process kill).
+    /// the token. Idempotent — returns 200 OK if already canceling (re-attempts process kill).
     /// A cancel that arrives after the operation finished is also 200, because the caller's
     /// intent is satisfied, but it carries <c>alreadyFinished: true</c> so the browser can drop
     /// the stale card instead of waiting for a cancellation that will never arrive.
@@ -167,7 +167,6 @@ public class OperationsController : ControllerBase
                 case OperationCancelResult.Requested:
                     return Ok(new OperationCancelResponse
                     {
-                        Message = "Cancellation requested (process kill + token cancel)",
                         OperationId = id,
                         Status = target.Status,
                         AlreadyFinished = target.Status.IsTerminal()
@@ -180,7 +179,6 @@ public class OperationsController : ControllerBase
                     // status.
                     return Ok(new OperationCancelResponse
                     {
-                        Message = "Operation already finished",
                         OperationId = id,
                         Status = target.Status,
                         AlreadyFinished = target.Id == operation.Id || target.Status.IsTerminal()
@@ -188,8 +186,12 @@ public class OperationsController : ControllerBase
 
                 default:
                     // The tracker's cleanup reaper evicted the operation between the lookup above and
-                    // the cancel. The frontend reads this message to drop the card.
-                    return BadRequest(ApiResponse.Invalid("Operation cannot be cancelled"));
+                    // the cancel. The browser shows this reason in its cancel-failed toast.
+                    return BadRequest(new ErrorResponse
+                    {
+                        Error = "Operation cannot be canceled",
+                        StageKey = "errors.operations.notCancelable"
+                    });
             }
         }
         catch (Exception ex) when (ex is ObjectDisposedException or NullReferenceException)
@@ -202,7 +204,6 @@ public class OperationsController : ControllerBase
             var target = _operationTracker.GetOperation(operation.Id, followHandoff: true) ?? operation;
             return Ok(new OperationCancelResponse
             {
-                Message = "Operation already completed",
                 OperationId = id,
                 Status = target.Status,
                 AlreadyFinished = target.Status.IsTerminal()
@@ -215,7 +216,7 @@ public class OperationsController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Called by the dismiss button of a kept ending (a failure, a success with a warning, or a
-    /// cancelled or skipped run that showed a card). Closing it removes it for every admin.
+    /// canceled or skipped run that showed a card). Closing it removes it for every admin.
     /// Returns 404 when the run was already closed elsewhere, was never kept, or is unknown.
     /// </remarks>
     [HttpPost("{id}/close")]
@@ -255,7 +256,7 @@ public class OperationsController : ControllerBase
                 return NotFound(ApiResponse.Error("Operation not found or already completed"));
             }
 
-            return Ok(new OperationForceKillResponse { Message = "Operation force killed", OperationId = id });
+            return Ok(new OperationForceKillResponse { OperationId = id });
         }
         catch (Exception ex) when (ex is ObjectDisposedException or NullReferenceException)
         {
@@ -263,11 +264,7 @@ public class OperationsController : ControllerBase
             // Process was disposed or state nulled) during the force kill. The op is already terminal,
             // so the user's intent is satisfied — report success instead of leaking an unhandled 500.
             // The disposed-Process race is answered in ProcessManager, where the wait happens.
-            return Ok(new OperationForceKillResponse
-            {
-                Message = "Operation already completed",
-                OperationId = id
-            });
+            return Ok(new OperationForceKillResponse { OperationId = id });
         }
     }
 }

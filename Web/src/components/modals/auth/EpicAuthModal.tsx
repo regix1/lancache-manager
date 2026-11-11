@@ -277,11 +277,11 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
               <Button variant="default" onClick={onClose} className="min-h-[44px] sm:min-h-10">
                 {mapping?.phase === 'done' ||
                 mapping?.phase === 'failed' ||
-                mapping?.phase === 'cancelled'
+                mapping?.phase === 'canceled'
                   ? t('common.close')
                   : t('modals.epicAuth.actions.continueInBackground')}
               </Button>
-              {(mapping?.phase === 'failed' || mapping?.phase === 'cancelled') && (
+              {(mapping?.phase === 'failed' || mapping?.phase === 'canceled') && (
                 <Button
                   variant="filled"
                   color="primary"

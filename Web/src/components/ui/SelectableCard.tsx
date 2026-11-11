@@ -16,7 +16,7 @@ interface SelectableCardProps {
   disabled?: boolean;
   /** Explains a disabled choice on hover, keyboard focus, or touch. */
   disabledReason?: string;
-  /** Mark or icon, already coloured by the caller; the card sets its size. */
+  /** Mark or icon, already colored by the caller; the card sets its size. */
   icon?: ReactNode;
   title: string;
   description?: ReactNode;
@@ -25,7 +25,7 @@ interface SelectableCardProps {
   badge?: ReactNode;
   /**
    * `row` puts the radio beside the text, for choices explained in a sentence or two. `stack`
-   * centres icon, title and note under a corner radio, for a grid of short equal-weight choices
+   * centers icon, title and note under a corner radio, for a grid of short equal-weight choices
    * whose cards must line up with each other.
    */
   layout?: 'row' | 'stack';
@@ -36,7 +36,7 @@ interface SelectableCardProps {
  * card is clicked, tabbed to and arrowed between like any radio group, the ring is drawn around
  * the card while the radio has keyboard focus, and the title, description and note are read out
  * with it. Every line is rendered whether or not the card is selected, so choosing one never
- * moves its neighbours.
+ * moves its neighbors.
  */
 export const SelectableCard: React.FC<SelectableCardProps> = ({
   name,
@@ -67,7 +67,7 @@ export const SelectableCard: React.FC<SelectableCardProps> = ({
     .join(' ');
   // The modifier is written out in full: the stylesheet only keeps a layered rule whose class
   // appears somewhere in the source as written, and a name pieced together at runtime never
-  // does, so the stacked card lost its centring and top inset while its child rules survived.
+  // does, so the stacked card lost its centering and top inset while its child rules survived.
   const layoutClassName = layout === 'stack' ? ' selectable-card--stack' : '';
   const checkedClassName = checked ? ' selectable-card--checked' : '';
 

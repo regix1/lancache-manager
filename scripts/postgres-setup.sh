@@ -34,7 +34,7 @@ POSTGRES_MODE_AS_GIVEN="${POSTGRES_MODE:-embedded}"
 
 # The .NET app and all ten Rust binaries compare this value against "external" verbatim, so a
 # compose file saved with CRLF line endings, or a stray space, silently puts one half of the app
-# on the embedded socket and the other on a TCP server. Normalise here, before the export below,
+# on the embedded socket and the other on a TCP server. Normalize here, before the export below,
 # so every reader downstream sees the same token.
 POSTGRES_MODE=$(printf '%s' "$POSTGRES_MODE_AS_GIVEN" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 

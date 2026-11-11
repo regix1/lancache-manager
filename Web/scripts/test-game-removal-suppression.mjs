@@ -46,7 +46,7 @@ const ITEM_RUN = {
 const itemCards = (drawn) => drawn.filter((card) => card.type !== 'bulk_removal');
 const batchOf = (drawn) => drawn.find((card) => card.id === 'bulk');
 
-const QUEUED_BEHIND_SCAN = { status: 'waiting', blockedByName: 'Cache File Scan' };
+const WAITING_BEHIND_SCAN = { status: 'waiting', blockedByName: 'Cache File Scan' };
 
 test('cancel requests serialize clicks and protect replacement operations', async () => {
   const errors = [];
@@ -62,7 +62,7 @@ test('cancel requests serialize clicks and protect replacement operations', asyn
   const cancelSource = 'src/components/common/notificationCancel.ts';
   const CANCEL_CONFIG_BY_TYPE = { game_detection: { cancelKind: 'serverOp' } };
   const isTerminalNotificationStatus = (status) =>
-    ['completed', 'failed', 'cancelled', 'skipped'].includes(status);
+    ['completed', 'failed', 'canceled', 'skipped'].includes(status);
   const cancel = bindLifted(liftConstArrow(cancelSource, 'handleCancel'), {
     CANCEL_CONFIG_BY_TYPE,
     pendingCancels: new Set(),
@@ -105,7 +105,7 @@ test('cancel requests serialize clicks and protect replacement operations', asyn
   assert.equal(state.details.cancelPending, true);
   release({});
   await first;
-  assert.equal(state.status, 'cancelling');
+  assert.equal(state.status, 'canceling');
 
   // The second click force-kills; a failed force-kill says so and re-arms the X.
   await cancel(state, update, remove, getNotifications);
@@ -138,7 +138,7 @@ test('schedule HTTP responses leave retained and hidden acknowledgment to the wa
   for (const eventFirst of [true, false]) {
     for (const response of [
       { status: 'skipped', skippedReason: 'held' },
-      { status: 'alreadyRunning', alreadyRunning: true },
+      { status: 'alreadyRunning' },
       { status: 'started' }
     ]) {
       const notices = [];
@@ -171,9 +171,9 @@ test('a Storage eviction scan opens no card of its own and is busy only while it
     'handleStartEvictionScan'
   );
   for (const answer of [
-    { operationId: 'scan' },
-    { operationId: 'scan', queued: true },
-    { operationId: 'scan', alreadyRunning: true }
+    { operationId: 'scan', status: 'started' },
+    { operationId: 'scan', status: 'waiting' },
+    { operationId: 'scan', status: 'alreadyRunning' }
   ]) {
     const starting = [];
     const errors = [];
@@ -293,13 +293,13 @@ test('a batch declaring two item types folds both and leaves other types alone',
   assert.equal(itemsDrawnFor('log_removal').length, 1);
 });
 
-test('a queued item opens its own waiting card when no owning bulk card is running', () => {
+test('a waiting item opens its own waiting card when no owning bulk card is running', () => {
   const batch = bulkRemovalCard({ itemTypes: ['eviction_removal'] });
   const drawn = deriveNotifications(
     pushRun(
       notifications,
       createRunStoreState(),
-      operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...QUEUED_BEHIND_SCAN }),
+      operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...WAITING_BEHIND_SCAN }),
       [batch]
     ),
     [batch]
@@ -307,14 +307,14 @@ test('a queued item opens its own waiting card when no owning bulk card is runni
   assert.deepEqual(
     itemCards(drawn).map((card) => card.status),
     ['waiting'],
-    'a queued item should get its own waiting card when nothing folds it'
+    'a waiting item should get its own waiting card when nothing folds it'
   );
   assert.equal(batchOf(drawn).message, batch.message, 'an unrelated batch keeps its own line');
   assert.equal(batchOf(drawn).status, 'running');
 });
 
 test('the owning bulk card turns purple and names the blocker while its item waits', () => {
-  const row = operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...QUEUED_BEHIND_SCAN });
+  const row = operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...WAITING_BEHIND_SCAN });
   // The batch's item request is still on the wire, which is exactly when the queue row for that
   // item arrives with no id on the card to compare it against.
   const localCards = [
@@ -337,10 +337,10 @@ test('the owning bulk card turns purple and names the blocker while its item wai
 /**
  * Declaring an item type is not the same as having started the operation. Two batches can declare
  * one type, and a batch shares its types with every removal a user starts from elsewhere in the
- * app, so the type alone cannot decide whose queued operation this is. A batch publishes its
+ * app, so the type alone cannot decide whose waiting operation this is. A batch publishes its
  * current item's operation id while that item is in flight, and that is what settles it.
  */
-test('a queued operation the batch did not start gets its own card instead of relabelling the batch', () => {
+test('a waiting operation the batch did not start gets its own card instead of relabeling the batch', () => {
   const batch = bulkRemovalCard({
     itemTypes: ['game_removal'],
     currentOperationId: 'the-batch-own-item'
@@ -349,16 +349,16 @@ test('a queued operation the batch did not start gets its own card instead of re
     pushRun(
       notifications,
       createRunStoreState(),
-      operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...QUEUED_BEHIND_SCAN }),
+      operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...WAITING_BEHIND_SCAN }),
       [batch]
     ),
     [batch]
   );
   assert.equal(batchOf(drawn).status, 'running');
   assert.equal(batchOf(drawn).message, batch.message, 'and it keeps its own item line');
-  const [queued] = itemCards(drawn);
-  assert.ok(queued, 'the queued operation needs a card of its own or it cannot be cancelled');
-  assert.equal(queued.details.operationId, 'op-1', 'that card carries the id the X cancels');
+  const [waiting] = itemCards(drawn);
+  assert.ok(waiting, 'the waiting operation needs a card of its own or it cannot be canceled');
+  assert.equal(waiting.details.operationId, 'op-1', 'that card carries the id the X cancels');
 });
 
 /**
@@ -367,13 +367,13 @@ test('a queued operation the batch did not start gets its own card instead of re
  * because the batch has nothing to publish - the queue answered 'alreadyRunning' and handed back a
  * live removal's id the batch refused - and that lasts as long as the other removal runs.
  */
-test('a batch with no request on the wire does not swallow a queued operation it never started', () => {
+test('a batch with no request on the wire does not swallow a waiting operation it never started', () => {
   const batch = bulkRemovalCard({ itemTypes: ['game_removal'] });
   const drawn = deriveNotifications(
     pushRun(
       notifications,
       createRunStoreState(),
-      operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...QUEUED_BEHIND_SCAN }),
+      operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...WAITING_BEHIND_SCAN }),
       [batch]
     ),
     [batch]
@@ -384,7 +384,7 @@ test('a batch with no request on the wire does not swallow a queued operation it
 });
 
 test('the batch card takes the queue wording for the item the batch itself started', () => {
-  const row = operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...QUEUED_BEHIND_SCAN });
+  const row = operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...WAITING_BEHIND_SCAN });
   const localCards = [bulkRemovalCard({ itemTypes: ['game_removal'], currentOperationId: 'op-1' })];
   const drawn = deriveNotifications(
     pushRun(notifications, createRunStoreState(), row, localCards),
@@ -398,19 +398,19 @@ test('the batch card takes the queue wording for the item the batch itself start
   assert.deepEqual(itemCards(drawn), [], 'no second card may appear beside the batch card');
 });
 
-test('a batch card goes back to its own line when its queued item is canceled', () => {
+test('a batch card goes back to its own line when its waiting item is canceled', () => {
   const batch = bulkRemovalCard({ itemTypes: ['game_removal'], itemOperationIds: ['op-1'] });
   const waiting = pushRun(
     notifications,
     createRunStoreState(),
-    operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...QUEUED_BEHIND_SCAN }),
+    operationRunRow('op-1', { ...ITEM_RUN.game_removal, ...WAITING_BEHIND_SCAN }),
     [batch]
   );
   const drawn = deriveNotifications(
     pushRun(
       notifications,
       waiting,
-      operationRunRow('op-1', { ...ITEM_RUN.game_removal, status: 'cancelled' }),
+      operationRunRow('op-1', { ...ITEM_RUN.game_removal, status: 'canceled' }),
       [batch]
     ),
     [batch]
@@ -423,13 +423,13 @@ test('a batch card goes back to its own line when its queued item is canceled', 
 /**
  * A batch card is only quiet because it declares which per-item notification types its own items
  * produce. Nothing in the type system requires that: a fourth batch added later without
- * `details.itemTypes` duplicates every per-item card and every behaviour test above still passes,
+ * `details.itemTypes` duplicates every per-item card and every behavior test above still passes,
  * because those tests supply the declaration themselves rather than reading it from source.
  *
  * So read it from source. Every `addNotification({ type: 'bulk_removal', ... })` in the app must
  * carry a literal `itemTypes`, and the set of types declared across all batches must match the
- * CASES the behaviour tests exercise - a new batch type with no behaviour test fails here, and a
- * behaviour test for a type no batch declares fails here too.
+ * CASES the behavior tests exercise - a new batch type with no behavior test fails here, and a
+ * behavior test for a type no batch declares fails here too.
  */
 const sourceFilesUnder = (dirUrl) => {
   const found = [];
@@ -511,6 +511,6 @@ test('every batch card in the app declares the item types it owns', () => {
   assert.deepEqual(
     [...declared].sort(),
     CASES.map(([type]) => type).sort(),
-    'the types batches declare and the types the behaviour tests above cover have drifted apart'
+    'the types batches declare and the types the behavior tests above cover have drifted apart'
   );
 });

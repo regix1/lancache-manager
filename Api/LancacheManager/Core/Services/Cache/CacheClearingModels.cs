@@ -8,6 +8,8 @@ public class CacheClearProgress
     public string? DatasourceName { get; set; }
     public OperationStatus Status { get; set; }
     public string StatusMessage { get; set; } = string.Empty;
+    public string? StageKey { get; set; }
+    public Dictionary<string, object?>? Context { get; set; }
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public int DirectoriesProcessed { get; set; }

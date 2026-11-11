@@ -963,6 +963,58 @@ public sealed class DaemonClientConnectionLifecycleTests
         Assert.Null(Assert.Single(apps, app => app.AppId == "Legacy/id").Revision);
     }
 
+    [Fact]
+    public async Task TopCountIsSentUncappedAsync()
+    {
+        using var endpoint = LoopbackEndpoint.Create(true);
+        using var client = endpoint.CreateClient();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        var runId = Guid.NewGuid();
+        var instanceId = Guid.NewGuid().ToString();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server = Task.Run(async () =>
+        {
+            using var connection = await endpoint.AcceptAsync(timeout.Token);
+            using var stream = new NetworkStream(connection, ownsSocket: false);
+            var status = await ReadRequestAsync(stream, timeout.Token);
+            await WriteResponseAsync(stream, status.Id, true, null, null, timeout.Token,
+                result: JsonSerializer.SerializeToElement(RunClient.Capabilities(instanceId), JsonSerializerOptions.Web));
+            var length = new byte[4];
+            await ReadExactlyAsync(stream, length, timeout.Token);
+            var body = new byte[BitConverter.ToInt32(length)];
+            await ReadExactlyAsync(stream, body, timeout.Token);
+            using var request = JsonDocument.Parse(body);
+            await WriteResponseAsync(stream, request.RootElement.GetProperty("id").GetString()!, true,
+                null, null, timeout.Token, result: JsonSerializer.SerializeToElement(new
+                {
+                    success = true,
+                    runId,
+                    daemonInstanceId = instanceId,
+                    state = "started"
+                }));
+            await release.Task.WaitAsync(timeout.Token);
+            return request.RootElement.Clone();
+        }, timeout.Token);
+        try
+        {
+            Assert.True((await client.GetStatusAsync(timeout.Token))?.SupportsConcurrentPrefill);
+            Assert.True((await client.PrefillAsync(runId, instanceId, new DaemonRunOptions
+            {
+                Selection = "top",
+                TopCount = 500,
+                MaxConcurrency = 1
+            }, cancellationToken: timeout.Token)).Success);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+        var parameters = (await server).GetProperty("parameters");
+        Assert.Equal("500", parameters.GetProperty("top").GetString());
+        Assert.True(parameters.TryGetProperty("topCount", out var count) && count.GetString() == "500",
+            "The Epic daemon runs any count, so `topCount` must carry the count the user set.");
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -1531,7 +1583,7 @@ public sealed class DaemonClientConnectionLifecycleTests
             var cancel = await ReadRequestAsync(stream, timeout.Token);
             Assert.Equal("cancel-prefill", cancel.Type);
             await WriteResponseAsync(stream, cancel.Id, true, null, null, timeout.Token,
-                result: JsonSerializer.SerializeToElement(snapshot with { State = "cancelling" }, json));
+                result: JsonSerializer.SerializeToElement(snapshot with { State = "canceling" }, json));
             await release.Task.WaitAsync(timeout.Token);
         }, timeout.Token);
         try
@@ -1540,7 +1592,7 @@ public sealed class DaemonClientConnectionLifecycleTests
             Assert.Equal(id, (await client.PrefillAsync(id, instance, options, cancellationToken: timeout.Token)).RunId);
             var result = await client.GetOperationAsync(id, instance, cancellationToken: timeout.Token);
             Assert.Equal(30UL, Assert.Single(Assert.Single(result.Items).Depots!).ManifestId);
-            Assert.Equal("cancelling", (await client.CancelPrefillAsync(id, instance, timeout.Token)).State);
+            Assert.Equal("canceling", (await client.CancelPrefillAsync(id, instance, timeout.Token)).State);
         }
         finally { release.TrySetResult(); }
         await server;
@@ -1608,7 +1660,7 @@ public sealed class DaemonClientConnectionLifecycleTests
             request.RootElement.GetProperty("type").GetString()!);
     }
 
-    private static async Task<JsonElement> ReadRequestWithBodyAsync(
+    internal static async Task<JsonElement> ReadRequestWithBodyAsync(
         Stream stream,
         CancellationToken cancellationToken)
     {
@@ -1650,7 +1702,7 @@ public sealed class DaemonClientConnectionLifecycleTests
         Assert.Equal("auth-lost", status.ErrorCode);
     }
 
-    private static async Task WriteResponseAsync(
+    internal static async Task WriteResponseAsync(
         Stream stream,
         string requestId,
         bool success,
@@ -1754,7 +1806,7 @@ public sealed class DaemonClientConnectionLifecycleTests
         }
     }
 
-    private sealed class LoopbackEndpoint : IDisposable
+    internal sealed class LoopbackEndpoint : IDisposable
     {
         private readonly Socket _listener;
         private readonly string? _socketPath;

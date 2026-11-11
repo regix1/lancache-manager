@@ -137,7 +137,7 @@ public abstract partial class PrefillDaemonServiceBase
             var removal = termination.Removed ? Task.CompletedTask : StopContainerAsync(termination, force);
             session.Status = DaemonSessionStatus.Error;
             session.IsStopping = true;
-            session.ErrorMessage = "Session cleanup is in progress.";
+            session.ErrorMessage = "errors.prefill.cleanupInProgress";
             ClearPendingLoginChallenge(session);
             session.Client.ClearPendingChallenges();
             var cancellation = session.CancellationTokenSource.CancelAsync();
@@ -162,12 +162,13 @@ public abstract partial class PrefillDaemonServiceBase
                     await run.PrefillWork.WaitAsync();
                     try
                     {
-                        await FinishRunAsync(session, run, run.Snapshot with
+                        // An end the daemon never had and the database never saved keeps its own state and reason.
+                        await FinishRunAsync(session, run, run.Snapshot is { State: "failed" or "canceled" } ? run.Snapshot : run.Snapshot with
                         {
-                            State = "cancelled",
+                            State = "canceled",
                             Reason = termination.ReasonKey,
                             Sequence = run.Snapshot.Sequence + 1,
-                            CancelledApps = Math.Max(run.Snapshot.CancelledApps, run.Snapshot.TotalApps
+                            CanceledApps = Math.Max(run.Snapshot.CanceledApps, run.Snapshot.TotalApps
                                 - run.Snapshot.CompletedApps - run.Snapshot.CachedApps - run.Snapshot.FailedApps - run.Snapshot.SkippedApps),
                             UpdatedAt = DateTimeOffset.UtcNow
                         }, [], CancellationToken.None, containerStopped: true);
@@ -251,7 +252,7 @@ public abstract partial class PrefillDaemonServiceBase
         {
             session.Status = DaemonSessionStatus.Error;
             session.IsStopping = false;
-            session.ErrorMessage = "Session cleanup is incomplete. Retry termination.";
+            session.ErrorMessage = "errors.prefill.cleanupIncomplete";
             if (session.IsTemporary && PrefillSessionService.IsTerminatableByAdmin(session))
                 GuestGate.Retain(session.UserId, session.Id);
             _logger.LogWarning(ex, "Session cleanup remains incomplete for {SessionId}", session.Id);

@@ -33,10 +33,10 @@ interface FinalizeBulkRemovalText {
   completeDefaultValue: string;
   partialFailureKey: string;
   partialFailureDefaultValue: string;
-  cancelledKey: string;
-  cancelledDefaultValue: string;
-  cancelledWithFailuresKey: string;
-  cancelledWithFailuresDefaultValue: string;
+  canceledKey: string;
+  canceledDefaultValue: string;
+  canceledWithFailuresKey: string;
+  canceledWithFailuresDefaultValue: string;
 }
 
 interface FinalizeBulkRemovalNotificationArgs {
@@ -44,7 +44,7 @@ interface FinalizeBulkRemovalNotificationArgs {
   succeeded: number;
   failed: number;
   total: number;
-  cancelled: boolean;
+  canceled: boolean;
   failedAfterCancel: boolean;
   warned: number;
   t: TFunction;
@@ -100,7 +100,7 @@ export function useCompletedRemovalPruning({
   useEffect(() => {
     // A canceled or failed removal leaves the entity on disk, and so does one that failed on a datasource, so only a removal that finished everywhere prunes it.
     const handleGameRemovalComplete = (event: GameRemovalCompleteEvent) => {
-      if (!event.success || event.cancelled === true || event.entityKept === true) return;
+      if (!event.success || event.canceled === true || event.entityKept === true) return;
       const target: CacheRemovalTarget = {
         gameAppId: event.gameAppId ?? undefined,
         epicAppId: event.epicAppId ?? undefined,
@@ -110,13 +110,13 @@ export function useCompletedRemovalPruning({
     };
 
     const handleServiceRemovalComplete = (event: ServiceRemovalCompleteEvent) => {
-      if (!event.success || event.cancelled === true || event.entityKept === true) return;
+      if (!event.success || event.canceled === true || event.entityKept === true) return;
       const target: CacheRemovalTarget = { serviceName: event.serviceName };
       setServices((prev) => pruneServicesByRemovalTarget(prev, target));
     };
 
     const handleEvictionRemovalComplete = (event: EvictionRemovalCompleteEvent) => {
-      if (!event.success || event.cancelled === true || !removalTargetRef?.current) return;
+      if (!event.success || event.canceled === true || !removalTargetRef?.current) return;
       const removalTarget = removalTargetRef.current;
       setGames((prev) => pruneGamesByRemovalTarget(prev, removalTarget));
       setServices((prev) => pruneServicesByRemovalTarget(prev, removalTarget));
@@ -179,7 +179,7 @@ export const finalizeBulkRemovalNotification = ({
   succeeded,
   failed,
   total,
-  cancelled,
+  canceled,
   failedAfterCancel,
   warned,
   t,
@@ -190,25 +190,25 @@ export const finalizeBulkRemovalNotification = ({
   // function form keeps the item ids that hold the batch's kept failures inside this card. An item
   // that failed after X, or before the server gave it a run, is a failure this card must keep, so
   // the card turns red and stays until closed rather than leaving gray with that failure.
-  if (cancelled) {
+  if (canceled) {
     updateNotification(id, (card) => {
       const holdsFailure = failedAfterCancel || card.details?.failedWithoutRun === true;
       return {
-        status: holdsFailure ? 'failed' : 'cancelled',
+        status: holdsFailure ? 'failed' : 'canceled',
         message:
           failed > 0
-            ? t(text.cancelledWithFailuresKey, {
+            ? t(text.canceledWithFailuresKey, {
                 count: succeeded,
                 failed,
                 total,
-                defaultValue: text.cancelledWithFailuresDefaultValue
+                defaultValue: text.canceledWithFailuresDefaultValue
               })
-            : t(text.cancelledKey, {
+            : t(text.canceledKey, {
                 count: succeeded,
                 total,
-                defaultValue: text.cancelledDefaultValue
+                defaultValue: text.canceledDefaultValue
               }),
-        details: { ...card.details, cancelled: !holdsFailure, cancelling: false }
+        details: { ...card.details, canceled: !holdsFailure, canceling: false }
       };
     });
     return;

@@ -95,7 +95,7 @@
  * Universal notification progress bar
  * One track shared by every notification type. The fill color comes from the card's
  * status color via --notification-status-color, so the bar always matches the border
- * and icon (blue running, green completed, red failed, gray cancelled, purple waiting).
+ * and icon (blue running, green completed, red failed, gray canceled, purple waiting).
  * ============================================== */
 .notification-progress-track {
   position: relative;
@@ -201,7 +201,7 @@
   }
 }
 
-/* Subtle variant - smaller blur/spread for bulk acknowledgements (e.g. Reset to
+/* Subtle variant - smaller blur/spread for bulk acknowledgments (e.g. Reset to
    Defaults flashing every schedule card at once). */
 @keyframes highlightGlowPulseSubtle {
   0%,
@@ -234,7 +234,7 @@
   will-change: box-shadow;
 }
 
-/* One quick pulse when many elements flash at once as an acknowledgement. */
+/* One quick pulse when many elements flash at once as an acknowledgment. */
 .glow-pulse-subtle {
   animation: highlightGlowPulseSubtle 1400ms cubic-bezier(0.4, 0, 0.6, 1) 1;
   will-change: box-shadow;

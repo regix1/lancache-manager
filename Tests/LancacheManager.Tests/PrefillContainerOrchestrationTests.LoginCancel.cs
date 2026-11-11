@@ -12,6 +12,7 @@ using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -461,6 +462,56 @@ public sealed partial class PrefillContainerOrchestrationTests
         Assert.Equal(DaemonSessionStatus.Active, session.Status);
     }
 
+    // A typed Log in after an Xbox saved-login sign-in that a drop ended cancels that sign-in before it sends its own
+    // login, and a failure the earlier sign-in pushes before that cancel is answered does not end the new one.
+    [Fact]
+    public async Task ATypedLogInAfterADroppedXboxSavedSignInCancelsItFirstAsync()
+    {
+        var instance = Guid.NewGuid().ToString("D");
+        var dropped = false;
+        var clock = new CacheStatusClock(DateTimeOffset.UtcNow);
+        var client = new ScriptedLoginDaemonClient { NeverAuthenticates = true };
+        var thirdRead = ThirdXboxStatusReadAfterLogin(client, instance, () => Volatile.Read(ref dropped)
+            ? (true, XboxSignedOut(instance, loggingIn: false))
+            : (false, null));
+        var (daemon, _, session) = await StartXboxSigningInAsync(client, clock: clock);
+        using var ownedDaemon = daemon;
+        await thirdRead.WaitAsync(TestTimeout);
+        var attempt = daemon.LastHeadlessSelfAuthAttempt!;
+        Volatile.Write(ref dropped, true);
+        await client.RaiseDisconnectedAsync();
+        await WaitUntilAsync(() =>
+        {
+            clock.Advance(TimeSpan.FromMilliseconds(500));
+            return attempt.IsCompleted;
+        });
+        await attempt.WaitAsync(TestTimeout);
+        Assert.Equal(0, client.CancelLoginCallCount);
+
+        // The daemon signs the typed Log in in once its login arrives.
+        client.NeverAuthenticates = false;
+        client.StatusHandler = _ => Task.FromResult<DaemonStatus?>(
+            client.StartLoginCallCount > 1 ? XboxLoggedIn() : XboxSignedOut(instance, loggingIn: false));
+        client.HoldCancelLogin = true;
+        var logIn = daemon.StartLoginAsync(session.Id);
+        await Task.WhenAny(client.CancelLoginEntered.Task, logIn).WaitAsync(TestTimeout);
+        Assert.True(client.CancelLoginEntered.Task.IsCompleted, "The typed Log in sent no cancel-login for the dropped sign-in.");
+        Assert.Equal(1, client.StartLoginCallCount);
+
+        var failed = XboxSignedOut(instance, loggingIn: false);
+        failed.Message = "Login failed: the saved token was refused.";
+        failed.ErrorCode = "login-failed";
+        await client.RaiseStatusAsync(failed);
+        client.ReleaseCancelLogin.SetResult();
+        await logIn.WaitAsync(TestTimeout);
+
+        Assert.Equal(1, client.CancelLoginCallCount);
+        Assert.Equal(2, client.StartLoginCallCount);
+        Assert.Null(session.LastLoginFailureMessage);
+        Assert.Equal(DaemonAuthState.Authenticated, session.AuthState);
+        Assert.Equal(DaemonSessionStatus.Active, session.Status);
+    }
+
     // A failure the daemon pushes while the login's last status read is still out ends the Xbox saved-login sign-in with
     // the daemon's own text, instead of a wait that runs out its bound and then sends a cancel-login.
     [Fact]
@@ -592,6 +643,43 @@ public sealed partial class PrefillContainerOrchestrationTests
         await personsLogin.WaitAsync(TestTimeout);
         await WaitUntilAsync(() => session.LoginWaitKey is null && XboxSessionUpdates(recorder).Last().Contains(noWaitKey));
         Assert.Null(await ListedWaitKeyAsync());
+    }
+
+    // The persistent page reads the live session back through its Start, which carries the same wait key as the push
+    // while a Log in waits on the saved sign-in, and none once that sign-in ends.
+    [Fact]
+    public async Task ThePersistentStartReadCarriesTheXboxWaitKeyUntilTheSavedSignInEndsAsync()
+    {
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, EventRecordingNotificationsProxy>();
+        var recorder = (EventRecordingNotificationsProxy)(object)notifications;
+        var (daemon, client, session) = await StartXboxSigningInAsync(
+            new ScriptedLoginDaemonClient { HoldStartLogin = true }, notifications);
+        using var ownedDaemon = daemon;
+        const string waitKey = "\"LoginWaitKey\":\"prefill.persistent.finishingSavedSignIn\"";
+        const string noWaitKey = "\"LoginWaitKey\":null";
+        using var daemons = new ServiceCollection().AddSingleton((XboxPrefillDaemonService)daemon).BuildServiceProvider();
+        var controller = new PersistentPrefillController(daemons, null!, null!, NullLogger<PersistentPrefillController>.Instance);
+        async Task<DaemonSessionDto> StartedSessionAsync()
+        {
+            var started = Assert.IsType<OkObjectResult>(
+                (await controller.StartAsync(new StartPersistentSessionRequest { Service = PrefillPlatform.Xbox }, CancellationToken.None)).Result);
+            return Assert.IsType<DaemonSessionDto>(started.Value);
+        }
+
+        var personsLogin = daemon.StartLoginAsync(session.Id);
+        await WaitUntilAsync(() => XboxSessionUpdates(recorder).Any(update => update.Contains(waitKey)));
+        var waiting = await StartedSessionAsync();
+
+        Assert.Equal(session.Id, waiting.Id);
+        Assert.Equal("prefill.persistent.finishingSavedSignIn", waiting.LoginWaitKey);
+
+        client.ReleaseStartLogin.SetResult();
+        await personsLogin.WaitAsync(TestTimeout);
+        await WaitUntilAsync(() => session.LoginWaitKey is null && XboxSessionUpdates(recorder).Last().Contains(noWaitKey));
+        var ended = await StartedSessionAsync();
+
+        Assert.Equal(session.Id, ended.Id);
+        Assert.Null(ended.LoginWaitKey);
     }
 
     // Two Log ins wait on two saved sign-ins, the second on a sign-in that started after the first one's: the wait
@@ -1024,8 +1112,60 @@ public sealed partial class PrefillContainerOrchestrationTests
         Assert.True(await Task.WhenAny(login, Task.Delay(TestTimeout)) == login, "The sign-in still waits after its bound.");
         // The socket drop ended it, as a saved sign-in whose daemon drops reports.
         Assert.Equal("The daemon disconnected during the saved sign-in.", s.Session.LastLoginFailureMessage);
-        Assert.Null(s.Session.LastLoginFailureKey);
+        Assert.Equal("prefill.persistent.loginDisconnected", s.Session.LastLoginFailureKey);
         Assert.Equal(cancelsAtDispatch, client.CancelLoginCallCount);
+    }
+
+    // On a daemon without concurrent prefill the drop itself ends the sign-in and keeps its ending, so the Log in
+    // answer that the bound gives later names the same key as that kept ending.
+    [Fact]
+    public async Task ASavedLoginEndedByAnOlderDaemonsDropAnswersWithItsKeptEndingAsync()
+    {
+        var tracker = new UnifiedOperationTracker(null!, NullLogger<UnifiedOperationTracker>.Instance);
+        var client = new ScriptedLoginDaemonClient();
+        using var s = await StartSignedInSteamAsync(client, operationTracker: tracker);
+        var started = s.Clock.GetUtcNow();
+
+        await s.Client.RaiseStatusAsync(LogOffStatus(s.Instance));
+        s.Daemon.HeldSavedLogin = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        s.Daemon.SavedLoginAccepted = true;
+        var login = s.Daemon.ReusePersistentIntegrationLoginAsync(
+            s.Session.Id, null, () => { }, Guid.NewGuid(), lease: new IntegrationLease(s.Daemon, 0, null, () => { }, () => { }));
+        await s.Daemon.SavedLoginEntered.Task.WaitAsync(TestTimeout);
+        var dropped = false;
+        var failedReads = 0;
+        var readAfterLogin = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        s.Client.StatusHandler = _ =>
+        {
+            if (Volatile.Read(ref dropped))
+            {
+                Interlocked.Increment(ref failedReads);
+                return Task.FromResult<DaemonStatus?>(null);
+            }
+            readAfterLogin.TrySetResult();
+            return Task.FromResult<DaemonStatus?>(SigningInRead(s.Instance));
+        };
+        s.Daemon.HeldSavedLogin.SetResult();
+        await readAfterLogin.Task.WaitAsync(TestTimeout);
+        Assert.NotNull(s.Session.LoginOperationId);
+        // A status with no protocol version is an older daemon.
+        s.Session.Capabilities = new DaemonStatus { Status = "not-logged-in" };
+        Volatile.Write(ref dropped, true);
+        await s.Client.RaiseDisconnectedAsync();
+
+        await WaitUntilAsync(() => Volatile.Read(ref failedReads) >= 1 || login.IsCompleted);
+        await Task.Delay(300);
+        while (s.Clock.GetUtcNow() - started < TimeSpan.FromMinutes(3) && !login.IsCompleted)
+        {
+            s.Clock.Advance(TimeSpan.FromSeconds(5));
+            await Task.Delay(20);
+        }
+
+        Assert.True(await Task.WhenAny(login, Task.Delay(TestTimeout)) == login, "The sign-in still waits after its bound.");
+        var ending = Assert.IsType<PrefillLoginEnding>(s.Session.LastLoginEnding);
+        Assert.Equal(OperationStatus.Failed, ending.Status);
+        Assert.Equal("prefill.persistent.loginDisconnected", ending.StageKey);
+        Assert.Equal(ending.StageKey, s.Session.LastLoginFailureKey);
     }
 
     // A logged-in push that lands as the 2-minute bound ends the read after a drop signs the session in.

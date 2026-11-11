@@ -8,6 +8,13 @@ public class GameCacheInfo
     [System.Text.Json.Serialization.JsonPropertyName("game_name")]
     public string GameName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// True when this entry stands for a Steam depot no game could be matched to, so
+    /// GameName is a placeholder.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("is_unresolved_depot")]
+    public bool IsUnresolvedDepot { get; set; }
+
     [System.Text.Json.Serialization.JsonPropertyName("cache_files_found")]
     public int CacheFilesFound { get; set; }
 

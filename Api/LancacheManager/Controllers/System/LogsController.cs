@@ -20,8 +20,6 @@ namespace LancacheManager.Controllers;
 [Authorize(Policy = "AccountHolder")]
 public class LogsController : ControllerBase
 {
-    private static readonly SemaphoreSlim _logProcessingStartLock = new(1, 1);
-
     private readonly RustLogProcessorService _rustLogProcessorService;
     private readonly RustLogRemovalService _rustLogRemovalService;
     private readonly ILogger<LogsController> _logger;
@@ -31,7 +29,7 @@ public class LogsController : ControllerBase
     private readonly StateService _stateRepository;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IOperationConflictChecker _conflictChecker;
-    private readonly IOperationQueue _operationQueue;
+    private readonly IOperationWaitlist _operationQueue;
     private readonly OperationStateService _operationStateService;
     private readonly CacheManagementService _cacheManagementService;
 
@@ -45,7 +43,7 @@ public class LogsController : ControllerBase
         StateService stateRepository,
         NginxLogRotationService nginxLogRotationService,
         IOperationConflictChecker conflictChecker,
-        IOperationQueue operationQueue,
+        IOperationWaitlist operationQueue,
         OperationStateService operationStateService,
         CacheManagementService cacheManagementService)
     {
@@ -278,63 +276,29 @@ public class LogsController : ControllerBase
     /// set by the PUT /api/logs/position endpoint (top or bottom).
     /// </remarks>
     [HttpPost("process")]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(OperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ProcessAllLogsAsync(CancellationToken cancellationToken = default)
     {
-        await _logProcessingStartLock.WaitAsync(cancellationToken);
-        try
+        // The queue checks and starts under one lock, so a log run never starts beside a cache clear,
+        // database reset, history upgrade or another log run, in either order. A busy start parks
+        // (visible waiting card); a refused one fails at once with its key.
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.LogProcessing, ConflictScope.Bulk(), "Log Processing",
+            () => _rustLogProcessorService.StartAllInBackgroundAsync(), cancellationToken, OperationRequestKey.Plain);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-            Task<Guid?> StartAllProcessingAsync() => _rustLogProcessorService.StartAllInBackgroundAsync();
-
-            var conflict = await _conflictChecker.CheckAsync(
-                OperationType.LogProcessing,
-                ConflictScope.Bulk(),
-                cancellationToken);
-            if (conflict != null)
-            {
-                return Accepted(await _operationQueue.EnqueueAsync(
-                    OperationType.LogProcessing, ConflictScope.Bulk(), "Log Processing",
-                    StartAllProcessingAsync, cancellationToken));
-            }
-
-            var operationId = await StartAllProcessingAsync();
-            if (!operationId.HasValue)
-            {
-                var raceConflict = await _conflictChecker.CheckAsync(
-                    OperationType.LogProcessing,
-                    ConflictScope.Bulk(),
-                    cancellationToken);
-                if (raceConflict != null)
-                {
-                    // Race: processing began between our check and the start - park it.
-                    return Accepted(await _operationQueue.EnqueueAsync(
-                        OperationType.LogProcessing, ConflictScope.Bulk(), "Log Processing",
-                        StartAllProcessingAsync, cancellationToken));
-                }
-
-                _logger.LogWarning("Failed to start log processing for all datasources");
-                return StatusCode(500, new ErrorResponse
-                {
-                    Error = "Failed to start log processing",
-                    StageKey = "errors.logs.startFailed"
-                });
-            }
-
-            _logger.LogInformation("Started log processing for all datasources (Operation: {OperationId})", operationId.Value);
-
-            return Accepted(new OperationResponse
-            {
-                OperationId = operationId.Value,
-                Message = "Log processing started for all datasources",
-                Status = OperationStatus.Running
-            });
+            return Accepted(queueResponse);
         }
-        finally
+
+        _logger.LogInformation("Started log processing for all datasources (Operation: {OperationId})", queueResponse.OperationId);
+
+        return Accepted(new OperationResponse
         {
-            _logProcessingStartLock.Release();
-        }
+            OperationId = queueResponse.OperationId,
+            Message = "Log processing started for all datasources",
+            Status = OperationStatus.Running
+        });
     }
 
     /// <summary>
@@ -345,7 +309,7 @@ public class LogsController : ControllerBase
     /// configured; conflicting requests are parked in the wait queue rather than rejected.
     /// </remarks>
     [HttpPost("process/{datasourceName}")]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(OperationResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ProcessDatasourceLogsAsync(string datasourceName, CancellationToken cancellationToken = default)
     {
@@ -357,64 +321,25 @@ public class LogsController : ControllerBase
 
         datasourceName = datasource.Name;
 
-        await _logProcessingStartLock.WaitAsync(cancellationToken);
-        try
+        // The queue checks and starts under one lock, so a log run never starts beside a cache clear,
+        // database reset, history upgrade or another log run, in either order. A busy start parks
+        // (visible waiting card); a refused one fails at once with its key.
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.LogProcessing, ConflictScope.Bulk(), $"Log Processing ({datasourceName})",
+            () => _rustLogProcessorService.StartInBackgroundAsync(datasource.LogPath, datasourceName: datasourceName),
+            cancellationToken, OperationRequestKey.Plain, target: datasourceName);
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
-            async Task<Guid?> StartDatasourceProcessingAsync()
-            {
-                return await _rustLogProcessorService.StartInBackgroundAsync(
-                    datasource.LogPath,
-                    datasourceName: datasourceName);
-            }
-
-            var conflict = await _conflictChecker.CheckAsync(
-                OperationType.LogProcessing,
-                ConflictScope.Bulk(),
-                cancellationToken);
-            if (conflict != null)
-            {
-                return Accepted(await _operationQueue.EnqueueAsync(
-                    OperationType.LogProcessing, ConflictScope.Bulk(), $"Log Processing ({datasourceName})",
-                    StartDatasourceProcessingAsync, cancellationToken, target: datasourceName));
-            }
-
-            var operationId = await StartDatasourceProcessingAsync();
-            if (!operationId.HasValue)
-            {
-                var raceConflict = await _conflictChecker.CheckAsync(
-                    OperationType.LogProcessing,
-                    ConflictScope.Bulk(),
-                    cancellationToken);
-                if (raceConflict != null)
-                {
-                    // Race: processing began between our check and the start - park it.
-                    return Accepted(await _operationQueue.EnqueueAsync(
-                        OperationType.LogProcessing, ConflictScope.Bulk(), $"Log Processing ({datasourceName})",
-                        StartDatasourceProcessingAsync, cancellationToken, target: datasourceName));
-                }
-
-                _logger.LogWarning("Failed to start log processing for datasource '{Name}'", datasourceName);
-                return StatusCode(500, new ErrorResponse
-                {
-                    Error = $"Failed to start log processing for '{datasourceName}'",
-                    StageKey = "errors.logs.startFailedForDatasource",
-                    Context = new Dictionary<string, object?> { ["datasource"] = datasourceName }
-                });
-            }
-
-            _logger.LogInformation("Started log processing for datasource '{Name}' (Operation: {OperationId})", datasourceName, operationId.Value);
-            return Accepted(new OperationResponse
-            {
-                OperationId = operationId.Value,
-                Message = $"Log processing started for '{datasourceName}'",
-                Status = OperationStatus.Running
-            });
+            return Accepted(queueResponse);
         }
-        finally
+
+        _logger.LogInformation("Started log processing for datasource '{Name}' (Operation: {OperationId})", datasourceName, queueResponse.OperationId);
+        return Accepted(new OperationResponse
         {
-            _logProcessingStartLock.Release();
-        }
+            OperationId = queueResponse.OperationId,
+            Message = $"Log processing started for '{datasourceName}'",
+            Status = OperationStatus.Running
+        });
     }
 
     /// <summary>
@@ -514,13 +439,10 @@ public class LogsController : ControllerBase
                 });
             }
 
-            var conflict = await _conflictChecker.CheckAsync(
-                OperationType.LogProcessing,
-                ConflictScope.Bulk(),
-                cancellationToken);
+            var conflict = await _conflictChecker.CheckForLogPassAsync(cancellationToken);
             if (conflict != null)
             {
-                // Only another log processing run conflicts here, and this request is not queued.
+                // Only another log processing run conflicts here, and this request does not wait on the queue.
                 return Conflict(ProcessingActive());
             }
 
@@ -621,7 +543,7 @@ public class LogsController : ControllerBase
     /// rejected.
     /// </remarks>
     [HttpDelete("datasources/{datasourceName}/services/{service}")]
-    [ProducesResponseType(typeof(QueuedOperationResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(OperationStartResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(LogRemovalStartResponse), StatusCodes.Status202Accepted)]
     public async Task<IActionResult> RemoveServiceLogsFromDatasourceAsync(string datasourceName, string service, CancellationToken cancellationToken = default)
     {
@@ -647,60 +569,30 @@ public class LogsController : ControllerBase
         // passes here before the removal starts waits for the cache lock the removal holds.
         _operationStateService.EnsureNoUnmappedRemovalRunning();
 
-        // Wait-queue model: conflicting requests are parked (visible waiting card), never 409'd.
+        // Wait-queue model: the queue checks and starts under one lock, so two requests sent
+        // together cannot both start; a conflicting one is parked (visible waiting card), never 409'd.
+        // A start that finds a removal already running parks and is retried; a refused start fails at once with its key.
         Task<Guid?> StartDatasourceLogRemovalAsync() =>
             _rustLogRemovalService.StartRemovalForDatasourceInBackgroundAsync(service, datasourceName);
 
-        var conflict = await _conflictChecker.CheckAsync(
-            OperationType.LogRemoval,
-            ConflictScope.Service(service),
-            cancellationToken);
-        if (conflict != null)
+        var queueResponse = await _operationQueue.EnqueueAsync(
+            OperationType.LogRemoval, ConflictScope.Service(service),
+            $"Log Removal ({service} @ {datasourceName})", StartDatasourceLogRemovalAsync, cancellationToken,
+                OperationRequestKey.Plain, target: $"{service} @ {datasourceName}");
+        if (queueResponse.Status is OperationStartStatus.Waiting or OperationStartStatus.AlreadyRunning)
         {
-            return Accepted(await _operationQueue.EnqueueAsync(
-                OperationType.LogRemoval, ConflictScope.Service(service),
-                $"Log Removal ({service} @ {datasourceName})", StartDatasourceLogRemovalAsync, cancellationToken,
-                    target: $"{service} @ {datasourceName}"));
-        }
-
-        var operationId = await StartDatasourceLogRemovalAsync();
-
-        if (!operationId.HasValue)
-        {
-            var raceConflict = await _conflictChecker.CheckAsync(
-                OperationType.LogRemoval,
-                ConflictScope.Service(service),
-                cancellationToken);
-            if (raceConflict != null)
-            {
-                // Race: removal began between our check and the start - park it.
-                return Accepted(await _operationQueue.EnqueueAsync(
-                    OperationType.LogRemoval, ConflictScope.Service(service),
-                    $"Log Removal ({service} @ {datasourceName})", StartDatasourceLogRemovalAsync, cancellationToken,
-                    target: $"{service} @ {datasourceName}"));
-            }
-
-            return StatusCode(500, new ErrorResponse
-            {
-                Error = $"Failed to remove logs for service '{service}' from datasource '{datasourceName}'",
-                StageKey = "errors.logs.removeFailed",
-                Context = new Dictionary<string, object?>
-                {
-                    ["service"] = service,
-                    ["datasource"] = datasourceName
-                }
-            });
+            return Accepted(queueResponse);
         }
 
         _logger.LogInformation(
             "Started log removal for service: {Service} in datasource: {Datasource} (Operation: {OperationId})",
-            service, datasourceName, operationId.Value);
+            service, datasourceName, queueResponse.OperationId);
 
         return Accepted(new LogRemovalStartResponse
         {
             Message = $"Started log removal for service: {service} from datasource: {datasourceName}",
             Service = service,
-            OperationId = operationId.Value,
+            OperationId = queueResponse.OperationId,
             Status = OperationStatus.Running
         });
     }

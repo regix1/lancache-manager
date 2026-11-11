@@ -93,12 +93,11 @@ public class CorruptionDetectionService
         // The caller awaits this before any background work starts, so the refusal is answered
         // as the same 400 that gate returns for this condition.
         // Asked before the capability check below, which enumerates log directories for a run
-        // that is already refused. This is also the check a queued run reaches at promotion,
+        // that is already refused. This is also the check a waiting run reaches at promotion,
         // because the parked delegate calls this method.
-        var downloadDenial = _cacheScanGate.CheckDownloadInProgress();
-        if (downloadDenial != null)
+        if (_cacheScanGate.CheckDownloadRefusal() is { } downloadRefusal)
         {
-            throw new DownloadInProgressException(downloadDenial);
+            throw downloadRefusal;
         }
 
         var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
@@ -275,16 +274,16 @@ public class CorruptionDetectionService
         var structuralContext = BuildStructuralContext(metadata.DetectionMethod, metadata.ScanMode);
         AddStructuralMetrics(structuralContext, metadata);
 
-        if (info.Cancelled)
+        if (info.Canceled)
         {
             return _notifications.NotifyAllAsync(
                 SignalREvents.CorruptionDetectionComplete,
                 new SignalRNotifications.CorruptionDetectionComplete(
                     Success: false,
                     OperationId: operationId,
-                    StageKey: "signalr.corruptionDetect.cancelled",
-                    Status: OperationStatus.Cancelled,
-                    Cancelled: true,
+                    StageKey: "signalr.corruptionDetect.canceled",
+                    Status: OperationStatus.Canceled,
+                    Canceled: true,
                     DetectionMethod: detectionMethod,
                     DetectionCounts: metadata.DetectionCounts,
                     Coverage: CorruptionScanCoverageResponse.From(metadata.Coverage),
@@ -315,7 +314,7 @@ public class CorruptionDetectionService
                     OperationId: operationId,
                     StageKey: "signalr.corruptionDetect.complete",
                     Status: OperationStatus.Completed,
-                    Cancelled: false,
+                    Canceled: false,
                     TotalServicesWithCorruption: totalServicesWithCorruption,
                     TotalCorruptedChunks: totalCorruptedChunks,
                     CorruptionCounts: counts,
@@ -344,22 +343,28 @@ public class CorruptionDetectionService
                     ScanSummary: SnapshotStructuralSummary(metadata)));
         }
 
+        // The failure names itself by the key its run ended on (the capability refusal, or the failed key whose
+        // failure reason holds the exception text), with the values that key's sentence names. The emit runs inside
+        // CompleteOperation, before the run can be reaped.
+        var failedRun = _operationTracker.GetOperation(operationId)!;
+        var failureContext = new Dictionary<string, object?>(structuralContext);
+        if (failedRun.FailureReason is { } reason)
+        {
+            foreach (var (name, value) in reason.Context) failureContext[name] = value;
+        }
         return _notifications.NotifyAllAsync(
             SignalREvents.CorruptionDetectionComplete,
             new SignalRNotifications.CorruptionDetectionComplete(
                 Success: false,
                 OperationId: operationId,
-                StageKey: "signalr.corruptionDetect.failed",
+                StageKey: failedRun.Message,
                 Status: OperationStatus.Failed,
-                Cancelled: false,
+                Canceled: false,
                 Error: info.Error,
                 DetectionMethod: detectionMethod,
                 DetectionCounts: metadata.DetectionCounts,
                 Coverage: CorruptionScanCoverageResponse.From(metadata.Coverage),
-                Context: new Dictionary<string, object?>(structuralContext)
-                {
-                    ["errorDetail"] = info.Error
-                },
+                Context: failureContext,
                 ScanMode: scanMode,
                 EffectiveScanMode: effectiveScanMode,
                 BaselineStatus: baselineStatus,
@@ -399,7 +404,8 @@ public class CorruptionDetectionService
         if (executionDenial != null)
         {
             _logger.LogWarning("[CorruptionDetection] Aborting scan: {Reason}", executionDenial);
-            _operationTracker.CompleteOperation(operationId, false, executionDenial);
+            // The denial is English; the card says the scan did not run and points at this log line.
+            _operationTracker.CompleteOperation(operationId, false, "signalr.corruptionDetect.capabilityRefused");
             return;
         }
 
@@ -486,8 +492,8 @@ public class CorruptionDetectionService
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("[CorruptionDetection] Operation {OperationId} was cancelled", operationId);
-            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
+            _logger.LogInformation("[CorruptionDetection] Operation {OperationId} was canceled", operationId);
+            _operationTracker.CompleteOperation(operationId, success: false, canceled: true);
         }
         catch (Exception ex)
         {
@@ -504,7 +510,10 @@ public class CorruptionDetectionService
                     rustFailure.Stderr!.Trim());
             }
             _logger.LogError(ex, "[CorruptionDetection] Detection failed for operation {OperationId}", operationId);
-            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.corruptionDetect.failed",
+                onCompleting: operation => operation.FailureReason = new RunWarning(
+                    "signalr.corruptionDetect.failed",
+                    new Dictionary<string, object?> { ["errorDetail"] = ex.Message }));
         }
     }
 
@@ -625,7 +634,7 @@ public class CorruptionDetectionService
                     progressFile,
                     async progressData =>
                     {
-                        if (IsCancelledProgress(progressData))
+                        if (IsCanceledProgress(progressData))
                         {
                             Interlocked.Exchange(ref rustCancellationReported, 1);
                         }
@@ -671,7 +680,7 @@ public class CorruptionDetectionService
             var report = JsonSerializer.Deserialize<CorruptionReport>(result.Output, _candidateJsonOptions)
                 ?? throw new InvalidDataException(
                     $"corruption_manager returned an empty report for datasource '{datasourceName}'");
-            if (report.Cancelled)
+            if (report.Canceled)
             {
                 // The report is the authoritative terminal result. A missed or unreadable final
                 // progress-file update can no longer turn a partial report into a completed scan.
@@ -767,8 +776,8 @@ public class CorruptionDetectionService
         }
     }
 
-    internal static bool IsCancelledProgress(CorruptionDetectionProgressData progressData) =>
-        string.Equals(progressData.Status, "cancelled", StringComparison.OrdinalIgnoreCase);
+    internal static bool IsCanceledProgress(CorruptionDetectionProgressData progressData) =>
+        string.Equals(progressData.Status, "canceled", StringComparison.OrdinalIgnoreCase);
 
     internal static void ValidateAndAttachDatasource(
         CorruptionReport report,
@@ -804,10 +813,10 @@ public class CorruptionDetectionService
                 $"Unsupported corruption report contract version {report.ContractVersion}");
         }
 
-        if (report.Cancelled)
+        if (report.Canceled)
         {
             throw new InvalidDataException(
-                "Cancelled corruption report cannot be validated as a completed scan");
+                "Canceled corruption report cannot be validated as a completed scan");
         }
 
         if (report.DetectionMethod != expectedDetectionMethod)
@@ -955,10 +964,10 @@ public class CorruptionDetectionService
                 "Corruption scan start must be a whole-second UTC timestamp");
         }
 
-        if (datasourceReports.Any(item => item.Report.Cancelled))
+        if (datasourceReports.Any(item => item.Report.Canceled))
         {
             throw new InvalidDataException(
-                "Cancelled corruption report cannot be persisted as a completed scan");
+                "Canceled corruption report cannot be persisted as a completed scan");
         }
 
         ValidateCrossDatasourceIdentity(datasourceReports);
@@ -1543,7 +1552,7 @@ public class CorruptionDetectionService
     }
 
     /// <summary>
-    /// Prunes only candidates that Rust successfully processed. Failed/cancelled
+    /// Prunes only candidates that Rust successfully processed. Failed/canceled
     /// operations never call this method, preserving authoritative evidence.
     /// </summary>
     public async Task ApplyRemovalSuccessAsync(
@@ -1906,12 +1915,18 @@ public class CorruptionDetectionService
         }
     }
 
+    /// <summary>
+    /// Saves the removal's outcome. A failure's values ride beside its key, so a run a restart restores words the
+    /// failure as the live card did.
+    /// </summary>
     public Task FinishRepairAsync(
         Guid operationId,
         bool success,
-        bool cancelled,
-        string? error) =>
-        _operationStateService.FinishRepairAsync(operationId, success, cancelled, error);
+        bool canceled,
+        string? error,
+        RunWarning? failureReason = null) =>
+        _operationStateService.FinishRepairAsync(operationId, success, canceled, error,
+            update: failureReason is null ? null : repair => repair.FailureReason = failureReason);
 
     public async Task ClearOrphanedPresentationAsync(CancellationToken cancellationToken)
     {
@@ -2114,7 +2129,7 @@ public class CorruptionDetectionService
                     OperationStatus.Completed => captured.DetectionMethod == CorruptionDetectionMethod.Structural
                         ? "signalr.corruptionRemove.completeStructural"
                         : "signalr.corruptionRemove.complete",
-                    OperationStatus.Cancelled => "signalr.corruptionRemove.cancelled",
+                    OperationStatus.Canceled => "signalr.corruptionRemove.canceled",
                     OperationStatus.Failed => "signalr.corruptionRemove.failed.generic",
                     _ => throw new InvalidDataException(
                         $"Corruption removal repair {repair.Id} omitted its outcome")
@@ -2272,17 +2287,17 @@ public class CorruptionDetectionService
             ?? throw new InvalidDataException(
                 $"Corruption removal repair {repair.Id} omitted captured scan identity");
         var counts = AggregateRemovalCounts(repair.Sources);
-        if (terminal.Cancelled)
+        if (terminal.Canceled)
         {
             return _notifications.NotifyAllAsync(
                 SignalREvents.CorruptionRemovalComplete,
                 new SignalRNotifications.CorruptionRemovalComplete(
                     false,
                     captured.Service,
-                    StageKey: "signalr.corruptionRemove.cancelled",
+                    StageKey: "signalr.corruptionRemove.canceled",
                     OperationId: repair.Id,
                     DetectionMethod: captured.DetectionMethod.ToWireString(),
-                    Cancelled: true));
+                    Canceled: true));
         }
 
         if (!terminal.Success)
@@ -2334,12 +2349,12 @@ public class CorruptionDetectionService
             return false;
         }
 
-        if (activeOp.Status is OperationStatus.Cancelled or OperationStatus.Cancelling)
+        if (activeOp.Status is OperationStatus.Canceled or OperationStatus.Canceling)
         {
             return true;
         }
 
-        _logger.LogInformation("[CorruptionDetection] Cancelling detection operation {OperationId}", activeOp.Id);
+        _logger.LogInformation("[CorruptionDetection] Canceling detection operation {OperationId}", activeOp.Id);
         _operationTracker.CancelOperation(activeOp.Id);
         return true;
     }

@@ -22,7 +22,7 @@ public enum OperationCancelResult
 
     /// <summary>
     /// Cancellation was applied: the associated process tree was killed where present and the
-    /// token was cancelled (or a cancel already in flight was re-attempted).
+    /// token was canceled (or a cancel already in flight was re-attempted).
     /// </summary>
     Requested
 }

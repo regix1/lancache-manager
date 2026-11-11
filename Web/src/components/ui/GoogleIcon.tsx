@@ -5,7 +5,7 @@ interface GoogleIconProps {
   className?: string;
 }
 
-/** The four-colour Google "G" from Google's sign-in branding assets. */
+/** The four-color Google "G" from Google's sign-in branding assets. */
 export const GoogleIcon: React.FC<GoogleIconProps> = ({ size = 24, className = '' }) => (
   <svg
     viewBox="0 0 48 48"

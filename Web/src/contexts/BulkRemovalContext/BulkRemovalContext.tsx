@@ -56,12 +56,10 @@ interface BatchItemRequest {
   onPercent: (inner: number) => void;
 }
 
-/** Inputs for {@link settleBatchItem}: the run's end and the item's own failure text. */
+/** Inputs for {@link settleBatchItem}: the run's end and the queue item's cancel hooks. */
 interface SettleBatchItemOptions {
   end: NotificationTerminal;
-  ctx: { cancelRun: () => void; wasCancelled: () => boolean };
-  failedMessage: string;
-  neverStartedMessage: string;
+  ctx: { cancelRun: () => void; wasCanceled: () => boolean };
 }
 
 /**
@@ -86,27 +84,22 @@ function updateBulkProgress({
  * canceled, never as a failed item; `gone` is a run the server stopped tracking without saying
  * how it ended. Returns true for a run that completed with a warning.
  */
-function settleBatchItem({
-  end,
-  ctx,
-  failedMessage,
-  neverStartedMessage
-}: SettleBatchItemOptions): boolean {
+function settleBatchItem({ end, ctx }: SettleBatchItemOptions): boolean {
   switch (end.status) {
     case 'completed':
       return end.warned === true;
-    case 'cancelled':
+    case 'canceled':
       ctx.cancelRun();
       return false;
     case 'failed':
-      throw new Error(end.error ?? failedMessage);
+      throw new Error(end.error);
     case 'skipped':
-      throw new Error(end.error ?? neverStartedMessage);
+      throw new Error(end.error);
     case 'gone':
       // The server keeps a failed removal run until it is closed, so a run it stopped tracking ended completed,
       // canceled or skipped: after X it counts as canceled, otherwise as done. A run a restart interrupted comes
       // back as its own red card.
-      if (ctx.wasCancelled()) ctx.cancelRun();
+      if (ctx.wasCanceled()) ctx.cancelRun();
       return false;
   }
 }
@@ -246,14 +239,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               ctx,
               onPercent
             });
-            if (
-              settleBatchItem({
-                end,
-                ctx,
-                failedMessage: `Service removal failed for ${serviceName}`,
-                neverStartedMessage: `Service removal never started for ${serviceName}`
-              })
-            ) {
+            if (settleBatchItem({ end, ctx })) {
               warned++;
             }
           } else {
@@ -270,14 +256,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               ctx,
               onPercent
             });
-            if (
-              settleBatchItem({
-                end,
-                ctx,
-                failedMessage: `Game removal failed for ${game.game_name}`,
-                neverStartedMessage: `Game removal never started for ${game.game_name}`
-              })
-            ) {
+            if (settleBatchItem({ end, ctx })) {
               warned++;
             }
           }
@@ -286,7 +265,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
           id,
           succeeded,
           failed,
-          cancelled,
+          canceled,
           failedAfterCancel,
           total: finalizeTotal
         }) => {
@@ -295,7 +274,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             succeeded,
             failed,
             total: finalizeTotal,
-            cancelled,
+            canceled,
             failedAfterCancel,
             warned,
             t,
@@ -305,12 +284,12 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               completeDefaultValue: 'Removed {{count}} cached items',
               partialFailureKey: 'management.sections.data.gameCacheRemoveAllCompleteWithFailures',
               partialFailureDefaultValue: 'Removed {{count}} cached items, but {{failed}} failed',
-              cancelledKey: 'management.sections.data.gameCacheRemoveAllCancelled',
-              cancelledDefaultValue: 'Bulk removal cancelled after {{count}} items',
-              cancelledWithFailuresKey:
-                'management.sections.data.gameCacheRemoveAllCancelledWithFailures',
-              cancelledWithFailuresDefaultValue:
-                'Bulk removal cancelled after {{count}} items, with {{failed}} failures'
+              canceledKey: 'management.sections.data.gameCacheRemoveAllCanceled',
+              canceledDefaultValue: 'Bulk removal canceled after {{count}} items',
+              canceledWithFailuresKey:
+                'management.sections.data.gameCacheRemoveAllCanceledWithFailures',
+              canceledWithFailuresDefaultValue:
+                'Bulk removal canceled after {{count}} items, with {{failed}} failures'
             }
           });
         }
@@ -322,7 +301,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
   const isCacheRemovalRunning = cacheState.status === 'running';
 
   // --- Evicted-items queue -------------------------------------------------
-  // Sequential/cancellable pipeline like the cache queue, but each item hits a
+  // Sequential/cancelable pipeline like the cache queue, but each item hits a
   // per-entity evicted endpoint.
   const evictedRunOptionsRef = useRef<BulkRemovalRunOptions | null>(null);
 
@@ -407,14 +386,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             ctx,
             onPercent
           });
-          if (
-            settleBatchItem({
-              end,
-              ctx,
-              failedMessage: 'Evicted removal failed',
-              neverStartedMessage: 'Evicted removal never started'
-            })
-          ) {
+          if (settleBatchItem({ end, ctx })) {
             warned++;
           }
         },
@@ -422,7 +394,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
           id,
           succeeded,
           failed,
-          cancelled,
+          canceled,
           failedAfterCancel,
           total: finalizeTotal
         }) => {
@@ -431,7 +403,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             succeeded,
             failed,
             total: finalizeTotal,
-            cancelled,
+            canceled,
             failedAfterCancel,
             warned,
             t,
@@ -442,12 +414,12 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               partialFailureKey:
                 'management.sections.data.evictionRemoveSelectedCompleteWithFailures',
               partialFailureDefaultValue: 'Removed {{count}} evicted items, but {{failed}} failed',
-              cancelledKey: 'management.sections.data.evictionRemoveSelectedCancelled',
-              cancelledDefaultValue: 'Evicted removal cancelled after {{count}} items',
-              cancelledWithFailuresKey:
-                'management.sections.data.evictionRemoveSelectedCancelledWithFailures',
-              cancelledWithFailuresDefaultValue:
-                'Evicted removal cancelled after {{count}} items, with {{failed}} failures'
+              canceledKey: 'management.sections.data.evictionRemoveSelectedCanceled',
+              canceledDefaultValue: 'Evicted removal canceled after {{count}} items',
+              canceledWithFailuresKey:
+                'management.sections.data.evictionRemoveSelectedCanceledWithFailures',
+              canceledWithFailuresDefaultValue:
+                'Evicted removal canceled after {{count}} items, with {{failed}} failures'
             }
           });
         }
@@ -459,7 +431,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
   const isEvictedRemovalRunning = evictedState.status === 'running';
 
   // --- Log-removal queue ---------------------------------------------------
-  // Same sequential/cancellable pipeline, but each item rewrites one datasource's
+  // Same sequential/cancelable pipeline, but each item rewrites one datasource's
   // log entries for one service.
   const logRunOptionsRef = useRef<BulkRemovalRunOptions | null>(null);
 
@@ -523,14 +495,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             ctx,
             onPercent
           });
-          if (
-            settleBatchItem({
-              end,
-              ctx,
-              failedMessage,
-              neverStartedMessage: `Log removal never started for ${service}`
-            })
-          ) {
+          if (settleBatchItem({ end, ctx })) {
             warned++;
           }
         },
@@ -538,7 +503,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
           id,
           succeeded,
           failed,
-          cancelled,
+          canceled,
           failedAfterCancel,
           total: finalizeTotal
         }) => {
@@ -547,7 +512,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
             succeeded,
             failed,
             total: finalizeTotal,
-            cancelled,
+            canceled,
             failedAfterCancel,
             warned,
             t,
@@ -557,11 +522,11 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
               completeDefaultValue: 'Removed {{count}} of {{total}} service logs',
               partialFailureKey: 'management.batchSelect.batchCompleteWithFailures',
               partialFailureDefaultValue: 'Removed {{count}} service logs, but {{failed}} failed',
-              cancelledKey: 'management.batchSelect.batchCancelled',
-              cancelledDefaultValue: 'Log removal cancelled after {{count}} service logs',
-              cancelledWithFailuresKey: 'management.batchSelect.batchCancelledWithFailures',
-              cancelledWithFailuresDefaultValue:
-                'Log removal cancelled after {{count}} service logs, with {{failed}} failures'
+              canceledKey: 'management.batchSelect.batchCanceled',
+              canceledDefaultValue: 'Log removal canceled after {{count}} service logs',
+              canceledWithFailuresKey: 'management.batchSelect.batchCanceledWithFailures',
+              canceledWithFailuresDefaultValue:
+                'Log removal canceled after {{count}} service logs, with {{failed}} failures'
             }
           });
         }
@@ -570,7 +535,7 @@ export const BulkRemovalProvider: React.FC<BulkRemovalProviderProps> = ({ childr
     [addNotification, updateNotification, runLogQueue, followBatchItem, t]
   );
 
-  const isLogRemovalRunning = logState.status === 'running' || logState.status === 'cancelling';
+  const isLogRemovalRunning = logState.status === 'running';
 
   // Memoized so a parent re-render (NotificationsProvider updates on every
   // notification tick) does not hand consumers a fresh context object when

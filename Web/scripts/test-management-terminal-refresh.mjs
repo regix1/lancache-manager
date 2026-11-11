@@ -104,8 +104,8 @@ const createScope = () => {
 
 for (const terminal of [
   { label: 'success', success: true },
-  { label: 'cancellation', success: false, cancelled: true },
-  { label: 'failure', success: false, cancelled: false, error: 'remove failed' }
+  { label: 'cancellation', success: false, canceled: true },
+  { label: 'failure', success: false, canceled: false, error: 'remove failed' }
 ]) {
   test(`${terminal.label} reloads the selected corruption evidence`, async () => {
     const { calls, scan, scope } = createScope();
@@ -132,7 +132,7 @@ test('another detection method refreshes history without replacing the selection
 
   handler({
     success: false,
-    cancelled: true,
+    canceled: true,
     service: 'steam',
     detectionMethod: 'repeated_miss'
   });

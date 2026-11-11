@@ -596,6 +596,85 @@ public class DownloadHistoryUpgradeTests
     }
 
     [Fact]
+    public async Task ARowThatFailsToInsertKeepsTheRowsAroundItAsync()
+    {
+        await using var harness = await UpgradeHarness.CreateAsync();
+        await MarkUpgradeCompleteAsync(harness);
+
+        var before = NewDownload("10.0.0.40", "steam", SessionStart, 40, "default", false);
+        // A Service this long cannot fit an index row, so Postgres refuses this one INSERT.
+        var refused = NewDownload(
+            "10.0.0.41",
+            CreateLongValue(1) + CreateLongValue(2) + CreateLongValue(3),
+            SessionStart.AddMinutes(1),
+            41,
+            "default",
+            false);
+        var after = NewDownload("10.0.0.42", "steam", SessionStart.AddMinutes(2), 42, "default", false);
+
+        var response = await ImportRowsAsync(harness, [before, refused, after]);
+
+        await using var check = harness.Contexts.CreateDbContext();
+        var stored = await check.Downloads
+            .OrderBy(row => row.StartTimeUtc)
+            .Select(row => row.ClientIp)
+            .ToListAsync();
+        Assert.Equal(["10.0.0.40", "10.0.0.42"], stored);
+        Assert.Equal(2UL, response.Imported);
+        Assert.Equal(1UL, response.Errors);
+        Assert.Equal(0UL, response.Skipped);
+
+        var completion = Assert.Single(
+            harness.NotificationRecorder.Invocations,
+            call => call.Method == nameof(ISignalRNotificationService.NotifyAllAsync)
+                && (string)call.Args[0]! == SignalREvents.DataImportComplete);
+        var card = Assert.IsType<SignalRNotifications.DataImportComplete>(completion.Args[1]);
+        Assert.True(card.Success);
+        Assert.Equal(2UL, card.RecordsImported);
+        Assert.Equal(1UL, card.RecordsErrors);
+    }
+
+    [Fact]
+    public async Task ARowThatFailsToInsertInALaterBatchKeepsThatBatchAsync()
+    {
+        await using var harness = await UpgradeHarness.CreateAsync();
+        await MarkUpgradeCompleteAsync(harness);
+
+        var first = NewDownload("10.0.0.43", "steam", SessionStart, 43, "default", false);
+        var second = NewDownload("10.0.0.44", "steam", SessionStart.AddMinutes(1), 44, "default", false);
+        var before = NewDownload("10.0.0.45", "steam", SessionStart.AddMinutes(2), 45, "default", false);
+        var refused = NewDownload(
+            "10.0.0.46",
+            CreateLongValue(4) + CreateLongValue(5) + CreateLongValue(6),
+            SessionStart.AddMinutes(3),
+            46,
+            "default",
+            false);
+        var after = NewDownload("10.0.0.47", "steam", SessionStart.AddMinutes(4), 47, "default", false);
+
+        // The first batch drops the plan, so the batch holding the refused row commits with
+        // nothing in front of its commit.
+        var response = await ImportRowsAsync(harness, [first, second, before, refused, after], batchSize: 2);
+        Assert.Equal(1UL, response.Errors);
+
+        await using var check = harness.Contexts.CreateDbContext();
+        var stored = await check.Downloads
+            .OrderBy(row => row.StartTimeUtc)
+            .Select(row => row.ClientIp)
+            .ToListAsync();
+        Assert.Equal(["10.0.0.43", "10.0.0.44", "10.0.0.45", "10.0.0.47"], stored);
+        Assert.Equal(4UL, response.Imported);
+
+        var completion = Assert.Single(
+            harness.NotificationRecorder.Invocations,
+            call => call.Method == nameof(ISignalRNotificationService.NotifyAllAsync)
+                && (string)call.Args[0]! == SignalREvents.DataImportComplete);
+        var card = Assert.IsType<SignalRNotifications.DataImportComplete>(completion.Args[1]);
+        Assert.Equal(4UL, card.RecordsImported);
+        Assert.Equal(1UL, card.RecordsErrors);
+    }
+
+    [Fact]
     public async Task SkippedImportKeepsTheCompletedMarkerAsync()
     {
         await using var harness = await UpgradeHarness.CreateAsync();
@@ -1181,7 +1260,7 @@ public class DownloadHistoryUpgradeTests
 
             var removalStarted = new TaskCompletionSource<Guid>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            var queuedRemoval = await harness.Queue.EnqueueAsync(
+            var waitingRemoval = await harness.Queue.EnqueueAsync(
                 OperationType.GameRemoval,
                 ConflictScope.NamedGame("blizzard", "Diablo IV"),
                 "Remove Diablo IV",
@@ -1194,8 +1273,8 @@ public class DownloadHistoryUpgradeTests
                     removalStarted.TrySetResult(id);
                     return Task.FromResult<Guid?>(id);
                 },
-                CancellationToken.None);
-            Assert.True(queuedRemoval.Queued);
+                CancellationToken.None, OperationRequestKey.Plain);
+            Assert.Equal(OperationStartStatus.Waiting, waitingRemoval.Status);
 
             // The batch released the lock, so the import catches up before the next batch.
             release.TrySetResult();
@@ -1349,7 +1428,7 @@ public class DownloadHistoryUpgradeTests
     }
 
     [Fact]
-    public async Task CancelledStartDoesNotEnterTheServiceAsync()
+    public async Task CanceledStartDoesNotEnterTheServiceAsync()
     {
         var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         BlockingDbContexts? contexts = null;
@@ -1409,8 +1488,11 @@ public class DownloadHistoryUpgradeTests
         await first;
         Assert.Empty(MergeEvents(harness));
         var firstFailure = Assert.Single(FailedUpgradeRuns(harness));
-        Assert.StartsWith("Download history upgrade stopped: boom.", firstFailure.Error!);
-        Assert.Contains("rows still wait to merge", firstFailure.Error!);
+        // The key words the sentence; its values are the bare error and the rows still waiting.
+        Assert.Equal("signalr.downloadHistoryUpgrade.failedWithRemaining", firstFailure.Error);
+        Assert.Equal("signalr.downloadHistoryUpgrade.failedWithRemaining", firstFailure.FailureReason!.StageKey);
+        Assert.Equal("boom", firstFailure.FailureReason.Context["errorDetail"]);
+        Assert.True(Convert.ToInt64(firstFailure.FailureReason.Context["count"]) > 0);
 
         await harness.Service.RequestRunAsync();
         var second = await WaitForNewRunAsync(harness.Service, first);
@@ -1443,7 +1525,9 @@ public class DownloadHistoryUpgradeTests
         await run;
         Assert.Empty(MergeEvents(harness));
         var failure = Assert.Single(FailedUpgradeRuns(harness));
-        Assert.Contains("The merge has not started", failure.Error);
+        Assert.Equal("signalr.downloadHistoryUpgrade.failedBeforeMerge", failure.Error);
+        Assert.Equal("signalr.downloadHistoryUpgrade.failedBeforeMerge", failure.FailureReason!.StageKey);
+        Assert.Equal("swap stopped", failure.FailureReason.Context["errorDetail"]);
 
         await using var context = harness.SeedContexts.CreateDbContext();
         var definition = await context.Database.SqlQueryRaw<string>("""
@@ -1457,7 +1541,7 @@ public class DownloadHistoryUpgradeTests
     }
 
     [Fact]
-    public async Task CancellingABatchLeavesAConsistentPlanAndTheNextRunFinishesAsync()
+    public async Task CancelingABatchLeavesAConsistentPlanAndTheNextRunFinishesAsync()
     {
         await using var harness = await UpgradeHarness.CreateAsync();
         await SeedIslandAsync(harness, rows: 3, logsPerRow: 1);
@@ -1484,7 +1568,7 @@ public class DownloadHistoryUpgradeTests
             harness.Tracker.CancelOperation(operation.Id));
         release.TrySetResult();
         await run;
-        Assert.Equal(OperationStatus.Cancelled, harness.Tracker.GetOperation(operation.Id)!.Status);
+        Assert.Equal(OperationStatus.Canceled, harness.Tracker.GetOperation(operation.Id)!.Status);
 
         await using (var check = harness.Contexts.CreateDbContext())
         {
@@ -1507,7 +1591,7 @@ public class DownloadHistoryUpgradeTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task PartialMergePublishesFinalRefreshAndKeepsTerminalStatusAsync(bool cancelled)
+    public async Task PartialMergePublishesFinalRefreshAndKeepsTerminalStatusAsync(bool canceled)
     {
         await using var harness = await UpgradeHarness.CreateAsync();
         var ids = await SeedIslandAsync(harness, rows: 3, logsPerRow: 1);
@@ -1539,7 +1623,7 @@ public class DownloadHistoryUpgradeTests
                 return;
             }
 
-            if (!cancelled)
+            if (!canceled)
             {
                 throw new InvalidOperationException("later batch stopped");
             }
@@ -1551,7 +1635,7 @@ public class DownloadHistoryUpgradeTests
         await harness.Service.RequestRunAsync();
         var run = await WaitForNewRunAsync(harness.Service, previous: null);
         Guid? operationId = null;
-        if (cancelled)
+        if (canceled)
         {
             await entered.Task;
             var operation = Assert.Single(
@@ -1564,16 +1648,17 @@ public class DownloadHistoryUpgradeTests
         }
         await run;
 
-        if (cancelled)
+        if (canceled)
         {
             Assert.Equal(
-                OperationStatus.Cancelled,
+                OperationStatus.Canceled,
                 harness.Tracker.GetOperation(operationId!.Value)!.Status);
         }
         else
         {
             var failure = Assert.Single(FailedUpgradeRuns(harness));
-            Assert.Contains("later batch stopped", failure.Error);
+            Assert.Equal("signalr.downloadHistoryUpgrade.failedWithRemaining", failure.Error);
+            Assert.Equal("later batch stopped", failure.FailureReason!.Context["errorDetail"]);
         }
         Assert.Equal(
             [SignalREvents.DownloadsRefresh, SignalREvents.DownloadHistoryMergeComplete],
@@ -1593,7 +1678,7 @@ public class DownloadHistoryUpgradeTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task ImportTerminalWithCommittedRowsStartsAReplanAsync(bool cancelled)
+    public async Task ImportTerminalWithCommittedRowsStartsAReplanAsync(bool canceled)
     {
         await using var harness = await UpgradeHarness.CreateAsync();
         var markerId = harness.RegisterUpgrade();
@@ -1647,8 +1732,8 @@ public class DownloadHistoryUpgradeTests
         harness.Tracker.CompleteOperation(
             importId,
             success: false,
-            error: cancelled ? null : "Import stopped after committed rows",
-            cancelled: cancelled);
+            error: canceled ? null : "Import stopped after committed rows",
+            canceled: canceled);
         await terminalObserved.Task;
         releaseNoWorkCheck.TrySetResult();
 
@@ -2260,7 +2345,7 @@ public class DownloadHistoryUpgradeTests
     }
 
     [Fact]
-    public async Task CancellingWhileWaitingResetsTheRequestFlagAsync()
+    public async Task CancelingWhileWaitingResetsTheRequestFlagAsync()
     {
         await using var harness = await UpgradeHarness.CreateAsync();
         await SeedIslandAsync(harness, rows: 2, logsPerRow: 0);
@@ -2270,19 +2355,19 @@ public class DownloadHistoryUpgradeTests
             new CancellationTokenSource());
         await harness.Service.StartAsync(CancellationToken.None);
         var waiting = await WaitForWaitingUpgradeAsync(harness.Tracker);
-        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var canceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         void OnTerminal(OperationInfo operation)
         {
             if (operation.Id == waiting.Id)
             {
-                cancelled.TrySetResult();
+                canceled.TrySetResult();
             }
         }
         harness.Tracker.OperationTerminal += OnTerminal;
         try
         {
             Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(waiting.Id));
-            await cancelled.Task;
+            await canceled.Task;
         }
         finally
         {
@@ -2727,7 +2812,7 @@ public class DownloadHistoryUpgradeTests
                 NullLogger<DataMigrationController>.Instance,
                 (ISignalRNotificationService)(object)harness.NotificationRecorder,
                 harness.Tracker,
-                harness.Checker,
+                harness.Queue,
                 new ConfigurationBuilder().AddInMemoryCollection(settings).Build())
             {
                 BatchCommitted = batchCommitted
@@ -2958,7 +3043,7 @@ public class DownloadHistoryUpgradeTests
             RecordingNotificationProxy notificationRecorder,
             UnifiedOperationTracker tracker,
             OperationConflictChecker checker,
-            OperationQueueService queue,
+            OperationWaitlistService queue,
             OperationStateService operationState,
             DownloadHistoryUpgradeService service)
         {
@@ -2990,7 +3075,7 @@ public class DownloadHistoryUpgradeTests
 
         public OperationConflictChecker Checker { get; }
 
-        public OperationQueueService Queue { get; }
+        public OperationWaitlistService Queue { get; }
 
         public OperationStateService OperationState { get; }
 
@@ -3050,10 +3135,10 @@ public class DownloadHistoryUpgradeTests
             var checker = OperationConflictTestServices.Create(
                 tracker,
                 NullLogger<OperationConflictChecker>.Instance);
-            var queue = new OperationQueueService(
+            var queue = new OperationWaitlistService(
                 tracker,
                 checker,
-                NullLogger<OperationQueueService>.Instance);
+                NullLogger<OperationWaitlistService>.Instance);
             // Each harness owns its log lock, so a parallel test's lock never shows up in this one.
             var operationState = new OperationStateService(
                 NullLogger<OperationStateService>.Instance,

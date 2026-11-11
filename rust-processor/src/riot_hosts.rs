@@ -2,12 +2,15 @@
 //!
 //! Riot bundle URLs carry NO product slug
 //! (`http://<host>/channels/public/bundles/<HASH>.bundle`), so the only signal
-//! that distinguishes League of Legends / Valorant / Legends of Runeterra is the
-//! CDN subdomain host (the access.log `$host`, the 4th quoted field). This is the
-//! Riot analogue of the Blizzard TACT-product discriminator in `tact_products.rs`.
+//! that distinguishes League of Legends / Valorant / Legends of Runeterra /
+//! Teamfight Tactics is the CDN subdomain host (the access.log `$host`, the 4th
+//! quoted field). This is the Riot analog of the Blizzard TACT-product
+//! discriminator in `tact_products.rs`.
 //!
-//! There are exactly three static host->game mappings (hard constants of Riot's
-//! network), so this is an inline match rather than a json catalog + loader.
+//! There are four static host->game mappings (hard constants of Riot's network),
+//! so this is an inline match rather than a json catalog + loader. The Riot
+//! prefill daemon names its products with the same text, and the prefill cache
+//! match compares the two exactly.
 
 use std::collections::HashSet;
 
@@ -26,6 +29,9 @@ pub fn resolve_riot_host(host: &str) -> Option<&'static str> {
     }
     if h.starts_with("bacon.") {
         return Some("Legends of Runeterra");
+    }
+    if h.starts_with("teamfighttactics.") {
+        return Some("Teamfight Tactics");
     }
     None
 }
@@ -95,6 +101,14 @@ mod tests {
             resolve_riot_host("bacon.dyn.riotcdn.net"),
             Some("Legends of Runeterra")
         );
+        assert_eq!(
+            resolve_riot_host("teamfighttactics.dyn.riotcdn.net"),
+            Some("Teamfight Tactics")
+        );
+        assert_eq!(
+            resolve_riot_host("teamfighttactics.secure.dyn.riotcdn.net"),
+            Some("Teamfight Tactics")
+        );
     }
 
     #[test]
@@ -132,10 +146,14 @@ mod tests {
         assert_eq!(unknown.game_name, None);
         assert!(unknown.first_observation);
 
+        let tft = counters.observe("teamfighttactics.dyn.riotcdn.net");
+        assert_eq!(tft.game_name, Some("Teamfight Tactics"));
+        assert!(tft.first_observation);
+
         counters.observe("");
         counters.observe("-");
 
-        assert_eq!(counters.processed(), 2);
-        assert_eq!(counters.mapped(), 1);
+        assert_eq!(counters.processed(), 3);
+        assert_eq!(counters.mapped(), 2);
     }
 }

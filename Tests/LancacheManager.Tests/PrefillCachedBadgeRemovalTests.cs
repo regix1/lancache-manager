@@ -180,7 +180,6 @@ public sealed class PrefillCachedBadgeRemovalTests
             logger: NullLogger<GamesController>.Instance,
             pathResolver: null!,
             operationTracker: harness.Tracker,
-            conflictChecker: null!,
             operationQueue: null!,
             capabilityService: null!,
             cacheScanGate: CacheScanGateHarness.Idle());

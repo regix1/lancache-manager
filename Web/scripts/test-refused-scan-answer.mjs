@@ -30,7 +30,7 @@ const classifier = (displayModes, scheduledTypeToServiceKey = {}) => {
     ready: true,
     platformDisplayModeKey: () => '',
     isTerminalNotificationStatus: (status) =>
-      ['completed', 'failed', 'cancelled', 'skipped'].includes(status),
+      ['completed', 'failed', 'canceled', 'skipped'].includes(status),
     fullOrder: 0,
     isMobile: false,
     MOBILE_FULL_CARD_CAP: 2

@@ -143,7 +143,7 @@ test('a successful empty snapshot stays loaded through refresh failure without a
   assert.equal(run.state.loading, false);
 });
 
-test('a queued refresh runs after the superseded request fails', async () => {
+test('a pending refresh runs after the superseded request fails', async () => {
   const run = create();
   const first = run.load();
   const joined = run.load();

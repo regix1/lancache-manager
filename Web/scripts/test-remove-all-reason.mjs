@@ -214,7 +214,7 @@ test('each Scan item and Remove selected sit in a reason gate that matches their
 test('the Remove all gate carries that reason', () => {
   const gate = findSoleNode(
     sourceFile,
-    'DisabledActionGate labelled removeAllLabel',
+    'DisabledActionGate labeled removeAllLabel',
     (node) =>
       (typescript.isJsxOpeningElement(node) || typescript.isJsxSelfClosingElement(node)) &&
       node.tagName.getText(sourceFile) === 'DisabledActionGate' &&
@@ -624,9 +624,9 @@ const rowIsRemoving = (runs, service) => {
   return state.isRemoving;
 };
 
-test('the row whose own removal is queued or canceling shows its spinner and no reason box', () => {
+test('the row whose own removal is waiting or canceling shows its spinner and no reason box', () => {
   const [removeGate] = enclosingGates(rowRemove, 'DisabledActionGate');
-  for (const status of ['waiting', 'cancelling']) {
+  for (const status of ['waiting', 'canceling']) {
     const isRemoving = rowIsRemoving(corruptionRemovalCards([['steam', status]]), 'steam');
     assert.equal(isRemoving, true, status);
     const state = menuState({ isRemoving, isCorruptionRemovalActive: true });

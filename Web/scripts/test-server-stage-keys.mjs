@@ -46,7 +46,7 @@ const lookup = (bundle, key) => {
 };
 
 /**
- * i18next's own behaviour for the two calls the product makes: a key the bundle carries wins, and a
+ * i18next's own behavior for the two calls the product makes: a key the bundle carries wins, and a
  * key it does not falls back to `defaultValue`, or to the key path when there is no default.
  */
 const translator = (bundle) => (key, options) =>
@@ -454,7 +454,7 @@ export function checkMessages(entries) {
         if (
           ts.isPropertyAccessExpression(node.expression) &&
           [
-            'getCancelledMessage',
+            'getCanceledMessage',
             'getFailureMessage',
             'getSuccessMessage',
             'getCompletedMessage'
@@ -857,7 +857,7 @@ for (const [name, fragments] of [
       '"Another sentence"; }'
     ]
   ],
-  ...['getCancelledMessage', 'getFailureMessage', 'getSuccessMessage'].map((name) => [
+  ...['getCanceledMessage', 'getFailureMessage', 'getSuccessMessage'].map((name) => [
     name,
     [
       "import type { RegistryCompleteConfig } from '@contexts/notifications/types'; declare const config: RegistryCompleteConfig<{}>; show(config.",
@@ -1038,26 +1038,14 @@ const submitErrorExpression = (() => {
   return calls[0].arguments[0].getText(stepFile);
 })();
 
-const sentenceExpression = (() => {
-  const declarations = collect(
-    stepFile,
-    (node) => ts.isVariableDeclaration(node) && node.name.getText(stepFile) === 'sentence'
-  );
-  assert.equal(declarations.length, 1, 'expected exactly one sentence declaration');
-  return declarations[0].initializer.getText(stepFile);
-})();
-
 const evaluate = (expression, bindings) => {
   const names = Object.keys(bindings);
   return new Function(...names, `return (${expression});`)(...names.map((name) => bindings[name]));
 };
 
 /** What the operator reads for one response body, in one language. */
-const shownFor = (data, bundle, recovering = false) => {
-  const t = translator(bundle);
-  const sentence = evaluate(sentenceExpression, { data, t, recovering });
-  return evaluate(submitErrorExpression, { data, t, sentence });
-};
+const shownFor = (data, bundle, recovering = false) =>
+  evaluate(submitErrorExpression, { data, t: translator(bundle), recovering });
 
 test('a key both locales carry is read in the language the operator picked', () => {
   const refused = {
@@ -1070,22 +1058,26 @@ test('a key both locales carry is read in the language the operator picked', () 
   assert.notEqual(shownFor(refused, zh), refused.error);
 });
 
-test('a key this build has no translation for shows the English sentence, not the key path', () => {
+test('a key this build has no translation for shows the key, never the English sentence beside it', () => {
+  // Every key the server sends is checked to exist in both locales earlier in this script, so this
+  // case is only a newer server talking to an older browser.
   const refused = {
     stageKey: 'errors.accountSetup.somethingAddedLater',
     error: 'A newer server refused this for a reason this build has no words for'
   };
 
-  assert.equal(shownFor(refused, zh), refused.error);
+  assert.equal(shownFor(refused, zh), refused.stageKey);
+  assert.notEqual(shownFor(refused, zh), refused.error);
 });
 
-test('a response with no key at all still reads as a sentence', () => {
-  assert.equal(shownFor({ error: 'Validation failed' }, zh), 'Validation failed');
+test('a response with no key shows the screen sentence, never server text', () => {
+  const createFailed = zh.initialization.adminAccount.errors.createFailed;
+  assert.equal(shownFor({ error: 'Validation failed' }, zh), createFailed);
   assert.equal(
     shownFor({ errors: [{ field: 'password', message: 'Password is too short' }] }, zh),
-    'Password is too short'
+    createFailed
   );
-  assert.equal(shownFor({}, zh), zh.initialization.adminAccount.errors.createFailed);
+  assert.equal(shownFor({}, zh), createFailed);
 });
 
 test('the same form names the reset when it is resetting rather than creating', () => {

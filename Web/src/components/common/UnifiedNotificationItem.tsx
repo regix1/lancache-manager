@@ -46,7 +46,7 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
   if (
     notification.status === 'running' ||
     notification.status === 'pending' ||
-    notification.status === 'cancelling' ||
+    notification.status === 'canceling' ||
     notification.status === 'repairing'
   ) {
     return (
@@ -59,7 +59,7 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
   }
 
   if (notification.status === 'waiting') {
-    // Queued behind a conflicting operation - clock, not spinner (nothing is running yet).
+    // Waiting behind a conflicting operation - clock, not spinner (nothing is running yet).
     return <Clock className="notification-card__icon w-4 h-4 flex-shrink-0" />;
   }
 
@@ -70,17 +70,17 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
   }
 
   if (notification.status === 'completed') {
-    // A cancelled run did not finish its work, so the cross says so where the tick would lie.
+    // A canceled run did not finish its work, so the cross says so where the tick would lie.
     // Its color rides the status color, which is gray rather than the red of a failure.
-    if (notification.details?.cancelled) {
+    if (notification.details?.canceled) {
       return <XCircle className="notification-card__icon w-4 h-4 flex-shrink-0" />;
     }
     return <CheckCircle className="notification-card__icon w-4 h-4 flex-shrink-0" />;
   }
 
-  // 'cancelled' is its own terminal status (the standard completion handler sets it when the
-  // server reports cancelled:true) - without this branch the card renders with no icon at all.
-  if (notification.status === 'failed' || notification.status === 'cancelled') {
+  // 'canceled' is its own terminal status (the standard completion handler sets it when the
+  // server reports canceled:true) - without this branch the card renders with no icon at all.
+  if (notification.status === 'failed' || notification.status === 'canceled') {
     return <XCircle className="notification-card__icon w-4 h-4 flex-shrink-0" />;
   }
 
@@ -233,12 +233,12 @@ function useNotificationAnnouncement(
     !connectionLost &&
     (notification.details?.recovering === true ||
       notification.details?.connectionRecovering === true);
-  const cancelling =
-    notification.status === 'cancelling' || notification.details?.cancelRequested === true;
+  const canceling =
+    notification.status === 'canceling' || notification.details?.cancelRequested === true;
   const terminalText =
     notification.type === 'scheduled_prefill' && isTerminalNotificationStatus(notification.status)
-      ? notification.status === 'cancelled' || notification.details?.cancelled
-        ? t('prefill.runs.cancelled')
+      ? notification.status === 'canceled' || notification.details?.canceled
+        ? t('prefill.runs.canceled')
         : notification.status === 'failed'
           ? t('prefill.runs.failed')
           : notification.status === 'skipped'
@@ -249,7 +249,7 @@ function useNotificationAnnouncement(
     terminalText,
     notification.progressAriaValueText ??
       [
-        cancelling ? t('prefill.progress.cancelling') : null,
+        canceling ? t('prefill.progress.canceling') : null,
         recovering ? t('prefill.progress.reconnecting') : null,
         notification.message,
         notification.detailMessage
@@ -263,7 +263,7 @@ function useNotificationAnnouncement(
   const lastAnnouncementRef = useRef({
     text: accessibleText,
     recovering,
-    cancelling,
+    canceling,
     at: Date.now(),
     message: notification.message,
     wholePercent: Math.floor(notification.progress ?? 0),
@@ -277,7 +277,7 @@ function useNotificationAnnouncement(
     const previous = lastAnnouncementRef.current;
     const shouldAnnounce =
       recovering !== previous.recovering ||
-      cancelling !== previous.cancelling ||
+      canceling !== previous.canceling ||
       (notification.message !== previous.message && notification.type !== 'scheduled_prefill') ||
       (terminal && !previous.terminal) ||
       ((wholePercent !== previous.wholePercent || accessibleText !== previous.text) &&
@@ -288,7 +288,7 @@ function useNotificationAnnouncement(
       lastAnnouncementRef.current = {
         text: accessibleText,
         recovering,
-        cancelling,
+        canceling,
         at: now,
         message: notification.message,
         wholePercent,
@@ -302,7 +302,7 @@ function useNotificationAnnouncement(
     notification.status,
     notification.type,
     recovering,
-    cancelling
+    canceling
   ]);
 
   return announcement;
@@ -372,7 +372,7 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
           {isWaiting
             ? notification.message
             : t(
-                `common.notifications.condensedStatus.${notification.details?.cancelRequested ? 'cancelling' : notification.status}`
+                `common.notifications.condensedStatus.${notification.details?.cancelRequested ? 'canceling' : notification.status}`
               )}
         </span>
         {/* A cancel cannot reach an unreachable server, so the row offers none until the
@@ -492,8 +492,8 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
 
       {/* Action buttons */}
       <div className="flex items-center gap-2 flex-shrink-0">
-        {/* Cancel button for operations that support cancellation. 'waiting' is cancellable
-            too: the queued op is a real tracker registration, so the universal cancel path
+        {/* Cancel button for operations that support cancellation. 'waiting' is cancelable
+            too: the waiting op is a real tracker registration, so the universal cancel path
             dequeues it and its run row ends the card.
             A serverOp cancel is an API call keyed by details.operationId - the same field
             handleCancel bails on - so a card that has none shows no X. Every run card carries its
@@ -503,7 +503,7 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
           notification.type in CANCEL_CONFIG_BY_TYPE &&
           (notification.status === 'running' ||
             notification.status === 'waiting' ||
-            notification.status === 'cancelling') &&
+            notification.status === 'canceling') &&
           (CANCEL_CONFIG_BY_TYPE[notification.type].cancelKind !== 'serverOp' ||
             Boolean(notification.details?.operationId)) &&
           onCancel && (

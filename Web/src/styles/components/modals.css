@@ -116,7 +116,7 @@
     color: var(--theme-text-primary);
   }
 
-  /* Box, type and colour come from the Badge component (.themed-badge + .status-badge-success);
+  /* Box, type and color come from the Badge component (.themed-badge + .status-badge-success);
      only the push to the right edge of the header row is local, and .themed-badge sets no
      margin, so the two rules share no declaration. */
   .full-scan-modal-badge {
@@ -254,7 +254,7 @@
 
   /* The line is the one reserved space in the design, and it holds its height whether it carries
      the live status alone or the reason the last attempt stopped under it. That
-     is what makes every idle-to-working change move the panel no pixels: the panel is centred by
+     is what makes every idle-to-working change move the panel no pixels: the panel is centered by
      the modal shell, so a height change slides both its edges and the footer buttons out from under
      the pointer mid-login.
 
@@ -267,7 +267,7 @@
      Both numbers are measured at 1280x800, the second by taking this line back to 2.5rem.
 
      Moving the error below the footer instead, so it has nowhere to push, does not work: the modal
-     is centred, so any growth re-centres it, and growth under the button pulls the button 45px UP,
+     is centered, so any growth re-centers it, and growth under the button pulls the button 45px UP,
      which is worse and moves it toward the pointer. Measured the same way. */
   .login-attempt-slot {
     display: flex;

@@ -183,7 +183,7 @@ pub struct StructuralCoverage {
 #[serde(deny_unknown_fields)]
 pub struct CorruptionReport {
     pub contract_version: u32,
-    pub cancelled: bool,
+    pub canceled: bool,
     pub detection_method: DetectionMethod,
     pub scan_started_utc: String,
     pub settings: CorruptionSettings,
@@ -962,7 +962,7 @@ impl CorruptionDetector {
         }
         CorruptionReport {
             contract_version: CORRUPTION_CONTRACT_VERSION,
-            cancelled: false,
+            canceled: false,
             detection_method: DetectionMethod::RepeatedMiss,
             scan_started_utc: self
                 .scan_started_utc
@@ -2186,7 +2186,7 @@ mod tests {
         let second = report(&cache_dir, &log_dir, 3, 1);
         assert_eq!(first, second);
         assert_eq!(first.contract_version, 4);
-        assert!(!first.cancelled);
+        assert!(!first.canceled);
         assert_eq!(repeated(&first.candidates[0]).0, "/a.bin");
         let value = serde_json::to_value(first).unwrap();
         assert_eq!(
@@ -2197,7 +2197,7 @@ mod tests {
                 .cloned()
                 .collect::<Vec<_>>(),
             [
-                "cancelled",
+                "canceled",
                 "candidates",
                 "contract_version",
                 "detection_counts",

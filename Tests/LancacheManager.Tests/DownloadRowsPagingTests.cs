@@ -86,6 +86,31 @@ public class DownloadRowsPagingTests
         Assert.IsType<NotFoundResult>(result.Result);
     }
 
+    /// <summary>
+    /// A Hide prefill rule keeps prefill rows out of the walk, as it keeps them off the Downloads
+    /// page, so an export never writes a row the page does not show.
+    /// </summary>
+    [Fact]
+    public async Task AHiddenPrefillRuleLeavesPrefillRowsOutOfThePage()
+    {
+        var rows = SeedMinutes(2);
+        rows[1].IsPrefill = true;
+        var hidePrefill = CacheScanGateHarness.CreateProxy<IStateService>((method, _) => method.Name switch
+        {
+            nameof(IStateService.GetHiddenClientIps) => new List<string>(),
+            nameof(IStateService.GetHiddenPrefillRules) =>
+                new List<ClientExclusionRule> { CacheScanGateHarness.PrefillRule("", ClientExclusionModes.Hide) },
+            // The evicted display mode is the one string this route reads.
+            _ when method.ReturnType == typeof(string) => "show",
+            _ => throw new NotSupportedException(method.Name)
+        });
+        var controller = await NewControllerAsync(rows, hidePrefill);
+
+        var page = await GetRowsAsync(controller);
+
+        Assert.Equal([1L], page.Select(r => r.Id));
+    }
+
     private static async Task<List<Download>> GetRowsAsync(
         DownloadRowsController controller,
         long? afterId = null)
@@ -94,7 +119,7 @@ public class DownloadRowsPagingTests
         return Assert.IsType<List<Download>>(Assert.IsType<OkObjectResult>(result.Result).Value);
     }
 
-    private static async Task<DownloadRowsController> NewControllerAsync(List<Download> rows)
+    private static async Task<DownloadRowsController> NewControllerAsync(List<Download> rows, IStateService? stateService = null)
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
             .UseInMemoryDatabase($"download-rows-paging-{Guid.NewGuid():N}")
@@ -106,9 +131,7 @@ public class DownloadRowsPagingTests
             await seed.SaveChangesAsync();
         }
 
-        var stateService = DispatchProxy.Create<IStateService, NothingHiddenState>();
-
-        return new DownloadRowsController(new AppDbContext(options), stateService)
+        return new DownloadRowsController(new AppDbContext(options), stateService ?? DispatchProxy.Create<IStateService, NothingHiddenState>())
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };

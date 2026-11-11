@@ -90,7 +90,7 @@ public interface IUnifiedOperationTracker
     /// then cancels the operation's <see cref="CancellationTokenSource"/>.
     /// Idempotent — repeated calls re-attempt process termination.
     /// The result says whether anything was actually stopped, so a caller can tell a live
-    /// operation being cancelled from a request that arrived after it finished.
+    /// operation being canceled from a request that arrived after it finished.
     /// A cancel aimed at an operation that has handed its work on (see
     /// <see cref="RecordHandoff"/>) is forwarded to whichever operation is actually running.
     /// </summary>
@@ -104,8 +104,8 @@ public interface IUnifiedOperationTracker
     /// The wait-queue needs this because a parked operation and the operation it is promoted into
     /// are two different tracker registrations with two different tokens. The user's card still
     /// carries the parked id while the promotion runs, so without the handoff a cancel clicked
-    /// during that window is answered with a success the code cannot honour: the parked operation
-    /// ends as cancelled while the work it started runs to completion.
+    /// during that window is answered with a success the code cannot honor: the parked operation
+    /// ends as canceled while the work it started runs to completion.
     /// </summary>
     void RecordHandoff(Guid fromOperationId, Guid toOperationId);
 
@@ -121,7 +121,7 @@ public interface IUnifiedOperationTracker
     /// the card that was waiting is the card that runs. Returns false when that operation is
     /// missing or no longer waiting.
     /// </summary>
-    bool BeginQueuedOperation(
+    bool BeginWaitingOperation(
         Guid operationId,
         object? state,
         Action? onTerminalCleanup,
@@ -129,7 +129,7 @@ public interface IUnifiedOperationTracker
         bool ownerCompletes = false);
 
     /// <summary>
-    /// Completes a parked operation as cancelled, because a queued operation has no worker to
+    /// Completes a parked operation as canceled, because a waiting operation has no worker to
     /// unwind it. Does nothing once it runs under its own id: from that point its worker reports
     /// the terminal itself. Returns whether this call completed it.
     /// </summary>
@@ -165,7 +165,7 @@ public interface IUnifiedOperationTracker
 
     /// <summary>
     /// Gets all active operations, optionally filtered by type.
-    /// Excludes <see cref="OperationStatus.Waiting"/> operations: queued ops have not started
+    /// Excludes <see cref="OperationStatus.Waiting"/> operations: waiting ops have not started
     /// any work, must not block conflict checks, and must stay invisible to the per-type
     /// recovery/status endpoints that treat "active" as "actually running".
     /// </summary>
@@ -235,12 +235,12 @@ public interface IUnifiedOperationTracker
 
     /// <summary>
     /// Raises <see cref="BlockerCleared"/> for something other than an operation ending that may let
-    /// a queued operation start.
+    /// a waiting operation start.
     /// </summary>
     void NotifyBlockerCleared();
 
     /// <summary>
-    /// Raised when something other than an operation ending may let a queued operation start (a
+    /// Raised when something other than an operation ending may let a waiting operation start (a
     /// repair ended, or a saved repair outcome landed). Fired off the caller's stack,
     /// fire-and-forget; handler faults are logged and contained.
     /// </summary>
@@ -257,7 +257,7 @@ public interface IUnifiedOperationTracker
     /// <summary>
     /// Raised exactly once per operation when it reaches a terminal state (fired from
     /// <see cref="CompleteOperation"/> after the CompletedFlag gate, fire-and-forget).
-    /// The operation wait-queue subscribes to promote the next eligible queued operation.
+    /// The operation wait-queue subscribes to promote the next eligible waiting operation.
     /// Handlers must not throw; invocation is wrapped defensively.
     /// </summary>
     event Action<OperationInfo>? OperationTerminal;
@@ -288,7 +288,7 @@ public interface IUnifiedOperationTracker
         Guid operationId,
         bool success,
         string? error = null,
-        bool cancelled = false,
+        bool canceled = false,
         bool skipped = false,
         Action<OperationInfo>? onCompleting = null,
         Action? commit = null);

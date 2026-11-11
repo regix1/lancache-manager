@@ -24,7 +24,7 @@ public sealed class RustLogProcessorRefreshContractTests
     [InlineData("completed")]
     [InlineData("completed_with_warnings")]
     [InlineData("partial")]
-    [InlineData("cancelled")]
+    [InlineData("canceled")]
     [InlineData("failed")]
     public void HasCommittedDownloads_TrueForEveryTerminalStatusWithSavedEntries(string status)
     {
@@ -59,7 +59,7 @@ public sealed class RustLogProcessorRefreshContractTests
     [InlineData("completed_with_warnings", true)]
     [InlineData("partial", false)]
     [InlineData("failed", false)]
-    [InlineData("cancelled", false)]
+    [InlineData("canceled", false)]
     public void ZeroEntryCheckpointSatisfiesRefreshOnlyForSuccessfulCompletion(
         string status,
         bool expected)

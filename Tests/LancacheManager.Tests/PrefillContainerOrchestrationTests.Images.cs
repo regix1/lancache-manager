@@ -1746,18 +1746,18 @@ public sealed partial class PrefillContainerOrchestrationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task CancelledImagePullDoesNotRetryOrFallBackAsync(bool cancelledBeforePull)
+    public async Task CanceledImagePullDoesNotRetryOrFallBackAsync(bool canceledBeforePull)
     {
         var (_, database) = NewDatabase();
         var sessions = new PrefillSessionService(database, NullLogger<PrefillSessionService>.Instance);
         using var cancel = new CancellationTokenSource();
         var gateway = new RecordingContainerGateway { OnImagePull = cancel.Cancel };
         using var daemon = BuildDaemon(PrefillPlatform.Epic, MakeDeps(database, sessions, Config(PersistenceMode.FullPersistence, true)), gateway);
-        if (cancelledBeforePull) await cancel.CancelAsync();
+        if (canceledBeforePull) await cancel.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => PullAsync(daemon, cancel.Token));
 
-        Assert.Equal(cancelledBeforePull ? 0 : 1, gateway.CountOf("CreateImage"));
+        Assert.Equal(canceledBeforePull ? 0 : 1, gateway.CountOf("CreateImage"));
         Assert.Equal(0, gateway.CountOf("InspectImage:"));
     }
 

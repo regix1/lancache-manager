@@ -140,7 +140,7 @@
 
 /* ===== EPIC GAME MAPPINGS - Source discovery badges ===== */
 
-/* Fixed-width slot so the source column reads as one rail; box, type and colour
+/* Fixed-width slot so the source column reads as one rail; box, type and color
    come from the Badge component. cursor: help marks the tooltip. */
 .epic-source-badge {
   min-width: 6.5rem;
@@ -150,7 +150,7 @@
 
 /* Label on every top-level group heading across the Management tabs. Base type comes from
    .caps-label; the compound overrides the three declarations that differ at this rank, the
-   secondary text colour among them, so a group heading reads the same on every tab.
+   secondary text color among them, so a group heading reads the same on every tab.
    Spacing below stays on the heading row, which also carries the accent stripe. */
 .caps-label.management-group-label {
   font-size: var(--font-size-md);
@@ -228,7 +228,7 @@
 }
 
 /* None of the built-in themes is applied, so the readout is a placeholder rather than a name.
-   Muted weight and colour say "nothing selected" without borrowing the disabled treatment - the
+   Muted weight and color say "nothing selected" without borrowing the disabled treatment - the
    control still works. */
 .theme-slider-value.theme-slider-value-none {
   font-weight: 500;
@@ -274,7 +274,7 @@
   gap: 0.5rem;
 }
 
-/* Equal columns, so a middle stop's label centres on the notch it belongs to. Sizing each label
+/* Equal columns, so a middle stop's label centers on the notch it belongs to. Sizing each label
    to its own text instead would push the middle one off its notch whenever the outer two names
    differ in length.
 
@@ -294,7 +294,7 @@
   transition: color 0.15s ease-out;
 }
 
-/* The end stops sit under the track ends rather than under their column centres. */
+/* The end stops sit under the track ends rather than under their column centers. */
 .theme-slider-stop:first-child {
   text-align: left;
 }
@@ -303,7 +303,7 @@
   text-align: right;
 }
 
-/* Weight carries the current stop as well as colour, so it reads without colour vision. */
+/* Weight carries the current stop as well as color, so it reads without color vision. */
 .theme-slider-stop.theme-slider-stop-current {
   color: var(--theme-text-primary);
   font-weight: 600;

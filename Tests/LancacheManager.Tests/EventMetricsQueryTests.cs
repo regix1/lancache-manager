@@ -39,7 +39,7 @@ public class EventMetricsQueryTests
     }
 
     [Fact]
-    public async Task EventTotalsQuery_HonoursClientExclusions()
+    public async Task EventTotalsQuery_HonorsClientExclusions()
     {
         await using var database = await TestDatabase.CreateAsync();
         await using var context = database.Factory.CreateDbContext();

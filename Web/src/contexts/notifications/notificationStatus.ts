@@ -1,7 +1,7 @@
 /**
  * Status predicates shared by the notification context and the notification bar.
  *
- * A cancelled operation is terminal exactly like completed/failed: nothing further
+ * A canceled operation is terminal exactly like completed/failed: nothing further
  * arrives for it, so its card is dismissible by hand. The same holds for a skipped
  * run, which stopped because it had nothing to do.
  * Keeping this in one place stops the call sites from drifting apart again.
@@ -12,7 +12,7 @@ import type { NotificationStatus, NotificationTerminal, UnifiedNotification } fr
 const TERMINAL_STATUSES: readonly NotificationStatus[] = [
   'completed',
   'failed',
-  'cancelled',
+  'canceled',
   'skipped'
 ];
 

@@ -57,7 +57,7 @@ public sealed class DaemonSocketMountLossTests : IDisposable
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.ConnectAsync(cts.Token));
         elapsed.Stop();
 
-        // Cancelled while still waiting rather than having given up on its own.
+        // Canceled while still waiting rather than having given up on its own.
         Assert.True(
             elapsed.Elapsed > TimeSpan.FromSeconds(1),
             $"expected the publish wait to still apply, gave up after {elapsed.Elapsed.TotalSeconds:F1}s");

@@ -1035,7 +1035,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         {
             Type = "status",
             Status = client.CancelLoginCallCount == 0 ? "logged-in" : "awaiting-login",
-            Message = "Initialized",
+            IsInitialized = true,
             Timestamp = DateTime.UtcNow
         });
 
@@ -1842,6 +1842,59 @@ public sealed partial class PrefillContainerOrchestrationTests
         Assert.NotNull(s.Session.LoginOperationId);
     }
 
+    // A canceled run this app ended after its cancel went unanswered can still run on the daemon, which refuses a
+    // login while it does; that refusal is never read, so the Log in is refused here before any login is sent.
+    [Fact]
+    public async Task ALogInWhileTheDaemonStillRunsARunThisAppEndedIsRefusedAsync()
+    {
+        var client = new ScriptedLoginDaemonClient();
+        using var s = await StartSignedInSteamAsync(client);
+        await s.Client.RaiseStatusAsync(LogOffStatus(s.Instance));
+        client.NeverAuthenticates = true;
+        UseOperationTracker(s.Daemon);
+        var runId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var stillRunning = new DaemonRunSnapshot
+        {
+            OperationId = runId.ToString(),
+            DaemonInstanceId = "instance",
+            StartedAt = now,
+            UpdatedAt = now,
+            State = "running"
+        };
+        s.Session.Runs[runId] = new DaemonRun
+        {
+            PrefillRunId = runId,
+            SessionId = s.Session.Id,
+            DaemonInstanceId = "instance",
+            Options = new DaemonRunOptions(),
+            Snapshot = stillRunning with { State = "failed", Reason = "auth-lost" },
+            TerminalCompletedFlag = 2,
+            CompletedAtUtc = DateTime.UtcNow
+        };
+        var stillStopping = new DaemonStatus
+        {
+            Type = "status",
+            Status = "awaiting-login",
+            DaemonInstanceId = "instance",
+            ActiveOperations = [stillRunning],
+            RecentOperations = [],
+            Timestamp = DateTime.UtcNow
+        };
+        client.StatusHandler = _ => Task.FromResult<DaemonStatus?>(stillStopping);
+        var startsBefore = client.StartLoginCallCount;
+
+        var loginId = Guid.NewGuid();
+        var refusal = await Assert.ThrowsAsync<ConflictException>(() => s.Daemon.StartPersistentLoginAsync(
+            s.Session.Id, TimeSpan.FromSeconds(30), () => { }, Guid.NewGuid(), loginId: loginId).WaitAsync(TestTimeout));
+
+        Assert.Equal("errors.prefill.prefillRunning", refusal.StageKey);
+        Assert.Equal(startsBefore, client.StartLoginCallCount);
+        Assert.Null(s.Session.LoginOperationId);
+        Assert.False(await s.Daemon.CancelLoginAsync(s.Session.Id, loginId: loginId));
+        Assert.False(s.Session.LoginCanceledByPerson);
+    }
+
     [Fact]
     public async Task ACancelOfALogInRefusedOnAnErroredSessionSetsNoMarkAsync()
     {
@@ -2364,9 +2417,8 @@ public sealed partial class PrefillContainerOrchestrationTests
 
             Assert.Equal(DaemonSessionStatus.Error, session.Status);
             Assert.NotEqual(DaemonSessionStatus.Active, session.Status);
-            Assert.Equal(
-                "Automatic sign-in could not be cancelled cleanly. Start the session again to recover.",
-                session.ErrorMessage);
+            // A key, so the session list words it in the reader's language.
+            Assert.Equal("errors.prefill.loginCancelUnconfirmed", session.ErrorMessage);
             Assert.False(session.LoginSettled);
             Assert.True(session.LoginCanceledByPerson);
             Assert.Equal(DaemonAuthState.LoggingIn, session.AuthState);
@@ -3372,11 +3424,11 @@ public sealed partial class PrefillContainerOrchestrationTests
         return status;
     }
 
-    // A status read of a logged-in daemon carries its startup snapshot text.
+    // A status read of a logged-in daemon carries its startup snapshot flag.
     private static DaemonStatus LoggedInRead(string instanceId)
     {
         var status = SteamStatus(instanceId, signedIn: true);
-        status.Message = "Initialized";
+        status.IsInitialized = true;
         return status;
     }
 
@@ -3411,12 +3463,12 @@ public sealed partial class PrefillContainerOrchestrationTests
     // login sent while Steam answers, as the real daemon does.
     private async Task<SignInScenario> StartSignedInSteamAsync(
         ScriptedLoginDaemonClient client, ILogger<SteamDaemonService>? logger = null, IInterceptor[]? interceptors = null,
-        ISignalRNotificationService? notifications = null)
+        ISignalRNotificationService? notifications = null, IUnifiedOperationTracker? operationTracker = null)
     {
         var s = new SignInScenario(client);
         var (database, daemon, _, _) = SetupRecreateScenario(
             DateTime.UtcNow.AddDays(30), clientFactory: () => client, notifications: notifications, logger: logger, cacheStatusClock: s.Clock,
-            interceptors: interceptors);
+            interceptors: interceptors, operationTracker: operationTracker);
         s.Daemon = daemon;
         s.Database = database;
         await daemon.StartAsync(CancellationToken.None);

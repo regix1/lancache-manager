@@ -75,6 +75,7 @@ struct GameSpeedInfo {
     key: String,
     depot_id: u32,
     game_name: Option<String>,
+    game_name_resolved: bool,
     game_app_id: Option<u32>,
     service: String,
     client_ip: String,
@@ -1052,16 +1053,13 @@ impl SpeedTracker {
 
         for ((source_root, client_ip, service), entries) in service_groups {
             if service.contains("epic") {
-                let mut groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
+                let mut groups: HashMap<Option<String>, Vec<SpeedLogEntry>> = HashMap::new();
                 for entry in entries {
-                    let game_name = self
-                        .lookup_epic_game(&entry.request_url)
-                        .await
-                        .unwrap_or_else(|| get_service_display_name(&service));
+                    let game_name = self.lookup_epic_game(&entry.request_url).await;
                     groups.entry(game_name).or_default().push(entry);
                 }
                 for (game_name, entries) in groups {
-                    let content = content_key(&service, &game_name);
+                    let content = content_key(game_name.as_deref());
                     self.record_flow(
                         FlowKey {
                             source_root: source_root.clone(),
@@ -1070,7 +1068,7 @@ impl SpeedTracker {
                             content,
                         },
                         entries,
-                        Some(game_name),
+                        Some(game_name.unwrap_or_else(|| get_service_display_name(&service))),
                         None,
                     );
                 }
@@ -1095,9 +1093,9 @@ impl SpeedTracker {
                     .max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)))
                     .map(|(name, _)| name)
                     .or_else(|| self.existing_named_game(&source_root, &client_ip, &service))
-                    .or(shared_label)
-                    .unwrap_or_else(|| get_service_display_name(&service));
-                let content = content_key(&service, &group_name);
+                    .or(shared_label);
+                let content = content_key(group_name.as_deref());
+                let game_name = group_name.unwrap_or_else(|| get_service_display_name(&service));
                 self.record_flow(
                     FlowKey {
                         source_root,
@@ -1106,22 +1104,21 @@ impl SpeedTracker {
                         content,
                     },
                     entries,
-                    Some(group_name),
+                    Some(game_name),
                     None,
                 );
             } else if service.contains("riot") {
-                let mut groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
+                let mut groups: HashMap<Option<String>, Vec<SpeedLogEntry>> = HashMap::new();
                 for entry in entries {
                     let game_name = entry
                         .cdn_host
                         .as_deref()
                         .and_then(riot_hosts::resolve_riot_host)
-                        .map(str::to_string)
-                        .unwrap_or_else(|| get_service_display_name(&service));
+                        .map(str::to_string);
                     groups.entry(game_name).or_default().push(entry);
                 }
                 for (game_name, entries) in groups {
-                    let content = content_key(&service, &game_name);
+                    let content = content_key(game_name.as_deref());
                     self.record_flow(
                         FlowKey {
                             source_root: source_root.clone(),
@@ -1130,21 +1127,18 @@ impl SpeedTracker {
                             content,
                         },
                         entries,
-                        Some(game_name),
+                        Some(game_name.unwrap_or_else(|| get_service_display_name(&service))),
                         None,
                     );
                 }
             } else if service.contains("wsus") || service.contains("xboxlive") {
-                let mut groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
+                let mut groups: HashMap<Option<String>, Vec<SpeedLogEntry>> = HashMap::new();
                 for entry in entries {
-                    let game_name = self
-                        .lookup_xbox_game(&entry.request_url)
-                        .await
-                        .unwrap_or_else(|| get_service_display_name(&service));
+                    let game_name = self.lookup_xbox_game(&entry.request_url).await;
                     groups.entry(game_name).or_default().push(entry);
                 }
                 for (game_name, entries) in groups {
-                    let content = content_key(&service, &game_name);
+                    let content = content_key(game_name.as_deref());
                     self.record_flow(
                         FlowKey {
                             source_root: source_root.clone(),
@@ -1153,7 +1147,7 @@ impl SpeedTracker {
                             content,
                         },
                         entries,
-                        Some(game_name),
+                        Some(game_name.unwrap_or_else(|| get_service_display_name(&service))),
                         None,
                     );
                 }
@@ -1298,11 +1292,14 @@ impl SpeedTracker {
                     0.0
                 };
                 let key = traffic_key(&service, &client_ip, &content);
+                let game_name_resolved =
+                    is_game_name_resolved(&content, group.game_name.as_deref());
                 (
                     GameSpeedInfo {
                         key,
                         depot_id,
                         game_name: group.game_name,
+                        game_name_resolved,
                         game_app_id: group.game_app_id,
                         service,
                         client_ip,
@@ -1582,14 +1579,22 @@ impl SpeedTracker {
     }
 }
 
-fn content_key(service: &str, game_name: &str) -> ContentKey {
-    if game_name
-        .trim()
-        .eq_ignore_ascii_case(&get_service_display_name(service))
-    {
-        ContentKey::Service
-    } else {
-        ContentKey::Named(game_name.trim().to_ascii_lowercase())
+/// The lookup's own answer decides the row: a title it found is a game row even when the title reads
+/// like the service's label, and a failed lookup is the service row.
+fn content_key(game_name: Option<&str>) -> ContentKey {
+    match game_name {
+        Some(name) => ContentKey::Named(name.trim().to_ascii_lowercase()),
+        None => ContentKey::Service,
+    }
+}
+
+/// Whether a row's name is a title its lookup found, rather than the service label standing in
+/// for one.
+fn is_game_name_resolved(content: &ContentKey, game_name: Option<&str>) -> bool {
+    match content {
+        ContentKey::Named(_) => true,
+        ContentKey::Service => false,
+        ContentKey::SteamApp(_) | ContentKey::SteamDepot(_) => game_name.is_some(),
     }
 }
 
@@ -1706,16 +1711,12 @@ fn build_game_speed_info(
     let content = game_app_id
         .map(ContentKey::SteamApp)
         .or_else(|| (depot_id > 0).then_some(ContentKey::SteamDepot(depot_id)))
-        .unwrap_or_else(|| {
-            game_name
-                .as_deref()
-                .map(|name| content_key(&service, name))
-                .unwrap_or(ContentKey::Service)
-        });
+        .unwrap_or_else(|| content_key(game_name.as_deref()));
 
     GameSpeedInfo {
         key: traffic_key(&service, &client_ip, &content),
         depot_id,
+        game_name_resolved: is_game_name_resolved(&content, game_name.as_deref()),
         game_name,
         game_app_id,
         service,
@@ -1901,6 +1902,7 @@ mod tests {
         CADENCE_SAMPLES, MAX_POLL_BYTES, MAX_WINDOW_SECONDS, PROTOCOL_VERSION, WINDOW_SECONDS,
     };
     use chrono::{Duration, NaiveDateTime, Utc};
+    use lancache_processor::cache_utils;
     use sqlx::postgres::PgPoolOptions;
     use std::collections::{HashMap, VecDeque};
     use std::io::Write;
@@ -2740,6 +2742,52 @@ mod tests {
             .expect("second client");
         assert_eq!(first.active_games, 2);
         assert_eq!(second.active_games, 1);
+    }
+
+    // The catalog's answer decides the row, not how the title reads: a game whose title is the
+    // service's own label gets a row of its own, and a failed lookup stays on the service row.
+    #[tokio::test]
+    async fn epic_title_equal_to_the_service_label_is_its_own_game() {
+        let base = Utc::now();
+        let mut tracker = lazy_tracker(Vec::new());
+        for (client_ip, request_url, title) in [
+            ("10.0.0.21", "/chunks/found.chunk", Some("Epic Games")),
+            ("10.0.0.22", "/chunks/missing.chunk", None),
+        ] {
+            tracker.epic_cdn_cache.insert(
+                cache_utils::calculate_md5_digest(request_url),
+                title.map(str::to_string),
+            );
+            let mut entry = flow_entry(
+                base.naive_utc(),
+                base.naive_utc(),
+                client_ip,
+                "epic",
+                "root-a",
+                "Primary",
+                1000,
+            );
+            entry.request_url = request_url.to_string();
+            tracker.entries.push_back(entry);
+        }
+
+        let snapshot = tracker.calculate_snapshot(base).await;
+        let found = snapshot
+            .game_speeds
+            .iter()
+            .find(|game| game.client_ip == "10.0.0.21")
+            .expect("found title row");
+        assert_eq!(found.key, "epic|10.0.0.21|name:epic games");
+        assert!(found.game_name_resolved);
+        assert_eq!(found.game_name.as_deref(), Some("Epic Games"));
+        let missing = snapshot
+            .game_speeds
+            .iter()
+            .find(|game| game.client_ip == "10.0.0.22")
+            .expect("failed lookup row");
+        assert_eq!(missing.key, "epic|10.0.0.22|service");
+        assert!(!missing.game_name_resolved);
+        assert_eq!(missing.game_name.as_deref(), Some("Epic Games"));
     }
 
     #[tokio::test]

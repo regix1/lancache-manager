@@ -237,19 +237,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
             IsAuthenticated = _isAuthenticated,
             OperationId = _currentOperationId,
             Status = _currentStatus,
-            ProgressPercent = _isProcessingInt != 0 ? _currentProgressPercent : 0,
-            StatusMessage = _isProcessingInt != 0 ? FormatStatusMessage(_currentStatus) : null
-        };
-    }
-
-    private static string FormatStatusMessage(EpicMappingStatus status)
-    {
-        return status switch
-        {
-            EpicMappingStatus.RefreshingCatalog => "Refreshing Epic game catalog...",
-            EpicMappingStatus.Authenticating => "Authenticating with Epic Games...",
-            EpicMappingStatus.Idle => "Idle",
-            _ => status.ToDisplayString()
+            ProgressPercent = _isProcessingInt != 0 ? _currentProgressPercent : 0
         };
     }
 

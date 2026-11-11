@@ -78,7 +78,7 @@ public sealed class StalledAdminConnectionTests
         var healthy = await ConnectAsync(manager, DownloadHub.AdminGroup, PipeOptions.Default);
         var slow = await ConnectAsync(manager, DownloadHub.AdminGroup, SlowReader);
 
-        const int sends = 2 * DownloadHubLifetimeManager.MaxQueuedWrites + 64;
+        const int sends = 2 * DownloadHubLifetimeManager.MaxPendingWrites + 64;
         var readBeforeClose = 0;
         for (var i = 0; i < sends; i++)
         {
@@ -91,7 +91,7 @@ public sealed class StalledAdminConnectionTests
                 await ReadMessageAsync(slow.Received, deadline.Token);
                 readBeforeClose++;
 
-                // Wait for the next queued write to land, so no write is mid-copy when a send runs.
+                // Wait for the next pending write to land, so no write is mid-copy when a send runs.
                 var next = await slow.Received.ReadAsync(deadline.Token);
                 slow.Received.AdvanceTo(next.Buffer.Start);
             }
@@ -107,7 +107,7 @@ public sealed class StalledAdminConnectionTests
         // The close came through the request that allows reconnecting, not the transport abort.
         Assert.False(slow.Context.ConnectionClosed.IsCancellationRequested);
         var unread = CountUnread(slow.Received);
-        Assert.InRange(readBeforeClose + unread, readBeforeClose, readBeforeClose + DownloadHubLifetimeManager.MaxQueuedWrites + 1);
+        Assert.InRange(readBeforeClose + unread, readBeforeClose, readBeforeClose + DownloadHubLifetimeManager.MaxPendingWrites + 1);
 
         await notifications.NotifyAdminAsync(Probe, sends);
         Assert.Equal(sends, Argument(await ReadMessageAsync(healthy.Received, deadline.Token)).GetInt32());
@@ -148,7 +148,7 @@ public sealed class StalledAdminConnectionTests
     }
 
     [Fact]
-    public async Task ASendThatCannotSerializeHoldsNoQueuedWrite()
+    public async Task ASendThatCannotSerializeHoldsNoPendingWrite()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         using var services = CreateServices();
@@ -157,7 +157,7 @@ public sealed class StalledAdminConnectionTests
 
         // The JSON protocol refuses NaN, so each of these sends throws.
         var errors = new List<Exception?>();
-        for (var i = 0; i <= DownloadHubLifetimeManager.MaxQueuedWrites; i++)
+        for (var i = 0; i <= DownloadHubLifetimeManager.MaxPendingWrites; i++)
         {
             errors.Add(await Record.ExceptionAsync(() => manager.SendAllAsync(Probe, [double.NaN])));
         }

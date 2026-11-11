@@ -26,6 +26,11 @@
   z-index: 5;
 }
 
+/* Dark themes draw no shadow: the surface fill and the lighter border set the button apart. */
+[data-theme='dark'] .back-to-top-button {
+  box-shadow: none;
+}
+
 .back-to-top-button.is-visible {
   opacity: 0.8;
   transform: translateY(0);

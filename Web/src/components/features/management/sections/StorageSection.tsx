@@ -285,7 +285,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   }, [on, off, fetchEvictedItems, isAnyEvictedRemovalRunning, scheduleEvictedItemsRefresh]);
 
   // The cache repair those jobs owe can change the evicted items after their Complete events. The
-  // repair of a cancelled removal marks the files it already deleted as evicted, and the repair of a
+  // repair of a canceled removal marks the files it already deleted as evicted, and the repair of a
   // stopped eviction removal finishes removing the evicted items it had started on.
   useRepairEnd(
     [
@@ -444,14 +444,14 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
     }
   };
 
-  // A cancelling scan still holds the button: it stays busy until the run has ended.
+  // A canceling scan still holds the button: it stays busy until the run has ended.
   const isEvictionScanNotificationRunning = useOperationBusy({
     types: ['eviction_scan'],
-    status: ['running', 'waiting', 'cancelling']
+    status: ['running', 'waiting', 'canceling']
   });
   const isEvictionRemovalRunning = useOperationBusy({
     types: ['eviction_removal'],
-    status: ['running', 'waiting']
+    status: ['running', 'waiting', 'canceling']
   });
   // Wait-queue model: an eviction REMOVAL no longer disables the scan button (the scan
   // queues behind it - purple card feedback). Same-op only: scan already running or the
@@ -461,7 +461,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   // stopped.
   const isUnmappedRemovalRunning = useOperationBusy({
     types: ['unmapped_file_removal'],
-    status: ['running', 'cancelling']
+    status: ['running', 'canceling']
   });
   const unmappedRemovalReason = isUnmappedRemovalRunning
     ? t('management.storage.unmappedRemovalRunning')

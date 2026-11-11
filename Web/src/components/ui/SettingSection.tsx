@@ -8,8 +8,8 @@ interface SettingSectionProps {
 
 /**
  * A sub-section on a well surface: icon chip, title, divider, then the rows. The chip takes the
- * theme accent rather than a per-section colour, which is the rule the section headings above it
- * follow, so a page of these reads as one list instead of a row of unrelated colours.
+ * theme accent rather than a per-section color, which is the rule the section headings above it
+ * follow, so a page of these reads as one list instead of a row of unrelated colors.
  */
 export const SettingSection: React.FC<SettingSectionProps> = ({ icon: Icon, title, children }) => (
   <div className="p-4 rounded-lg bg-themed-tertiary">

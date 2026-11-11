@@ -8,7 +8,7 @@ interface ProgressBarProps {
   max?: number;
   /** Track/fill thickness: `sm` = h-1 (the un-rounded step counter), `md` = h-1.5, `lg` = h-2.5. */
   height: 'sm' | 'md' | 'lg';
-  /** Fill colour. `warning` is the one reset-in-progress bar; every other bar is `primary`. */
+  /** Fill color. `warning` is the one reset-in-progress bar; every other bar is `primary`. */
   color?: 'primary' | 'warning';
   /** Fill transition length in ms. The two tallest bars use 500, everything else uses 300. */
   duration?: 300 | 500;

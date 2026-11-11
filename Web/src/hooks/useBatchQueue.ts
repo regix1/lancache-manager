@@ -8,8 +8,8 @@ import { useErrorHandler } from './useErrorHandler';
  * Shape of the finalize callback invoked once the queue settles. The caller
  * uses this to transition its bulk notification into a terminal state:
  *
- *  - Cancelled flows should flip `status: 'cancelled'` with
- *    `details.cancelled: true`, keeping the card's other details; the card
+ *  - Canceled flows should flip `status: 'canceled'` with
+ *    `details.canceled: true`, keeping the card's other details; the card
  *    then follows the run ending rules. A batch holding a failure that never
  *    reached the server ends `failed` instead, so that failure stays.
  *  - Successful flows should update progress to 100 and swap the message.
@@ -19,7 +19,7 @@ interface BatchQueueFinalizeArgs {
   id: string;
   succeeded: number;
   failed: number;
-  cancelled: boolean;
+  canceled: boolean;
   /** An item failed after the user pressed X; the batch then ends red with it. */
   failedAfterCancel: boolean;
   total: number;
@@ -35,14 +35,14 @@ interface BatchQueueFinalizeArgs {
 interface BatchQueueItemContext {
   setOperationId: (opId: string | null) => void;
   /**
-   * Ends the run as cancelled from inside an item. An item parked in the operation
-   * wait-queue can be cancelled from outside this batch (its purple waiting card is
-   * cancellable in any other open tab), and that must read as a cancelled run, never as a
+   * Ends the run as canceled from inside an item. An item parked in the operation
+   * wait-queue can be canceled from outside this batch (its purple waiting card is
+   * cancelable in any other open tab), and that must read as a canceled run, never as a
    * failed item - cancellation is a terminal state of its own, not a failure.
    */
   cancelRun: () => void;
   /** Whether X was pressed on this batch, so an item whose run the browser lost can end as canceled. */
-  wasCancelled: () => boolean;
+  wasCanceled: () => boolean;
 }
 
 interface BatchQueueRunArgs<TItem> {
@@ -77,7 +77,7 @@ interface BatchQueueRunArgs<TItem> {
 }
 
 interface BatchQueueState {
-  status: 'idle' | 'running' | 'cancelling' | 'done' | 'error';
+  status: 'idle' | 'running' | 'canceling' | 'done' | 'error';
   error?: Error;
 }
 
@@ -95,18 +95,18 @@ interface UseBatchQueueResult<TItem> {
 }
 
 /**
- * Hook that orchestrates a sequential, user-cancellable queue of per-item
+ * Hook that orchestrates a sequential, user-cancelable queue of per-item
  * operations tied to a single bulk notification. It owns all the plumbing
  * that was previously duplicated in StorageSection + GameCacheDetector:
  *
  *   - refs for the bulk notification id and the current-item operation id
  *   - the cascade useEffect that watches the bulk notification's
- *     `details.cancelling` flag and fires `ApiService.cancelOperation` on
+ *     `details.canceling` flag and fires `ApiService.cancelOperation` on
  *     the in-flight item when the user clicks X
  *
  * The queue deliberately SURVIVES unmount of the calling component: an
  * in-app tab switch unmounts the Management tab, and treating that as a
- * user cancel aborted bulk removals mid-run ("Bulk removal cancelled after
+ * user cancel aborted bulk removals mid-run ("Bulk removal canceled after
  * 0 items") while the server kept working. The run loop keeps executing in
  * its closure; progress/finalize flow through the notifications context
  * (which lives at app root), and local setState calls on the unmounted
@@ -114,7 +114,7 @@ interface UseBatchQueueResult<TItem> {
  *
  * This hook is instantiated by the app-root `BulkRemovalProvider`, which never
  * unmounts. Because the provider is always mounted, the cascade effect below
- * always observes a `details.cancelling`/`cancelRequested` flag flip and is the
+ * always observes a `details.canceling`/`cancelRequested` flag flip and is the
  * sole cancel path - the former module-level `bulkQueueCancelRegistry` bridge
  * (needed only when the owning component could unmount mid-run) is gone.
  *
@@ -123,7 +123,7 @@ interface UseBatchQueueResult<TItem> {
  *
  * Contract: when the user cancels the bulk notification,
  * `notificationCancel.handleCancel`'s clientQueue branch flips
- * `details.cancelling = true` (it does NOT call ApiService.cancelOperation
+ * `details.canceling = true` (it does NOT call ApiService.cancelOperation
  * directly, because bulk notifications carry no server-side opId). The cascade
  * effect below picks up that flag and cancels the live run.
  */
@@ -160,10 +160,10 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
   );
 
   // The single cancellation entry point: fires a best-effort server-side cancel on the in-flight
-  // item and marks the run cancelled so the loop stops after that item settles. It does not cut
-  // that settle short, because the two kinds of item end differently. Cancelling a RUNNING
+  // item and marks the run canceled so the loop stops after that item settles. It does not cut
+  // that settle short, because the two kinds of item end differently. Canceling a RUNNING
   // operation still produces that operation's own terminal event, and the wait ends on it. A
-  // queued item has no worker, so nothing of its own is ever emitted and the wait ends on the
+  // waiting item has no worker, so nothing of its own is ever emitted and the wait ends on the
   // wait-queue entry closing instead. Either way the batch card still owns the item's events
   // until then, so no per-item card appears next to it. The message flip below is the immediate
   // feedback for the click while that settle is in flight. Invoked by the cascade effect when the
@@ -174,12 +174,12 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
 
     const activeId = bulkNotifIdRef.current;
     if (activeId) {
-      updateNotification(activeId, { message: i18n.t('common.notifications.cancelling') });
+      updateNotification(activeId, { message: i18n.t('common.notifications.canceling') });
     }
 
     // No id yet means the item's POST has not come back, so there is nothing to cancel server-side
     // and nothing has gone wrong: the flag set above already stops the loop, setOperationId fires
-    // the deferred cancel the moment an id lands, and finalize reports the run as cancelled.
+    // the deferred cancel the moment an id lands, and finalize reports the run as canceled.
     const currentOp = currentItemOperationIdRef.current;
     if (currentOp) {
       currentItemOperationIdRef.current = null;
@@ -188,11 +188,11 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
   }, [cancelItemOperation, updateNotification]);
 
   // Puts the in-flight item's operation id on the batch card, and until that id exists, the fact
-  // that a request is out for it. The wait-queue handler has no other way to tell a queued
+  // that a request is out for it. The wait-queue handler has no other way to tell a waiting
   // operation this batch owns from one it does not, and the card is the only thing it can see.
   // `updateNotification` merges the top level only, so the previous details have to be spread here
   // or this write drops `itemTypes` and blinds that handler. The function form reads the card
-  // React is about to update: the X button's `details.cancelling = true` is committed at the end
+  // React is about to update: the X button's `details.canceling = true` is committed at the end
   // of the click, and a snapshot taken any earlier would spread a pre-cancel copy back over it.
   // Every id the batch owns is also kept in `itemOperationIds`, never removed, so an item's kept
   // failure stays inside this card after the batch has moved on. `failedWithoutRun` marks an item
@@ -214,17 +214,17 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
     [updateNotification]
   );
 
-  // Cascade effect: watch the bulk notification for `details.cancelling` (set
+  // Cascade effect: watch the bulk notification for `details.canceling` (set
   // by notificationCancel.handleCancel's bulk_removal branch).
   // When cancellation is requested, fire a server-side cancel on the in-flight
   // item so it aborts immediately rather than running to natural completion.
   //
-  // Only the `cancelling === true` flag is treated as a cancel signal. We do
+  // Only the `canceling === true` flag is treated as a cancel signal. We do
   // NOT trip cancel when the notification is missing from the list - that
-  // misread caused "Bulk removal cancelled after 0 items" on the very first
+  // misread caused "Bulk removal canceled after 0 items" on the very first
   // iteration whenever React rendered an unrelated notifications update before
   // the freshly-added bulk notification was batched into the array (the
-  // `bulkNotifIdRef` is set synchronously but the array update is queued).
+  // `bulkNotifIdRef` is set synchronously but the array update is deferred).
   // The owning provider (BulkRemovalProvider) is app-root and never unmounts,
   // so this effect is the sole cancel path for the flag.
   useEffect(() => {
@@ -232,12 +232,12 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
     if (!activeId) return;
     const notif = notifications.find((n) => n.id === activeId);
     if (!notif) return;
-    // ONLY `cancelling === true` is a cancel signal for the bulk queue — it is
+    // ONLY `canceling === true` is a cancel signal for the bulk queue — it is
     // set exclusively by handleCancel's clientQueue branch (the X button).
     // `cancelRequested` alone is NOT honored: that flag is also used by the
     // serverOp deferred-cancel handshake with different semantics, and honoring
     // it here would let any stray details merge cancel a live bulk run.
-    if (notif.details?.cancelling !== true) return;
+    if (notif.details?.canceling !== true) return;
     triggerCancel();
   }, [notifications, triggerCancel]);
 
@@ -271,16 +271,16 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
 
         let succeeded = 0;
         let failed = 0;
-        let cancelled = false;
+        let canceled = false;
         let failedAfterCancel = false;
         let lastError: Error | null = null;
 
-        const wasCancelled = () => cancelRequestedRef.current;
+        const wasCanceled = () => cancelRequestedRef.current;
 
         for (let index = 0; index < items.length; index += 1) {
           const item = items[index];
-          if (wasCancelled()) {
-            cancelled = true;
+          if (wasCanceled()) {
+            canceled = true;
             break;
           }
 
@@ -300,7 +300,7 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
               // The X can land while the item's POST is still in flight, before any id
               // exists to cancel. triggerCancel has already run by then, so fire the
               // deferred cancel here the moment the id arrives - otherwise the item runs
-              // to natural completion and the "Cancelling..." card sits for its full length.
+              // to natural completion and the "Canceling..." card sits for its full length.
               if (cancelRequestedRef.current && opId) {
                 currentItemOperationIdRef.current = null;
                 cancelItemOperation(opId);
@@ -313,14 +313,14 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
               currentItemOperationIdRef.current = null;
               triggerCancel();
             },
-            wasCancelled
+            wasCanceled
           };
 
           let failedWithoutRun = false;
           try {
             await processItem(item, ctx);
-            if (wasCancelled()) {
-              cancelled = true;
+            if (wasCanceled()) {
+              canceled = true;
               break;
             }
             succeeded += 1;
@@ -331,13 +331,13 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
             // answered with one, or the item joined a removal this batch does not own.
             failedWithoutRun = currentItemOperationIdRef.current === null;
             // A real failure after X is still a failure: it is counted and the batch ends red with it.
-            if (wasCancelled()) {
+            if (wasCanceled()) {
               failedAfterCancel = true;
-              cancelled = true;
+              canceled = true;
               break;
             }
             // Intentionally continue the queue - a single failure must not
-            // abort the rest (mirrors the pre-refactor behaviour).
+            // abort the rest (mirrors the pre-refactor behavior).
           } finally {
             currentItemOperationIdRef.current = null;
             setCardOperationId(null, false, failedWithoutRun);
@@ -348,10 +348,10 @@ export function useBatchQueue<TItem>(options?: UseBatchQueueOptions): UseBatchQu
         // Finalize hook - callers transition the notification to its terminal
         // state here (see BatchQueueFinalizeArgs docs). The notification store
         // decides when the card leaves.
-        finalize({ id: notifId, succeeded, failed, cancelled, failedAfterCancel, total });
+        finalize({ id: notifId, succeeded, failed, canceled, failedAfterCancel, total });
 
         setState({
-          status: lastError && !cancelled ? 'error' : 'done',
+          status: lastError && !canceled ? 'error' : 'done',
           error: lastError ?? undefined
         });
       } finally {

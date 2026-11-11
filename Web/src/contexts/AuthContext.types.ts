@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import type { AccountMode, AuthMode, SessionType } from '@services/auth.service';
+import type { AccountMode, AuthMode, SessionType, SignInResult } from '@services/auth.service';
 import type { LoginKind, LoginService } from '@utils/loginService';
 
 /** Wire names of `loginServices[].environmentFields`: settings a `Security__*` variable supplies. */
@@ -44,12 +44,8 @@ interface AuthContextType {
   loginSetupPending: boolean;
   pendingLoginKind: LoginKind | null;
   isLoading: boolean;
-  login: (
-    apiKey: string,
-    username: string,
-    password: string
-  ) => Promise<{ success: boolean; message?: string }>;
-  startGuestSession: () => Promise<{ success: boolean; message?: string }>;
+  login: (apiKey: string, username: string, password: string) => Promise<SignInResult>;
+  startGuestSession: () => Promise<SignInResult>;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
   setAuthMode: (mode: AuthMode) => void;

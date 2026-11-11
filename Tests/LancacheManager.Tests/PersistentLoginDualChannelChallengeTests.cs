@@ -296,8 +296,9 @@ public class PersistentLoginDualChannelChallengeTests
 
         public Task ConnectAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
+        // A status the daemon did not answer, as the real client returns it: a Log in reads it before it signs in.
         public virtual Task<DaemonStatus?> GetStatusAsync(CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => Task.FromResult<DaemonStatus?>(null);
 
         public Task<CommandResponse> SendCommandAsync(
             string type, Dictionary<string, string>? parameters = null, TimeSpan? timeout = null,

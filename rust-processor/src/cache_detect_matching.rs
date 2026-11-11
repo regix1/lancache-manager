@@ -22,6 +22,7 @@ type ServiceUrl = (String, String, i64);
 struct SteamGameInputs {
     game_app_id: u32,
     game_name: String,
+    is_unresolved_depot: bool,
     depot_ids: HashSet<u32>,
     service_urls: Vec<ServiceUrl>,
 }
@@ -96,6 +97,7 @@ fn collect_steam_game_inputs(records: &[DownloadRecord]) -> Result<SteamGameInpu
 
     let game_app_id = records[0].game_app_id;
     let game_name = records[0].game_name.clone();
+    let is_unresolved_depot = records[0].is_unresolved_depot;
     let mut depot_ids: HashSet<u32> = HashSet::new();
     let mut service_urls: Vec<ServiceUrl> = Vec::with_capacity(records.len());
 
@@ -114,6 +116,7 @@ fn collect_steam_game_inputs(records: &[DownloadRecord]) -> Result<SteamGameInpu
     Ok(SteamGameInputs {
         game_app_id,
         game_name,
+        is_unresolved_depot,
         depot_ids,
         service_urls,
     })
@@ -454,6 +457,7 @@ fn build_steam_game_cache_info(
     GameCacheInfo {
         game_app_id: inputs.game_app_id,
         game_name: inputs.game_name,
+        is_unresolved_depot: inputs.is_unresolved_depot,
         cache_files_found,
         total_size_bytes,
         depot_ids: inputs.depot_ids.into_iter().collect(),
@@ -524,6 +528,7 @@ fn build_epic_game_cache_info(
     GameCacheInfo {
         game_app_id: generate_epic_game_app_id(epic_app_id),
         game_name: game_name.to_string(),
+        is_unresolved_depot: false,
         cache_files_found,
         total_size_bytes,
         depot_ids: Vec::new(),
@@ -595,6 +600,7 @@ fn build_named_game_cache_info(
     GameCacheInfo {
         game_app_id: 0,
         game_name: game_name.to_string(),
+        is_unresolved_depot: false,
         cache_files_found,
         total_size_bytes,
         depot_ids: Vec::new(),
@@ -968,6 +974,7 @@ mod tests {
             url: url.to_string(),
             depot_id: None,
             bytes_served: 0,
+            is_unresolved_depot: false,
         }
     }
 
@@ -991,6 +998,31 @@ mod tests {
                 (game_app_id, info.total_size_bytes)
             })
             .collect()
+    }
+
+    /// The unresolved-depot flag set where the depot-only branch builds the placeholder name
+    /// reaches the serialized row the host saves, under the name the host reads.
+    #[test]
+    fn an_unresolved_depot_row_is_flagged_on_the_wire() {
+        let mut unresolved = steam_record(5001, "/depot/5001/chunk/aa");
+        unresolved.is_unresolved_depot = true;
+        let mapped = steam_record(440, "/depot/441/chunk/aa");
+        let index: HashMap<u128, u64> = HashMap::new();
+        let mut claimed: HashSet<u128> = HashSet::new();
+
+        let unresolved_row =
+            detect_steam_game_cache_info(&[unresolved], &index, ONE_MIB, &mut claimed).unwrap();
+        let mapped_row =
+            detect_steam_game_cache_info(&[mapped], &index, ONE_MIB, &mut claimed).unwrap();
+
+        assert_eq!(
+            serde_json::to_value(&unresolved_row).unwrap()["is_unresolved_depot"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            serde_json::to_value(&mapped_row).unwrap()["is_unresolved_depot"],
+            serde_json::json!(false)
+        );
     }
 
     /// The lower app id claims the shared slices no matter which way the game map was filled.

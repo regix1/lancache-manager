@@ -237,14 +237,14 @@ public sealed class DashboardBatchCacheContractTests
     [Fact]
     public void IsCancellation_TrueForCancellationWrappedInAggregateException()
     {
-        // The shape a cancelled inner task produces when its Result is read through a
+        // The shape a canceled inner task produces when its Result is read through a
         // continuation instead of being awaited.
         var wrapped = new AggregateException(new InvalidOperationException(), new TaskCanceledException());
         Assert.True(DashboardBatchService.IsCancellation(wrapped, CancellationToken.None));
     }
 
     [Fact]
-    public void IsCancellation_TrueWhenTheRequestTokenIsAlreadyCancelled()
+    public void IsCancellation_TrueWhenTheRequestTokenIsAlreadyCanceled()
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();
@@ -323,7 +323,7 @@ public sealed class DashboardBatchCacheContractTests
     }
 
     [Fact]
-    public void FollowerWithALiveTokenRetriesAfterTheCreatorsFlightIsCancelled()
+    public void FollowerWithALiveTokenRetriesAfterTheCreatorsFlightIsCanceled()
     {
         var source = BatchServiceSource();
 
@@ -526,7 +526,7 @@ public sealed class DashboardBatchCacheContractTests
     }
 
     [Fact]
-    public void CancelledSubQueriesSurfaceAsCancellationNotSoftNull()
+    public void CanceledSubQueriesSurfaceAsCancellationNotSoftNull()
     {
         var source = BatchServiceSource();
 
@@ -599,7 +599,7 @@ public sealed class DashboardBatchCacheContractTests
         var source = BatchServiceSource();
 
         Assert.Contains("private static IQueryable<Download> BuildVisibleDownloadsQuery(", source, StringComparison.Ordinal);
-        Assert.Contains(".ApplyHiddenClientFilter(hiddenClientIps)", source, StringComparison.Ordinal);
+        Assert.Contains(".ApplyClientFilters(hiddenClientIps, [], hiddenPrefillRules)", source, StringComparison.Ordinal);
         Assert.Contains(".ApplyEmptySessionFilter()", source, StringComparison.Ordinal);
 
         var sections = new[]
@@ -1326,12 +1326,12 @@ public sealed class DashboardBatchCacheContractTests
     /// <summary>
     /// The eviction handle a request captures has to outlive the build it travels through.
     /// A live batch can take seconds to assemble and an ingest tick invalidates about once a second
-    /// while one is running, so the source captured at the start is routinely cancelled and
+    /// while one is running, so the source captured at the start is routinely canceled and
     /// disposed before the entry options are built at the end. Reading
     /// <see cref="CancellationTokenSource.Token"/> off a disposed source throws
     /// <see cref="ObjectDisposedException"/>, which would turn a slow live request into a 500.
     /// Capturing the token itself sidesteps that: it stays readable, reports itself already
-    /// cancelled, and the cache declines the entry, which is the wanted outcome for a response
+    /// canceled, and the cache declines the entry, which is the wanted outcome for a response
     /// built under a superseded generation.
     /// </summary>
     [Fact]

@@ -8,7 +8,7 @@ namespace LancacheManager.Tests;
 /// A throwaway copy of the application's tables on the local PostgreSQL server, dropped again on
 /// disposal. Every instance gets a schema of its own inside one shared database: xUnit runs test
 /// classes in parallel, so two instances alive at once must not see each other's rows, and a schema
-/// is the cheapest thing PostgreSQL will create and drop concurrently. A database each serialises on
+/// is the cheapest thing PostgreSQL will create and drop concurrently. A database each serializes on
 /// the template PostgreSQL copies from, and one transaction rolled back at the end cannot hold tests
 /// that deliberately write from a second connection.
 /// </summary>

@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { SunMoon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Slider } from '@components/ui/Slider';
+import { prefersReducedMotion } from '@components/features/management/status-check/helpers';
 import { type Theme } from './types';
 
 interface ThemeSliderProps {
@@ -24,11 +25,6 @@ const VALUE_STEP = 0.001;
 
 // Long enough to read as travel, short enough that a release still feels immediate.
 const SETTLE_MS = 180;
-
-const prefersReducedMotion = (): boolean =>
-  typeof window !== 'undefined' &&
-  typeof window.matchMedia === 'function' &&
-  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export const ThemeSlider: React.FC<ThemeSliderProps> = ({
   stops,
@@ -111,7 +107,7 @@ export const ThemeSlider: React.FC<ThemeSliderProps> = ({
     settleFrame.current = null;
   };
 
-  // A release, and every arrow press, lands the thumb on a stop. Travelling there rather than
+  // A release, and every arrow press, lands the thumb on a stop. Traveling there rather than
   // snapping keeps the motion continuous with the drag that preceded it; reduced motion gets the
   // landing without the travel.
   const settleTo = (target: number): void => {
@@ -188,7 +184,7 @@ export const ThemeSlider: React.FC<ThemeSliderProps> = ({
   const handleCommit = (): void => {
     if (positionRef.current === null) return;
     // The stop that is already on screen, not the thumb's live position: a key release arrives
-    // while the thumb is still travelling, and rounding that would commit the stop it just left
+    // while the thumb is still traveling, and rounding that would commit the stop it just left
     const chosen =
       appliedIndex.current >= 0 && appliedIndex.current <= maxIndex
         ? appliedIndex.current

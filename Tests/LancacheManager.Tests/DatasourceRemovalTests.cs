@@ -120,9 +120,9 @@ public sealed class DatasourceRemovalTests
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         config = config with
         {
-            FinishRepairAsync = async (id, success, cancelled, error) =>
+            FinishRepairAsync = async (id, success, canceled, error, failureReason) =>
             {
-                await harness.Manager.FinishRemovalRepairAsync(id, success, cancelled, error);
+                await harness.Manager.FinishRemovalRepairAsync(id, success, canceled, error, failureReason);
                 if (success)
                 {
                     // Holds the runner where a thread switch can leave it: its success saved, its CompleteOperation not yet run.
@@ -151,7 +151,7 @@ public sealed class DatasourceRemovalTests
 
         Assert.Equal(OperationStatus.Completed, terminal.Status);
         Assert.True(complete.Success);
-        Assert.False(complete.Cancelled);
+        Assert.False(complete.Canceled);
         Assert.Equal(9, complete.FilesDeleted);
         Assert.Single(
             harness.ReadMessages(),
@@ -162,11 +162,11 @@ public sealed class DatasourceRemovalTests
     [InlineData(false)]
     [InlineData(true)]
     public async Task RemovalRunner_ServiceProducerKeepsConfirmedCountersDuringBetaProgressAsync(
-        bool cancelled)
+        bool canceled)
     {
         var root = Path.Combine(
             Path.GetTempPath(),
-            "lm-service-removal-producer-" + cancelled + "-" + Guid.NewGuid().ToString("N"));
+            "lm-service-removal-producer-" + canceled + "-" + Guid.NewGuid().ToString("N"));
         await using var harness = await RemovalRepairHarness.CreateProducerAsync(
             root,
             OperationType.ServiceRemoval);
@@ -228,7 +228,7 @@ public sealed class DatasourceRemovalTests
                 Assert.True(update.BytesFreed >= 200);
             });
 
-            if (cancelled)
+            if (canceled)
             {
                 Assert.Equal(OperationCancelResult.Requested, harness.Tracker.CancelOperation(operationId));
             }
@@ -245,14 +245,14 @@ public sealed class DatasourceRemovalTests
             // Alpha finished and beta failed, so the run completes with a warning naming beta; a cancel
             // stays a cancel.
             Assert.Equal(
-                cancelled ? OperationStatus.Cancelled : OperationStatus.Completed,
+                canceled ? OperationStatus.Canceled : OperationStatus.Completed,
                 terminal.Status);
             Assert.Equal(
-                !cancelled,
+                !canceled,
                 terminal.Warnings.Any(warning => warning.StageKey == "common.notifications.warnings.datasourcesFailed"));
             Assert.Equal(9, complete.FilesDeleted);
             Assert.Equal(200L, complete.BytesFreed);
-            Assert.Equal(cancelled, complete.Cancelled);
+            Assert.Equal(canceled, complete.Canceled);
             Assert.Equal(9, repair.Removal!.FilesDeleted);
             Assert.Equal(200L, repair.Removal.BytesFreed);
             Assert.True(repair.Sources.Single(source => source.Datasource == "alpha")

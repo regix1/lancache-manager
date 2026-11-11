@@ -86,7 +86,7 @@ public sealed class IntegrationCancellationTests
 
         // Completing the run disposed the source the token came from.
         Assert.True(reporter.Token.IsCancellationRequested);
-        Assert.Equal(OperationStatus.Cancelled, tracker.GetOperation(reporter.OperationId)!.Status);
+        Assert.Equal(OperationStatus.Canceled, tracker.GetOperation(reporter.OperationId)!.Status);
     }
 
     [Theory]
@@ -121,6 +121,66 @@ public sealed class IntegrationCancellationTests
         // The former follow-at-dispatch behavior reaches the new target in the same interleaving.
         tracker.CancelOperation(origin);
         Assert.True(successorCancel.IsCancellationRequested);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task APromotionBetweenTheLookupAndTheLockStillCancelsThePromotedRun(bool forceKill)
+    {
+        using var fixture = new IntegrationFixture();
+        var tracker = NewTracker();
+        using var waitingCancel = new CancellationTokenSource();
+        using var promotedCancel = new CancellationTokenSource();
+        var waiting = tracker.RegisterOperation(OperationType.DepotMapping, "Mapping", waitingCancel,
+            initialStatus: OperationStatus.Waiting);
+        var promoted = tracker.RegisterOperation(OperationType.DepotMapping, "Mapping", promotedCancel);
+        // The queue promotes the waiting card right after the cancel looked it up: the handoff is recorded and
+        // the card completes before the cancel takes the card's lock.
+        var proxy = DispatchProxy.Create<IUnifiedOperationTracker, HandoffTracker>();
+        var promoting = (HandoffTracker)(object)proxy;
+        promoting.Tracker = tracker;
+        promoting.Origin = waiting;
+        promoting.Successor = promoted;
+        promoting.CompleteOrigin = true;
+        var cancellation = new OperationCancellationService(proxy,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), OperationConflictTestServices.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+
+        if (forceKill) Assert.True(await cancellation.ForceKillAsync(waiting, fixture.Owner));
+        else Assert.Equal(OperationCancelResult.Requested, cancellation.Cancel(waiting, fixture.Owner));
+
+        Assert.True(promoting.Recorded);
+        Assert.True(promotedCancel.IsCancellationRequested);
+        Assert.True(tracker.GetOperation(promoted)!.Status is OperationStatus.Canceling or OperationStatus.Canceled);
+    }
+
+    [Fact]
+    public async Task APromotionBetweenTheLockAndTheForceStopStillStopsThePromotedRun()
+    {
+        using var fixture = new IntegrationFixture();
+        var tracker = NewTracker();
+        using var waitingCancel = new CancellationTokenSource();
+        using var promotedCancel = new CancellationTokenSource();
+        var waiting = tracker.RegisterOperation(OperationType.DepotMapping, "Mapping", waitingCancel,
+            initialStatus: OperationStatus.Waiting);
+        var promoted = tracker.RegisterOperation(OperationType.DepotMapping, "Mapping", promotedCancel);
+        // The queue promotes the waiting card after the force stop read it as live and just before the stop
+        // reaches the tracker.
+        var proxy = DispatchProxy.Create<IUnifiedOperationTracker, PromoteBeforeForceKillTracker>();
+        var promoting = (PromoteBeforeForceKillTracker)(object)proxy;
+        promoting.Tracker = tracker;
+        promoting.Waiting = waiting;
+        promoting.Promoted = promoted;
+        var cancellation = new OperationCancellationService(proxy,
+            new ProcessManager(NullLogger<ProcessManager>.Instance), OperationConflictTestServices.Owner,
+            NullLogger<OperationCancellationService>.Instance);
+
+        Assert.True(await cancellation.ForceKillAsync(waiting, fixture.Owner).WaitAsync(TimeSpan.FromSeconds(10)));
+        await promoting.Promotion!.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(promotedCancel.IsCancellationRequested);
+        Assert.True(tracker.GetOperation(promoted)!.Status is OperationStatus.Canceling or OperationStatus.Canceled);
     }
 
     [Theory]
@@ -197,7 +257,7 @@ public sealed class IntegrationCancellationTests
 
         // The window ended during the save: the account stays signed in, and the window ends the mapping after it.
         var run = Assert.Single(tracker.GetRuns().Runs);
-        Assert.Equal("cancelled", run.Status);
+        Assert.Equal("canceled", run.Status);
         Assert.True(service.IsAuthenticated);
         var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
         Assert.NotNull(ending);
@@ -282,7 +342,7 @@ public sealed class IntegrationCancellationTests
         }
 
         Assert.True(pressed);
-        Assert.Equal("cancelled", Assert.Single(tracker.GetRuns().Runs).Status);
+        Assert.Equal("canceled", Assert.Single(tracker.GetRuns().Runs).Status);
         // The account was saved before the mapping started, so the X stops the mapping and keeps the sign-in.
         Assert.True(service.IsAuthenticated);
         var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
@@ -311,7 +371,7 @@ public sealed class IntegrationCancellationTests
             .WaitAsync(TimeSpan.FromSeconds(20));
         await SignInMappingEndsAsync(service);
 
-        Assert.Equal("cancelled", Assert.Single(tracker.GetRuns().Runs).Status);
+        Assert.Equal("canceled", Assert.Single(tracker.GetRuns().Runs).Status);
         Assert.True(service.IsAuthenticated);
         var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
         Assert.NotNull(ending);
@@ -348,10 +408,10 @@ public sealed class IntegrationCancellationTests
         }
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => submit.WaitAsync(TimeSpan.FromSeconds(10)));
-        Assert.Equal("cancelled", Assert.Single(tracker.GetRuns().Runs).Status);
+        Assert.Equal("canceled", Assert.Single(tracker.GetRuns().Runs).Status);
         var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
         Assert.NotNull(ending);
-        Assert.Equal(OperationStatus.Cancelled, ending.Status);
+        Assert.Equal(OperationStatus.Canceled, ending.Status);
         Assert.Equal("errors.integration.attemptExpired", ending.StageKey);
     }
 
@@ -376,7 +436,7 @@ public sealed class IntegrationCancellationTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => submit.WaitAsync(TimeSpan.FromSeconds(10)));
         var ending = service.GetAuthStatus(fixture.Owner, start.AttemptId).LoginEnding;
         Assert.NotNull(ending);
-        Assert.Equal(OperationStatus.Cancelled, ending.Status);
+        Assert.Equal(OperationStatus.Canceled, ending.Status);
         Assert.Equal("errors.integration.attemptExpired", ending.StageKey);
         Assert.Contains(((Notifications)(object)notifications).Sent, sent =>
             sent.EventName == SignalREvents.IntegrationLoginEnded
@@ -608,7 +668,7 @@ public sealed class IntegrationCancellationTests
         cts.SetValue(service, refresh);
         reporterField.SetValue(service, current);
         // The refresh ends and the next one starts while the cancel logs, between its read of the pair and its cancel.
-        logger.OnCancelling = () =>
+        logger.OnCanceling = () =>
         {
             cts.SetValue(service, nextRefresh);
             reporterField.SetValue(service, next);
@@ -779,7 +839,7 @@ public sealed class IntegrationCancellationTests
     // Runs a callback when the service logs that it is canceling the active refresh, which is after the cancel read the refresh's source.
     private sealed class RefreshEndingLogger : ILogger<EpicMappingService>
     {
-        public Action? OnCancelling { get; set; }
+        public Action? OnCanceling { get; set; }
 
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
@@ -788,9 +848,9 @@ public sealed class IntegrationCancellationTests
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
             Func<TState, Exception?, string> formatter)
         {
-            if (formatter(state, exception).StartsWith("Cancelling active Epic catalog refresh", StringComparison.Ordinal))
+            if (formatter(state, exception).StartsWith("Canceling active Epic catalog refresh", StringComparison.Ordinal))
             {
-                OnCancelling?.Invoke();
+                OnCanceling?.Invoke();
             }
         }
     }
@@ -818,15 +878,42 @@ public sealed class IntegrationCancellationTests
         public Guid Origin { get; set; }
         public Guid Successor { get; set; }
         public bool Recorded { get; private set; }
+        // Completes the origin after recording the handoff, as the queue's promotion does.
+        public bool CompleteOrigin { get; set; }
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
             var result = targetMethod!.Invoke(Tracker, args);
             if (!Recorded && targetMethod.Name == nameof(IUnifiedOperationTracker.GetOperation))
             {
                 Tracker.RecordHandoff(Origin, Successor);
+                if (CompleteOrigin) Tracker.CompleteOperation(Origin, success: true);
                 Recorded = true;
             }
             return result;
+        }
+    }
+
+    // Runs the queue's promotion steps on another thread when the force stop reaches the tracker, and gives
+    // them a bounded time to finish before the stop goes through.
+    private class PromoteBeforeForceKillTracker : DispatchProxy
+    {
+        public UnifiedOperationTracker Tracker { get; set; } = null!;
+        public Guid Waiting { get; set; }
+        public Guid Promoted { get; set; }
+        public Task? Promotion { get; private set; }
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (Promotion is null && targetMethod!.Name == nameof(IUnifiedOperationTracker.ForceKillOperation))
+            {
+                Promotion = Task.Run(() =>
+                {
+                    Tracker.RecordHandoff(Waiting, Promoted);
+                    Tracker.CompleteOperation(Waiting, success: true);
+                    if (Tracker.GetOperation(Waiting)?.Canceled == true) Tracker.CancelOperation(Promoted);
+                });
+                Promotion.Wait(TimeSpan.FromSeconds(1));
+            }
+            return targetMethod!.Invoke(Tracker, args);
         }
     }
 }

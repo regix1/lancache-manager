@@ -29,7 +29,7 @@ const toUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toS
 const reactStubUrl = toUrl(`
 let slots = null;
 let at = 0;
-let queued = [];
+let pendingEffects = [];
 export const useRef = (initial) => {
   if (!slots[at]) slots[at] = { current: initial };
   return slots[at++];
@@ -57,7 +57,7 @@ export const useEffect = (run, deps) => {
   const changed = !slot.ran || deps.some((value, index) => !Object.is(value, slot.deps[index]));
   slot.ran = true;
   slot.deps = deps;
-  if (changed) queued.push(() => { slot.cleanup?.(); slot.cleanup = run(); });
+  if (changed) pendingEffects.push(() => { slot.cleanup?.(); slot.cleanup = run(); });
 };
 export const createComponent = () => {
   const componentSlots = [];
@@ -65,10 +65,10 @@ export const createComponent = () => {
     render(body) {
       slots = componentSlots;
       at = 0;
-      queued = [];
+      pendingEffects = [];
       const result = body();
-      const effects = queued;
-      queued = [];
+      const effects = pendingEffects;
+      pendingEffects = [];
       slots = null;
       effects.forEach((run) => run());
       return result;
@@ -206,7 +206,7 @@ const complete = (operationId, ending) => ({
   percentComplete: 100,
   error: null,
   context: null,
-  cancelled: false,
+  canceled: false,
   status: ending === 'done' ? 'completed' : 'failed'
 });
 

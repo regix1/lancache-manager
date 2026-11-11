@@ -5,17 +5,17 @@ import typescript from 'typescript';
 import { MemoryStorage, compileToUrl, moduleUrl } from './transpile-module.mjs';
 
 // The provider runs on a small hook runtime that keeps React's update order: a state update made while
-// no other update is queued is computed at once, and every later one waits for the next render.
+// no other update is pending is computed at once, and every later one waits for the next render.
 const runtime = {
   slots: [],
   index: 0,
-  queued: false,
+  updatePending: false,
   effects: [],
   render(component, props) {
     this.index = 0;
     this.effects = [];
     const element = component(props);
-    this.queued = false;
+    this.updatePending = false;
     for (const effect of this.effects) {
       effect.slot.cleanup?.();
       effect.slot.cleanup = effect.run() ?? null;
@@ -45,13 +45,13 @@ globalThis.prefillHookRuntime = {
           : update.action;
     }
     slot.set ??= (action) => {
-      if (!runtime.queued) {
+      if (!runtime.updatePending) {
         slot.updates.push({
           eager: true,
           value: typeof action === 'function' ? action(slot.value) : action
         });
       } else slot.updates.push({ eager: false, action });
-      runtime.queued = true;
+      runtime.updatePending = true;
     };
     return [slot.value, slot.set];
   },

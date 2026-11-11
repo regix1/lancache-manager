@@ -5,7 +5,7 @@
 /* Service badge. The box, type and corners come from .themed-badge, which this element carries in
    the markup: it sits directly beside the AppID badge on the same line, and a pill of its own
    height and radius next to a square one is what made the pair look mismatched. Only the gap for
-   the Epic icon and the per-service colours below are ours. */
+   the Epic icon and the per-service colors below are ours. */
 .game-card-service-badge {
   gap: 0.25rem;
 }

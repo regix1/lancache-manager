@@ -282,7 +282,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
         }
         const result = await login(apiKey.trim(), username.trim(), password);
         if (!result.success) {
-          setError(result.message || t('accessSetup.ownerSignInFailed'));
+          setError(result.message);
           return;
         }
         // A password retyped while the sign-in ran stays in the box.
@@ -416,7 +416,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
               type="button"
               variant="default"
               className="access-setup-copy"
-              disabled={busy}
               onClick={() => void copyCallback(target, value)}
             >
               {t(copied === target ? 'accessSetup.copied' : 'accessSetup.copy')}
@@ -477,7 +476,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
         variant="default"
         size="sm"
         aria-expanded={open}
-        disabled={busy}
         onClick={toggle}
         rightSection={
           <ChevronDown className={`w-4 h-4 transition ${open ? 'rotate-180' : 'rotate-0'}`} />

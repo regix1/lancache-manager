@@ -39,7 +39,7 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 const reactStubSource = `
 let slots = null;
 let cursor = 0;
-let queued = [];
+let pendingEffects = [];
 
 export const useState = (initial) => {
   const owner = slots;
@@ -75,7 +75,7 @@ export const useEffect = (run, deps) => {
   slot.ran = true;
   slot.deps = deps;
   if (changed) {
-    queued.push(run);
+    pendingEffects.push(run);
   }
 };
 
@@ -85,10 +85,10 @@ export const createComponent = (body) => {
   const run = () => {
     slots = componentSlots;
     cursor = 0;
-    queued = [];
+    pendingEffects = [];
     last = body();
-    const effects = queued;
-    queued = [];
+    const effects = pendingEffects;
+    pendingEffects = [];
     slots = null;
     effects.forEach((effect) => effect());
   };

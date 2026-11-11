@@ -179,7 +179,7 @@ export const operationRunRow = (operationId, overrides = {}) => {
       new Date(Date.UTC(2026, 8, 22, 10, 0, runStartTimes.size)).toISOString()
     );
   const revision = nextRunRevision();
-  const terminal = ['completed', 'failed', 'cancelled', 'skipped'].includes(overrides.status);
+  const terminal = ['completed', 'failed', 'canceled', 'skipped'].includes(overrides.status);
   return {
     operationId,
     operationType: 'evictionScan',
@@ -262,6 +262,28 @@ export const entityBusyFor = async (identifier, runs) => {
   return useIsEntityBusy(identifier);
 };
 
+const busyRuns = await import(busyRunsUrl);
+const { useOperationBusy } = await import(
+  await compileToUrl('../src/hooks/useOperationBusy.ts', {
+    react: moduleUrl('export const useMemo = (fn) => fn();'),
+    '@contexts/notifications/useNotifications': busyRunsUrl
+  })
+);
+
+/**
+ * Whether a page's `useOperationBusy(options)` flag is set over a run list, through the real hook.
+ * React's `useMemo` runs its factory on every call and ignores the dependency array, so this checks
+ * what the hook computes, never whether the memo is keyed on the right values.
+ *
+ * @param {{ types: string[], status?: string | string[] }} options The options the page passes.
+ * @param {object[]} runs The context's `runs`: every live run as a card object.
+ * @returns {boolean} True when a run of one of `types` has one of the busy statuses.
+ */
+export const operationBusyFor = (options, runs) => {
+  busyRuns.box.runs = runs;
+  return useOperationBusy(options);
+};
+
 /**
  * The `localStorage` the product code reads, with nothing on disk behind it. Assigned to
  * `globalThis.localStorage` by a test whose code under test persists or clears a notification.
@@ -281,6 +303,27 @@ export class MemoryStorage {
     this.#values.delete(key);
   }
 }
+
+const locales = {
+  en: JSON.parse(readFileSync(new URL('../src/i18n/locales/en.json', import.meta.url), 'utf8')),
+  zh: JSON.parse(readFileSync(new URL('../src/i18n/locales/zh.json', import.meta.url), 'utf8'))
+};
+
+/**
+ * The i18next lookup a component gets, for one locale: dotted key, then `{{var}}` filled in. Unlike
+ * a real i18next instance it fails the test on a key the locale has no string for, instead of
+ * printing the key path.
+ *
+ * @param {'en' | 'zh'} locale Locale file to read.
+ * @returns {(key: string, vars?: Record<string, unknown>) => string} The lookup.
+ */
+export const translator =
+  (locale) =>
+  (key, vars = {}) => {
+    const text = key.split('.').reduce((node, part) => node?.[part], locales[locale]);
+    assert.equal(typeof text, 'string', `${locale}.json has no string at ${key}`);
+    return text.replace(/{{(\w+)}}/g, (_, name) => String(vars[name]));
+  };
 
 /**
  * Parses a TypeScript file into a syntax tree the lifting helpers can walk.

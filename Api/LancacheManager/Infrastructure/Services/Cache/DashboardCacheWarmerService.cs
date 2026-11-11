@@ -105,9 +105,8 @@ public class DashboardCacheWarmerService : ScheduledBackgroundService
         {
             _logger.LogWarning(
                 "Dashboard batch warm still has failed sections after retry; cache stays cold");
-            await reporter.CompleteAsync(
-                success: warmedFully,
-                error: "Dashboard batch warm completed with failed sections");
+            // The run ends on the generic failed key; the line above names why.
+            await reporter.CompleteAsync(success: warmedFully);
         }
     }
 }

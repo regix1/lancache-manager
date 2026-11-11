@@ -135,7 +135,7 @@ const MemoryDiagnostics: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Total Memory */}
-        <div className="rounded-lg p-6 border shadow-lg bg-themed-card border-themed">
+        <div className="rounded-lg p-6 border shadow-lg no-dark-shadow bg-themed-card border-themed">
           <h2 className="text-xl font-semibold mb-4 pb-2 border-b text-themed-primary border-themed">
             {t('memory.totalMemory')}
             {stats.totalSystemMemoryGB && (
@@ -194,7 +194,7 @@ const MemoryDiagnostics: React.FC = () => {
         </div>
 
         {/* Managed Memory Details */}
-        <div className="rounded-lg p-6 border shadow-lg bg-themed-card border-themed">
+        <div className="rounded-lg p-6 border shadow-lg no-dark-shadow bg-themed-card border-themed">
           <h2 className="text-xl font-semibold mb-4 pb-2 border-b text-themed-primary border-themed">
             {t('memory.managedDetails')}
           </h2>
@@ -261,7 +261,7 @@ const MemoryDiagnostics: React.FC = () => {
         </div>
 
         {/* Process Statistics */}
-        <div className="rounded-lg p-6 border shadow-lg bg-themed-card border-themed">
+        <div className="rounded-lg p-6 border shadow-lg no-dark-shadow bg-themed-card border-themed">
           <h2 className="text-xl font-semibold mb-4 pb-2 border-b text-themed-primary border-themed">
             {t('memory.processStats')}
           </h2>

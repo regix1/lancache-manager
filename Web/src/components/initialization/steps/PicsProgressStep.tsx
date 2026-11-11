@@ -23,9 +23,9 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
   const { progress } = usePicsProgress();
   const [isComplete, setIsComplete] = useState(false);
   // cancelInFlight tracks the local HTTP round-trip for cancelSteamKitRebuild().
-  // This is intentionally separate from progress?.cancelling (the server-ack state
+  // This is intentionally separate from progress?.canceling (the server-ack state
   // propagated via usePicsProgress SignalR). The local flag covers the click→HTTP-response
-  // window before the server has acknowledged the cancel; progress?.cancelling covers
+  // window before the server has acknowledged the cancel; progress?.canceling covers
   // the server-ack→completion window. UniversalNotificationBar is NOT mounted during
   // onboarding, so this component owns its own cancel-button spinner lifecycle.
   const [cancelInFlight, setCancelInFlight] = useState(false);
@@ -70,17 +70,16 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
 
   const getStatusMessage = () => {
     if (!progress) return t('initialization.picsProgress.initializing');
-    if (progress.status === 'Idle' && progress.isProcessing) {
+    // The last depot mapping event names its step; a polled answer alone carries only the phase.
+    if (progress.stageKey) return t(progress.stageKey, progress.context ?? {});
+    if (progress.status === 'connecting') {
       return t('initialization.picsProgress.connecting');
     }
-    return progress.status || t('initialization.picsProgress.processing');
+    return t('initialization.picsProgress.processing');
   };
 
   useEffect(() => {
-    const status = progress?.status.toLowerCase() || '';
-    const isFinished = status === 'completed';
-
-    if (progress && !progress.isProcessing && (isFinished || progress.progressPercent >= 99.5)) {
+    if (progress && !progress.isProcessing && progress.status === 'completed') {
       if (!isComplete) {
         setIsComplete(true);
         // Auto-advance after showing success
@@ -138,7 +137,8 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
             <p className="text-base font-medium text-themed-primary mb-1">{getStatusMessage()}</p>
             {!isInitializing() &&
               progress?.processedBatches !== undefined &&
-              progress.totalBatches > 0 && (
+              progress.totalBatches > 0 &&
+              progress.stageKey !== 'signalr.depotMapping.batchProgress' && (
                 <p className="text-sm text-themed-secondary">
                   {t('initialization.picsProgress.batches', {
                     processed: progress.processedBatches,
@@ -193,7 +193,7 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
           >
             {cancelInFlight && <LoadingSpinner inline size="sm" className="mr-2" />}
             {cancelInFlight
-              ? t('initialization.picsProgress.cancelling')
+              ? t('initialization.picsProgress.canceling')
               : t('initialization.picsProgress.cancelUseGithub')}
           </Button>
         ) : null}

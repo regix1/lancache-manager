@@ -57,7 +57,7 @@ const TEMPLATES = {
   'common.notifications.runQualifiers.full': '全面',
   'common.notifications.runQualifiers.incremental': '增量',
   'common.notifications.runNameWithTarget': '{{title}}（{{target}}）',
-  'common.notifications.cancelling': 'Cancelling...',
+  'common.notifications.canceling': 'Canceling...',
   'common.notifications.repairFailed': 'Repair failed: {{reason}}',
   'errors.unmappedRemoval.logsBehind': '日志处理尚未读取所有访问日志。',
   'errors.logs.windowsDockerUnsupported': '此实现不支持原生 Windows Manager 修改日志。',
@@ -70,14 +70,18 @@ const TEMPLATES = {
   'signalr.gameDetect.error.fatal': 'Game detection failed: {{errorDetail}}',
   'signalr.depotMapping.skippedSteamUnreachable':
     'Depot mapping did not run: could not reach Steam',
-  'signalr.generic.cancelled': 'Operation cancelled',
+  'signalr.depotMapping.github.httpFailed': 'GitHub 对仓库映射下载返回了 HTTP {{errorDetail}}',
+  'signalr.generic.canceled': 'Operation canceled',
   'signalr.generic.failed': 'Operation failed',
   'signalr.generic.nothingToDo': 'Nothing to do',
   'signalr.generic.skipped': 'Operation skipped',
   'signalr.generic.unknown': 'Operation in progress...',
   'signalr.logRemoval.otherLogsGone':
     'Deleted outside the app during this removal: {{fileNames}}. That log will be read again once.',
-  'signalr.downloadHistoryUpgrade.merging': 'Merging split download rows'
+  'signalr.downloadHistoryUpgrade.merging': 'Merging split download rows',
+  'signalr.downloadHistoryUpgrade.failedWithRemaining':
+    'Download history upgrade failed: {{errorDetail}}. Rows still waiting to merge: {{count}}. It tries again at the next start.',
+  'signalr.logRemoval.error.fatal': 'Log removal failed: {{errorDetail}}'
 };
 // English titles, which the run store compares with the server's English run names. The
 // reader's titles in TEMPLATES differ from these, so a test can tell which one a line used.
@@ -315,32 +319,30 @@ test('a handoff row seen before its successor merges when the successor arrives'
   assert.deepEqual(browser.merged, [{ from: 'W', to: 'N' }]);
 });
 
-test('cancelling a Silent run while it waits removes its row and leaves nothing', () => {
+test('canceling a Silent run while it waits removes its row and leaves nothing', () => {
   const browser = new Browser();
   browser.push(row('W', { status: 'waiting', visibility: 'background' }));
-  browser.push(row('W', { status: 'cancelled', visibility: 'background' }));
+  browser.push(row('W', { status: 'canceled', visibility: 'background' }));
   assert.deepEqual(browser.drawn(), [], 'a fading row is not drawn');
   browser.fade();
   assert.equal(browser.state.entries.size, 0);
-  assert.deepEqual(browser.ended, [{ operationId: 'W', status: 'cancelled', error: undefined }]);
+  assert.deepEqual(browser.ended, [{ operationId: 'W', status: 'canceled', error: undefined }]);
 });
 
-test('a waiting card keeps its blocker while it is cancelled, then says how it ended', () => {
+test('a waiting card keeps its blocker while it is canceled, then says how it ended', () => {
   const browser = new Browser();
   const waiting = { status: 'waiting', blockedByName: 'Game Removal' };
   browser.push(row('W', waiting));
   assert.equal(browser.card('W').message, '淘汰扫描 is waiting for Game Removal');
 
-  // The tracker's own sentences, never keys: no worker ever describes a parked run.
-  browser.push(
-    row('W', { ...waiting, status: 'cancelling', message: 'Cancellation requested...' })
-  );
-  assert.deepEqual(browser.drawn(), ['W:eviction_scan:cancelling']);
+  // The tracker's own generic keys: no worker ever describes a parked run.
+  browser.push(row('W', { ...waiting, status: 'canceling', message: 'signalr.generic.canceling' }));
+  assert.deepEqual(browser.drawn(), ['W:eviction_scan:canceling']);
   assert.equal(browser.card('W').message, '淘汰扫描 is waiting for Game Removal');
 
-  browser.push(row('W', { ...waiting, status: 'cancelled', message: 'Operation cancelled' }));
-  assert.deepEqual(browser.drawn(), ['W:eviction_scan:cancelled']);
-  assert.equal(browser.card('W').message, 'Operation cancelled');
+  browser.push(row('W', { ...waiting, status: 'canceled', message: 'signalr.generic.canceled' }));
+  assert.deepEqual(browser.drawn(), ['W:eviction_scan:canceled']);
+  assert.equal(browser.card('W').message, 'Operation canceled');
 
   for (const [status, message, shown] of [
     // A skip's row message is the reason the server kept, the same text the live card showed.
@@ -377,7 +379,7 @@ test("a waiting line names a run by its type's title, never by comparing its nam
   browser.push(row('E', epic));
   assert.equal(browser.card('E').message, 'Epic 游戏映射 is waiting for Depot Mapping');
   // A parked run being canceled keeps the sentence it carried in.
-  browser.push(row('E', { ...epic, status: 'cancelling', message: 'Cancellation requested...' }));
+  browser.push(row('E', { ...epic, status: 'canceling', message: 'signalr.generic.canceling' }));
   assert.equal(browser.card('E').message, 'Epic 游戏映射 is waiting for Depot Mapping');
 
   // The name is never parsed: a run that sends no target shows its type's title alone.
@@ -654,8 +656,8 @@ test('with Keep Notifications Visible off, only red and amber cards stay, and no
       kept('F', { operationType: 'cacheClearing', status: 'failed', error: 'Disk full' })
     );
     browser.push(row('C', { operationType: 'dataImport' }));
-    browser.push(row('C', { operationType: 'dataImport', status: 'cancelled' }));
-    assert.equal(browser.card('C').details.cancelled, true);
+    browser.push(row('C', { operationType: 'dataImport', status: 'canceled' }));
+    assert.equal(browser.card('C').details.canceled, true);
     assert.equal(browser.state.entries.get('C').leaving, true, 'the cancel starts its fade');
     browser.push(row('S', { operationType: 'gameRemoval' }));
     browser.push(kept('S', { operationType: 'gameRemoval', status: 'skipped' }));
@@ -685,12 +687,12 @@ test('with Keep Notifications Visible on, every finished card stays until the se
     browser.push(row('F', { operationType: 'cacheClearing' }));
     browser.push(kept('F', { operationType: 'cacheClearing', status: 'failed' }));
     browser.push(row('C', { operationType: 'dataImport' }));
-    browser.push(row('C', { operationType: 'dataImport', status: 'cancelled' }));
+    browser.push(row('C', { operationType: 'dataImport', status: 'canceled' }));
     mock.timers.tick(10 * 60 * 1000);
     assert.deepEqual(browser.drawn(), [
       'OK:eviction_scan:completed',
       'F:cache_clearing:failed',
-      'C:data_import:cancelled'
+      'C:data_import:canceled'
     ]);
 
     browser.state = releaseKeptSuccess(browser.state);
@@ -709,17 +711,17 @@ test('each notification mode draws its card, row or nothing, and a failure is a 
       live: ['R:{type}:running'],
       completed: ['R:{type}:completed'],
       failed: ['R:{type}:failed'],
-      cancelled: ['R:{type}:cancelled'],
+      canceled: ['R:{type}:canceled'],
       skipped: ['R:{type}:skipped']
     },
     background: {
       live: ['R:{type}:running:row'],
       completed: [],
       failed: ['R:{type}:failed'],
-      cancelled: [],
+      canceled: [],
       skipped: []
     },
-    hidden: { live: [], completed: [], failed: ['R:{type}:failed'], cancelled: [], skipped: [] }
+    hidden: { live: [], completed: [], failed: ['R:{type}:failed'], canceled: [], skipped: [] }
   };
   for (const [operationType, type] of [
     ['evictionScan', 'eviction_scan'],
@@ -727,7 +729,7 @@ test('each notification mode draws its card, row or nothing, and a failure is a 
     ['evictionRemoval', 'eviction_removal']
   ]) {
     for (const visibility of ['card', 'background', 'hidden']) {
-      for (const outcome of ['live', 'completed', 'failed', 'cancelled', 'skipped']) {
+      for (const outcome of ['live', 'completed', 'failed', 'canceled', 'skipped']) {
         const browser = new Browser();
         browser.push(row('R', { operationType, visibility }));
         if (outcome !== 'live')
@@ -1056,7 +1058,7 @@ test('a kept skip or warning of a schedule leaves its failure card in place', ()
 
 test('the ending order is the server one, whatever order the rows arrive in', () => {
   const schedule = { operationType: 'gameDetection' };
-  // A started first but ended last: B was queued, failed and kept before A finished.
+  // A started first but ended last: B was waiting, failed and kept before A finished.
   const endB = kept('B', { ...schedule, status: 'failed', completedRevision: 30 });
   const endA = kept('A', { ...schedule, status: 'failed', completedRevision: 40 });
 
@@ -1182,7 +1184,7 @@ test('a prefill sign-in draws one card from its row, in the browser whose sessio
 });
 
 test('a prefill sign-in stays after a failure, and otherwise leaves unless kept visible', () => {
-  for (const status of ['completed', 'cancelled']) {
+  for (const status of ['completed', 'canceled']) {
     for (const keepSuccessVisible of [false, true]) {
       const browser = new Browser({ sessionId: 'session-a', keepSuccessVisible });
       browser.push(row('L', signIn));
@@ -1223,21 +1225,25 @@ test('the download history upgrade draws its card, names its stage and keeps its
   assert.deepEqual(browser.drawn(), ['U:download_history_upgrade:running']);
   assert.equal(browser.card('U').message, 'Merging split download rows');
 
-  const reason =
-    'Download history upgrade stopped: timeout. 1200 rows still wait to merge. It tries again at the next start.';
+  const sentence =
+    'Download history upgrade failed: timeout. Rows still waiting to merge: 1200. It tries again at the next start.';
   browser.push(
     kept('U', {
       operationType: 'downloadHistoryUpgrade',
       name: 'Upgrading download history',
       status: 'failed',
-      message: reason,
-      error: reason
+      message: 'signalr.downloadHistoryUpgrade.failedWithRemaining',
+      error: 'signalr.downloadHistoryUpgrade.failedWithRemaining',
+      failureReason: {
+        stageKey: 'signalr.downloadHistoryUpgrade.failedWithRemaining',
+        context: { errorDetail: 'timeout', count: 1200 }
+      }
     })
   );
   browser.fade();
   assert.deepEqual(browser.drawn(), ['U:download_history_upgrade:failed']);
-  assert.equal(browser.card('U').message, 'Operation failed');
-  assert.equal(browser.card('U').error, reason);
+  assert.equal(browser.card('U').message, sentence);
+  assert.equal(browser.card('U').error, sentence);
   assert.equal(
     notificationEntries.find((entry) => entry.type === 'download_history_upgrade')?.cancelKind,
     'serverOp'
@@ -1322,7 +1328,7 @@ test('a card closed while its cancel was in flight comes back without the cancel
     cancelSent: true,
     cancelPending: true
   });
-  assert.deepEqual(browser.drawn(), ['P1:scheduled_prefill:cancelling']);
+  assert.deepEqual(browser.drawn(), ['P1:scheduled_prefill:canceling']);
   browser.state = hideRun(browser.state, 'P1');
   browser.reconnect();
   browser.snapshot([row('P1', prefillRunFields)]);
@@ -1624,7 +1630,9 @@ test('a failed log removal card shows the reason the server gave', () => {
   };
   const logRemoval = notificationEntries.find((entry) => entry.type === 'log_removal');
   const reason = 'Could not prove that the selected logs have no active writer';
+  const context = { errorDetail: reason };
   browser.push(row('LR', { operationType: 'logRemoval', name: 'Log Removal' }));
+  // The server sends the run's ending key and puts the child's reason in its values.
   buildCompleteHandler(
     logRemoval,
     logRemoval.complete,
@@ -1633,21 +1641,23 @@ test('a failed log removal card shows the reason the server gave', () => {
     operationId: 'LR',
     success: false,
     status: 'failed',
-    message: reason,
-    cancelled: false,
+    stageKey: 'signalr.logRemoval.error.fatal',
+    canceled: false,
     service: 'steam',
-    context: { service: 'steam' }
+    context
   });
   browser.push(
     row('LR', {
       operationType: 'logRemoval',
       name: 'Log Removal',
       status: 'failed',
-      error: reason,
+      message: 'signalr.logRemoval.error.fatal',
+      error: 'signalr.logRemoval.error.fatal',
+      failureReason: { stageKey: 'signalr.logRemoval.error.fatal', context },
       retained: true
     })
   );
-  assert.equal(browser.card('LR').message, reason);
+  assert.equal(browser.card('LR').message, `Log removal failed: ${reason}`);
 });
 
 test('a log removal that found another log deleted outside the app is an amber card naming that log', () => {
@@ -1667,8 +1677,8 @@ test('a log removal that found another log deleted outside the app is an amber c
     operationId: 'LR',
     success: true,
     status: 'completed',
-    message: 'Successfully removed steam entries from default',
-    cancelled: false,
+    message: 'signalr.logRemoval.complete',
+    canceled: false,
     service: 'steam',
     stageKey: 'signalr.logRemoval.complete',
     context: { service: 'steam', datasourceName: 'default', linesRemoved: 1 }
@@ -1705,7 +1715,7 @@ test('a canceled run whose repair skipped a datasource names it, live and after 
   const ending = kept('CL', {
     operationType: 'cacheClearing',
     name: 'Cache Clear',
-    status: 'cancelled',
+    status: 'canceled',
     warnings: [
       {
         stageKey: 'common.notifications.warnings.datasourcesNotRepaired',
@@ -2038,6 +2048,43 @@ test('(e, n) a snapshot refreshes the percent a push never carries', () => {
   assert.equal(browser.card('R').progress, 80, 'an event after the request started is newer');
 });
 
+test('a failed run row with its reason shows the sentence with its value in message and error line', () => {
+  const reason = {
+    stageKey: 'signalr.depotMapping.github.httpFailed',
+    context: { errorDetail: '503', isReconnecting: false, reconnectAttempt: null }
+  };
+  const failed = kept('D', {
+    operationType: 'depotMapping',
+    name: 'Depot Mapping',
+    status: 'failed',
+    message: reason.stageKey,
+    error: reason.stageKey,
+    failureReason: reason
+  });
+  const browser = new Browser();
+  browser.push(failed);
+  const card = browser.card('D');
+  assert.equal(card.message, 'GitHub 对仓库映射下载返回了 HTTP 503');
+  assert.equal(card.error, 'GitHub 对仓库映射下载返回了 HTTP 503');
+  assert.doesNotMatch(card.message, /\{\{/);
+  assert.doesNotMatch(card.error, /\{\{/);
+
+  const errors = [];
+  const original = console.error;
+  console.error = (...args) => errors.push(args[0]);
+  try {
+    assert.deepEqual(readOperationRun(failed), failed);
+    assert.ok(readOperationRun({ ...failed, failureReason: null }));
+    assert.equal(readOperationRun({ ...failed, failureReason: { stageKey: '' } }), null);
+    assert.equal(
+      readOperationRun({ ...failed, failureReason: { stageKey: 'k', context: 3 } }),
+      null
+    );
+  } finally {
+    console.error = original;
+  }
+});
+
 test('(f) a malformed row or snapshot is dropped and logged, never drawn', () => {
   const errors = [];
   const original = console.error;
@@ -2101,7 +2148,7 @@ test('(f) a malformed row or snapshot is dropped and logged, never drawn', () =>
 test('(j) a completion after the terminal row fills the text, not the status or how long it stays', () => {
   const browser = new Browser();
   browser.push(row('R'));
-  browser.push(kept('R', { status: 'failed', error: 'Operation failed' }));
+  browser.push(kept('R', { status: 'failed', error: 'signalr.generic.failed' }));
   browser.detail('R', { message: 'Scanning' }, 'event');
   assert.equal(browser.card('R').message, 'signalr.evictionScan.scanning');
   browser.detail(
@@ -2293,7 +2340,8 @@ const liftRunHandlers = ({ invoke, fetchWithAuth, sessionId = null }) => {
     sessionIdRef: { current: sessionId },
     snapshotRetryRef: { current: undefined },
     isAdminRef: { current: true },
-    isConnectedRef: { current: true }
+    isConnectedRef: { current: true },
+    mountedRef: { current: true }
   };
   const applied = [];
   // The retry timers the request scheduled and cleared; none of them runs unless a test calls it.
@@ -2521,10 +2569,11 @@ const liftFadeLeavingRuns = (browser) => {
     window,
     APP_EVENTS
   })();
-  const unmount = lift('useEffect', 'autoDismissTimersRef.current.clear()', {
+  const unmount = lift('useEffect', 'mountedRef.current = false', {
     autoDismissTimersRef,
     snapshotRetryRef: { current: undefined },
-    waitersRef: { current: new Set() }
+    waitersRef: { current: new Set() },
+    mountedRef: { current: true }
   })();
   return {
     fadeLeavingRuns,
@@ -2543,7 +2592,7 @@ test('a finished run card that leaves on its own stays for the popup time, then 
   const fade = modules.NOTIFICATION_ANIMATION_DURATION_MS;
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
-    for (const status of ['completed', 'cancelled']) {
+    for (const status of ['completed', 'canceled']) {
       for (const keepSuccessVisible of [false, true]) {
         const label = `${status} keep=${keepSuccessVisible}`;
         const browser = new Browser({ keepSuccessVisible });
@@ -2812,6 +2861,26 @@ test('(p) a failed run-list read is asked again after 5 s while connected, and e
   assert.equal(fetched.length, 3, 'no request while the connection is down');
 });
 
+test('a run-list read that fails after the provider unmounted schedules no retry', async () => {
+  const answer = deferred();
+  const handlers = liftRunHandlers({
+    invoke: async () => undefined,
+    fetchWithAuth: () => answer.promise
+  });
+  const pending = handlers.requestSnapshot();
+  await flush();
+  bindLifted(liftHookCallback(CONTEXT_PATH, 'useEffect', 'mountedRef.current = false'), {
+    autoDismissTimersRef: { current: new Map() },
+    snapshotRetryRef: handlers.snapshotRetryRef,
+    waitersRef: { current: new Set() },
+    mountedRef: handlers.mountedRef,
+    clearTimeout: (id) => handlers.cleared.push(id)
+  })()();
+  answer.resolve({ ok: false, status: 500 });
+  await pending;
+  assert.equal(handlers.retries.length, 0, 'no retry outlives the provider');
+});
+
 test('a handoff to an unknown successor asks for a snapshot once', async () => {
   const fetched = [];
   const handlers = liftRunHandlers({
@@ -2852,7 +2921,7 @@ test('a waiter follows a promotion before it reads a status, and a later 404 rel
     },
     ApiError,
     isTerminalNotificationStatus: (status) =>
-      ['completed', 'failed', 'cancelled', 'skipped'].includes(status),
+      ['completed', 'failed', 'canceled', 'skipped'].includes(status),
     endStatus: (status) => status
   })();
   const settled = [];
@@ -2892,11 +2961,11 @@ test('a waiter follows a promotion before it reads a status, and a later 404 rel
 
 /** A terminal row of a job whose cache repair still runs. */
 const repairingRow = (operationId, fields = {}) =>
-  row(operationId, { status: 'cancelled', repairing: true, repairError: null, ...fields });
+  row(operationId, { status: 'canceled', repairing: true, repairError: null, ...fields });
 /** The row of a job whose repair gave up: the server keeps it, with the reason. */
 const failedOutRow = (operationId, fields = {}) =>
   row(operationId, {
-    status: 'cancelled',
+    status: 'canceled',
     repairing: false,
     retained: true,
     repairError: 'disk busy',
@@ -2912,7 +2981,7 @@ test('a job that ends while its repair runs keeps its card, teal, until the repa
   browser.push(repairingRow('R'));
   assert.deepEqual(browser.drawn(), ['R:eviction_scan:repairing']);
   const card = browser.card('R');
-  assert.equal(card.message, 'common.notifications.repairing.cancelled');
+  assert.equal(card.message, 'common.notifications.repairing.canceled');
   assert.equal(card.progress, undefined);
   assert.equal(card.details.cancelRequested, undefined, 'an ended job carries no cancel to force');
   const entry = browser.state.entries.get('R');
@@ -2920,12 +2989,12 @@ test('a job that ends while its repair runs keeps its card, teal, until the repa
   assert.equal(entry.leaving, false);
   assert.deepEqual(
     browser.ended,
-    [{ operationId: 'R', status: 'cancelled', error: undefined }],
+    [{ operationId: 'R', status: 'canceled', error: undefined }],
     'the job ended, so its waiters resolve'
   );
 
-  browser.push(row('R', { status: 'cancelled', repairing: false, repairError: null }));
-  assert.deepEqual(browser.drawn(), ['R:eviction_scan:cancelled'], 'then it ends as it does today');
+  browser.push(row('R', { status: 'canceled', repairing: false, repairError: null }));
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:canceled'], 'then it ends as it does today');
   assert.equal(browser.state.entries.get('R').leaving, true);
 
   for (const status of ['completed', 'failed', 'skipped']) {
@@ -3043,7 +3112,7 @@ test('closing a repairing card hides it to the strip until its repair ends, thro
 
   // The repair succeeds: the card does not come back, Keep Notifications Visible or not.
   browser.keepSuccessVisible = true;
-  browser.push(row('R', { status: 'cancelled', repairing: false, repairError: null }));
+  browser.push(row('R', { status: 'canceled', repairing: false, repairError: null }));
   assert.deepEqual(browser.drawn(), []);
   assert.equal(browser.state.entries.size, 0);
   assert.equal(globalThis.sessionStorage.getItem(HIDDEN_REPAIRS_KEY), '[]');
@@ -3122,7 +3191,7 @@ test('the startup full repair draws a Cache Repair card that leaves the moment t
   const full = {
     operationType: 'cacheClearing',
     name: 'Cache Clearing',
-    status: 'cancelled',
+    status: 'canceled',
     fullRepair: true
   };
   for (const keepSuccessVisible of [false, true]) {
@@ -3150,7 +3219,7 @@ test('the startup full repair draws a Cache Repair card that leaves the moment t
   const job = new Browser();
   job.snapshot([row('J', { ...full, fullRepair: undefined, repairing: true })]);
   assert.deepEqual(job.drawn(), ['J:cache_clearing:repairing']);
-  assert.equal(job.card('J').message, 'common.notifications.repairing.cancelled');
+  assert.equal(job.card('J').message, 'common.notifications.repairing.canceled');
 });
 
 test('a later failed run of the same schedule leaves an older red repair card and its Retry', () => {
@@ -3222,7 +3291,7 @@ test('every run whose repair still runs is listed, folded and Hidden ones includ
   browser.push(row('L', { repairing: true }));
   browser.push(row('E'));
   browser.push(repairingRow('E'));
-  browser.push(row('E', { status: 'cancelled', repairing: false, repairError: null }));
+  browser.push(row('E', { status: 'canceled', repairing: false, repairError: null }));
 
   assert.deepEqual(
     browser
@@ -3319,52 +3388,52 @@ test("a depot mapping reason sent as a locale key reads in the reader's language
   assert.equal(browser.card('D').error, 'Depot mapping did not run: could not reach Steam');
 });
 
-test('a card being cancelled says so instead of its last progress line', () => {
+test('a card being canceled says so instead of its last progress line', () => {
   const browser = new Browser();
   browser.push(row('R'));
   browser.detail('R', { message: 'Scanning 45%' });
   assert.equal(browser.card('R').message, 'Scanning 45%');
   browser.state = setRunCancel(browser.state, 'R', { cancelRequested: true, cancelSent: true });
-  assert.deepEqual(browser.drawn(), ['R:eviction_scan:cancelling']);
-  assert.equal(browser.card('R').message, 'Cancelling...');
-  browser.push(row('R', { status: 'cancelling' }));
-  assert.equal(browser.card('R').message, 'Cancelling...');
+  assert.deepEqual(browser.drawn(), ['R:eviction_scan:canceling']);
+  assert.equal(browser.card('R').message, 'Canceling...');
+  browser.push(row('R', { status: 'canceling' }));
+  assert.equal(browser.card('R').message, 'Canceling...');
 });
 
-test('a parked scan promoted to a running one says it is cancelling, not its waiting line', () => {
+test('a parked scan promoted to a running one says it is canceling, not its waiting line', () => {
   const promoted = new Browser();
   promoted.push(row('W', { status: 'waiting', blockedByName: 'Game Removal' }));
   promoted.push(row('N', { previousOperationId: 'W' }));
-  promoted.push(row('N', { status: 'cancelling', previousOperationId: 'W' }));
-  assert.deepEqual(promoted.drawn(), ['W:eviction_scan:cancelling']);
-  assert.equal(promoted.card('W').message, 'Cancelling...');
+  promoted.push(row('N', { status: 'canceling', previousOperationId: 'W' }));
+  assert.deepEqual(promoted.drawn(), ['W:eviction_scan:canceling']);
+  assert.equal(promoted.card('W').message, 'Canceling...');
 });
 
-test('a promoted scan cancelled from its card says so before the cancelling row arrives', () => {
+test('a promoted scan canceled from its card says so before the canceling row arrives', () => {
   const clicked = new Browser();
   clicked.push(row('W', { status: 'waiting', blockedByName: 'Game Removal' }));
   clicked.push(row('N', { previousOperationId: 'W' }));
   clicked.state = setRunCancel(clicked.state, 'W', { cancelRequested: true, cancelSent: true });
-  assert.equal(clicked.card('W').message, 'Cancelling...');
+  assert.equal(clicked.card('W').message, 'Canceling...');
 });
 
-test('a card that took over a running scan says it is cancelling, not the scan line', () => {
+test('a card that took over a running scan says it is canceling, not the scan line', () => {
   const handedOff = new Browser();
   handedOff.push(row('R'));
   handedOff.detail('R', { message: 'Scanning 45%' });
-  handedOff.push(row('S', { status: 'cancelling', previousOperationId: 'R' }));
+  handedOff.push(row('S', { status: 'canceling', previousOperationId: 'R' }));
   const [handedOffCard] = handedOff.cards();
-  assert.deepEqual(handedOff.drawn(), [`${handedOffCard.id}:eviction_scan:cancelling`]);
-  assert.equal(handedOffCard.message, 'Cancelling...');
+  assert.deepEqual(handedOff.drawn(), [`${handedOffCard.id}:eviction_scan:canceling`]);
+  assert.equal(handedOffCard.message, 'Canceling...');
 });
 
-test('a promoted scan still says it is cancelling after a reload that holds its parked row', () => {
+test('a promoted scan still says it is canceling after a reload that holds its parked row', () => {
   const reloaded = new Browser();
   reloaded.snapshot([
     row('W', { status: 'waiting', blockedByName: 'Game Removal' }),
-    row('N', { status: 'cancelling', previousOperationId: 'W' })
+    row('N', { status: 'canceling', previousOperationId: 'W' })
   ]);
-  assert.equal(reloaded.card('W').message, 'Cancelling...');
+  assert.equal(reloaded.card('W').message, 'Canceling...');
 });
 
 test('each scheduled operation takes its Schedules page name as its card title', async () => {

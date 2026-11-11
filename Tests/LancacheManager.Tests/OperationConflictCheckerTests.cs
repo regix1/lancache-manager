@@ -33,13 +33,6 @@ public class OperationConflictCheckerTests
                 requestedScope,
                 CancellationToken.None);
 
-            // A log pass waits for the upgrade's log steps at the log file lock instead.
-            if (requestedType == OperationType.LogProcessing)
-            {
-                Assert.Null(response);
-                continue;
-            }
-
             Assert.NotNull(response);
             Assert.Equal("OPERATION_CONFLICT", response!.Code);
             Assert.Equal("errors.conflict.downloadHistoryUpgradeActive", response.StageKey);
@@ -132,9 +125,6 @@ public class OperationConflictCheckerTests
     [InlineData(OperationType.GameRemoval)]
     [InlineData(OperationType.EvictionScan)]
     [InlineData(OperationType.GameDetection)]
-    [InlineData(OperationType.CacheClearing)]
-    [InlineData(OperationType.DatabaseReset)]
-    [InlineData(OperationType.DownloadHistoryUpgrade)]
     public async Task Allows_LogProcessing_Beside_ActiveOperationAsync(OperationType activeType)
     {
         using var tracker = new TrackerHarness();
@@ -146,6 +136,57 @@ public class OperationConflictCheckerTests
             CancellationToken.None);
 
         Assert.Null(response);
+    }
+
+    // The live ingest and the log position reset keep today's rule: they step aside for no job but
+    // another log pass.
+    [Theory]
+    [InlineData(OperationType.GameRemoval)]
+    [InlineData(OperationType.EvictionScan)]
+    [InlineData(OperationType.GameDetection)]
+    [InlineData(OperationType.CacheClearing)]
+    [InlineData(OperationType.DatabaseReset)]
+    [InlineData(OperationType.DownloadHistoryUpgrade)]
+    public async Task CheckForLogPass_Allows_Beside_ActiveOperationAsync(OperationType activeType)
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, activeType, activeType.ToString());
+
+        Assert.Null(await tracker.Checker.CheckForLogPassAsync(CancellationToken.None));
+    }
+
+    // Another log pass is the one job the live ingest and the log position reset step aside for.
+    [Fact]
+    public async Task CheckForLogPass_Blocks_When_LogProcessing_IsActiveAsync()
+    {
+        using var tracker = new TrackerHarness();
+        var blockerId = RegisterBulkOperation(tracker.Tracker, OperationType.LogProcessing, "Log Processing");
+
+        var response = await tracker.Checker.CheckForLogPassAsync(CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(blockerId, response!.ActiveOperationId);
+    }
+
+    // A manual log run waits for a running cache clear, database reset or history upgrade like any
+    // other job, so it never starts beside one.
+    [Theory]
+    [InlineData(OperationType.CacheClearing, "errors.conflict.globalOperationActive")]
+    [InlineData(OperationType.DatabaseReset, "errors.conflict.globalOperationActive")]
+    [InlineData(OperationType.DownloadHistoryUpgrade, "errors.conflict.downloadHistoryUpgradeActive")]
+    public async Task Blocks_LogProcessing_When_GlobalOperation_IsActiveAsync(OperationType activeType, string stageKey)
+    {
+        using var tracker = new TrackerHarness();
+        RegisterBulkOperation(tracker.Tracker, activeType, activeType.ToString());
+
+        var response = await tracker.Checker.CheckAsync(
+            OperationType.LogProcessing,
+            ConflictScope.Bulk(),
+            CancellationToken.None);
+
+        Assert.NotNull(response);
+        Assert.Equal(activeType.ToString(), response!.ActiveOperationType);
+        Assert.Equal(stageKey, response.StageKey);
     }
 
     [Fact]
@@ -260,7 +301,7 @@ public class OperationConflictCheckerTests
             await harness.Owner.PrepareRepairAsync(repair, CancellationToken.None);
             await harness.Owner.StartWorkAsync(repair.Id, "alpha", CancellationToken.None);
             state.FailNextRepairWrite = true;
-            await harness.Owner.FinishRepairAsync(repair.Id, success: false, cancelled: false, error: "interrupted");
+            await harness.Owner.FinishRepairAsync(repair.Id, success: false, canceled: false, error: "interrupted");
 
             var response = await checker.CheckAsync(
                 OperationType.GameRemoval,
@@ -890,7 +931,7 @@ public class OperationConflictCheckerTests
     public async Task AnUnmappedRemovalParkedBehindAHeldRun_StartsOnlyOnceTheRunEndsAsync()
     {
         using var tracker = new TrackerHarness();
-        var queue = new OperationQueueService(tracker.Tracker, tracker.Checker, NullLogger<OperationQueueService>.Instance);
+        var queue = new OperationWaitlistService(tracker.Tracker, tracker.Checker, NullLogger<OperationWaitlistService>.Instance);
         var currentStep = RegisterCorruptionStep(tracker.Tracker, "steam");
         var hold = tracker.Checker.HoldRun(
             OperationType.CorruptionRemoval,
@@ -907,8 +948,8 @@ public class OperationConflictCheckerTests
                 return Task.FromResult<Guid?>(RegisterBulkOperation(
                     tracker.Tracker, OperationType.UnmappedFileRemoval, "Unmapped File Removal"));
             },
-            CancellationToken.None);
-        Assert.True(parked.Queued);
+            CancellationToken.None, new UnmappedFileRemovalRequestKey(new UnmappedFilesLimits(MaxFiles: 1000, MaxBytes: 0)));
+        Assert.Equal(OperationStartStatus.Waiting, parked.Status);
 
         // Each step's end runs a promotion pass, and the run still holds its services there.
         tracker.Tracker.CompleteOperation(currentStep, success: true);
@@ -926,7 +967,7 @@ public class OperationConflictCheckerTests
     public async Task ARunParkedOnOneService_ParksAgainOnTheNextBusyServiceAtPromotionAsync()
     {
         using var tracker = new TrackerHarness();
-        var queue = new OperationQueueService(tracker.Tracker, tracker.Checker, NullLogger<OperationQueueService>.Instance);
+        var queue = new OperationWaitlistService(tracker.Tracker, tracker.Checker, NullLogger<OperationWaitlistService>.Instance);
         var steamBlocker = RegisterServiceRemoval(tracker.Tracker, "steam");
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var parked = await queue.EnqueueAsync(
@@ -934,7 +975,7 @@ public class OperationConflictCheckerTests
             ConflictScope.Service("steam"),
             "Corruption Removal (all services)",
             StartCheckingEveryService(tracker.Checker, started, "steam", "epicgames"),
-            CancellationToken.None);
+            CancellationToken.None, new CorruptionRemovalRequestKey(CorruptionDetectionMethod.RepeatedMiss));
         var epicBlocker = RegisterServiceRemoval(tracker.Tracker, "epicgames");
 
         tracker.Tracker.CompleteOperation(steamBlocker, success: true);
@@ -950,7 +991,7 @@ public class OperationConflictCheckerTests
     public async Task ARunWhoseFirstServiceIsFree_ParksOnTheLaterBusyServiceAsync()
     {
         using var tracker = new TrackerHarness();
-        var queue = new OperationQueueService(tracker.Tracker, tracker.Checker, NullLogger<OperationQueueService>.Instance);
+        var queue = new OperationWaitlistService(tracker.Tracker, tracker.Checker, NullLogger<OperationWaitlistService>.Instance);
         var epicBlocker = RegisterServiceRemoval(tracker.Tracker, "epicgames");
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -959,9 +1000,9 @@ public class OperationConflictCheckerTests
             ConflictScope.Service("steam"),
             "Corruption Removal (all services)",
             StartCheckingEveryService(tracker.Checker, started, "steam", "epicgames"),
-            CancellationToken.None);
+            CancellationToken.None, new CorruptionRemovalRequestKey(CorruptionDetectionMethod.RepeatedMiss));
 
-        Assert.True(parked.Queued);
+        Assert.Equal(OperationStartStatus.Waiting, parked.Status);
         Assert.Equal("Service removal: epicgames", tracker.Tracker.GetOperation(parked.OperationId)?.BlockedByName);
         tracker.Tracker.CompleteOperation(epicBlocker, success: true);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -971,7 +1012,7 @@ public class OperationConflictCheckerTests
     public async Task CancelingARunParkedAgain_EndsItWithoutStartingAsync()
     {
         using var tracker = new TrackerHarness();
-        var queue = new OperationQueueService(tracker.Tracker, tracker.Checker, NullLogger<OperationQueueService>.Instance);
+        var queue = new OperationWaitlistService(tracker.Tracker, tracker.Checker, NullLogger<OperationWaitlistService>.Instance);
         var steamBlocker = RegisterServiceRemoval(tracker.Tracker, "steam");
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var parked = await queue.EnqueueAsync(
@@ -979,14 +1020,14 @@ public class OperationConflictCheckerTests
             ConflictScope.Service("steam"),
             "Corruption Removal (all services)",
             StartCheckingEveryService(tracker.Checker, started, "steam", "epicgames"),
-            CancellationToken.None);
+            CancellationToken.None, new CorruptionRemovalRequestKey(CorruptionDetectionMethod.RepeatedMiss));
         var epicBlocker = RegisterServiceRemoval(tracker.Tracker, "epicgames");
         tracker.Tracker.CompleteOperation(steamBlocker, success: true);
         var waitingId = parked.OperationId;
         await WaitForBlockerAsync(tracker.Tracker, waitingId, "Service removal: epicgames");
 
         tracker.Tracker.CancelOperation(waitingId);
-        await WaitForStatusAsync(tracker.Tracker, waitingId, OperationStatus.Cancelled);
+        await WaitForStatusAsync(tracker.Tracker, waitingId, OperationStatus.Canceled);
         tracker.Tracker.CompleteOperation(epicBlocker, success: true);
 
         await Assert.ThrowsAsync<TimeoutException>(() => started.Task.WaitAsync(TimeSpan.FromMilliseconds(500)));
@@ -996,7 +1037,7 @@ public class OperationConflictCheckerTests
     public async Task ACancelDuringTheStart_EndsTheRunInsteadOfParkingItAgainAsync()
     {
         using var tracker = new TrackerHarness();
-        var queue = new OperationQueueService(tracker.Tracker, tracker.Checker, NullLogger<OperationQueueService>.Instance);
+        var queue = new OperationWaitlistService(tracker.Tracker, tracker.Checker, NullLogger<OperationWaitlistService>.Instance);
         var steamBlocker = RegisterServiceRemoval(tracker.Tracker, "steam");
         var waitingId = Guid.Empty;
         var starts = 0;
@@ -1013,13 +1054,14 @@ public class OperationConflictCheckerTests
                 tracker.Tracker.CancelOperation(waitingId);
                 throw new OperationBlockedException(scope, conflict!);
             },
-            CancellationToken.None);
+            CancellationToken.None,
+            new CorruptionRemovalRequestKey(CorruptionDetectionMethod.RepeatedMiss));
         waitingId = parked.OperationId;
         var epicBlocker = RegisterServiceRemoval(tracker.Tracker, "epicgames");
 
         tracker.Tracker.CompleteOperation(steamBlocker, success: true);
 
-        await WaitForStatusAsync(tracker.Tracker, waitingId, OperationStatus.Cancelled);
+        await WaitForStatusAsync(tracker.Tracker, waitingId, OperationStatus.Canceled);
         tracker.Tracker.CompleteOperation(epicBlocker, success: true);
         await Task.Delay(500);
         Assert.Equal(1, starts);
@@ -1223,7 +1265,7 @@ public class OperationConflictCheckerTests
             _repairFinish = _repairHarness.Owner.FinishRepairAsync(
                 repair.Id,
                 success: false,
-                cancelled: false,
+                canceled: false,
                 error: "interrupted");
             await _repairEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             return repair.Id;
@@ -1285,7 +1327,16 @@ internal static class OperationConflictTestServices
         return new OperationConflictChecker(tracker, _repair.Value.Owner, logger);
     }
 
-    // A cache clear record whose failed or cancelled outcome owes a repair; the id lets a test
+    // The request key a test of several operation types asks with: a full detection, a corruption scan with no
+    // settings, the plain key for the scans that have none.
+    public static OperationRequestKey RequestKeyFor(OperationType type) => type switch
+    {
+        OperationType.GameDetection => new GameDetectionRequestKey(DetectionScanType.Full),
+        OperationType.CorruptionDetection => new CorruptionDetectionRequestKey(null, null, null),
+        _ => OperationRequestKey.Plain
+    };
+
+    // A cache clear record whose failed or canceled outcome owes a repair; the id lets a test
     // give it the id of a tracked operation.
     public static OperationRepair NewCacheClearRepair(Guid id) => new()
     {

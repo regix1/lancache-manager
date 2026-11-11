@@ -27,49 +27,14 @@ public sealed class GamesControllerDetectionNoticeTests
 
         try
         {
-            var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["LanCache:DataSources:0:Name"] = "alpha",
-                    ["LanCache:DataSources:0:CachePath"] = "cache",
-                    ["LanCache:DataSources:0:LogPath"] = "logs",
-                    ["LanCache:DataSources:0:Enabled"] = "true",
-                    ["LanCache:DataSources:0:SchemeOverride"] = DatasourceSchemeOverrideValues.Monolithic
-                })
-                .Build();
-            var pathResolver = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
-            ((PathResolverProxy)(object)pathResolver).Root = root;
-            var datasourceService = new DatasourceService(
-                configuration, pathResolver, NullLogger<DatasourceService>.Instance);
-            var queue = new RecordingOperationQueue();
-            var detectionLoop = new GameDetectionService(
-                detectionService: null!,
-                stateService: DispatchProxy.Create<IStateService, NullReturningProxy>(),
-                pathResolver: pathResolver,
-                scopeFactory: null!,
-                cacheReconciliationService: null!,
-                operationQueue: queue,
-                logger: NullLogger<GameDetectionService>.Instance,
-                configuration: configuration);
-            detectionLoop.SetNotificationMode(mode);
+            var queue = new RecordingOperationWaitlist();
             var tracker = new UnifiedOperationTracker(
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
                 NullLogger<UnifiedOperationTracker>.Instance);
             tracker.RegisterOperation(
                 OperationType.CacheSizeScan, "Cache File Scan", new CancellationTokenSource());
-            var controller = new GamesController(
-                gameCacheDetectionService: null!,
-                gameDetectionService: detectionLoop,
-                cacheManagementService: null!,
-                notifications: null!,
-                logger: NullLogger<GamesController>.Instance,
-                pathResolver: pathResolver,
-                operationTracker: tracker,
-                conflictChecker: OperationConflictTestServices.Create(
-                    tracker, NullLogger<OperationConflictChecker>.Instance),
-                operationQueue: queue,
-                capabilityService: new DatasourceCapabilityService(datasourceService),
-                cacheScanGate: CacheScanGateHarness.Idle());
+            var (controller, detectionLoop) = CreateController(root, queue, tracker);
+            detectionLoop.SetNotificationMode(mode);
 
             var result = await controller.DetectGamesAsync(cancellationToken: CancellationToken.None);
 
@@ -86,6 +51,98 @@ public sealed class GamesControllerDetectionNoticeTests
         }
     }
 
+    /// <summary>
+    /// The route hands its start to the queue, which checks conflicts and starts under one lock, so a
+    /// cache clear sent at the same moment cannot start beside it. The route checks nothing outside the
+    /// queue and keeps its two answers: the started scan's id, or the queue's waiting answer.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DetectGames_HandsItsStartToTheQueueAndKeepsItsAnswerAsync(bool waiting)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "lm-detection-notice-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "cache"));
+        Directory.CreateDirectory(Path.Combine(root, "logs"));
+
+        try
+        {
+            var operationId = Guid.NewGuid();
+            var response = new OperationStartResponse
+            {
+                OperationId = operationId,
+                Status = waiting ? OperationStartStatus.Waiting : OperationStartStatus.Started
+            };
+            var queue = new RecordingOperationWaitlist { Response = response };
+            var tracker = new UnifiedOperationTracker(
+                new ProcessManager(NullLogger<ProcessManager>.Instance),
+                NullLogger<UnifiedOperationTracker>.Instance);
+            var (controller, _) = CreateController(root, queue, tracker);
+
+            var result = await controller.DetectGamesAsync(forceRefresh: true, cancellationToken: CancellationToken.None);
+
+            var accepted = Assert.IsType<AcceptedResult>(result);
+            Assert.Equal(OperationType.GameDetection, queue.Type);
+            Assert.Equal(ConflictScope.Bulk(), queue.Scope);
+            Assert.Equal(DetectionScanType.Full, queue.ScanType);
+            Assert.Equal(DetectionScanType.Full, Assert.IsType<RunNotice>(queue.Notice).RequestedScanType);
+            if (waiting)
+            {
+                Assert.Same(response, accepted.Value);
+            }
+            else
+            {
+                var started = Assert.IsType<GameDetectionStartResponse>(accepted.Value);
+                Assert.Equal(operationId, started.OperationId);
+                Assert.Equal(OperationStatus.Running, started.Status);
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static (GamesController Controller, GameDetectionService DetectionLoop) CreateController(
+        string root, RecordingOperationWaitlist queue, UnifiedOperationTracker tracker)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["LanCache:DataSources:0:Name"] = "alpha",
+                ["LanCache:DataSources:0:CachePath"] = "cache",
+                ["LanCache:DataSources:0:LogPath"] = "logs",
+                ["LanCache:DataSources:0:Enabled"] = "true",
+                ["LanCache:DataSources:0:SchemeOverride"] = DatasourceSchemeOverrideValues.Monolithic
+            })
+            .Build();
+        var pathResolver = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
+        ((PathResolverProxy)(object)pathResolver).Root = root;
+        var datasourceService = new DatasourceService(
+            configuration, pathResolver, NullLogger<DatasourceService>.Instance);
+        var detectionLoop = new GameDetectionService(
+            detectionService: null!,
+            stateService: DispatchProxy.Create<IStateService, NullReturningProxy>(),
+            pathResolver: pathResolver,
+            scopeFactory: null!,
+            cacheReconciliationService: null!,
+            operationQueue: queue,
+            logger: NullLogger<GameDetectionService>.Instance,
+            configuration: configuration);
+        var controller = new GamesController(
+            gameCacheDetectionService: null!,
+            gameDetectionService: detectionLoop,
+            cacheManagementService: null!,
+            notifications: null!,
+            logger: NullLogger<GamesController>.Instance,
+            pathResolver: pathResolver,
+            operationTracker: tracker,
+            operationQueue: queue,
+            capabilityService: new DatasourceCapabilityService(datasourceService),
+            cacheScanGate: CacheScanGateHarness.Idle());
+        return (controller, detectionLoop);
+    }
+
     [Theory]
     [InlineData(RunTrigger.Manual, true)]
     [InlineData(RunTrigger.Scheduled, false)]
@@ -98,7 +155,7 @@ public sealed class GamesControllerDetectionNoticeTests
             pathResolver: null!,
             scopeFactory: null!,
             cacheReconciliationService: null!,
-            operationQueue: CacheScanGateHarness.CreateProxy<IOperationQueue>(
+            operationQueue: CacheScanGateHarness.CreateProxy<IOperationWaitlist>(
                 (_, _) => throw new InvalidOperationException("capability refused")),
             logger: NullLogger<GameDetectionService>.Instance,
             configuration: new ConfigurationBuilder().Build());
@@ -125,8 +182,9 @@ public sealed class GamesControllerDetectionNoticeTests
             pathResolver: null!,
             scopeFactory: null!,
             cacheReconciliationService: null!,
-            operationQueue: CacheScanGateHarness.CreateProxy<IOperationQueue>(
-                (_, _) => throw new DownloadInProgressException("A download is in progress")),
+            operationQueue: CacheScanGateHarness.CreateProxy<IOperationWaitlist>(
+                (_, _) => throw new DownloadInProgressException(
+                    "A download is in progress", "errors.unmappedRemoval.downloadInProgress")),
             logger: NullLogger<GameDetectionService>.Instance,
             configuration: new ConfigurationBuilder().Build());
         detectionLoop.SelectRunNotice(new RunNotice(NotificationMode.All, RunTrigger.Manual));
@@ -138,31 +196,39 @@ public sealed class GamesControllerDetectionNoticeTests
         await run;
     }
 
-    private sealed class RecordingOperationQueue : IOperationQueue
+    private sealed class RecordingOperationWaitlist : IOperationWaitlist
     {
         public RunNotice? Notice { get; private set; }
+        public OperationType? Type { get; private set; }
+        public ConflictScope? Scope { get; private set; }
+        public DetectionScanType? ScanType { get; private set; }
 
-        public Task<QueuedOperationResponse> EnqueueAsync(
+        public OperationStartResponse Response { get; init; } = new()
+        {
+            OperationId = Guid.NewGuid(),
+            Status = OperationStartStatus.Waiting
+        };
+
+        public Task<OperationStartResponse> EnqueueAsync(
             OperationType type,
             ConflictScope scope,
             string displayName,
             Func<Task<Guid?>> start,
             CancellationToken ct,
+            OperationRequestKey requestKey,
             bool reportRefusal = false,
             RunNotice? notice = null,
-            string? target = null,
-            StructuralScanMode? scanMode = null,
-            int? scanThreshold = null,
-            int? scanLookbackDays = null,
-            DetectionScanType? detectionScanType = null)
+            string? target = null)
         {
             Notice = notice;
-            return Task.FromResult(new QueuedOperationResponse
-            {
-                OperationId = Guid.NewGuid(),
-                Queued = true,
-                Status = "waiting"
-            });
+            Type = type;
+            Scope = scope;
+            ScanType = (requestKey as GameDetectionRequestKey)?.ScanType;
+            return Task.FromResult(Response);
         }
+
+        public Task<OperationConflictResponse?> StartUnlessBusyAsync(
+            OperationType type, ConflictScope scope, Func<Task<Guid?>> start, CancellationToken ct, OperationRequestKey requestKey)
+            => throw new NotSupportedException();
     }
 }

@@ -29,14 +29,14 @@ import {
 const toUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
 
 /**
- * The smallest React that can run the provider: ordered slots for state, refs, memoised callbacks
+ * The smallest React that can run the provider: ordered slots for state, refs, memoized callbacks
  * and values, and effects with cleanup, a render loop that keeps going while a state write dirties
  * it, and an element factory that hands the test the context value the provider published.
  */
 const reactStubSource = `
 let slots = null;
 let cursor = 0;
-let queued = [];
+let pendingEffects = [];
 let currentRender = null;
 
 export const useState = (initial) => {
@@ -93,7 +93,7 @@ export const useEffect = (run, deps) => {
   slot.ran = true;
   slot.deps = deps;
   if (changed) {
-    queued.push({ slot, run });
+    pendingEffects.push({ slot, run });
   }
 };
 
@@ -110,11 +110,11 @@ export const createComponent = (body) => {
   const renderOnce = () => {
     slots = componentSlots;
     cursor = 0;
-    queued = [];
+    pendingEffects = [];
     currentRender = component.render;
     component.output = body();
-    const effects = queued;
-    queued = [];
+    const effects = pendingEffects;
+    pendingEffects = [];
     slots = null;
     currentRender = null;
     for (const { slot, run } of effects) {

@@ -521,7 +521,7 @@ const Dashboard: React.FC = () => {
      as a chip like the staleness markers beside it and the resolution chip on the bandwidth chart,
      rather than the loose lowercase line it used to be. Dropped when the section failed to load,
      because the subtitle carries the failure instead.
-     Memoised so the card list below keeps a stable dependency: a fresh element every render would
+     Memoized so the card list below keeps a stable dependency: a fresh element every render would
      rebuild every card on every render. */
   /* The two live-only cards said "Live now" in their subtitle while every other card carried a
      chip. Same marker, same corner of the card, and the count beside it keeps the words it needs. */
@@ -577,7 +577,7 @@ const Dashboard: React.FC = () => {
 
   // Every card carries the same accent. `color` drives the icon chip and the sparkline, and a tile's
   // identity is not a status, so varying it by card made bytes read as three different kinds of number.
-  // Colour on this page is reserved for something that changed: `tone: 'warning'` and the stale badge.
+  // Color on this page is reserved for something that changed: `tone: 'warning'` and the stale badge.
   const allStatCards = useMemo<AllStatCards>(
     () => ({
       totalCache: {

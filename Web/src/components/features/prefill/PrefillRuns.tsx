@@ -14,7 +14,7 @@ interface PrefillRunsProps {
   activeCount?: number;
   disabled?: boolean;
   onCancel?: (runId: string) => void;
-  cancellingRunIds?: string[];
+  cancelingRunIds?: string[];
   runErrors?: Record<string, string>;
   emptyHelp?: string;
   children?: ReactNode;
@@ -26,7 +26,7 @@ export function PrefillRuns({
   activeCount = 0,
   disabled = false,
   onCancel,
-  cancellingRunIds,
+  cancelingRunIds,
   runErrors,
   emptyHelp,
   children
@@ -56,7 +56,7 @@ export function PrefillRuns({
               serviceId={serviceId}
               progress={getPrefillRunProgress(run)}
               onCancel={onCancel ? () => onCancel(run.runId) : undefined}
-              isCancelling={run.cancelRequested || Boolean(cancellingRunIds?.includes(run.runId))}
+              isCanceling={run.cancelRequested || Boolean(cancelingRunIds?.includes(run.runId))}
               error={runErrors?.[run.runId]}
               disabled={disabled}
             />

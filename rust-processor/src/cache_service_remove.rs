@@ -325,7 +325,7 @@ fn remove_cache_files_for_service(
     digests_to_delete.par_iter().for_each(|(digest, expected_key)| {
         // Cooperative cancellation: skip remaining files if cancel was requested.
         // Already-deleted files stay deleted — consistent partial state that C# reconciles.
-        if cancel::is_cancelled() {
+        if cancel::is_canceled() {
             return;
         }
 
@@ -685,8 +685,8 @@ async fn main() -> Result<()> {
     )?;
 
     // After cache removal: if cancellation arrived, flush partial progress and exit 0.
-    // C# re-runs reconciliation/detection after a cancelled remove.
-    if cancel::is_cancelled() {
+    // C# re-runs reconciliation/detection after a canceled remove.
+    if cancel::is_canceled() {
         eprintln!("Cancellation confirmed — flushing partial progress and exiting.");
         let _ = removal_core::write_progress(
             &progress_path,

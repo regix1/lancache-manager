@@ -661,7 +661,7 @@ public sealed class LancacheServerLocator : ILancacheServerLocator
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return new HeartbeatResult { Reachable = false, ServedBy = null, CacheIp = ip, Error = "cancelled" };
+            return new HeartbeatResult { Reachable = false, ServedBy = null, CacheIp = ip, Error = "canceled" };
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
         {

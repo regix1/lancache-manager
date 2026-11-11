@@ -52,6 +52,12 @@
     box-shadow: var(--shadow-card);
   }
 
+  /* Dark twin of .light-card-shadow: an element that carries a Tailwind shadow utility keeps it
+     in light themes and draws none in dark themes. */
+  [data-theme='dark'] .no-dark-shadow {
+    box-shadow: none;
+  }
+
   /* Outdated-scan (and other warning) chrome. Same specificity as the light-theme
      border rule above so the warning edge wins in both themes. */
   .themed-card.themed-card--warning,
@@ -75,9 +81,6 @@
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--theme-card-border);
-    box-shadow:
-      0 8px 32px rgba(0, 0, 0, 0.2),
-      inset 0 1px 0 var(--theme-text-primary-faint);
     transition:
       background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
       border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
@@ -89,6 +92,19 @@
   .widget-card.glass:hover {
     background: var(--theme-card-bg-full);
     border-color: var(--theme-border-secondary);
+  }
+
+  /* Glass drop shadow and top highlight line, light themes only: dark themes separate layers
+     with fill and border, and the highlight line would be a second edge beside the border. */
+  [data-theme='light'] .glass-card,
+  [data-theme='light'] .widget-card.glass {
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.2),
+      inset 0 1px 0 var(--theme-text-primary-faint);
+  }
+
+  [data-theme='light'] .glass-card:hover,
+  [data-theme='light'] .widget-card.glass:hover {
     box-shadow:
       0 12px 40px rgba(0, 0, 0, 0.3),
       inset 0 1px 0 var(--theme-text-primary-faint);
@@ -109,8 +125,7 @@
     transition: box-shadow 0.15s ease-out;
   }
 
-  /* :not(.glass) so this never fights .widget-card.glass's own shadow above, which already
-     applies in both themes. */
+  /* :not(.glass) so this never fights .widget-card.glass's own light-theme shadow above. */
   [data-theme='light'] .widget-card:not(.glass) {
     box-shadow: var(--shadow-card);
   }
@@ -265,9 +280,9 @@
     overflow-wrap: break-word;
   }
 
-  /* Stacked cards centre their mark, title and note so a grid of them lines up across the row
+  /* Stacked cards center their mark, title and note so a grid of them lines up across the row
      whether or not a title wraps. The radio and any badge sit in the corners, out of the column
-     the text is centred in. */
+     the text is centered in. */
   .selectable-card--stack {
     flex-direction: column;
     align-items: stretch;

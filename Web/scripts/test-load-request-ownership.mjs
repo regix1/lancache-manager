@@ -26,18 +26,23 @@ const heldReads = () => {
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 test('an older default guest preferences read that fails last leaves the card in place', async () => {
-  const state = { preferences: [], errors: [], loading: [] };
+  const state = { current: {}, preferences: [], errors: [], loading: [] };
   const { reads, start } = heldReads();
   const loadDefaultGuestPreferences = bindLifted(
     liftConstArrow(GUEST, 'loadDefaultGuestPreferences'),
     {
       defaultPrefsRequestRef: { current: 0 },
+      defaultPrefsChangedRef: { current: new Set() },
+      defaultPrefsLoadedRef: { current: false },
       fetch: start,
       ApiService: { getFetchOptions: () => ({}) },
       assertOk: async (response) => response,
       TIME_SETTING_VALUES: ['server-24h'],
       setLoadingDefaultPrefs: (value) => state.loading.push(value),
-      setDefaultGuestPreferences: (value) => state.preferences.push(value),
+      setDefaultGuestPreferences: (value) => {
+        state.current = typeof value === 'function' ? value(state.current) : value;
+        state.preferences.push(state.current);
+      },
       setDefaultPrefsError: (value) => state.errors.push(value),
       getErrorMessage: (error) => error.message
     }

@@ -25,7 +25,7 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
     private readonly IDbContextFactory<AppDbContext> _contexts;
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly IOperationQueue _operationQueue;
+    private readonly IOperationWaitlist _operationQueue;
     private readonly OperationStateService _operationStateService;
     private readonly Task _startupCleanupFinished;
     private readonly ILogger<DownloadHistoryUpgradeService> _logger;
@@ -42,7 +42,7 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
         IDbContextFactory<AppDbContext> contexts,
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
-        IOperationQueue operationQueue,
+        IOperationWaitlist operationQueue,
         OperationStateService operationStateService,
         DownloadCleanupService downloadCleanup,
         ILogger<DownloadHistoryUpgradeService> logger)
@@ -61,7 +61,7 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
         IDbContextFactory<AppDbContext> contexts,
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
-        IOperationQueue operationQueue,
+        IOperationWaitlist operationQueue,
         OperationStateService operationStateService,
         Task startupCleanupFinished,
         ILogger<DownloadHistoryUpgradeService> logger)
@@ -117,9 +117,10 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
                 ConflictScope.Bulk(),
                 OperationName,
                 StartUpgradeAsync,
-                _stoppingToken);
+                _stoppingToken,
+                OperationRequestKey.Plain);
 
-            if (outcome.Queued)
+            if (outcome.Status == OperationStartStatus.Waiting)
             {
                 _waitingOperationId = outcome.OperationId;
             }
@@ -159,16 +160,17 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            _operationTracker.CompleteOperation(operationId, success: false, cancelled: true);
+            _operationTracker.CompleteOperation(operationId, success: false, canceled: true);
             _logger.LogInformation(
                 "Download history upgrade stopped; the remaining rows merge at the next start");
         }
         catch (Exception ex)
         {
-            var message = await FailureMessageAsync(ex);
-            _logger.LogError(ex, "{Message}", message);
+            var reason = await FailureMessageAsync(ex);
+            _logger.LogError(ex, "Download history upgrade stopped ({StageKey}); it tries again at the next start", reason.StageKey);
             CloseLastFailure();
-            _operationTracker.CompleteOperation(operationId, success: false, error: message);
+            _operationTracker.CompleteOperation(operationId, success: false, error: reason.StageKey,
+                onCompleting: operation => operation.FailureReason = reason);
             _lastFailedOperationId = operationId;
         }
         finally
@@ -297,7 +299,7 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
                             batchSkipped = 0;
                             await using var transaction = await context.Database.BeginTransactionAsync(ct);
 
-                            // The global slot excludes queued writers. Manual tagging, stale-row cleanup,
+                            // The global slot excludes waiting writers. Manual tagging, stale-row cleanup,
                             // scheduled resolvers, PICS apply, orphan removal, eviction reset, and a live
                             // pass admitted immediately before registration still need the ordered locks.
                             await context.Database.ExecuteSqlRawAsync(
@@ -411,9 +413,9 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
             .SqlQueryRaw<bool>(DownloadHistoryUpgradeSql.PlanExists)
             .SingleAsync(ct);
 
-    private async Task<string> FailureMessageAsync(Exception exception)
+    // The failure's key words the sentence; its values are the bare error and, when known, the rows still waiting.
+    private async Task<RunWarning> FailureMessageAsync(Exception exception)
     {
-        string remaining;
         try
         {
             await using var context = await _contexts.CreateDbContextAsync();
@@ -422,22 +424,24 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
                 var count = await context.Database
                     .SqlQueryRaw<long>(DownloadHistoryUpgradeSql.RemainingPlanRows)
                     .SingleAsync();
-                remaining = $"{count} rows still wait to merge";
+                return new RunWarning(
+                    "signalr.downloadHistoryUpgrade.failedWithRemaining",
+                    new Dictionary<string, object?> { ["errorDetail"] = exception.Message, ["count"] = count });
             }
-            else
-            {
-                remaining = "The merge has not started";
-            }
+
+            return new RunWarning(
+                "signalr.downloadHistoryUpgrade.failedBeforeMerge",
+                new Dictionary<string, object?> { ["errorDetail"] = exception.Message });
         }
         catch (Exception readException)
         {
             _logger.LogWarning(
                 readException,
                 "Could not count remaining rows after the download history upgrade stopped");
-            remaining = "The number of rows still waiting is unknown";
+            return new RunWarning(
+                "signalr.downloadHistoryUpgrade.failed",
+                new Dictionary<string, object?> { ["errorDetail"] = exception.Message });
         }
-
-        return $"Download history upgrade stopped: {exception.Message}. {remaining}. It tries again at the next start.";
     }
 
     private void CloseLastFailure()
@@ -456,7 +460,7 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
         try
         {
             if (operation.Id == _waitingOperationId
-                && operation.Status == OperationStatus.Cancelled)
+                && operation.Status == OperationStatus.Canceled)
             {
                 _waitingOperationId = null;
                 Volatile.Write(ref _requested, 0);

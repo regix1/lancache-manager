@@ -39,7 +39,7 @@ interface PrefillCommandButtonsProps {
    */
   supportedCommands: readonly CommandType[];
   /**
-   * Target-platform (OS) values this service's daemon actually honours
+   * Target-platform (OS) values this service's daemon actually honors
    * (prefillServiceConfig.supportedOperatingSystems). Only Steam's socket reads an `os` filter;
    * the other daemons silently ignore it, so the "Target platforms" field is hidden entirely
    * (not just emptied) when this is an empty array.

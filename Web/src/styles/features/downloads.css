@@ -42,6 +42,11 @@
     box-shadow: 0 4px 12px var(--theme-shadow-black);
   }
 
+  /* Dark themes draw no shadow: the hover lift keeps its border change and movement. */
+  [data-theme='dark'] .dl-card:not(.dl-card-expanded):hover {
+    box-shadow: none;
+  }
+
   .dl-card-expanded {
     border-color: var(--theme-primary);
     box-shadow: 0 0 0 1px var(--theme-primary);
@@ -189,7 +194,7 @@
     color: var(--theme-success-text);
   }
 
-  /* Weight/uppercase/colour come from the shared .caps-label; keep the smaller
+  /* Weight/uppercase/color come from the shared .caps-label; keep the smaller
      2xs size, 0.07em tracking and truncation. */
   /* Compounds .caps-label so the smaller size + wider tracking win regardless of
      cross-chunk bundle order (see patterns.css). */
@@ -371,7 +376,7 @@
     gap: 0.25rem;
   }
 
-  /* Size/weight/uppercase/colour come from the shared .caps-label; keep the
+  /* Size/weight/uppercase/color come from the shared .caps-label; keep the
      wider 0.08em tracking. */
   .downloads-header .speed-label {
     letter-spacing: 0.08em;
@@ -613,6 +618,11 @@
     box-shadow: 0 1px 4px var(--theme-shadow-black);
   }
 
+  [data-theme='dark'] .card-grid-item:hover,
+  [data-theme='dark'] .card-grid-item:active {
+    box-shadow: none;
+  }
+
   .card-grid-item-banner {
     width: 100%;
     aspect-ratio: 460 / 215;
@@ -834,6 +844,10 @@
     box-shadow: 0 2px 8px var(--theme-shadow-black);
   }
 
+  [data-theme='dark'] .active-downloads-view .download-item:hover {
+    box-shadow: none;
+  }
+
   .active-downloads-view .download-item.top {
     background: linear-gradient(
       135deg,
@@ -928,7 +942,7 @@
     color: var(--theme-border-secondary);
   }
 
-  /* Weight only. The colour is the shared hit-rate band, which this rule used to out-rank. */
+  /* Weight only. The color is the shared hit-rate band, which this rule used to out-rank. */
   .active-downloads-view .cache-hit {
     font-weight: 500;
   }
@@ -1102,7 +1116,7 @@
     flex-shrink: 0;
   }
 
-  /* Weight/uppercase/colour come from the shared .caps-label; keep the smaller
+  /* Weight/uppercase/color come from the shared .caps-label; keep the smaller
      2xs size and 0.07em tracking. */
   .caps-label.session-filter-label {
     font-size: var(--font-size-2xs);
