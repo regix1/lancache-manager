@@ -1102,5 +1102,3 @@ public sealed class AccessService
     private static string DefaultIssuer(OidcSettings settings)
         => settings.Kind == LoginKind.GitHub ? GitHubEvents.Issuer : settings.Authority;
 }
-
-public sealed record AccessModeState(AccountMode Mode, bool SetupRequired, bool ModeFromEnvironment);
