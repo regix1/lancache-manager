@@ -533,6 +533,9 @@ builder.Services.AddScoped<AppDbContext>(sp =>
 
 // Register HttpClientFactory for better HTTP client management
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient(GitHubMappingHttpClient.ClientName)
+    .ConfigurePrimaryHttpMessageHandler(() =>
+        GitHubMappingHttpClient.CreateHandler(builder.Configuration));
 
 // Register HttpClient for SteamService
 builder.Services.AddHttpClient<SteamService>(client =>
