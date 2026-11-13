@@ -591,7 +591,7 @@ pub fn remove_cache_files(
                 // Read before the delete and counted only after it, so a file that stays is never
                 // reported freed.
                 let size = match fs::metadata(path) {
-                    Ok(metadata) => metadata.len(),
+                    Ok(metadata) => cache_utils::allocated_size(&metadata),
                     // The file is still deleted below; only the freed-bytes total is
                     // short by its size, so say which file it was short by.
                     Err(e) => {
@@ -1127,10 +1127,12 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let service = "steam";
         let mut url_data = HashMap::new();
+        let mut on_disk = 0;
         for (url, body) in [("/depot/1/chunk/a", "abc"), ("/depot/1/chunk/b", "abcde")] {
             let cache_path = cache_utils::calculate_cache_path_no_range(temp.path(), service, url);
             fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
             fs::write(&cache_path, body).unwrap();
+            on_disk += cache_utils::allocated_size(&fs::metadata(&cache_path).unwrap());
             url_data.insert(url.to_string(), (service.to_string(), 0_i64));
         }
         let output_json = temp.path().join("count.json");
@@ -1158,7 +1160,7 @@ mod tests {
         assert_eq!(counted, 2);
         let report: serde_json::Value =
             serde_json::from_slice(&fs::read(&output_json).unwrap()).unwrap();
-        assert_eq!(report["bytes_found"], 8);
+        assert_eq!(report["bytes_found"], on_disk);
     }
 
     #[test]

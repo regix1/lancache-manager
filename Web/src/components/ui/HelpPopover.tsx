@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { useTranslation } from 'react-i18next';
 import { HelpCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
 import { useAnchoredPanel, type PanelPlacement, type PanelSpace } from '@hooks/useAnchoredPanel';
@@ -16,6 +15,8 @@ interface HelpPopoverProps {
   /** Max height with scroll */
   maxHeight?: string;
   disabled?: boolean;
+  /** Names what the popover opens, for screen readers; the trigger shows only an icon. */
+  'aria-label': string;
 }
 
 /** Gap between the trigger and the popover, whichever side it opens on. */
@@ -33,9 +34,9 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   position = 'left',
   width = 320,
   maxHeight,
-  disabled = false
+  disabled = false,
+  'aria-label': ariaLabel
 }) => {
-  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -200,7 +201,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
         ref={triggerRef}
         type="button"
         disabled={disabled}
-        aria-label={t('common.help')}
+        aria-label={ariaLabel}
         onClick={() => !disabled && setIsOpen((open) => !open)}
         className={`help-popover-trigger p-1 rounded-md transition-colors ${
           disabled

@@ -335,6 +335,24 @@ public sealed class StatusCheckService : IStatusCheckService
                     operationId, totalDomains);
             }
 
+            // A failing name that joined the list after every name this DNS server sends to the cache
+            // most likely is missing from the DNS server's older copy of the list; the row says so.
+            var sweptDomains = serviceResults.SelectMany(service => service.Domains).ToList();
+            var failingDomains = sweptDomains
+                .Where(domain => domain.Status is "mismatched" or "unresolved")
+                .ToList();
+            var addedDates = await _domainsService.GetAddedDatesAsync(
+                failingDomains.Select(domain => domain.OriginalEntry).ToList(),
+                sweptDomains.Where(domain => domain.Status == "resolved").Select(domain => domain.OriginalEntry).ToList(),
+                token);
+            foreach (var domain in failingDomains)
+            {
+                if (addedDates.TryGetValue(domain.OriginalEntry, out var addedAtUtc))
+                {
+                    domain.AddedToListAtUtc = addedAtUtc;
+                }
+            }
+
             var heartbeat = await BuildHeartbeatResultAsync(location, token);
             var contentReport = await BuildContentReportAsync(domains.Services, token);
 

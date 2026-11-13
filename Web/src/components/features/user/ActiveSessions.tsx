@@ -1718,7 +1718,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           <AccordionSection
             title={t('activeSessions.title')}
             titleAccessory={
-              <HelpPopover width={320}>
+              <HelpPopover width={320} aria-label={t('common.help')}>
                 <HelpSection title={t('activeSessions.help.aboutTitle')}>
                   {t('activeSessions.summary')}
                 </HelpSection>
@@ -1928,7 +1928,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             <AccordionSection
               title={t('activeSessions.history.title')}
               titleAccessory={
-                <HelpPopover position="left" width={320}>
+                <HelpPopover position="left" width={320} aria-label={t('common.help')}>
                   <HelpSection title={t('activeSessions.history.help.aboutTitle')}>
                     {t('activeSessions.history.summary')}
                   </HelpSection>

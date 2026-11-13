@@ -1842,7 +1842,7 @@
   }
 
   .scheduled-prefill-focused-dialog
-    :is(.themed-input, .msd-trigger, .ed-trigger, .schedule-interval-picker-input),
+    :is(.themed-input, .ed-trigger, .schedule-interval-picker-input),
   .scheduled-prefill-shared-settings__list .themed-input,
   .scheduled-prefill-platforms__identity-field--enabled button {
     min-height: 2.75rem;

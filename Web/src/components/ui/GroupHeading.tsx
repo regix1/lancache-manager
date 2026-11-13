@@ -25,13 +25,14 @@ const ACCENT_BAR_CLASS: Record<GroupAccent, string> = {
 // Accent bar + caps-label heading used above a management accordion group. The
 // two-level row keeps the trailing control pinned to the far right edge via
 // justify-between - flattening it into one row would drag actions in beside
-// the label instead.
+// the label instead. When label and actions do not fit one line, the actions
+// wrap under the label rather than squeezing it onto several lines.
 export const GroupHeading: React.FC<GroupHeadingProps> = ({
   label,
   accent = 'accent',
   actions
 }) => (
-  <div className="flex items-center justify-between gap-2 mb-3 sm:mb-4">
+  <div className="flex flex-wrap items-center justify-between gap-2 mb-3 sm:mb-4">
     <div className="flex items-center gap-2 min-w-0">
       <div className={`w-1 h-5 rounded-full ${ACCENT_BAR_CLASS[accent]}`} />
       <h3 className="management-group-label caps-label">{label}</h3>

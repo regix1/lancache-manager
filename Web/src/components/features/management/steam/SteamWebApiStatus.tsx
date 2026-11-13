@@ -167,7 +167,7 @@ const SteamWebApiStatus: React.FC = () => {
         )}
         <div className="steam-integration__subhead">
           <h4 className="mgmt-subhead caps-label">{t('management.steamWebApi.sectionTitle')}</h4>
-          <HelpPopover position="left" width={320}>
+          <HelpPopover position="left" width={320} aria-label={t('common.help')}>
             <HelpSection
               title={t('management.steamWebApi.help.apiVersions.title')}
               variant="subtle"

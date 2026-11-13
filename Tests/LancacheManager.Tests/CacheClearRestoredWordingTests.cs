@@ -190,7 +190,8 @@ public sealed class CacheClearRestoredWordingTests : IDisposable
                 datasources,
                 repairs.Tracker,
                 new DatasourceCapabilityService(datasources),
-                repairs.Owner);
+                repairs.Owner,
+                new OperationConflictChecker(repairs.Tracker, repairs.Owner, NullLogger<OperationConflictChecker>.Instance));
             return new ClearRun(repairs, state, cleaner, clearing, notifications);
         }
 

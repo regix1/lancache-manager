@@ -110,7 +110,8 @@ public sealed class CanceledDetectionUnmappedBucketTests
             capabilityService: new DatasourceCapabilityService(datasources),
             operationTracker: null!,
             cacheScanGate: null!,
-            stateService: null!);
+            stateService: null!,
+            conflictChecker: null!);
         var repair = new OperationRepair
         {
             Id = Guid.NewGuid(),
@@ -245,7 +246,8 @@ public sealed class CanceledDetectionUnmappedBucketTests
                 new DatasourceCapabilityService(datasources),
                 operationTracker: null!,
                 CacheScanGateHarness.GateOver(tracker),
-                new LancacheManager.Infrastructure.Services.StateService(NullLogger<LancacheManager.Infrastructure.Services.StateService>.Instance, paths, null!, null!));
+                new LancacheManager.Infrastructure.Services.StateService(NullLogger<LancacheManager.Infrastructure.Services.StateService>.Instance, paths, null!, null!),
+                conflictChecker: null!);
         }
 
         public static Dictionary<string, object?> Report { get; } = new()

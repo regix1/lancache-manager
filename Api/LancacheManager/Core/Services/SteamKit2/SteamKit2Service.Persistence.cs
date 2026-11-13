@@ -6,7 +6,7 @@ namespace LancacheManager.Core.Services.SteamKit2;
 
 public partial class SteamKit2Service
 {
-    private async Task SaveAllMappingsToJsonAsync(bool incrementalOnly = false)
+    private async Task SaveAllMappingsToJsonAsync(bool incrementalOnly, CancellationToken cancellationToken)
     {
         try
         {
@@ -17,20 +17,20 @@ public partial class SteamKit2Service
             if (incrementalOnly)
             {
                 // Pass validateExisting=true to clean up corrupted entries during incremental updates
-                await _picsDataService.MergeToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, validateExisting: true, depotOwners: depotOwnersDict, depotNames: depotNamesDict);
+                await _picsDataService.MergeToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, validateExisting: true, depotOwners: depotOwnersDict, depotNames: depotNamesDict, cancellationToken: cancellationToken);
                 _logger.LogInformation(
                     "Merged {DepotCount} unique depot mappings to JSON (incremental); JSON metadata totals will list depot/app pairs when depots are shared",
                     depotMappingsDict.Count);
             }
             else
             {
-                await _picsDataService.SaveToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, depotOwners: depotOwnersDict, depotNames: depotNamesDict);
+                await _picsDataService.SaveToJsonAsync(depotMappingsDict, appNamesDict, _lastChangeNumberSeen, depotOwners: depotOwnersDict, depotNames: depotNamesDict, cancellationToken: cancellationToken);
                 _logger.LogInformation(
                     "Saved {DepotCount} unique depot mappings to JSON file (full); JSON metadata totals will list depot/app pairs when depots are shared",
                     _depotToAppMappings.Count);
             }
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Failed to save depot mappings to JSON file");
             throw;
@@ -48,9 +48,9 @@ public partial class SteamKit2Service
             _logger.LogInformation("Successfully imported PICS JSON data to database");
             try
             {
-                await _prefillCache.RestoreDepotMappingsAsync();
+                await _prefillCache.RestoreDepotMappingsAsync(cancellationToken);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // The import is committed; a prefill depot left without a mapping is retried by the next import.
                 _logger.LogWarning(ex, "Could not restore prefill depot mappings after the PICS import");
@@ -141,9 +141,11 @@ public partial class SteamKit2Service
     }
 
     /// <summary>
-    /// Load existing depot mappings from database on startup
+    /// Load existing depot mappings from database on startup.
     /// </summary>
-    private async Task LoadDepotMappingsAsync(bool replace = false, CancellationToken cancellationToken = default)
+    private async Task LoadDepotMappingsAsync(
+        bool replace = false,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -212,6 +214,23 @@ public partial class SteamKit2Service
         {
             _logger.LogError(ex, "Error loading existing depot mappings from database");
             if (replace) throw;
+        }
+    }
+
+    /// <summary>
+    /// Reads the whole table back into the maps for a depot run that is ending without its own reload: a full
+    /// crawl that emptied them, or an import whose rows may already be committed. The run's own ending stays the
+    /// reported one, so a database error here is logged, not thrown over it.
+    /// </summary>
+    private async Task ReadMappingsBackAsync(string reason)
+    {
+        try
+        {
+            await LoadDepotMappingsAsync(replace: true, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Depot mappings were not read back after {Reason}", reason);
         }
     }
 

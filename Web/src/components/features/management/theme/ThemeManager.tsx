@@ -610,7 +610,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   };
 
   const helpContent = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.themes.help.aboutTitle')}>
         {t('management.themes.summary')}
       </HelpSection>
@@ -639,7 +639,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   );
 
   const customizeHelpContent = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.themes.help.customizeTitle')}>
         {t('management.themes.customizeSummary')}
       </HelpSection>

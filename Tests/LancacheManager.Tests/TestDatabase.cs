@@ -44,6 +44,8 @@ internal sealed class TestDatabase : IAsyncDisposable
 
     public string ConnectionString => _connectionString;
 
+    public string Schema => _schema;
+
     public DbContextOptions<AppDbContext> Options { get; }
 
     public TestDbContextFactory Factory { get; }
@@ -60,8 +62,9 @@ internal sealed class TestDatabase : IAsyncDisposable
         // of its own, and PostgreSQL only allows a hundred connections by default: around twenty
         // classes run at once, so a pool of five would reach that ceiling exactly and start failing
         // whichever test happened to ask for the next connection. No test opens more than two at a
-        // time; they take a second context only after the first is disposed.
-        var connectionString = $"{DatabaseConnectionString};Search Path={schema},public;Maximum Pool Size=3";
+        // time; they take a second context only after the first is disposed. The application name
+        // marks every session on this schema, so disposal can end the ones a test left running.
+        var connectionString = $"{DatabaseConnectionString};Search Path={schema},public;Maximum Pool Size=3;Application Name={schema}";
         await ExecuteAsync(connectionString, createScript);
         var options = new DbContextOptionsBuilder<AppDbContext>().UseNpgsql(connectionString).Options;
         return new TestDatabase(schema, connectionString, options);
@@ -80,7 +83,17 @@ internal sealed class TestDatabase : IAsyncDisposable
             NpgsqlConnection.ClearPool(connection);
         }
 
-        await ExecuteAsync(DatabaseConnectionString, $"DROP SCHEMA \"{_schema}\" CASCADE");
+        // A write a test started in the background and never awaited can still be running here, and
+        // one that takes a lock after the drop took another deadlocks with it. Renaming first, as its
+        // own statement, makes every later statement on the schema fail to find its tables before it
+        // locks anything: a session opened after the sessions are ended, or one under another
+        // application name. Ending the sessions then stops the statements already running.
+        var dropped = $"{_schema}_dropped";
+        await ExecuteAsync(DatabaseConnectionString, $"ALTER SCHEMA \"{_schema}\" RENAME TO \"{dropped}\"");
+        await ExecuteAsync(
+            DatabaseConnectionString,
+            $"SELECT pg_terminate_backend(pid, 5000) FROM pg_stat_activity WHERE application_name = '{_schema}'");
+        await ExecuteAsync(DatabaseConnectionString, $"DROP SCHEMA \"{dropped}\" CASCADE");
     }
 
     private static string DatabaseConnectionString => $"{ServerConnectionString};Database={DatabaseName}";

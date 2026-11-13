@@ -1392,12 +1392,20 @@ public sealed class LogProcessingOperationOwnershipTests
     }
 
     [Fact]
-    public void BatchTerminalCleanup_LeavesCancellationSourceDisposalToTheTracker()
+    public async Task BatchTerminalCleanup_LeavesCancellationSourceDisposalToTheTracker()
     {
-        using var fixture = new ProcessorFixture();
-        var begin = typeof(RustLogProcessorService).GetMethod("BeginOperation", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        // A real one-datasource batch whose card is ended from the tracker, as a force stop ends it, while its
+        // child still runs. The tracker disposes the source it was given; the batch keeps its own run state until
+        // its code ends, then frees it and disposes its source once.
+        await using var fixture = new ProcessorFixture(transport: true);
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
+        {
+            [LogSourceLayout.MonolithicStem] = 5
+        });
         var sourceField = typeof(RustLogProcessorService).GetField("_cancellationTokenSource", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var operationId = (Guid)begin.Invoke(fixture.Processor, null)!;
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync());
+        await fixture.Pipe!.ConnectAsync();
+        var operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
         var registeredSource = fixture.Tracker.GetOperation(operationId)!.CancellationTokenSource!;
         using var cleanupSource = new DisposeTrackingCancellationTokenSource();
         sourceField.SetValue(fixture.Processor, cleanupSource);
@@ -1406,7 +1414,20 @@ public sealed class LogProcessingOperationOwnershipTests
 
         Assert.Throws<ObjectDisposedException>(() => _ = registeredSource.Token);
         Assert.Equal(0, cleanupSource.DisposeCalls);
+        Assert.Same(cleanupSource, sourceField.GetValue(fixture.Processor));
+        Assert.Equal(operationId, fixture.Processor.CurrentOperationId);
+        Assert.True(fixture.Processor.IsProcessing);
+
+        await fixture.Pipe.SendAsync(TerminalProgress(0, 0, "completed", sourcePosition: 5), exitCode: 0);
+        await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(1, cleanupSource.DisposeCalls);
         Assert.Null(sourceField.GetValue(fixture.Processor));
+        Assert.Null(fixture.Processor.CurrentOperationId);
+        Assert.False(fixture.Processor.IsProcessing);
+        var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(Assert.Single(fixture.Messages.Completions));
+        Assert.Equal(operationId, complete.OperationId);
+        Assert.True(complete.Canceled);
     }
 
     [Fact]
@@ -1618,41 +1639,32 @@ public sealed class LogProcessingOperationOwnershipTests
     }
 
     [Fact]
-    public void FailedBatch_PublishesOneAggregateTerminal()
+    public async Task FailedBatch_PublishesOneAggregateTerminal()
     {
-        using var fixture = new ProcessorFixture();
-        var begin = typeof(RustLogProcessorService).GetMethod("BeginOperation", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var operationId = (Guid)begin.Invoke(fixture.Processor, null)!;
-        var batch = new LogProcessingBatchState
+        // A real two-datasource batch in which both datasources fail before saving anything: one failed ending
+        // for the whole batch, naming the first datasource that failed, and the run's state freed by its end.
+        await using var fixture = new ProcessorFixture(transport: true, datasourceCount: 2);
+        fixture.State.SetLogSourcePositions("alpha", new Dictionary<string, long>
         {
-            ChildCount = 1,
-            CompletedChildren = 1,
-            LinesProcessed = 17,
-            PercentComplete = 100,
-            FailedDatasourceName = "alpha",
-            FailedDatasourceNames = { "alpha" }
-        };
+            [LogSourceLayout.MonolithicStem] = 5
+        });
+        fixture.State.SetLogPosition("beta", 7);
 
-        fixture.Processor.CompleteBatchOperation(
-            operationId,
-            batch,
-            entriesProcessed: 10,
-            linesProcessed: 20,
-            canceled: false,
-            batchFinished: true);
-        fixture.Processor.CompleteBatchOperation(
-            operationId,
-            batch,
-            entriesProcessed: 10,
-            linesProcessed: 20,
-            canceled: false,
-            batchFinished: true);
+        var run = fixture.Track(fixture.Processor.StartProcessingAsync());
+        await fixture.Pipe!.ConnectAsync();
+        var operationId = Assert.IsType<Guid>(fixture.Processor.CurrentOperationId);
+        await fixture.Pipe.SendAsync(TerminalProgress(0, 0, "failed", sourcePosition: 5), exitCode: 1);
+        await fixture.Pipe.ConnectAsync();
+        Assert.Equal(operationId, fixture.Processor.CurrentOperationId);
+        await fixture.Pipe.SendAsync(TerminalProgress(0, 0, "failed", sourcePosition: 7), exitCode: 1);
 
+        Assert.False(await run.WaitAsync(TimeSpan.FromSeconds(10)));
         var complete = Assert.IsType<SignalRNotifications.LogProcessingComplete>(Assert.Single(fixture.Messages.Completions));
+        Assert.Equal(operationId, complete.OperationId);
         Assert.False(complete.Success);
         Assert.Equal(OperationStatus.Failed, complete.Status);
-        Assert.Equal(10, complete.EntriesProcessed);
-        Assert.Equal(20, complete.LinesProcessed);
+        Assert.Equal(0, complete.EntriesProcessed);
+        Assert.Equal(0, complete.LinesProcessed);
         Assert.Equal("signalr.logProcessing.failedForDatasource", complete.Message);
         Assert.Equal("alpha", JsonSerializer.SerializeToElement(complete).GetProperty("Datasource").GetString());
         Assert.Null(fixture.Processor.CurrentOperationId);
@@ -2050,6 +2062,7 @@ public sealed class LogProcessingOperationOwnershipTests
             var registrations = new ServiceCollection()
                 .AddSingleton(_ => repairOwner!)
                 .AddSingleton(_ => processor!)
+                .AddSingleton<IOperationConflictChecker>(_ => new OperationConflictChecker(Tracker, repairOwner!, NullLogger<OperationConflictChecker>.Instance))
                 .AddSingleton(datasources)
                 .AddSingleton(new DatasourceCapabilityService(datasources))
                 .AddSingleton(notifications)

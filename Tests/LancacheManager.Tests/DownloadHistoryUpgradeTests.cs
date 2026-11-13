@@ -2813,7 +2813,9 @@ public class DownloadHistoryUpgradeTests
                 (ISignalRNotificationService)(object)harness.NotificationRecorder,
                 harness.Tracker,
                 harness.Queue,
-                new ConfigurationBuilder().AddInMemoryCollection(settings).Build())
+                new ConfigurationBuilder().AddInMemoryCollection(settings).Build(),
+                harness.Checker,
+                null!)
             {
                 BatchCommitted = batchCommitted
             };
@@ -2830,7 +2832,7 @@ public class DownloadHistoryUpgradeTests
         }
         finally
         {
-            await DropSourceAsync(sourceConnection);
+            await HistoryImportSource.DropSourceAsync(sourceConnection);
         }
     }
 
@@ -2911,21 +2913,6 @@ public class DownloadHistoryUpgradeTests
         }
 
         return source.ConnectionString;
-    }
-
-    private static async Task DropSourceAsync(string sourceConnection)
-    {
-        var source = new NpgsqlConnectionStringBuilder(sourceConnection);
-        var name = source.Database;
-        source.Database = "postgres";
-        source.SearchPath = string.Empty;
-        source.Pooling = false;
-        await using var connection = new NpgsqlConnection(source.ConnectionString);
-        await connection.OpenAsync();
-        await using var command = new NpgsqlCommand(
-            $"DROP DATABASE IF EXISTS \"{name}\" WITH (FORCE)",
-            connection);
-        await command.ExecuteNonQueryAsync();
     }
 
     private static Task<long> CoveredRowsAsync(
@@ -3155,7 +3142,8 @@ public class DownloadHistoryUpgradeTests
                 queue,
                 operationState,
                 startupCleanup.Task,
-                NullLogger<DownloadHistoryUpgradeService>.Instance);
+                NullLogger<DownloadHistoryUpgradeService>.Instance,
+                checker);
             return new UpgradeHarness(
                 database,
                 contexts,
@@ -3186,7 +3174,8 @@ public class DownloadHistoryUpgradeTests
             Queue,
             OperationState,
             startupCleanup ?? StartupCleanup.Task,
-            logger ?? NullLogger<DownloadHistoryUpgradeService>.Instance);
+            logger ?? NullLogger<DownloadHistoryUpgradeService>.Instance,
+            Checker);
 
         public async ValueTask DisposeAsync()
         {

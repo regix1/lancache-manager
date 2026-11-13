@@ -114,6 +114,9 @@ public partial class CacheManagementService
             "Unmapped File Removal",
             cts);
         _operationTracker.UpdateProgress(operationId, 0, "signalr.unmappedRemove.running");
+        // A force stop ends the card at once while the removal may still be deleting; the hold keeps every conflict
+        // check seeing it until its code ends, so a job asked for meanwhile waits on a card.
+        var hold = _conflictChecker.HoldRun(OperationType.UnmappedFileRemoval, [ConflictScope.Bulk()], () => operationId);
 
         var token = cts.Token;
         _ = Task.Run(async () =>
@@ -234,6 +237,7 @@ public partial class CacheManagementService
                     _operationStateService.SetUnmappedRemovalRunning(false);
                     _cacheLock.Release();
                 }
+                hold.Dispose();
 
                 await _notifications.NotifyAllAsync(
                     SignalREvents.UnmappedFileRemovalComplete,

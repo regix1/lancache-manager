@@ -156,6 +156,20 @@ public static class NameKeyedBannerSource
     }
 
     /// <summary>
+    /// Whether <see cref="TryGetEmbeddedBytesForSlug"/> would serve a shipped banner for this
+    /// (service, slug), answered from the loaded map without reading the JPEG.
+    /// </summary>
+    public static bool HasEmbeddedBanner(string? service, string? slug)
+    {
+        var normalized = NormalizeService(service);
+        if (normalized == null || string.IsNullOrWhiteSpace(slug)) return false;
+
+        return _bySlug.Value.TryGetValue((normalized, slug!), out var url)
+            && url.StartsWith(EmbeddedScheme, StringComparison.OrdinalIgnoreCase)
+            && _embeddedSlugs.Value.Contains(slug!);
+    }
+
+    /// <summary>
     /// All curated name-keyed slugs whose banner is an embedded:// sentinel with a present JPEG
     /// resource. The /available endpoint reports these so the frontend renders a curated game's
     /// banner the instant its card appears, with no fetched GameImage row required.

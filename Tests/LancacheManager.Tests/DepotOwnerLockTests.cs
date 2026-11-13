@@ -345,7 +345,7 @@ public sealed class DepotOwnerLockTests
             await Task.Delay(10, timeout.Token);
     }
 
-    private static async Task<List<SteamDepotMapping>> WaitForMappingsAsync(TestDatabase database, int count)
+    internal static async Task<List<SteamDepotMapping>> WaitForMappingsAsync(TestDatabase database, int count)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         while (true)

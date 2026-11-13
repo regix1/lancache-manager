@@ -828,7 +828,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const hasPermissionIssues = logsReadOnly || cacheReadOnly;
 
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.sections.data.help.evictedCacheTitle')}>
         {t('management.sections.data.evictedCacheSummary')}
       </HelpSection>

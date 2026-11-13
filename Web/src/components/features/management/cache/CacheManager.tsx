@@ -332,7 +332,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   );
 
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.cache.help.aboutTitle')}>
         {t('management.cache.summary')}
       </HelpSection>

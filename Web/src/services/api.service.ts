@@ -4243,6 +4243,9 @@ export interface StatusCheckDomainResult {
   /** Public-edge HTTP/HTTPS probe of this hostname (v1.5), present on swept and ad hoc tested
    *  domains. Null/absent on pre-v1.5 snapshots and when the probe crashed unexpectedly. */
   edgeProbe?: StatusCheckHostProtocolProbeResult | null;
+  /** When the commit that added this failing name to the domain list was made, set only when it
+   *  is newer than every name the DNS server sends to the cache. Absent when no date is proven. */
+  addedToListAtUtc?: string | null;
 }
 
 export interface StatusCheckServiceResult {

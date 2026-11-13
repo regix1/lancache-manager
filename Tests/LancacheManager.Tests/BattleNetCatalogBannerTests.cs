@@ -6,24 +6,25 @@ namespace LancacheManager.Tests;
 
 /// <summary>
 /// Every Battle.net product the TACT catalog names draws a banner: the catalog name, the curated
-/// banner map, the embedded JPEG and the Steam-first map all meet on the same slug.
+/// banner map and the embedded JPEG all meet on the same slug.
 /// </summary>
 public sealed class BattleNetCatalogBannerTests
 {
     [Theory]
-    [InlineData("aris", "DOOM: The Dark Ages", 3017860L)]
-    [InlineData("ark", "The Outer Worlds 2", 1449110L)]
-    [InlineData("lbra", "Tony Hawk's Pro Skater 3 + 4", 2545710L)]
-    [InlineData("lyra", "The Witcher 3: Wild Hunt — Remastered", 292030L)]
-    [InlineData("malb", "Cyberpunk 2077", 1091500L)]
-    public void ProductCodeNamesItsGameWithABannerAndSteamArt(string code, string gameName, long steamAppId)
+    [InlineData("aris", "DOOM: The Dark Ages")]
+    [InlineData("ark", "The Outer Worlds 2")]
+    [InlineData("lbra", "Tony Hawk's Pro Skater 3 + 4")]
+    [InlineData("lyra", "The Witcher 3: Wild Hunt — Remastered")]
+    [InlineData("malb", "Cyberpunk 2077")]
+    public void ProductCodeNamesItsGameWithABanner(string code, string gameName)
     {
         var products = ReadCatalogSection("products");
 
         Assert.True(products.TryGetValue(code, out var catalogName), $"catalog has no product '{code}'");
         Assert.Equal(gameName, catalogName);
         AssertEmbeddedBanner(gameName);
-        Assert.Equal(steamAppId, NameKeyedSteamAppIds.TryGetSteamAppId("blizzard", gameName));
+        // Its shipped banner is its art: no Steam entry the name-keyed route would serve ahead of it.
+        Assert.Null(NameKeyedSteamAppIds.TryGetSteamAppIdBySlug("blizzard", NameKeyedBannerSource.Slug(gameName)));
     }
 
     [Fact]

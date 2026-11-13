@@ -2861,7 +2861,7 @@ public sealed class CorruptionRemovalContractTests
                 configuration, processManager, paths);
             Detection = new CorruptionDetectionService(NullLogger<CorruptionDetectionService>.Instance,
                 configuration, paths, rust, notifications, sources, contexts, _operationStateService, Tracker, capability, CacheScanGateHarness.Idle(),
-                nginx, State);
+                nginx, State, new OperationConflictChecker(Tracker, _operationStateService, NullLogger<OperationConflictChecker>.Instance));
             operationStateService.Service = Detection;
             var cache = new CacheManagementService(configuration, NullLogger<CacheManagementService>.Instance,
                 paths, rust, nginx, sources, State, contexts, null!, Tracker, notifications,

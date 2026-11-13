@@ -1335,7 +1335,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
      which is a lot of prose to read past every time the section is open. It lives here instead,
      where the rest of the section's documentation already is. */
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.corruption.help.aboutTitle')}>
         {t('management.corruption.summary')}
       </HelpSection>

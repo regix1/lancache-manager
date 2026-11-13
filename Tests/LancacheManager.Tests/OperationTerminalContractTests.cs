@@ -314,12 +314,15 @@ public sealed partial class OperationTerminalContractTests
                 Logger<GameCacheDetectionDataService>());
             games = new GameCacheDetectionService(Logger<GameCacheDetectionService>(), paths, OperationState, Contexts,
                 detectionStore, null!, null!, rust,
-                notifications, sources, capability, forwarded, CacheScanGateHarness.Idle(), State);
+                notifications, sources, capability, forwarded, CacheScanGateHarness.Idle(), State,
+                new OperationConflictChecker(forwarded, OperationState, Logger<OperationConflictChecker>()));
             Clear = clear = new CacheClearingService(Logger<CacheClearingService>(), notifications, configuration, paths, State,
-                rust, sources, forwarded, capability, OperationState);
+                rust, sources, forwarded, capability, OperationState,
+                new OperationConflictChecker(forwarded, OperationState, Logger<OperationConflictChecker>()));
             Detection = detection = new CorruptionDetectionService(Logger<CorruptionDetectionService>(), configuration, paths, rust,
                 notifications, sources, Contexts, OperationState, forwarded, capability, CacheScanGateHarness.Idle(),
-                nginxLogRotationService: null!, stateService: State);
+                nginxLogRotationService: null!, stateService: State,
+                conflictChecker: new OperationConflictChecker(forwarded, OperationState, Logger<OperationConflictChecker>()));
             reconciliation = new TerminalReconciliation(
                 _services,
                 configuration,

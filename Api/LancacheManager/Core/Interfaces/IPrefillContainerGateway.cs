@@ -8,7 +8,8 @@ namespace LancacheManager.Core.Interfaces;
 /// container lifecycle (create / start / stop / kill / remove / inspect / list, volume + image + exec
 /// operations) can be driven by a recording fake in tests, letting the startup reconcile orchestration
 /// (cleanup -&gt; re-adopt -&gt; recreate) be exercised end-to-end without a live Docker daemon. Each
-/// operation maps one-to-one onto a <c>DockerClient</c> call. A call Docker does not answer in time
+/// operation maps one-to-one onto a <c>DockerClient</c> call, except <see cref="GetDistributionDigestAsync"/>,
+/// which Docker.DotNet has no call for. A call Docker does not answer in time
 /// throws <see cref="DockerTimeoutException"/>; a cancel of the caller's own token still surfaces as a
 /// cancel. Docker.DotNet request/response
 /// models are intentionally passed through unchanged - this is an extract-delegate seam, not a
@@ -52,6 +53,12 @@ public interface IPrefillContainerGateway : IDisposable
     Task CreateImageAsync(ImagesCreateParameters parameters, AuthConfig? authConfig, IProgress<JSONMessage> progress, CancellationToken cancellationToken);
 
     Task<ImageInspectResponse> InspectImageAsync(string name, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Asks Docker for the digest the registry currently serves under the image reference, without pulling
+    /// (Engine <c>GET /distribution/{name}/json</c>). A refused or failed lookup throws as a pull would.
+    /// </summary>
+    Task<string> GetDistributionDigestAsync(string name, CancellationToken cancellationToken);
 
     Task<ContainerExecCreateResponse> ExecCreateContainerAsync(string id, ContainerExecCreateParameters parameters, CancellationToken cancellationToken);
 

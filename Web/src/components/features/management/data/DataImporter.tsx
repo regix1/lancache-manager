@@ -25,7 +25,7 @@ const DataImporter: React.FC<DataImporterProps> = ({ isAdmin, mockMode, onDataRe
   };
 
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.dataImporter.help.aboutTitle')}>
         {t('management.dataImporter.subtitle')}
       </HelpSection>

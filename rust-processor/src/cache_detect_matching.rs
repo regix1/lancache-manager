@@ -894,10 +894,12 @@ mod tests {
         let slice_size = 41u64;
         // Real files at the digests the index fixture computes, so the fs probe walks the same
         // three slices the index-backed probe would find.
+        let mut on_disk = 0;
         for digest in build_multi_slice_index(service, url, 3, slice_size).keys() {
             let path = cache_utils::cache_path_for_digest(&root, *digest);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(&path, vec![b'x'; slice_size as usize]).unwrap();
+            on_disk += cache_utils::allocated_size(&fs::metadata(&path).unwrap());
         }
         let service_urls: Vec<ServiceUrl> = vec![(service.to_string(), url.to_string(), 0)];
 
@@ -922,7 +924,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(first.cache_files_found, 3);
-        assert_eq!(first.total_size_bytes, 3 * slice_size);
+        assert_eq!(first.total_size_bytes, on_disk);
         assert_eq!(second.cache_files_found, 3);
         assert_eq!(second.total_size_bytes, 0);
         assert_eq!(claimed.len(), 3);

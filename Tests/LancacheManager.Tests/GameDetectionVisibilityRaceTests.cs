@@ -539,7 +539,8 @@ public class GameDetectionVisibilityRaceTests
                 new DatasourceCapabilityService(datasources),
                 run.Repairs.Tracker,
                 CacheScanGateHarness.Idle(),
-                run.State);
+                run.State,
+                new OperationConflictChecker(run.Repairs.Tracker, run.Repairs.Owner, NullLogger<OperationConflictChecker>.Instance));
             return run;
         }
 
@@ -719,7 +720,9 @@ public class GameDetectionVisibilityRaceTests
                 capabilityService,
                 (IUnifiedOperationTracker)(object)Tracker,
                 CacheScanGateHarness.Idle(),
-                stateService);
+                stateService,
+                new OperationConflictChecker(
+                    (IUnifiedOperationTracker)(object)Tracker, States, NullLogger<OperationConflictChecker>.Instance));
             repairOwner = Service;
             _services.GetRequiredService<GameCacheDetectionService>();
             States.StartAsync(CancellationToken.None).GetAwaiter().GetResult();

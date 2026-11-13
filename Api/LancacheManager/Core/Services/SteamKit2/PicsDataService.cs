@@ -39,9 +39,10 @@ public class PicsDataService
     }
 
     /// <summary>
-    /// Save PICS depot mappings to JSON file
+    /// Save PICS depot mappings to JSON file. A run stopped before the write leaves the old file; the write
+    /// itself replaces the file whole (<see cref="WritePicsJsonFile(Action{FileStream})"/>).
     /// </summary>
-    public Task SaveToJsonAsync(Dictionary<uint, HashSet<uint>> depotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, Dictionary<uint, uint>? depotOwners = null, Dictionary<uint, string>? depotNames = null)
+    public Task SaveToJsonAsync(Dictionary<uint, HashSet<uint>> depotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, Dictionary<uint, uint>? depotOwners = null, Dictionary<uint, string>? depotNames = null, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -110,6 +111,7 @@ public class PicsDataService
                 Directory.CreateDirectory(dataDir);
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             WritePicsJsonFile(picsData, jsonOptions);
 
             // Clear cache so next load reads the new file
@@ -119,7 +121,7 @@ public class PicsDataService
 
             return Task.CompletedTask;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogError(ex, "Error saving PICS data to JSON file");
             return Task.FromException(ex);
@@ -127,9 +129,10 @@ public class PicsDataService
     }
 
     /// <summary>
-    /// Merge incremental PICS depot mappings into existing JSON file with validation
+    /// Merge incremental PICS depot mappings into existing JSON file with validation. A run stopped before the
+    /// write leaves the old file; the write itself replaces the file whole.
     /// </summary>
-    public async Task MergeToJsonAsync(Dictionary<uint, HashSet<uint>> newDepotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, bool validateExisting = true, Dictionary<uint, uint>? depotOwners = null, Dictionary<uint, string>? depotNames = null)
+    public async Task MergeToJsonAsync(Dictionary<uint, HashSet<uint>> newDepotMappings, Dictionary<uint, string> appNames, uint lastChangeNumber = 0, bool validateExisting = true, Dictionary<uint, uint>? depotOwners = null, Dictionary<uint, string>? depotNames = null, CancellationToken cancellationToken = default)
     {
         // Load existing data or create new if doesn't exist
         var existingData = await LoadFromJsonAsync() ?? new PicsJsonData
@@ -253,6 +256,7 @@ public class PicsDataService
             Directory.CreateDirectory(dataDir);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         WritePicsJsonFile(existingData, jsonOptions);
 
         // Clear cache so next load reads the new file

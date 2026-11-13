@@ -24,6 +24,12 @@ public readonly record struct ConflictScope(string Kind, string Key)
     public static ConflictScope Bulk() => new("bulk", string.Empty);
 
     /// <summary>
+    /// The scope of an eviction removal's selection: its scope and key when both are set, otherwise bulk.
+    /// </summary>
+    public static ConflictScope EvictionSelection(string? scope, string? key) =>
+        string.IsNullOrEmpty(scope) || string.IsNullOrEmpty(key) ? Bulk() : new(scope, key);
+
+    /// <summary>
     /// True if the two scopes refer to the SAME entity (same kind + same key, case-sensitive).
     /// </summary>
     public bool Matches(ConflictScope other) =>

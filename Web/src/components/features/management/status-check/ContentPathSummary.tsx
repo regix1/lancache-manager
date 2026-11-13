@@ -1,7 +1,6 @@
 import React from 'react';
 import '../managementSectionContent.css';
 import { useTranslation } from 'react-i18next';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import { HelpNote, HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -13,12 +12,13 @@ interface ContentPathSummaryProps {
   isRunning: boolean;
 }
 
-/** One labeled tile in the content-path readout grid. */
+/** One count in the recent-downloads line: a bold number and the word it counts. */
 interface ContentStatTile {
   id: string;
   value: number;
   label: string;
-  tone: 'success' | 'warning' | 'info' | null;
+  /** The shared `.text-themed-*` color of the number; primary when the count carries no verdict. */
+  tone: 'success' | 'warning' | 'info' | 'primary';
 }
 
 const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunning }) => {
@@ -41,15 +41,21 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
         })
       ]
     : [];
+  // The states with nothing to count yet say so in one line; what to do about it is in the popover.
+  const waitsForDownloads =
+    !isRunning &&
+    !!report &&
+    (report.availability === 'noSamples' ||
+      (report.availability === 'available' && report.paths.length === 0));
 
   let body: React.ReactNode;
 
+  // Waiting text, no spinner: the Run Check button and the domain bar already show the run.
   if (isRunning) {
     body = (
-      <div className="status-check-content-state" role="status">
-        <LoadingSpinner inline size="sm" />
-        <span>{t(`${keys}.updating`)}</span>
-      </div>
+      <p className="status-check-content-state" role="status">
+        {t(`${keys}.updating`)}
+      </p>
     );
   } else if (!report) {
     body = <p className="status-check-content-state">{t(`${keys}.oldSnapshot`)}</p>;
@@ -64,12 +70,7 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
     const noSamplesKey = report.scannedBytes > 0 ? 'noSamples' : 'logsEmpty';
     body = <p className="status-check-content-state">{t(`${keys}.${noSamplesKey}`)}</p>;
   } else if (report.paths.length === 0) {
-    body = (
-      <div className="status-check-content-state status-check-content-state--stacked">
-        <p>{t(`${keys}.noPaths`)}</p>
-        <p>{t(`${keys}.noPathsHelp`)}</p>
-      </div>
-    );
+    body = <p className="status-check-content-state">{t(`${keys}.noPaths`)}</p>;
   } else {
     const counts = summarizeContentReport(report);
     const allStats: ContentStatTile[] = [
@@ -95,34 +96,23 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
         id: 'inconclusive',
         value: counts.inconclusive,
         label: t(`${keys}.summary.inconclusive`),
-        tone: null
+        tone: 'primary'
       }
     ];
-    // Every path lands in exactly one protocol bucket, so at least one tile always survives.
-    // Dropping the zeros leaves the row carrying only what actually happened.
-    const stats = allStats.filter((stat) => stat.value > 0);
 
+    // Every path lands in exactly one protocol bucket, so at least one count always survives.
+    // Dropping the zeros leaves the line carrying only what actually happened.
     body = (
-      <>
-        <div className="mgmt-stat-grid mt-3">
-          {stats.map((stat) => (
-            <div key={stat.id} className="mgmt-stat">
-              <p className="mgmt-stat__label caps-label caps-label--sm">{stat.label}</p>
-              <p
-                className={`mgmt-stat__value tabular-nums${
-                  stat.value === 0
-                    ? ' status-check-value--zero'
-                    : stat.tone
-                      ? ` status-check-value--${stat.tone}`
-                      : ''
-                }`}
-              >
-                {stat.value}
-              </p>
-            </div>
+      <p className="status-check-content-state status-check-content-counts">
+        {allStats
+          .filter((stat) => stat.value > 0)
+          .map((stat) => (
+            <span key={stat.id} className="status-check-content-count">
+              <strong className={`tabular-nums text-themed-${stat.tone}`}>{stat.value}</strong>{' '}
+              {stat.label}
+            </span>
           ))}
-        </div>
-      </>
+      </p>
     );
   }
 
@@ -135,19 +125,24 @@ const ContentPathSummary: React.FC<ContentPathSummaryProps> = ({ report, isRunni
     >
       <div className="status-check-content-summary-head">
         <h4 id="status-check-content-summary-title">{t(`${keys}.title`)}</h4>
-        {/* What the scan covered used to be three sentences below the tiles, which gave the card
-            a second footer and stacked three lines four pixels apart on a phone. The card already
-            prints the run time above, so the scan's own scope belongs behind the heading. */}
+        {/* What the scan covered, and what to do when there is nothing to count yet, belong
+            behind the heading: on the card they were a second footer of sentences. */}
         {scanFacts.length > 0 && (
-          <HelpPopover position="left" width={320}>
+          <HelpPopover position="left" width={320} aria-label={t(`${keys}.scanFactsLabel`)}>
             <HelpSection title={t(`${keys}.title`)} variant="subtle">
               <div className="status-check-scan-facts">
                 {scanFacts.map((fact) => (
                   <p key={fact}>{fact}</p>
                 ))}
+                <p>{t(`${keys}.summaryHelp`)}</p>
               </div>
             </HelpSection>
             {report?.scanTruncated && <HelpNote type="info">{t(`${keys}.scanTruncated`)}</HelpNote>}
+          </HelpPopover>
+        )}
+        {waitsForDownloads && (
+          <HelpPopover position="left" width={320} aria-label={t(`${keys}.downloadThenRunLabel`)}>
+            {t(`${keys}.downloadThenRun`)}
           </HelpPopover>
         )}
       </div>

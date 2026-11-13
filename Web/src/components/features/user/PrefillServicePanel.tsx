@@ -87,7 +87,7 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
   };
 
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('user.guest.prefill.services.help.aboutTitle')}>
         {serviceDescription}
       </HelpSection>
@@ -138,7 +138,7 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
         <div className="user-settings-field-row">
           <span className="user-settings-field-label">
             {durationLabel}
-            <HelpPopover position="left" width={280}>
+            <HelpPopover position="left" width={280} aria-label={t('common.help')}>
               <HelpNote type="info">{durationHelpText}</HelpNote>
             </HelpPopover>
           </span>

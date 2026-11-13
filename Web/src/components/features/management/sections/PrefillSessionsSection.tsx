@@ -1294,7 +1294,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const isRefreshing = loadingSessions || loadingBans || loadingPersistent;
 
   const liveSessionsHelpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.prefillSessions.help.liveSessionsTitle')}>
         {t('management.prefillSessions.liveSessionsSummary')}
       </HelpSection>
@@ -1302,7 +1302,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   );
 
   const persistentSessionsHelpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.prefillSessions.persistentSessions.help.aboutTitle')}>
         {t('management.prefillSessions.persistentSessions.summary')}
       </HelpSection>
@@ -1310,7 +1310,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   );
 
   const historyHelpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.prefillSessions.help.historyTitle')}>
         {t('management.prefillSessions.historySummary')}
       </HelpSection>
@@ -1318,7 +1318,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   );
 
   const bannedUsersHelpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.prefillSessions.bannedUsers.help.aboutTitle')}>
         {t('management.prefillSessions.bannedUsers.summary')}
       </HelpSection>

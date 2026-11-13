@@ -173,7 +173,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                 {isHistoricalView ? t('downloads.header.disabled') : formatBytes(todayTotal)}
               </span>
               <span className="today-stat-help">
-                <HelpPopover position="left" width={320}>
+                <HelpPopover position="left" width={320} aria-label={t('common.help')}>
                   <HelpSection title={t('downloads.header.help.totalBytes.title')} variant="subtle">
                     {t('downloads.header.help.totalBytes.description')}
                   </HelpSection>
@@ -192,7 +192,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                   : formatPercent(overallHitPercent)}
               </span>
               <span className="today-stat-help">
-                <HelpPopover position="left" width={320}>
+                <HelpPopover position="left" width={320} aria-label={t('common.help')}>
                   <HelpSection title={t('downloads.header.help.hitRate.title')} variant="subtle">
                     {t('downloads.header.help.hitRate.description')}
                   </HelpSection>

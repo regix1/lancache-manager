@@ -15,9 +15,10 @@ public sealed class DownloadHubLifetimeManager : DefaultHubLifetimeManager<Downl
     // Writes queue here only once a connection's 64 KB transport buffer is full, that is, once its
     // browser has stopped reading or reads slower than updates arrive. The largest burst one action
     // sends is Run All: one run for each of the 14 schedules, a few rows each, under 200 messages;
-    // steady traffic is a few messages a second. A connection this many writes behind is minutes
-    // behind, so it is asked to close and reload, and the server never holds more unsent messages
-    // than this for one browser.
+    // steady traffic is a few messages a second: game, service and corruption removals, like the
+    // eviction scan, send their per-file progress on a stage change or at most every 250 ms. A
+    // connection this many writes behind is minutes behind, so it is asked to close and reload, and
+    // the server never holds more unsent messages than this for one browser.
     internal const int MaxPendingWrites = 1024;
 
     private readonly ConcurrentDictionary<string, ConnectionQueue> _connections = new();

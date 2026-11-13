@@ -118,7 +118,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({ mockMode, onError
         {reason && <p className="text-sm text-themed-secondary">{reason}</p>}
         <div className="steam-integration__subhead">
           <h4 className="mgmt-subhead caps-label">{t('management.steamAuth.sectionTitle')}</h4>
-          <HelpPopover position="left" width={320}>
+          <HelpPopover position="left" width={320} aria-label={t('common.help')}>
             <HelpSection title={t('management.steamAuth.help.authModes.title')} variant="subtle">
               <HelpDefinition
                 items={[

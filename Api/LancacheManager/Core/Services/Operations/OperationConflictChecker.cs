@@ -24,6 +24,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         _tracker = tracker;
         _operationStateService = operationStateService;
         _logger = logger;
+        operationStateService.HeldSteps = HeldSteps;
     }
 
     public Task<OperationConflictResponse?> CheckAsync(
@@ -153,7 +154,9 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
         or OperationType.EvictionRemoval
         or OperationType.DatabaseReset
         or OperationType.DownloadHistoryUpgrade
-        or OperationType.UnmappedFileRemoval;
+        or OperationType.UnmappedFileRemoval
+        // A count reads the cache files a stopped removal may still be deleting until its repair finishes.
+        or OperationType.CacheFileCount;
 
     /// <summary>
     /// Pure decision function for ONE active op. Returns the 409 body if the new op must be
@@ -635,13 +638,7 @@ public sealed class OperationConflictChecker : IOperationConflictChecker
             }
 
             case EvictionRemovalMetadata e:
-            {
-                if (string.IsNullOrEmpty(e.Scope) || string.IsNullOrEmpty(e.Key))
-                {
-                    return ConflictScope.Bulk();
-                }
-                return new ConflictScope(e.Scope!, e.Key!);
-            }
+                return ConflictScope.EvictionSelection(e.Scope, e.Key);
 
             default:
                 // No metadata (global scans / detections / cache-clear / db-reset) - treat as bulk.

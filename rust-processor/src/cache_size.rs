@@ -1247,11 +1247,11 @@ fn calculate_cache_size(
 
                 // Get file size - try jwalk's cached metadata first, then fallback to std::fs
                 let size = match entry.metadata() {
-                    Ok(metadata) => metadata.len(),
+                    Ok(metadata) => cache_utils::allocated_size(&metadata),
                     Err(_) => {
                         // Fallback: try direct filesystem metadata call
                         match fs::metadata(entry.path()) {
-                            Ok(metadata) => metadata.len(),
+                            Ok(metadata) => cache_utils::allocated_size(&metadata),
                             Err(_) => {
                                 failed_metadata_clone.fetch_add(1, Ordering::Relaxed);
                                 0
@@ -1361,6 +1361,23 @@ fn calculate_cache_size(
     Ok(result)
 }
 
+/// The total `du -s` printed. GNU du still prints the total of what it could read when it exits 1
+/// after an unreadable entry on the way, so the exit status alone does not decide.
+fn du_total(output: &std::process::Output) -> Option<u64> {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    eprintln!("du output: {}", stdout.trim());
+    if !output.status.success() {
+        eprintln!(
+            "du command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    stdout
+        .split_whitespace()
+        .next()
+        .and_then(|s| s.parse::<u64>().ok())
+}
+
 /// Calculate cache size using system commands (du/find)
 /// This is optimized for NFS/SMB where individual stat() calls are expensive
 /// but system commands can leverage NFS client caching effectively
@@ -1394,39 +1411,26 @@ fn calculate_cache_size_network(
     };
     write_progress(progress_path, reporter, &progress)?;
 
-    // Use du -sb for total size (summarize, bytes)
+    // Use du -s -B1 for total size (summarize, allocated bytes). Not -b: that is --apparent-size,
+    // which on a compressing share counts more than the drive's used space.
     // This is much more reliable on NFS than iterating with stat()
-    let du_output = Command::new("du").arg("-sb").arg(cache_dir).output();
+    let du_output = Command::new("du")
+        .arg("-s")
+        .arg("-B1")
+        .arg(cache_dir)
+        .output();
 
     let total_bytes = match du_output {
-        Ok(output) if output.status.success() => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            eprintln!("du output: {}", stdout.trim());
-            stdout
-                .split_whitespace()
-                .next()
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(0)
-        }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!("du command failed: {}", stderr);
-            // Fallback to du without -b (some systems don't support it)
-            let fallback = Command::new("du").arg("-s").arg(cache_dir).output();
-            match fallback {
-                Ok(out) if out.status.success() => {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    // du -s returns kilobytes
-                    stdout
-                        .split_whitespace()
-                        .next()
-                        .and_then(|s| s.parse::<u64>().ok())
-                        .map(|kb| kb * 1024)
-                        .unwrap_or(0)
-                }
-                _ => 0,
-            }
-        }
+        Ok(output) => du_total(&output)
+            .or_else(|| {
+                // Fallback to du without -B1 (some systems don't support it); its KiB are allocated too
+                let fallback = Command::new("du").arg("-s").arg(cache_dir).output();
+                fallback
+                    .ok()
+                    .and_then(|out| du_total(&out))
+                    .map(|kb| kb * 1024)
+            })
+            .unwrap_or(0),
         Err(e) => {
             eprintln!("Failed to execute du: {}", e);
             0
@@ -1471,8 +1475,9 @@ fn calculate_cache_size_network(
         .arg("f")
         .output();
 
+    // Like du, find exits 1 after an unreadable entry but still lists every path it reached.
     let total_files = match find_output {
-        Ok(output) if output.status.success() => {
+        Ok(output) if output.status.success() || !output.stdout.is_empty() => {
             output.stdout.iter().filter(|&&b| b == b'\n').count() as u64
         }
         _ => {
@@ -1492,7 +1497,7 @@ fn calculate_cache_size_network(
         .output();
 
     let total_dirs = match dir_output {
-        Ok(output) if output.status.success() => {
+        Ok(output) if output.status.success() || !output.stdout.is_empty() => {
             output.stdout.iter().filter(|&&b| b == b'\n').count() as u64
         }
         _ => hex_dir_count as u64 * 257, // Estimate: 256 subdirs per hex dir + 1
@@ -1631,4 +1636,65 @@ fn main() -> anyhow::Result<()> {
     });
 
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// Puts shell scripts named after the system commands first on `PATH`, runs the network
+    /// size scan on a cache with one hex folder, and puts `PATH` back.
+    fn network_scan_with_commands(scripts: &[(&str, &str)]) -> CacheSizeResult {
+        let temp = tempfile::tempdir().unwrap();
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        for (name, body) in scripts {
+            let script = bin.join(name);
+            fs::write(&script, format!("#!/bin/sh\n{body}\n")).unwrap();
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let cache = temp.path().join("cache");
+        fs::create_dir_all(cache.join("00")).unwrap();
+        let progress_path = temp.path().join("cache_size.json");
+        let reporter = Arc::new(ProgressReporter::new(false));
+
+        let system_path = env::var("PATH").unwrap();
+        env::set_var("PATH", format!("{}:{}", bin.display(), system_path));
+        let result =
+            calculate_cache_size_network(&cache, &progress_path, 1, Instant::now(), &reporter);
+        env::set_var("PATH", system_path);
+        result.unwrap()
+    }
+
+    // GNU du and find print what they reached and exit 1 after any unreadable entry on a share.
+    // Both scenarios run in one test because each one changes the process-wide PATH.
+    #[test]
+    fn totals_printed_by_du_and_find_are_kept_when_they_exit_with_an_error() {
+        let partial = network_scan_with_commands(&[
+            (
+                "du",
+                "case \"$*\" in *-B1*) printf '123456789\\t%s\\n' \"$3\";; *) printf '9\\t%s\\n' \"$2\";; esac\n\
+                 echo \"du: cannot read directory: Permission denied\" >&2\n\
+                 exit 1",
+            ),
+            (
+                "find",
+                "echo \"find: '$1/0a': Permission denied\" >&2\n\
+                 case \"$3\" in f) printf '%s/a\\n%s/b\\n%s/c\\n' \"$1\" \"$1\" \"$1\";; d) printf '%s\\n%s/00\\n' \"$1\" \"$1\";; esac\n\
+                 exit 1",
+            ),
+        ]);
+        assert_eq!(partial.total_bytes, 123_456_789);
+        assert_eq!(partial.total_files, 3);
+        assert_eq!(partial.total_directories, 2);
+
+        // A du without -B1 prints nothing for it, so the KiB total of plain `du -s` is used.
+        let fallback = network_scan_with_commands(&[(
+            "du",
+            "case \"$*\" in *-B1*) echo \"du: invalid option -- 'B'\" >&2;; *) printf '5\\t%s\\n' \"$2\"; echo \"du: cannot read directory: Permission denied\" >&2;; esac\n\
+             exit 1",
+        )]);
+        assert_eq!(fallback.total_bytes, 5 * 1024);
+    }
 }

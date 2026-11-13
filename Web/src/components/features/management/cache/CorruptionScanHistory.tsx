@@ -359,7 +359,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
   );
 
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.corruption.history.help.aboutTitle')}>
         {t('management.corruption.history.description')}
       </HelpSection>

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import typescript from 'typescript';
 
@@ -466,4 +466,172 @@ export const bindLifted = (arrowSource, bindings, compilerOptions = {}) => {
   return new Function(...names, `${compiled}\nreturn lifted;`)(
     ...names.map((name) => bindings[name])
   );
+};
+
+/**
+ * A React component from a `.tsx` file, compiled with its imports dropped and every name it
+ * imports supplied by name through `bindings`, so a test renders the component that ships with
+ * stubs at its edges. A binding named like the component itself is ignored.
+ *
+ * @param {string} path Path to the component, relative to the repo's `Web/` directory.
+ * @param {string} name Name the file declares the component under.
+ * @param {Record<string, unknown>} bindings Imported name to the value it should read.
+ * @returns {Function} The component.
+ */
+export const make = (path, name, bindings) => {
+  const source = parseSource(path, typescript.ScriptKind.TSX);
+  const body = source.statements
+    .filter((node) => !typescript.isImportDeclaration(node) && !typescript.isExportAssignment(node))
+    .map((node) => node.getText(source))
+    .join('\n')
+    .replace(/\bexport\s+/g, '');
+  const code = transpile(body, typescript.ModuleKind.CommonJS, { jsx: typescript.JsxEmit.React });
+  const names = Object.keys(bindings).filter((key) => key !== name);
+  return new Function(...names, `${code}\nreturn ${name};`)(...names.map((key) => bindings[key]));
+};
+
+/**
+ * Every stylesheet `npm run build` wrote to `dist/assets/`, the main bundle first, joined into one
+ * string a test page can put in a `<style>` tag.
+ *
+ * @returns {string} The built CSS.
+ */
+export const builtStyles = () => {
+  const assets = new URL('../dist/assets/', import.meta.url);
+  return readdirSync(assets)
+    .filter((file) => file.endsWith('.css'))
+    .sort((a, b) => Number(b.startsWith('index-')) - Number(a.startsWith('index-')))
+    .map((file) => readFileSync(new URL(file, assets), 'utf8'))
+    .join('\n');
+};
+
+/** The origin a browser test loads the built app from; nothing listens there, `server` answers it. */
+export const builtAppOrigin = 'http://lancache.test';
+
+const contentTypes = {
+  '.html': 'text/html',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.woff2': 'font/woff2',
+  '.json': 'application/json'
+};
+
+/**
+ * A Playwright route handler for `page.route('**\/*', ...)` that serves the built app from `dist/`
+ * at `builtAppOrigin`. A GET of an `/api/` path in `answers` gets that JSON, every other API call a
+ * 503, any other origin and the SignalR hubs are aborted, and an unknown page path gets index.html.
+ *
+ * @param {Record<string, unknown>} answers JSON answers keyed by API path.
+ * @returns {(route: import('playwright-core').Route) => Promise<void>} The route handler.
+ */
+export const server = (answers) => async (route) => {
+  const dist = new URL('../dist/', import.meta.url);
+  const url = new URL(route.request().url());
+  if (url.origin !== builtAppOrigin || url.pathname.startsWith('/hubs/')) return route.abort();
+  if (url.pathname.startsWith('/api/')) {
+    const answer = answers[url.pathname];
+    return route.request().method() === 'GET' && answer
+      ? route.fulfill({ json: answer })
+      : route.fulfill({ status: 503, json: {} });
+  }
+  const file = new URL(`.${decodeURIComponent(url.pathname)}`, dist);
+  const found = existsSync(file) && statSync(file).isFile() ? file : new URL('index.html', dist);
+  const extension = found.pathname.slice(found.pathname.lastIndexOf('.'));
+  return route.fulfill({
+    body: readFileSync(found),
+    contentType: contentTypes[extension] ?? 'application/octet-stream'
+  });
+};
+
+/** Ends every SignalR JSON message on the wire. */
+const record = '\u001e';
+
+/**
+ * The download hub of the live connection, faked over Playwright's WebSocket routing for a page on
+ * `builtAppOrigin`. It answers the negotiate request and the handshake, answers the page's hub
+ * calls (its group joins) as done, counts the handshakes, sends events, and drops a socket. Set up
+ * after `page.route('**\/*', server(answers))`, so its routes are the ones the hub requests take.
+ *
+ * @param {import('playwright-core').Page} page The page whose hub is faked.
+ * @returns {Promise<{
+ *   handshakesReach: (count: number) => Promise<void>,
+ *   send: (target: string, argument: unknown) => void,
+ *   drop: () => void
+ * }>} Waits for the page's handshake count, sends an event on the newest socket, and closes it.
+ */
+export const fakeHub = async (page) => {
+  const sockets = [];
+  let handshakes = 0;
+  const waiters = [];
+  await page.route(`${builtAppOrigin}/hubs/downloads/negotiate**`, (route) =>
+    route.fulfill({
+      json: {
+        connectionId: `connection-${sockets.length + 1}`,
+        connectionToken: `token-${sockets.length + 1}`,
+        negotiateVersion: 1,
+        availableTransports: [{ transport: 'WebSockets', transferFormats: ['Text', 'Binary'] }]
+      }
+    })
+  );
+  await page.routeWebSocket(/\/hubs\/downloads/, (socket) => {
+    sockets.push(socket);
+    socket.onMessage((message) => {
+      if (typeof message !== 'string') return;
+      for (const text of message.split(record).filter(Boolean)) {
+        const sent = JSON.parse(text);
+        if (sent.protocol) {
+          socket.send(`{}${record}`);
+          handshakes += 1;
+          for (const waiter of waiters.splice(0)) waiter();
+        } else if (sent.type === 1 && sent.invocationId) {
+          socket.send(`${JSON.stringify({ type: 3, invocationId: sent.invocationId })}${record}`);
+        }
+      }
+    });
+  });
+  const handshakesReach = async (count) => {
+    while (handshakes < count) {
+      await new Promise((resolve) => waiters.push(resolve));
+    }
+  };
+  return {
+    handshakesReach,
+    send: (target, argument) =>
+      sockets.at(-1).send(`${JSON.stringify({ type: 1, target, arguments: [argument] })}${record}`),
+    drop: () => sockets.at(-1).close({ code: 4000, reason: 'connection lost' })
+  };
+};
+
+/**
+ * Runs in the page through `page.evaluate(settle)`. Awaits every animation that ends, then waits
+ * until the page's box sizes hold still for five frames, giving up after 120 frames, so a measure
+ * never reads a dialog or card halfway through opening or a layout halfway through a resize.
+ *
+ * @returns {Promise<void>}
+ */
+export const settle = async () => {
+  const frame = () => new Promise((resolve) => globalThis.requestAnimationFrame(resolve));
+  const ending = () =>
+    globalThis.document
+      .getAnimations()
+      .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+  const shape = () =>
+    [...globalThis.document.querySelectorAll('body *')]
+      .map(
+        (element) =>
+          `${element.offsetLeft},${element.offsetTop},${element.offsetWidth},${element.offsetHeight}`
+      )
+      .join(';');
+  let last = '';
+  let still = 0;
+  for (let frames = 0; still < 5 && frames < 120; frames += 1) {
+    await Promise.all(ending().map((animation) => animation.finished.catch(() => null)));
+    await frame();
+    const now = shape();
+    still = now === last ? still + 1 : 0;
+    last = now;
+  }
 };

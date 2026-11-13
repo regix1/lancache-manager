@@ -137,7 +137,7 @@ fn delete_directory_contents(
         let length = if file_type.is_dir() || file_type.is_symlink() {
             0
         } else {
-            entry.metadata()?.len()
+            cache_utils::allocated_size(&entry.metadata()?)
         };
         Ok((file_type, length))
     };
@@ -387,7 +387,7 @@ fn delete_directory_full(
         let length = if file_type.is_dir() || file_type.is_symlink() {
             0
         } else {
-            entry.metadata()?.len()
+            cache_utils::allocated_size(&entry.metadata()?)
         };
         Ok((file_type, length))
     };
@@ -492,7 +492,7 @@ where
         let length = if file_type.is_dir() || file_type.is_symlink() {
             0
         } else {
-            entry.metadata()?.len()
+            cache_utils::allocated_size(&entry.metadata()?)
         };
         Ok((file_type, length))
     };
@@ -1241,6 +1241,8 @@ mod tests {
         path
     }
 
+    // Guards no data, so a test that panics while holding it leaves nothing for the next one to distrust:
+    // each rsync test takes it through the poison and fails only on its own result.
     #[cfg(target_os = "linux")]
     static RSYNC_TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -1587,6 +1589,7 @@ mod tests {
 
         let next_root = tempfile::tempdir().unwrap();
         let next = create_cache_file(next_root.path(), FIRST_DIGEST, b"next");
+        let next_on_disk = cache_utils::allocated_size(&fs::metadata(&next).unwrap());
         let next_sweep = next.parent().unwrap().parent().unwrap().to_path_buf();
         let files = AtomicU64::new(0);
         let bytes = AtomicU64::new(0);
@@ -1595,7 +1598,7 @@ mod tests {
 
         assert!(!next_sweep.exists());
         assert_eq!(files.load(Ordering::SeqCst), 1);
-        assert_eq!(bytes.load(Ordering::SeqCst), 4);
+        assert_eq!(bytes.load(Ordering::SeqCst), next_on_disk);
     }
 
     #[test]
@@ -1657,9 +1660,12 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn rsync_keeps_a_file_created_after_the_command_and_allows_the_next_root() {
-        let _guard = RSYNC_TEST_LOCK.lock().unwrap();
+        let _guard = RSYNC_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let first_root = tempfile::tempdir().unwrap();
         let original = create_cache_file(first_root.path(), FIRST_DIGEST, b"old");
+        let original_on_disk = cache_utils::allocated_size(&fs::metadata(&original).unwrap());
         let first_sweep = original.parent().unwrap().parent().unwrap().to_path_buf();
         let new_file = first_sweep.join(NEW_DIGEST);
         let files = AtomicU64::new(0);
@@ -1676,10 +1682,11 @@ mod tests {
 
         assert!(new_file.exists());
         assert_eq!(files.load(Ordering::SeqCst), 1);
-        assert_eq!(bytes.load(Ordering::SeqCst), 3);
+        assert_eq!(bytes.load(Ordering::SeqCst), original_on_disk);
 
         let next_root = tempfile::tempdir().unwrap();
         let next = create_cache_file(next_root.path(), FIRST_DIGEST, b"next");
+        let next_on_disk = cache_utils::allocated_size(&fs::metadata(&next).unwrap());
         let next_sweep = next.parent().unwrap().parent().unwrap().to_path_buf();
         let files = AtomicU64::new(0);
         let bytes = AtomicU64::new(0);
@@ -1688,13 +1695,15 @@ mod tests {
             .expect("a later rsync root must still run");
 
         assert_eq!(files.load(Ordering::SeqCst), 1);
-        assert_eq!(bytes.load(Ordering::SeqCst), 4);
+        assert_eq!(bytes.load(Ordering::SeqCst), next_on_disk);
     }
 
     #[cfg(target_os = "linux")]
     #[test]
     fn rsync_spawn_failure_remains_fatal() {
-        let _guard = RSYNC_TEST_LOCK.lock().unwrap();
+        let _guard = RSYNC_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let root = tempfile::tempdir().unwrap();
         let original = create_cache_file(root.path(), FIRST_DIGEST, b"old");
         let sweep = original.parent().unwrap().parent().unwrap().to_path_buf();
@@ -1721,7 +1730,9 @@ mod tests {
     fn rsync_nonzero_exit_remains_fatal() {
         use std::os::unix::process::ExitStatusExt;
 
-        let _guard = RSYNC_TEST_LOCK.lock().unwrap();
+        let _guard = RSYNC_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let root = tempfile::tempdir().unwrap();
         let original = create_cache_file(root.path(), FIRST_DIGEST, b"old");
         let sweep = original.parent().unwrap().parent().unwrap().to_path_buf();
@@ -1752,6 +1763,7 @@ mod tests {
             let original = root.path().join("00").join("00").join(FIRST_DIGEST);
             fs::create_dir_all(original.parent().unwrap()).unwrap();
             fs::write(&original, b"old").unwrap();
+            let original_on_disk = cache_utils::allocated_size(&fs::metadata(&original).unwrap());
             let progress_path = root.path().join("progress.json");
             let reporter = Arc::new(ProgressReporter::new(false));
             let operation_id = uuid::Uuid::new_v4().to_string();
@@ -1780,7 +1792,7 @@ mod tests {
             assert_eq!(result, (1, 1));
             assert_eq!(progress.status, "completed");
             assert_eq!(progress.files_deleted, 1);
-            assert_eq!(progress.bytes_deleted, 3);
+            assert_eq!(progress.bytes_deleted, original_on_disk);
             completed += 1;
             if index == 0 {
                 surviving = created;

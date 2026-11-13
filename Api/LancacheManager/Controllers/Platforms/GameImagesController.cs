@@ -38,16 +38,17 @@ public class GameImagesController : ControllerBase
     /// The version reported for a curated embedded banner, which has no row and so no stored-at second.
     /// </summary>
     /// <remarks>
-    /// Negated so it can never equal a row's version. Both are otherwise unix seconds in one number
-    /// space, and a rowless slug can gain a row inside the same second the generation moved: the
-    /// embedded re-seed copies from the assembly with no network call
-    /// (GameImageFetchService.cs:1126-1141), and a follow-up pass begins in the second the previous
-    /// one bumped the generation. Under one number space that URL would keep its old value, and a
-    /// browser that had already been told the response was immutable would hold superseded bytes for
-    /// a year with no reload able to clear it. Disjoint spaces make the collision impossible rather
-    /// than unlikely.
+    /// The second this process started, negated. The shipped files are part of the assembly, so they
+    /// can only change with a deploy, and a deploy is a new process with a later start second: the
+    /// number moves exactly when the bytes can, and stays put across image passes, so an unchanged
+    /// banner is not downloaded again every time a pass ends.
+    ///
+    /// Negated so it can never equal a row's version, which is a positive unix second. A version that
+    /// two different byte sets could share would let a browser that was told the response was
+    /// immutable keep superseded bytes for a year with no reload able to clear it. Disjoint spaces
+    /// make that collision impossible rather than unlikely.
     /// </remarks>
-    private static long EmbeddedBannerVersion => -CacheGeneration;
+    private static long EmbeddedBannerVersion { get; } = -DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
     public GameImagesController(
         ILogger<GameImagesController> logger,
@@ -147,7 +148,8 @@ public class GameImagesController : ControllerBase
 
         // Steam-first: if this name-keyed game maps to a Steam appId AND a Steam header has been
         // fetched for it, serve Steam's header.jpg. Falls through to the curated embedded banner
-        // (below) until the Steam fetch lands, or permanently if it never does.
+        // (below) until the Steam fetch lands, or permanently if it never does. A game listed in the
+        // Steam map shows Steam's art even when a banner for it ships too.
         var steamAppId = NameKeyedSteamAppIds.TryGetSteamAppIdBySlug(canonicalService, slug);
         if (steamAppId != null)
         {
@@ -162,6 +164,17 @@ public class GameImagesController : ControllerBase
             }
         }
 
+        // Curated embedded banners (Blizzard/Riot) live in the assembly, so they are served straight
+        // from it, before any stored row for the slug. A stored row is only a copy of the file that
+        // shipped when it was written, and after a deploy that replaces the file it would keep
+        // answering with the old art. Serving from the assembly also makes a curated banner appear
+        // the moment its game card renders - no fetch, detection scan, or 30-min wait.
+        if (NameKeyedBannerSource.TryGetEmbeddedBytesForSlug(canonicalService, slug, out var embeddedBytes, out var embeddedContentType))
+        {
+            return ImageResponse(
+                embeddedBytes, embeddedContentType, $"{canonicalService}-{slug}", EmbeddedBannerVersion, version);
+        }
+
         var (imageData, contentType, storedAtUtc) = await _imageCacheService.GetImageAsync(
             slug, canonicalService, cancellationToken) ?? default;
 
@@ -170,18 +183,6 @@ public class GameImagesController : ControllerBase
             return ImageResponse(
                 imageData, contentType ?? "image/jpeg", $"{canonicalService}-{slug}",
                 ImageVersion(storedAtUtc), version);
-        }
-
-        // Instant path: curated embedded banners (Blizzard/Riot) live in the assembly, so serve them
-        // directly even before any GameImage row has been fetched/stored. This makes a curated banner
-        // appear the moment its game card renders - no fetch, detection scan, or 30-min wait.
-        if (NameKeyedBannerSource.TryGetEmbeddedBytesForSlug(canonicalService, slug, out var embeddedBytes, out var embeddedContentType))
-        {
-            // No row, so no stored-at time. These bytes live in the assembly and change only on a
-            // deploy, which restarts the process and so moves the cache generation - the same number
-            // /available reports for them, so a current request still matches.
-            return ImageResponse(
-                embeddedBytes, embeddedContentType, $"{canonicalService}-{slug}", EmbeddedBannerVersion, version);
         }
 
         return NotFound(new GameImageErrorResponse { Error = $"Game image not available for {canonicalService} '{slug}'" });
@@ -228,6 +229,14 @@ public class GameImagesController : ControllerBase
         var images = new Dictionary<string, long>(StringComparer.Ordinal);
         foreach (var image in stored)
         {
+            // The header route never serves a stored row for a slug whose banner ships in the
+            // assembly, so that row's stored-at second is not the version of anything it serves.
+            // The curated loop below versions the slug instead.
+            if (NameKeyedBannerSource.HasEmbeddedBanner(image.Service, image.AppId))
+            {
+                continue;
+            }
+
             images[image.AppId] = SteamFirstVersion(image.Service, image.AppId, steamVersions)
                 ?? ImageVersion(image.UpdatedAtUtc ?? image.FetchedAtUtc);
         }
@@ -235,9 +244,10 @@ public class GameImagesController : ControllerBase
         // Also advertise curated embedded name-keyed banners (Blizzard/Riot). Their JPEG bytes live
         // in the assembly and are served on-demand by GetNameKeyedHeaderImageAsync, so they are
         // "available" the instant a curated game's card renders - no fetched GameImage row required.
-        // A fetched row for the same slug wins, because that is the one the header route serves.
-        // This response is keyed by slug alone, so the service has to be recovered before asking
-        // whether the slug is one of the Steam-first ones.
+        // A row another service stored under the same slug keeps its entry, because the header route
+        // serves that row for that service; the curated slug's own rows were skipped above. This
+        // response is keyed by slug alone, so the service has to be recovered before asking whether
+        // the slug is one of the Steam-first ones.
         foreach (var slug in NameKeyedBannerSource.EmbeddedBannerSlugs())
         {
             if (images.ContainsKey(slug))

@@ -45,6 +45,13 @@ public partial class OperationStateService
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task? _recoveryTask;
 
+    /// <summary>
+    /// The runs the conflict checker holds, as steps; a force-stopped run stays listed until its own code ends. The
+    /// checker sets it when it is built (it takes this service, so this service cannot take it); until then no run can
+    /// be held.
+    /// </summary>
+    internal Func<List<OperationInfo>> HeldSteps { get; set; } = () => [];
+
     public async Task PrepareRepairAsync(OperationRepair repair, CancellationToken cancellationToken)
     {
         await WaitForRecoveryOwnershipAsync(cancellationToken);
@@ -1090,7 +1097,8 @@ public partial class OperationStateService
                 // A cache clear is ordered by its own repair record instead: while it runs, the check
                 // below holds this wait, and before it starts work it waits for this repair, so also
                 // waiting for its row would leave the two waiting on each other.
-                var jobRunning = _operationTracker.GetActiveOperations(null)
+                // A force-stopped job whose code still runs is no longer active in the tracker; its hold still lists it.
+                var jobRunning = _operationTracker.GetActiveOperations(null).Concat(HeldSteps())
                     .Any(operation => (OperationConflictChecker.IsGlobal(operation.Type)
                             || operation.Type is OperationType.CorruptionDetection or OperationType.CacheSizeScan)
                         && !_repairs.ContainsKey(operation.Id));

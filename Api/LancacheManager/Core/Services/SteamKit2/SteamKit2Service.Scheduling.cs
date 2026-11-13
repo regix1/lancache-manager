@@ -1,3 +1,4 @@
+using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
@@ -193,8 +194,22 @@ public partial class SteamKit2Service
                         return;
                     }
 
+                    // Hybrid runs the full crawl it owns when the Steam Web API can list every app. Without
+                    // that list a full crawl would clear the loaded mappings and fail on every tick, so
+                    // Hybrid skips and asks for a full scan as the other modes do.
+                    var hybrid = viability.WillTriggerFullScan && IsHybridMode(_crawlIncrementalMode);
+                    if (hybrid && (await _steamWebApiService.GetApiStatusAsync(cancellationToken: stoppingToken)).IsFullyOperational)
+                    {
+                        lock (_baselineLock)
+                        {
+                            if (version != _baselineVersion || IsRebuildRunning) return;
+                        }
+
+                        _logger.LogInformation("Steam requires a full scan - Hybrid mode runs the full crawl now");
+                        incremental = false;
+                    }
                     // Check if Steam requires a full scan (change gap too large)
-                    if (viability.WillTriggerFullScan)
+                    else if (viability.WillTriggerFullScan)
                     {
                         _logger.LogWarning("Scheduled incremental scan skipped - Steam requires full scan (change gap: {ChangeGap}). User must manually trigger a full scan.", viability.ChangeGap);
                         lock (_baselineLock)
@@ -226,9 +241,11 @@ public partial class SteamKit2Service
                         await ReportRunSkippedAsync(FullScanRequiredSkipStageKey, stoppingToken);
                         return;
                     }
-
-                    // Viability check passed - reset the flag since incremental is now viable
-                    _logger.LogInformation("Incremental scan is viable, proceeding with scheduled scan");
+                    else
+                    {
+                        // Viability check passed - reset the flag since incremental is now viable
+                        _logger.LogInformation("Incremental scan is viable, proceeding with scheduled scan");
+                    }
                 }
                 // A shutdown or a canceled run is not a failed run; the base class reports it as such.
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -255,6 +272,20 @@ public partial class SteamKit2Service
 
             }
         }
+    }
+
+    /// <summary>
+    /// Check if crawl mode is Hybrid (incremental runs with a weekly full crawl)
+    /// </summary>
+    private static bool IsHybridMode(object mode)
+    {
+        // Handle JsonElement (from JSON deserialization when target type is object)
+        if (mode is JsonElement jsonElement)
+        {
+            return jsonElement.ValueKind == JsonValueKind.String && jsonElement.GetString() == "hybrid";
+        }
+
+        return mode?.ToString() == "hybrid";
     }
 
     /// <summary>

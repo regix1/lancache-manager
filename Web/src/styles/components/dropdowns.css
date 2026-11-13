@@ -217,8 +217,11 @@
        !important.
        Scoped to the button, because a couple of read-only status indicators borrow .ed-trigger
        purely for its box model so they line up with the controls beside them. Growing those to a
-       finger-sized target makes a thing you cannot press look like a button. */
-    button.ed-trigger {
+       finger-sized target makes a thing you cannot press look like a button. The multi-select
+       trigger is always a button and keeps its fixed 40px height otherwise, so it takes the same
+       floor here. */
+    button.ed-trigger,
+    button.msd-trigger {
       min-height: 44px;
     }
 

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Text.Json;
@@ -42,6 +43,16 @@ public sealed class CacheDomainsService : ICacheDomainsService
     // asking GitHub again; a user's Refresh still fetches at once.
     private DateTime? _lastFailedFetchUtc;
 
+    // The commit-history lookup that dates newly listed names. GitHub answers anonymous API requests
+    // 60 times an hour per address and a commit never changes, so each commit's added lines are read
+    // once. A failed lookup waits the same interval as a failed archive fetch unless a user's Refresh
+    // clears the wait. The environment reads and the GitHub requests each get their own short budget,
+    // because the sweep waits on the lookup before its heartbeat and a slow environment read must not
+    // shorten GitHub's.
+    private static readonly TimeSpan _historyBudget = TimeSpan.FromSeconds(5);
+    private readonly ConcurrentDictionary<string, HashSet<string>> _commitAdditions = new(StringComparer.OrdinalIgnoreCase);
+    private DateTime? _lastFailedHistoryUtc;
+
     public CacheDomainsService(
         ILogger<CacheDomainsService> logger,
         IPathResolver pathResolver,
@@ -84,6 +95,7 @@ public sealed class CacheDomainsService : ICacheDomainsService
             };
         }
 
+        _lastFailedHistoryUtc = null;
         var (refreshedList, refreshedSource) = await LoadAsync(forceRefresh: true, cancellationToken);
         return new CacheDomainsRefreshOutcome { Success = true, Domains = refreshedList, Source = refreshedSource };
     }
@@ -112,6 +124,148 @@ public sealed class CacheDomainsService : ICacheDomainsService
             EnvSource = repoFromFile != null || branchFromFile != null || noFetchFromFile != null ? "envFile" : "defaults",
             FromCache = false
         };
+    }
+
+    public async Task<Dictionary<string, DateTime>> GetAddedDatesAsync(
+        IReadOnlyCollection<string> failingEntries,
+        IReadOnlyCollection<string> knownEntries,
+        CancellationToken cancellationToken)
+    {
+        var noDates = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        if (failingEntries.Count == 0 || knownEntries.Count == 0 ||
+            (_lastFailedFetchUtc is { } fetchFailedAt && DateTime.UtcNow - fetchFailedAt <= _staleAfter) ||
+            (_lastFailedHistoryUtc is { } historyFailedAt && DateTime.UtcNow - historyFailedAt <= _staleAfter))
+        {
+            return noDates;
+        }
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        budget.CancelAfter(_historyBudget);
+        // A lookup that never reached GitHub has no GitHub failure to wait out.
+        var askedGitHub = false;
+        try
+        {
+            var noFetchResult = await _environmentSource.GetValueAsync("NOFETCH", budget.Token);
+            if (EnvValueParsing.ParseBool(noFetchResult.Value) ?? DefaultNoFetch)
+            {
+                return noDates;
+            }
+
+            var repoResult = await _environmentSource.GetValueAsync("CACHE_DOMAINS_REPO", budget.Token);
+            var branchResult = await _environmentSource.GetValueAsync("CACHE_DOMAINS_BRANCH", budget.Token);
+            var repoUrl = FirstNonEmpty(repoResult.Value, DefaultRepoUrl);
+            var branch = FirstNonEmpty(branchResult.Value, DefaultBranch);
+            if (TryParseGitHubRepo(repoUrl) is not { } repo)
+            {
+                return noDates;
+            }
+
+            var failing = new HashSet<string>(failingEntries, StringComparer.OrdinalIgnoreCase);
+            var known = new HashSet<string>(knownEntries, StringComparer.OrdinalIgnoreCase);
+            var commitsUrl = $"https://api.github.com/repos/{repo.Owner}/{repo.Repo}/commits";
+
+            using var httpClient = _httpClientFactory.CreateClient();
+            httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("LancacheManager/1.0");
+            httpClient.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+
+            // One page of history, newest first. The walk stops at the first commit that added a name
+            // the DNS server sends to the cache: that commit is on its list, so no older commit can
+            // explain a failing name, and names added in that same commit stay undated.
+            using var gitHubBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            gitHubBudget.CancelAfter(_historyBudget);
+            askedGitHub = true;
+            var commits = ParseCommitList(await httpClient.GetStringAsync(
+                $"{commitsUrl}?sha={Uri.EscapeDataString(branch)}", gitHubBudget.Token));
+            var dates = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (sha, committedAtUtc) in commits)
+            {
+                if (!_commitAdditions.TryGetValue(sha, out var added))
+                {
+                    added = ParseAddedEntries(await httpClient.GetStringAsync($"{commitsUrl}/{sha}", gitHubBudget.Token));
+                    _commitAdditions[sha] = added;
+                }
+
+                if (added.Overlaps(known))
+                {
+                    return dates;
+                }
+
+                foreach (var entry in added.Where(failing.Contains))
+                {
+                    dates.TryAdd(entry, committedAtUtc);
+                }
+            }
+
+            // The page ended before any commit the DNS server is shown to know, so nothing is proven.
+            return noDates;
+        }
+        // Same failure set as the archive fetch; the budget running out counts as a failure, the
+        // caller's own cancel propagates.
+        catch (Exception ex) when ((ex is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+            || ex is HttpRequestException or JsonException)
+        {
+            if (askedGitHub)
+            {
+                _lastFailedHistoryUtc = DateTime.UtcNow;
+            }
+
+            _logger.LogWarning(ex, "Status Check: failed to read the commit history of the domain list");
+            return noDates;
+        }
+    }
+
+    /// <summary>Reads a GitHub commits list (newest first) into each commit's sha and commit time.
+    /// Entries without either are skipped.</summary>
+    internal static List<(string Sha, DateTime CommittedAtUtc)> ParseCommitList(string json)
+    {
+        var commits = new List<(string, DateTime)>();
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Array)
+        {
+            return commits;
+        }
+
+        foreach (var entry in doc.RootElement.EnumerateArray())
+        {
+            if (entry.TryGetProperty("sha", out var sha) && sha.ValueKind == JsonValueKind.String &&
+                entry.TryGetProperty("commit", out var commit) &&
+                commit.TryGetProperty("committer", out var committer) &&
+                committer.TryGetProperty("date", out var date) &&
+                date.TryGetDateTime(out var committedAtUtc))
+            {
+                commits.Add((sha.GetString()!, committedAtUtc));
+            }
+        }
+        return commits;
+    }
+
+    /// <summary>Reads one GitHub commit's file patches into the list entries it added: per file, the
+    /// lines it adds minus the lines it removes, so a line moved inside a file is not new. Each line
+    /// is cleaned by <see cref="ParseDomainFile"/>'s rules. A file GitHub sends without a patch (a
+    /// very large diff) adds nothing.</summary>
+    internal static HashSet<string> ParseAddedEntries(string json)
+    {
+        var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+            !doc.RootElement.TryGetProperty("files", out var files) || files.ValueKind != JsonValueKind.Array)
+        {
+            return added;
+        }
+
+        foreach (var file in files.EnumerateArray())
+        {
+            if (!file.TryGetProperty("patch", out var patch) || patch.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var lines = patch.GetString()!.Split('\n');
+            var removed = ParseDomainFile(string.Join('\n', lines.Where(line => line.StartsWith('-')).Select(line => line[1..])));
+            added.UnionWith(ParseDomainFile(string.Join('\n', lines.Where(line => line.StartsWith('+')).Select(line => line[1..])))
+                .Except(removed, StringComparer.OrdinalIgnoreCase));
+        }
+        return added;
     }
 
     private async Task<(CacheDomainsList List, DomainsSource Source)> LoadAsync(bool forceRefresh, CancellationToken ct)
@@ -553,7 +707,21 @@ public sealed class CacheDomainsService : ICacheDomainsService
     /// </summary>
     internal static string? TryConvertToArchiveUrl(string repoUrl, string branch)
     {
-        if (string.IsNullOrWhiteSpace(repoUrl) || string.IsNullOrWhiteSpace(branch))
+        if (string.IsNullOrWhiteSpace(branch) || TryParseGitHubRepo(repoUrl) is not { } repo)
+        {
+            return null;
+        }
+
+        // The bare-ref archive form (not refs/heads/) so CACHE_DOMAINS_BRANCH may also name a tag,
+        // a commit SHA, or a slashed branch, matching what the raw-file URLs this replaced accepted.
+        return $"https://github.com/{repo.Owner}/{repo.Repo}/archive/{branch}.tar.gz";
+    }
+
+    /// <summary>The owner and repository of a GitHub repo URL in any of the forms
+    /// <see cref="TryConvertToArchiveUrl"/> accepts; <c>null</c> for anything else.</summary>
+    internal static (string Owner, string Repo)? TryParseGitHubRepo(string repoUrl)
+    {
+        if (string.IsNullOrWhiteSpace(repoUrl))
         {
             return null;
         }
@@ -575,9 +743,7 @@ public sealed class CacheDomainsService : ICacheDomainsService
             return null;
         }
 
-        // The bare-ref archive form (not refs/heads/) so CACHE_DOMAINS_BRANCH may also name a tag,
-        // a commit SHA, or a slashed branch, matching what the raw-file URLs this replaced accepted.
-        return $"https://github.com/{owner}/{repo}/archive/{branch}.tar.gz";
+        return (owner, repo);
     }
 
     /// <summary>

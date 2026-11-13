@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.SteamKit2;
 using LancacheManager.Models;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -281,6 +282,22 @@ internal static class CacheScanGateHarness
 
     internal static void SetField(object instance, string fieldName, object? value)
         => FindField(instance, fieldName).SetValue(instance, value);
+
+    internal static object? GetField(object instance, string fieldName)
+        => FindField(instance, fieldName).GetValue(instance);
+
+    /// <summary>
+    /// Marks the service's own Steam client as an anonymous session that is already logged on, so a
+    /// crawl's session check never connects to Steam.
+    /// </summary>
+    internal static void LogOnAnonymously(SteamKit2Service service)
+    {
+        var client = (SteamKit2.SteamClient)GetField(service, "_steamClient")!;
+        typeof(SteamKit2.Internal.CMClient).GetProperty(nameof(SteamKit2.Internal.CMClient.IsConnected))!.SetValue(client, true);
+        typeof(SteamKit2.Internal.CMClient).GetProperty(nameof(SteamKit2.Internal.CMClient.SteamID))!
+            .SetValue(client, new SteamKit2.SteamID(0, SteamKit2.EUniverse.Public, SteamKit2.EAccountType.AnonUser));
+        SetField(service, "_isLoggedOn", true);
+    }
 
     private static FieldInfo FindField(object instance, string fieldName)
     {

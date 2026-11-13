@@ -190,13 +190,17 @@ public partial class SteamKit2Service
         }, "PICS viability check", ct);
         _logger.LogInformation("Steam RequiresFullUpdate: {Full}, RequiresFullAppUpdate: {App}",
             incrementalChanges.RequiresFullUpdate, incrementalChanges.RequiresFullAppUpdate);
-        return (currentChangeNumber, incrementalChanges.RequiresFullUpdate || incrementalChanges.RequiresFullAppUpdate);
+        // RequiresFullAppUpdate alone means Steam still knows the number but will not list that many
+        // changed apps in one answer; the incremental crawl finds them from each known app's change number.
+        return (currentChangeNumber, incrementalChanges.RequiresFullUpdate);
     }
 
-    private async Task PinBaselineAsync()
+    private async Task PinBaselineAsync(CancellationToken ct)
     {
         if (_stateService.GetState().LastPicsChangeNumber.HasValue) return;
         var baseline = await GetDepotBaselineAsync();
+        // The read is limited by the database command timeout, not the token; a run stopped meanwhile pins nothing.
+        ct.ThrowIfCancellationRequested();
         lock (_baselineLock)
         {
             _stateService.UpdateState(state => state.LastPicsChangeNumber ??= baseline.HasUsableBaseline ? baseline.LastChangeNumber : 0);

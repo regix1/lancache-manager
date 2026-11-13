@@ -491,6 +491,18 @@ internal sealed class RecordingContainerGateway : IPrefillContainerGateway
         return new ImageInspectResponse { ID = imageId };
     }
 
+    // The inspected image carries no repo digest, so this digest never matches it and every check pulls.
+    public Task<string> GetDistributionDigestAsync(string name, CancellationToken cancellationToken)
+    {
+        EnsureConnected();
+        lock (_sync)
+        {
+            Calls.Add($"DistributionDigest:{name}");
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult("sha256:registry");
+    }
+
     /// <summary>
     /// When set, exec create, start, and inspect throw it after <see cref="ExecSuccessesBeforeFailure"/>
     /// of them have succeeded. Unset, those calls stay unsupported.

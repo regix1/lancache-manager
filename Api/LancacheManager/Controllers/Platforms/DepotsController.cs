@@ -288,7 +288,8 @@ public class DepotsController : ControllerBase
                     OperationType.DepotMapping, ConflictScope.Bulk(),
                     async () =>
                     {
-                        localImport = _steamKit2Service.ImportFromLocalFileAsync(cancellationToken,
+                        // Once started, the import runs to its end: only its own stop cancels it, not this request ending.
+                        localImport = _steamKit2Service.ImportFromLocalFileAsync(CancellationToken.None,
                             new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual),
                             localRegistered);
                         await Task.WhenAny(localRegistered.Task, localImport);
@@ -322,7 +323,8 @@ public class DepotsController : ControllerBase
                 OperationType.DepotMapping, ConflictScope.Bulk(),
                 async () =>
                 {
-                    importTask = _steamKit2Service.ImportFromGitHubAsync(cancellationToken,
+                    // Once started, the import runs to its end: only its own stop cancels it, not this request ending.
+                    importTask = _steamKit2Service.ImportFromGitHubAsync(CancellationToken.None,
                         notice: new RunNotice(_steamKit2Service.EffectiveNotificationMode, RunTrigger.Manual),
                         started: registered);
                     await Task.WhenAny(registered.Task, importTask);

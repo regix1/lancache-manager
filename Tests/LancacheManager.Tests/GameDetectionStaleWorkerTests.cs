@@ -151,7 +151,8 @@ public sealed class GameDetectionStaleWorkerTests : IDisposable
             capabilityService,
             tracker,
             CacheScanGateHarness.Idle(),
-            stateService);
+            stateService,
+            new OperationConflictChecker(tracker, operationStateService, NullLogger<OperationConflictChecker>.Instance));
         repairOwner = detection;
         services.GetRequiredService<GameCacheDetectionService>();
         operationStateService.StartAsync(CancellationToken.None).GetAwaiter().GetResult();

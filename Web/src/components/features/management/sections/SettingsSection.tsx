@@ -46,7 +46,7 @@ const SettingsSection: React.FC = () => {
   );
 
   const apiAuthHelpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.sections.settings.help.apiAuthTitle')}>
         {t('management.sections.settings.apiAuthDesc')}
       </HelpSection>
@@ -54,7 +54,7 @@ const SettingsSection: React.FC = () => {
   );
 
   const demoModeHelpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.sections.settings.help.demoModeTitle')}>
         {t('management.sections.settings.demoModeDesc')}
       </HelpSection>
@@ -62,7 +62,7 @@ const SettingsSection: React.FC = () => {
   );
 
   const displayPreferencesHelpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.sections.settings.help.displayPreferencesTitle')}>
         {t('management.sections.settings.displayPreferencesDesc')}
       </HelpSection>

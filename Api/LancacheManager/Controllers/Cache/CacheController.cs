@@ -2153,8 +2153,15 @@ public class CacheController : ControllerBase
             return false;
         }
 
+        // The removal writes a checkpoint for every file it removes, and every browser gets each
+        // send, so the live broadcast goes out on a stage change or at most every 250 ms while the
+        // tracker takes every checkpoint; a checkpoint held by the interval goes out when it ends.
+        var progressEmitGate = new ProgressEmitGate();
+
         async Task FinishAndCompleteAsync(bool success, bool canceled, string? error)
         {
+            // The held checkpoint goes out before the run's ending.
+            await progressEmitGate.FlushAsync();
             var operation = _operationTracker.GetOperation(operationId);
             var terminalWon = operation?.Status.IsTerminal() == true;
             var finalSuccess = terminalWon ? operation!.Success : success;
@@ -2238,6 +2245,7 @@ public class CacheController : ControllerBase
             var failedDatasources = new List<string>();
             var finishedDatasources = 0;
             var rewritesLogs = selection.DetectionMethod == CorruptionDetectionMethod.RepeatedMiss;
+            long progressRevision = 0;
 
             var datasourceCount = datasources.Count;
             for (var datasourceIndex = 0; datasourceIndex < datasourceCount; datasourceIndex++)
@@ -2352,20 +2360,30 @@ public class CacheController : ControllerBase
                                 accepted = true;
                             });
                         if (!accepted) return;
+                        await progressEmitGate.EmitAsync(progress.StageKey ?? string.Empty, ++progressRevision, async () =>
+                        {
+                            // A held checkpoint goes out up to one interval later, and a force stop can end
+                            // the run from outside in between.
+                            if (_operationTracker.GetOperation(operationId) is not { CompletedFlag: 0 } run
+                                || run.Status.IsTerminal())
+                            {
+                                return;
+                            }
 
-                        // Send progress notification via SignalR
-                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
-                            new CorruptionRemovalProgress(
-                                service,
-                                operationId,
-                                progress.Status,
-                                progress.StageKey ?? string.Empty,
-                                DateTime.UtcNow,
-                                progress.FilesProcessed,
-                                progress.TotalFiles,
-                                overallPercent,
-                                context,
-                                detectionMethod.ToWireString()));
+                            // Send progress notification via SignalR
+                            await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
+                                new CorruptionRemovalProgress(
+                                    service,
+                                    operationId,
+                                    progress.Status,
+                                    progress.StageKey ?? string.Empty,
+                                    DateTime.UtcNow,
+                                    progress.FilesProcessed,
+                                    progress.TotalFiles,
+                                    overallPercent,
+                                    context,
+                                    detectionMethod.ToWireString()));
+                        });
                     }
 
                     // `remove` and the log step after it run with the scheme read once here.

@@ -27,6 +27,7 @@ public class RustLogRemovalService
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IStateService _stateService;
     private readonly OperationStateService _operationStateService;
+    private readonly IOperationConflictChecker _conflictChecker;
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private Guid? _currentTrackerOperationId;
@@ -127,7 +128,8 @@ public class RustLogRemovalService
         DatasourceService datasourceService,
         IUnifiedOperationTracker operationTracker,
         IStateService stateService,
-        OperationStateService operationStateService)
+        OperationStateService operationStateService,
+        IOperationConflictChecker conflictChecker)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -139,6 +141,7 @@ public class RustLogRemovalService
         _operationTracker = operationTracker;
         _stateService = stateService;
         _operationStateService = operationStateService;
+        _conflictChecker = conflictChecker;
     }
 
     public Task RestoreRepairAsync(
@@ -427,6 +430,8 @@ public class RustLogRemovalService
         var publishedMetrics = completionMetrics;
         LogRemovalCurrentProgress? currentProgress = null;
         Action<LogRemovalCurrentProgress> publishProgress = value => currentProgress = value;
+        // Keeps this removal visible to every conflict check until the end of its code; null until it registers.
+        IDisposable? hold = null;
         var repairPrepared = false;
         // The reopen error a removal that otherwise succeeded keeps as its warning's value.
         string? completionError = null;
@@ -455,20 +460,14 @@ public class RustLogRemovalService
                     EntityKey = service.ToLowerInvariant(),
                     EntityName = service
                 },
-                onTerminalCleanup: () =>
-                {
-                    if (_currentTrackerOperationId != operationId) return;
-                    IsProcessing = false;
-                    Volatile.Write(ref _currentProgress, null);
-                    CurrentService = null;
-                    CurrentDatasource = null;
-                    _currentTrackerOperationId = null;
-                    _cancellationTokenSource = null;
-                },
+                // No terminal cleanup: a force stop ends the card while the removal may still wait for the cache
+                // lock or rewrite logs, so the busy state is freed only by the finally below, at the end of its code.
                 onTerminalEmit: BuildTerminalEmit(() => operationId, () => publishedMetrics, () => currentProgress),
                 ownerCompletes: true
             );
             _currentTrackerOperationId = operationId;
+            hold = _conflictChecker.HoldRun(
+                OperationType.LogRemoval, [ConflictScope.Service(service)], () => operationId.Value);
             NotifyOperationRegistered();
             var initialProgress = CaptureLogRemovalProgress(
                 "signalr.logRemoval.starting.single",
@@ -652,6 +651,8 @@ public class RustLogRemovalService
                 }
             }, cancellationToken);
 
+            // The held tick goes out before the run's ending.
+            await progressEmitGate.FlushAsync();
             if (reopenFailedAfterRemoval)
             {
                 await _operationStateService.SetRunWarningAsync(operationId.Value, new RunWarning(
@@ -682,6 +683,7 @@ public class RustLogRemovalService
         }
         catch (OperationCanceledException)
         {
+            await progressEmitGate.FlushAsync();
             _logger.LogInformation("Service removal for {Service} in {Datasource} was canceled", service, datasourceName);
 
             await CompleteCanceledAsync(
@@ -693,6 +695,7 @@ public class RustLogRemovalService
         }
         catch (Exception ex)
         {
+            await progressEmitGate.FlushAsync();
             _logger.LogError(ex, "Error during log removal for {Service} in {Datasource}", service, datasourceName);
 
             // Terminal LogRemovalComplete (error) is emitted via onTerminalEmit inside CompleteOperation.
@@ -730,8 +733,7 @@ public class RustLogRemovalService
             // before any explicit CompleteOperation, a mid-await teardown inside ExecuteWithLockAsync)
             // the tracker entry would otherwise stay Running forever and 409-block every future
             // LogRemoval. CompleteOperation is idempotent via the Interlocked CompletedFlag, so this is
-            // a no-op when a happy/cancel/error path already completed it (in which case
-            // onTerminalCleanup has already nulled _currentTrackerOperationId and this guard is skipped).
+            // a no-op when a happy/cancel/error path already completed it.
             var leakedOperationId = operationId;
             if (leakedOperationId.HasValue && !IsOperationAlreadyTerminal(operationId))
             {
@@ -761,6 +763,9 @@ public class RustLogRemovalService
             _currentTrackerOperationId = null;
             _cancellationTokenSource = null;
             }
+
+            // Last: a removal waiting on this one starts only after the state above is free.
+            hold?.Dispose();
         }
     }
 
@@ -1120,21 +1125,32 @@ public class RustLogRemovalService
                     Volatile.Write(ref _currentProgress, current);
                 accepted = true;
             });
-        if (!accepted || !progressEmitGate.ShouldEmit(current.Snapshot.StageKey, current.Snapshot.Revision))
+        if (!accepted)
             return;
 
-        await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
+        await progressEmitGate.EmitAsync(current.Snapshot.StageKey, current.Snapshot.Revision, async () =>
         {
-            OperationId = operationId,
-            current.Snapshot.PercentComplete,
-            Status = OperationStatus.Running,
-            current.Snapshot.StageKey,
-            current.Snapshot.Context,
-            current.FilesProcessed,
-            current.LinesProcessed,
-            current.LinesRemoved,
-            Service = service,
-            Datasource = datasource
+            // A held tick goes out up to one interval later, and a force stop can end the run from outside in
+            // between.
+            if (_operationTracker.GetOperation(operationId) is not { CompletedFlag: 0 } run
+                || run.Status.IsTerminal())
+            {
+                return;
+            }
+
+            await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
+            {
+                OperationId = operationId,
+                current.Snapshot.PercentComplete,
+                Status = OperationStatus.Running,
+                current.Snapshot.StageKey,
+                current.Snapshot.Context,
+                current.FilesProcessed,
+                current.LinesProcessed,
+                current.LinesRemoved,
+                Service = service,
+                Datasource = datasource
+            });
         });
     }
 

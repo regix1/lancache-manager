@@ -425,7 +425,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
         <div className="flex items-center gap-2 min-w-0">
           <h3 className="dash-panel-title">{t('widgets.peakUsageHours.title')}</h3>
           {loading && <LoadingSpinner size="xs" inline />}
-          <HelpPopover width={320}>
+          <HelpPopover width={320} aria-label={t('common.help')}>
             <HelpSection title={t('widgets.peakUsageHours.help.aboutTitle')}>
               {t('widgets.peakUsageHours.description')}
             </HelpSection>

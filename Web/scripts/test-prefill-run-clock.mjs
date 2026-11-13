@@ -32,7 +32,8 @@ const { clockFromTimeSetting } = await import(
 const ClockContext = React.createContext(clockFromTimeSetting('server-24h'));
 const useReaderClock = bindLifted(liftConstArrow('src/hooks/useReaderClock.ts', 'useReaderClock'), {
   useMemo: React.useMemo,
-  useTimezone: () => React.useContext(ClockContext)
+  useTimezone: () => React.useContext(ClockContext),
+  useTranslation: () => ({ i18n: { language: 'en' } })
 });
 const useFormattedDateTime = bindLifted(
   liftConstArrow('src/hooks/useFormattedDateTime.ts', 'useFormattedDateTime'),

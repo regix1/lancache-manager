@@ -1,6 +1,7 @@
 import { Cron } from 'croner';
 import type { useTranslation } from 'react-i18next';
 import { getTimeInTimezone } from '@utils/timezone';
+import { resolveDisplayLocale } from '@utils/dateTimeFormat';
 import {
   WEEKDAY_KEYS,
   type ClockPeriod,
@@ -428,7 +429,10 @@ export function describeSchedule(
  * trails with a suffix, and only the formatter knows which.
  */
 export function formatTimeUntil(target: Date, from: Date): string {
-  const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'always', style: 'long' });
+  const relative = new Intl.RelativeTimeFormat(resolveDisplayLocale(), {
+    numeric: 'always',
+    style: 'long'
+  });
   const minutes = Math.round((target.getTime() - from.getTime()) / 60_000);
   if (Math.abs(minutes) < 60) return relative.format(minutes, 'minute');
   const hours = Math.round(minutes / 60);

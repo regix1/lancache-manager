@@ -134,13 +134,13 @@ public class PrefillCacheService
 
     /// <summary>
     /// Puts back the depot mappings prefill recorded after a Steam-crawl import, so the games prefill
-    /// cached keep their names. It takes no cancellation: the import has already committed, and
-    /// stopping partway would leave those games unnamed until the next import.
+    /// cached keep their names. A stopped crawl stops here too, so its force stop ends within seconds; each
+    /// row is its own write, so the rows not reached yet keep their old names until the next import.
     /// </summary>
-    public async Task RestoreDepotMappingsAsync()
+    public async Task RestoreDepotMappingsAsync(CancellationToken cancellationToken)
     {
-        await using var context = await _contextFactory.CreateDbContextAsync();
-        var failed = await RestoreDepotMappingsAsync(context);
+        await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var failed = await RestoreDepotMappingsAsync(context, cancellationToken);
         if (failed > 0)
         {
             throw new InvalidOperationException($"{failed} prefill depot mappings could not be restored");
@@ -152,16 +152,17 @@ public class PrefillCacheService
     /// restored. Inside the caller's transaction each failed row rolls back to its own savepoint, so
     /// the other rows still commit with that transaction.
     /// </summary>
-    internal async Task<int> RestoreDepotMappingsAsync(AppDbContext context)
+    internal async Task<int> RestoreDepotMappingsAsync(AppDbContext context, CancellationToken cancellationToken)
     {
         var depots = await context.PrefillCachedDepots
             .AsNoTracking()
             .OrderByDescending(depot => depot.CachedAtUtc)
             .Select(depot => new { depot.AppId, depot.DepotId, depot.AppName })
-            .ToListAsync();
+            .ToListAsync(cancellationToken);
         var failed = 0;
         foreach (var depot in depots.DistinctBy(depot => (depot.AppId, depot.DepotId)))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 await EnsureDepotMappingExistsAsync(context, depot.AppId, depot.DepotId, depot.AppName);

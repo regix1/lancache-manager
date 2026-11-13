@@ -379,7 +379,7 @@ const DataSection: React.FC<DataSectionProps> = ({
   const getSelectedTableInfo = () => tables.filter((t) => selectedTables.includes(t.name));
 
   const databaseHelp = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.database.help.aboutTitle')}>
         {t('management.database.description')}
       </HelpSection>

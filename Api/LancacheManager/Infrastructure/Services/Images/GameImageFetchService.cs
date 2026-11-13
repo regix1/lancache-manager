@@ -49,6 +49,10 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     // count.
     private long _bannerRevision;
 
+    // True while a pass runs. A signal the gate held goes out once its window ends, and one that would go out after
+    // the pass ended is dropped, because the pass's own ending send already covers it.
+    private bool _bannerPassOpen;
+
     private const string StageBase = "signalr.scheduledRun.gameImageFetch";
     private static readonly ScheduledRunEventNames _eventNames = new(
         SignalREvents.GameImageFetchStarted,
@@ -251,7 +255,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     /// queue's lock. A pass blocked by another job waits on the queue's card; a pass already running
     /// picks this request up through the follow-up flag, as a direct start does.
     /// </summary>
-    public async Task StartFetchThroughQueueAsync()
+    public async Task StartFetchThroughQueueAsync(CancellationToken cancellationToken = default)
     {
         var queue = _serviceProvider.GetRequiredService<IOperationWaitlist>();
         // One notice for the waiting card and the run it starts: a Run Now that joins this card while
@@ -262,7 +266,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         // The key says what StartAsync asks for: a pass that reads the stored Epic URLs.
         var requestKey = new GameImageFetchRequestKey(RefreshEpicImageUrls: false);
         var conflict = await queue.StartUnlessBusyAsync(
-            OperationType.GameImageFetch, ConflictScope.Bulk(), StartAsync, CancellationToken.None, requestKey);
+            OperationType.GameImageFetch, ConflictScope.Bulk(), StartAsync, cancellationToken, requestKey);
         if (conflict == null)
         {
             return;
@@ -279,7 +283,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         // A pass blocked by another job waits on the queue's card and runs when that job ends.
         await queue.EnqueueAsync(
             OperationType.GameImageFetch, ConflictScope.Bulk(), "Game Image Fetch", StartAsync,
-            CancellationToken.None, requestKey, notice: notice);
+            cancellationToken, requestKey, notice: notice);
     }
 
     /// <summary>
@@ -533,16 +537,19 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
 
         _bannerRevision += storedInBatch;
-        if (!_bannerEmitGate.ShouldEmit(StageBase, _bannerRevision))
+        await _bannerEmitGate.EmitAsync(StageBase, _bannerRevision, async () =>
         {
-            return;
-        }
+            if (!_bannerPassOpen)
+            {
+                return;
+            }
 
-        GameImagesController.IncrementCacheGeneration();
-        _imageCacheService.EvictMemoryCache();
-        await _notifications.NotifyAllAsync(SignalREvents.GameImagesUpdated, new
-        {
-            cacheGeneration = GameImagesController.CacheGeneration
+            GameImagesController.IncrementCacheGeneration();
+            _imageCacheService.EvictMemoryCache();
+            await _notifications.NotifyAllAsync(SignalREvents.GameImagesUpdated, new
+            {
+                cacheGeneration = GameImagesController.CacheGeneration
+            });
         });
     }
 
@@ -608,6 +615,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
         _bannerRevision = 0;
         _bannerEmitGate.Reset();
+        _bannerPassOpen = true;
 
         try
         {
@@ -643,6 +651,9 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
         finally
         {
+            // A held signal fired after this point sends nothing. One already sending when the pass ends still goes
+            // out, so at most once per pass two refreshes land close together.
+            _bannerPassOpen = false;
             // Ungated and unconditional: this is the only way a pass that stored nothing (every
             // upstream fetch failed) or was canceled partway still tells clients it ended. The
             // version bump is the only thing that clears the image-error sets the parent views keep,

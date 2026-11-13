@@ -1,5 +1,6 @@
 using Docker.DotNet;
 using Docker.DotNet.Models;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Infrastructure.Services.ScheduledPrefill;
 using LancacheManager.Models;
@@ -67,15 +68,30 @@ public abstract partial class PrefillDaemonServiceBase
 
             if (pullDue)
             {
-                _logger.LogInformation("Pulling prefill daemon image: {ImageName}", imageName);
+                _logger.LogInformation("Checking prefill daemon image: {ImageName}", imageName);
+                var localImageLookup = FindLocalImageAsync(imageName, cancellationToken);
                 try
                 {
+                    var localImage = await localImageLookup;
                     const int maxAttempts = 3;
                     for (var attempt = 1; ; attempt++)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         try
                         {
+                            // The tag's current digest is asked for first and the pull runs only when no local
+                            // image carries it, so an unchanged image is not pulled again on every check. The
+                            // Engine API declares RepoDigests without x-nullable: false, and an image that was
+                            // never pulled or pushed has none.
+                            if (localImage is not null)
+                            {
+                                var publishedDigest = await _containerGateway.GetDistributionDigestAsync(imageName, cancellationToken);
+                                if (localImage.RepoDigests?.Any(entry => entry.EndsWith("@" + publishedDigest, StringComparison.Ordinal)) == true)
+                                {
+                                    break;
+                                }
+                            }
+
                             await _containerGateway.CreateImageAsync(
                                 new ImagesCreateParameters { FromImage = imageName },
                                 null,
@@ -100,7 +116,7 @@ public abstract partial class PrefillDaemonServiceBase
                         catch (Exception ex) when (attempt < maxAttempts && IsImagePullTransient(ex))
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            _logger.LogWarning(ex,
+                            _logger.LogDebug(ex,
                                 "Prefill image pull failed for {ImageName}; retrying in {DelaySeconds}s (attempt {Attempt}/{MaxAttempts})",
                                 imageName, attempt, attempt, maxAttempts);
                             await Task.Delay(TimeSpan.FromSeconds(attempt), cancellationToken);
@@ -116,6 +132,11 @@ public abstract partial class PrefillDaemonServiceBase
                         lock (_imageStateLock) _nextImageCheckAtUtc = nowUtc;
                     }
                     cancellationToken.ThrowIfCancellationRequested();
+                    // Docker already ran out the limit on this image's inspect, so asking again only doubles the wait.
+                    if (ex is DockerTimeoutException && !localImageLookup.IsCompletedSuccessfully)
+                    {
+                        throw;
+                    }
                     try
                     {
                         var cached = await _containerGateway.InspectImageAsync(imageName, cancellationToken);
@@ -131,9 +152,10 @@ public abstract partial class PrefillDaemonServiceBase
                     }
                     catch (DockerImageNotFoundException)
                     {
-                        _logger.LogError(ex,
-                            "Failed to pull image {ImageName} and no cached version is available. The {ServiceName} Prefill feature requires this image.",
-                            imageName, ServiceName);
+                        // The caller logs the exception thrown below, so this line carries only the reason.
+                        _logger.LogError(
+                            "Failed to pull image {ImageName} and no cached version is available ({Reason}). The {ServiceName} Prefill feature requires this image.",
+                            imageName, ex.Message, ServiceName);
                         lock (_imageStateLock) _nextImageCheckAtUtc = nowUtc;
                         throw;
                     }
@@ -153,6 +175,18 @@ public abstract partial class PrefillDaemonServiceBase
         finally
         {
             _imagePullLock.Release();
+        }
+    }
+
+    private async Task<ImageInspectResponse?> FindLocalImageAsync(string imageName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await _containerGateway.InspectImageAsync(imageName, cancellationToken);
+        }
+        catch (DockerImageNotFoundException)
+        {
+            return null;
         }
     }
 

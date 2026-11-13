@@ -104,7 +104,8 @@ public sealed partial class PrefillContainerOrchestrationTests
         var (_, database) = NewDatabase();
         var sessions = new PrefillSessionService(database, NullLogger<PrefillSessionService>.Instance);
         var gateway = new RecordingContainerGateway { ResolvedImageId = "sha256:image-b" };
-        gateway.OnImageInspect = () => gateway.ResolvedImageId = "sha256:image-c";
+        // The tag moves after the inspect that follows the pull, not after the one before it.
+        gateway.OnImagePull = () => gateway.OnImageInspect = () => gateway.ResolvedImageId = "sha256:image-c";
         using var daemon = new TestSteamDaemon(
             MakeDeps(database, sessions, Config(PersistenceMode.FullPersistence, true), image: "example/prefill:stable"),
             gateway);
@@ -1683,7 +1684,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         await PullAsync(daemon, CancellationToken.None);
 
         Assert.Equal(2, gateway.CountOf("CreateImage"));
-        Assert.Equal(1, gateway.CountOf("InspectImage:"));
+        Assert.Equal(2, gateway.CountOf("InspectImage:"));
         Assert.Equal(0, gateway.DestructiveCallCount);
     }
 
@@ -1703,7 +1704,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         else await Assert.ThrowsAsync<DockerImageNotFoundException>(() => PullAsync(daemon, CancellationToken.None));
 
         Assert.Equal(3, gateway.CountOf("CreateImage"));
-        Assert.Equal(1, gateway.CountOf("InspectImage:"));
+        Assert.Equal(2, gateway.CountOf("InspectImage:"));
         Assert.Equal(0, gateway.DestructiveCallCount);
     }
 
@@ -1722,7 +1723,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         await PullAsync(daemon, CancellationToken.None);
 
         Assert.Equal(1, gateway.CountOf("CreateImage"));
-        Assert.Equal(1, gateway.CountOf("InspectImage:"));
+        Assert.Equal(2, gateway.CountOf("InspectImage:"));
     }
 
     [Theory]
@@ -1740,7 +1741,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         await PullAsync(daemon, CancellationToken.None);
 
         Assert.Equal(1, gateway.CountOf("CreateImage"));
-        Assert.Equal(1, gateway.CountOf("InspectImage:"));
+        Assert.Equal(2, gateway.CountOf("InspectImage:"));
     }
 
     [Theory]
@@ -1758,7 +1759,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => PullAsync(daemon, cancel.Token));
 
         Assert.Equal(canceledBeforePull ? 0 : 1, gateway.CountOf("CreateImage"));
-        Assert.Equal(0, gateway.CountOf("InspectImage:"));
+        Assert.Equal(canceledBeforePull ? 0 : 1, gateway.CountOf("InspectImage:"));
     }
 
     private (

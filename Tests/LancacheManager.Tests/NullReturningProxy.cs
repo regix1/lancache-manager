@@ -21,9 +21,12 @@ namespace LancacheManager.Tests;
 internal class NullReturningProxy : DispatchProxy
 {
     protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
-    {
-        var returnType = targetMethod?.ReturnType;
+        => DefaultFor(targetMethod?.ReturnType);
 
+    /// <summary>The benign default this proxy answers for a member returning <paramref name="returnType"/>;
+    /// a hand-written proxy that answers a few members itself returns this for the rest.</summary>
+    internal static object? DefaultFor(Type? returnType)
+    {
         if (returnType is null || returnType == typeof(void))
         {
             return null;

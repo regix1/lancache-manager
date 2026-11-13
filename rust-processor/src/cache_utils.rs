@@ -469,11 +469,37 @@ pub fn cache_path_for_digest(cache_dir: &Path, digest: u128) -> PathBuf {
     cache_dir.join(last_2).join(middle_2).join(&hash)
 }
 
-/// Total size of the files at `paths`. A path that is gone or unreadable adds nothing.
+/// Bytes a file takes on disk: its allocated 512-byte blocks, the unit the drive's used space and
+/// `du` count. A compressing or sparse filesystem (an NFS share on a compressing server) lists a
+/// length larger than that, so summing listed lengths makes cache totals exceed the used space.
+/// A file with content counts at least one block, so one whose blocks are not allocated yet
+/// still reads as on disk.
+#[cfg(unix)]
+pub fn allocated_size(metadata: &std::fs::Metadata) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    let allocated = metadata.blocks().saturating_mul(512);
+    if metadata.len() > 0 {
+        allocated.max(512)
+    } else {
+        allocated
+    }
+}
+
+/// The standard library reads no allocated size off other platforms, so this is the listed length.
+#[cfg(not(unix))]
+pub fn allocated_size(metadata: &std::fs::Metadata) -> u64 {
+    metadata.len()
+}
+
+/// Total size on disk of the files at `paths`. A path that is gone or unreadable adds nothing.
 pub fn total_size_from_filesystem<P: AsRef<Path>>(paths: impl IntoIterator<Item = P>) -> u64 {
     paths
         .into_iter()
-        .filter_map(|path| std::fs::metadata(path).ok().map(|metadata| metadata.len()))
+        .filter_map(|path| {
+            std::fs::metadata(path)
+                .ok()
+                .map(|metadata| allocated_size(&metadata))
+        })
         .sum()
 }
 
@@ -1853,8 +1879,9 @@ pub fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBu
                     match safe_cache_path_under_root(cache_dir, parent) {
                         Ok(_) => match std::fs::read_dir(parent) {
                             Ok(parent_entries) => {
-                                if parent_entries.count() == 0 {
-                                    std::fs::remove_dir(parent).ok();
+                                if parent_entries.count() == 0
+                                    && std::fs::remove_dir(parent).is_ok()
+                                {
                                     removed_count += 1;
                                 }
                             }
@@ -2071,6 +2098,39 @@ mod tests {
             .unwrap()
             .file_type()
             .is_symlink());
+    }
+
+    // A mount point cannot be removed even when it is empty, so `/dev/shm` stands in for an
+    // emptied parent folder whose removal fails.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_parent_folder_that_cannot_be_removed_is_not_counted() {
+        use std::os::unix::fs::MetadataExt;
+
+        let root = Path::new("/dev");
+        let parent = root.join("shm");
+        let (Ok(root_stat), Ok(parent_stat)) =
+            (std::fs::metadata(root), std::fs::metadata(&parent))
+        else {
+            eprintln!("skipped: /dev or /dev/shm is missing");
+            return;
+        };
+        if root_stat.dev() == parent_stat.dev() {
+            eprintln!("skipped: /dev/shm is not a mount point, so removing it could succeed");
+            return;
+        }
+        if std::fs::read_dir(&parent).unwrap().next().is_some() {
+            eprintln!("skipped: /dev/shm is not empty, so its removal is never tried");
+            return;
+        }
+        let emptied = parent.join(format!("cleanup-test-{}", std::process::id()));
+        std::fs::create_dir(&emptied).unwrap();
+
+        let removed = cleanup_empty_directories(root, HashSet::from([emptied.clone()]));
+
+        assert!(!emptied.exists());
+        assert!(parent.is_dir());
+        assert_eq!(removed, 1);
     }
 
     #[test]

@@ -653,7 +653,8 @@ public sealed class DatasourceRemovalTests
             datasources,
             tracker,
             capability,
-            operationState);
+            operationState,
+            new OperationConflictChecker(tracker, operationState, NullLogger<OperationConflictChecker>.Instance));
         await operationState.StartAsync(CancellationToken.None);
 
         var operationId = Assert.IsType<Guid>(await service.StartCacheClearAsync());

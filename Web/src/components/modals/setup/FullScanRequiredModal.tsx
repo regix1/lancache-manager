@@ -1,10 +1,11 @@
-import React from 'react';
-import { AlertTriangle, Github } from 'lucide-react';
+import React, { useId } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import Badge from '@components/ui/Badge';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { useTranslation } from 'react-i18next';
 import { formatCount } from '@utils/formatters';
+import '@components/features/management/managementSectionContent.css';
 
 interface FullScanRequiredModalProps {
   opened: boolean;
@@ -15,7 +16,6 @@ interface FullScanRequiredModalProps {
   onDownloadFromGitHub: () => void;
   showDownloadOption?: boolean;
   isSteamWebApiAvailable?: boolean;
-  title?: string;
   isDownloading?: boolean;
 }
 
@@ -28,16 +28,10 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   onDownloadFromGitHub,
   showDownloadOption = true,
   isSteamWebApiAvailable = false,
-  title,
   isDownloading = false
 }) => {
   const { t } = useTranslation();
-
-  const formatNumber = (num: number) => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(0)}K`;
-    return formatCount(num);
-  };
+  const webApiNoteId = useId();
 
   return (
     <Modal
@@ -48,87 +42,90 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
           <div className="icon-box icon-box--sm full-scan-modal-icon">
             <AlertTriangle className="w-5 h-5" />
           </div>
-          <span>{title ?? t('app.fullScanRequired.title')}</span>
+          <span>{t('app.fullScanRequired.title')}</span>
         </div>
       }
       size="md"
     >
       <div className="full-scan-modal-content">
-        <p className="full-scan-modal-description">{t('modals.fullScan.description')}</p>
+        {/* `changeGap` is checked rather than short-circuited so a zero gap picks the sentence
+            without a number instead of rendering the digit 0. */}
+        <p className="full-scan-modal-description">
+          {changeGap
+            ? t('modals.fullScan.summary', {
+                count: changeGap,
+                formattedCount: formatCount(changeGap)
+              })
+            : t('modals.fullScan.summaryNoCount')}
+        </p>
 
-        {/* Both counts read as one figure pair, so they share a single well and a hairline
-            rather than two separate boxes. `changeGap` is checked rather than short-circuited
-            so a zero gap renders nothing instead of the digit 0. */}
-        <div className="well-surface full-scan-modal-stats">
-          {changeGap ? (
-            <div className="full-scan-modal-stat">
-              <span className="tabular-nums full-scan-modal-stat-value">
-                {formatNumber(changeGap)}
-              </span>
-              <span className="caps-label">{t('modals.fullScan.stats.updatesBehind')}</span>
+        {/* The two ways forward are rows of one list with the same shape, so they read as
+            alternatives. Only the recommended one carries the filled button. */}
+        <div className="well-surface divided-list">
+          {showDownloadOption && (
+            <div className="mgmt-row full-scan-modal-choice">
+              <div className="mgmt-row__body">
+                <div className="mgmt-row__title cluster">
+                  <span>{t('modals.fullScan.github.title')}</span>
+                  <Badge variant="success">{t('modals.fullScan.github.recommended')}</Badge>
+                </div>
+                <p className="mgmt-row__meta full-scan-modal-choice-summary">
+                  {t('modals.fullScan.github.summary')}
+                </p>
+              </div>
+              <Button
+                onClick={onDownloadFromGitHub}
+                variant="filled"
+                color="run"
+                loading={isDownloading}
+                aria-busy={isDownloading}
+                className="full-scan-modal-choice-action"
+              >
+                {isDownloading
+                  ? t('modals.fullScan.github.downloading')
+                  : t('modals.fullScan.github.downloadButton')}
+              </Button>
             </div>
-          ) : null}
-          <div className="full-scan-modal-stat">
-            <span className="tabular-nums full-scan-modal-stat-value">
-              {estimatedApps ? `~${formatNumber(estimatedApps)}` : '300K+'}
-            </span>
-            <span className="caps-label">{t('modals.fullScan.stats.appsToScan')}</span>
+          )}
+
+          {/* A full scan enumerates every app through the Steam Web API, which answers either on
+              V2 without a key or on V1 with one. When neither route works the choice stays in
+              the list with the reason, and its button stays off because the scan would fail. */}
+          <div className="mgmt-row full-scan-modal-choice">
+            <div className="mgmt-row__body">
+              <div className="mgmt-row__title cluster">
+                <span>{t('modals.fullScan.full.title')}</span>
+              </div>
+              <p className="mgmt-row__meta full-scan-modal-choice-summary">
+                {estimatedApps
+                  ? t('modals.fullScan.full.summary', {
+                      count: estimatedApps,
+                      formattedCount: formatCount(estimatedApps)
+                    })
+                  : t('modals.fullScan.full.summaryUnknown')}
+              </p>
+              {!isSteamWebApiAvailable && (
+                <p
+                  id={webApiNoteId}
+                  className="mgmt-row__meta full-scan-modal-choice-summary text-warning-text"
+                >
+                  {t('modals.fullScan.full.needsWebApi')}
+                </p>
+              )}
+            </div>
+            <Button
+              onClick={onConfirm}
+              variant="default"
+              disabled={!isSteamWebApiAvailable || isDownloading}
+              aria-describedby={isSteamWebApiAvailable ? undefined : webApiNoteId}
+              className="full-scan-modal-choice-action"
+            >
+              {t('modals.fullScan.full.startButton')}
+            </Button>
           </div>
         </div>
 
-        {showDownloadOption && (
-          <div className="full-scan-modal-option full-scan-modal-option-primary">
-            <div className="full-scan-modal-option-header">
-              <Github className="w-4 h-4" />
-              <span>{t('modals.fullScan.github.title')}</span>
-              <Badge variant="success" className="full-scan-modal-badge">
-                {t('modals.fullScan.github.recommended')}
-              </Badge>
-            </div>
-            <div className="full-scan-modal-option-features">
-              <span className="full-scan-modal-feature">
-                {t('modals.fullScan.github.duration')}
-              </span>
-              <span className="full-scan-modal-feature">{t('modals.fullScan.github.depots')}</span>
-            </div>
-            <Button
-              onClick={onDownloadFromGitHub}
-              variant="filled"
-              color="run"
-              fullWidth
-              loading={isDownloading}
-              aria-busy={isDownloading}
-            >
-              {isDownloading
-                ? t('modals.fullScan.github.downloading')
-                : t('modals.fullScan.github.downloadButton')}
-            </Button>
-          </div>
-        )}
-
-        {/* A full scan enumerates every app through the Steam Web API, which answers either on V2
-            without a key or on V1 with one. Offer it whenever that API is reachable, not only when
-            a key happens to be saved, and hide it when neither route works. */}
-        {isSteamWebApiAvailable && onConfirm && (
-          <>
-            {showDownloadOption && (
-              <div className="full-scan-modal-divider">
-                <span>{t('modals.fullScan.or')}</span>
-              </div>
-            )}
-            <Button
-              onClick={onConfirm}
-              variant="filled"
-              color="run"
-              fullWidth
-              disabled={isDownloading}
-            >
-              {t('modals.fullScan.fullScanButton')}
-            </Button>
-          </>
-        )}
-
-        <div className="full-scan-modal-footer">
+        <div className="confirmation-modal__actions">
           <Button onClick={onCancel} variant="default">
             {t('common.cancel')}
           </Button>

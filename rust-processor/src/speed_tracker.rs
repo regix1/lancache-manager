@@ -2201,8 +2201,12 @@ mod tests {
 
     // A SpeedTracker over `sources` with a lazily-created pool that never actually connects: the
     // streaming tail path and `headline_aggregates` do no database work, so no server is needed.
+    // The pattern and depot lookups in `calculate_snapshot` fail against it, at once where a server
+    // answers on 127.0.0.1 and after the acquire timeout where none listens, since a refused
+    // connect is retried until then.
     fn lazy_tracker(sources: Vec<TrackedSource>) -> SpeedTracker {
         let pool = PgPoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_secs(1))
             .connect_lazy("postgres://postgres:password@127.0.0.1/lancache_test")
             .expect("lazy pool builds without connecting");
         SpeedTracker::new(pool, sources)
@@ -3578,6 +3582,9 @@ mod tests {
         assert!(streaming.total_bytes > 0);
         assert!(streaming.total_bytes <= 15_000);
 
+        // The tracker polls between snapshots, so a poll with nothing new catches the source up
+        // before the next line arrives, however long the snapshot took.
+        tracker.read_new_entries(&tracked[0]).unwrap();
         append_bytes(
             &access,
             line_at("10.0.0.22", Utc::now().naive_utc() - Duration::seconds(20)).as_bytes(),

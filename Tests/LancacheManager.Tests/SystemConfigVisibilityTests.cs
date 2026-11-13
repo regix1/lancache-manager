@@ -78,7 +78,8 @@ public sealed class SystemConfigVisibilityTests : IDisposable
             datasourceService,
             operationTracker: null!,
             capabilityService,
-            operationStateService: null!);
+            operationStateService: null!,
+            conflictChecker: null!);
         var cacheManagementService = new CacheManagementService(
             configuration,
             NullLogger<CacheManagementService>.Instance,

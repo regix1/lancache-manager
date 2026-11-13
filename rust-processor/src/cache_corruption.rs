@@ -754,7 +754,7 @@ where
         remove_file(path)
             .with_context(|| format!("failed to delete exact cache path {}", path.display()))?;
         outcome.deleted_files += 1;
-        outcome.bytes_freed += metadata.len();
+        outcome.bytes_freed += cache_utils::allocated_size(&metadata);
         if let Some(parent) = path.parent() {
             parent_dirs.insert(parent.to_path_buf());
         }
@@ -1169,11 +1169,17 @@ fn run_structural_remove(
                         continue;
                     }
                 }
+                // The scan's fingerprint holds the listed length; freed bytes count the blocks.
+                let stat = std::fs::symlink_metadata(&path).with_context(|| {
+                    format!("failed to inspect structural cache path {}", path.display())
+                })?;
                 std::fs::remove_file(&path).with_context(|| {
                     format!("failed to delete structural cache path {}", path.display())
                 })?;
                 outcome.deleted_files += 1;
-                outcome.bytes_freed = outcome.bytes_freed.saturating_add(evidence.file_length);
+                outcome.bytes_freed = outcome
+                    .bytes_freed
+                    .saturating_add(cache_utils::allocated_size(&stat));
                 if let Some(parent) = path.parent() {
                     parent_dirs.insert(parent.to_path_buf());
                 }

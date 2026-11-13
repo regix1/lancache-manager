@@ -362,7 +362,7 @@ fn remove_cache_files_for_service(
                         }
                     } else {
                         let size = match fs::metadata(&cache_path) {
-                            Ok(metadata) => metadata.len(),
+                            Ok(metadata) => cache_utils::allocated_size(&metadata),
                             // The file is still deleted below; only the freed-bytes total
                             // is short by its size, so say which file it was short by.
                             Err(e) => {
@@ -457,6 +457,22 @@ fn remove_cache_files_for_service(
         eprintln!(
             "Left {} file(s) untouched because their embedded KEY did not verify against the computed key",
             final_verification_skips
+        );
+    }
+
+    // After the parallel deletion phase: flush partial progress on cancel, as the same pair
+    // (deleted out of the paths walked) every tick above reports.
+    if cancel::is_canceled() {
+        let _ = removal_core::write_progress(
+            progress_path,
+            reporter,
+            "removing_cache",
+            "signalr.serviceRemove.cache.file.progress",
+            json!({ "n": final_deleted, "total": total_paths }),
+            10.0 + (paths_checked.load(Ordering::Relaxed) as f64 / total_paths.max(1) as f64)
+                * 60.0,
+            final_deleted,
+            total_paths,
         );
     }
 
@@ -684,20 +700,10 @@ async fn main() -> Result<()> {
         &slice_sizes,
     )?;
 
-    // After cache removal: if cancellation arrived, flush partial progress and exit 0.
-    // C# re-runs reconciliation/detection after a canceled remove.
+    // After cache removal: if cancellation arrived, the removal step flushed partial progress;
+    // exit 0. C# re-runs reconciliation/detection after a canceled remove.
     if cancel::is_canceled() {
         eprintln!("Cancellation confirmed — flushing partial progress and exiting.");
-        let _ = removal_core::write_progress(
-            &progress_path,
-            &reporter,
-            "removing_cache",
-            "signalr.serviceRemove.cache.file.progress",
-            json!({ "n": cache_files_deleted, "total": url_count }),
-            10.0 + (cache_files_deleted as f64 / url_count.max(1) as f64) * 60.0,
-            cache_files_deleted,
-            url_count,
-        );
         return Ok(());
     }
 

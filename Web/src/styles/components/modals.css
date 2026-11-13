@@ -57,177 +57,57 @@
     gap: 1rem;
   }
 
-  /* One well holding both readouts, split by a hairline. Surface, border and radius come
-     from the shared .well-surface, which sets no display/flow of its own, so nothing here
-     ties it and the two can never fight over bundle order. */
-  .full-scan-modal-stats {
-    display: flex;
-  }
-
-  .full-scan-modal-stat {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-    min-width: 0;
-    padding: 0.875rem 1rem;
-  }
-
-  .full-scan-modal-stat + .full-scan-modal-stat {
-    border-left: 1px solid var(--theme-border-secondary);
-  }
-
-  /* Tabular figures come from the shared .tabular-nums on the element. Only the type
-     scale is local, so there is no declaration in common with that class. */
-  .full-scan-modal-stat-value {
-    font-size: var(--font-size-xl);
-    font-weight: 600;
-    color: var(--theme-text-primary);
-    line-height: 1.2;
-  }
-
   .full-scan-modal-description {
     font-size: var(--font-size-md);
     color: var(--theme-text-secondary);
     line-height: 1.5;
+    max-width: 70ch;
     margin: 0;
   }
 
-  .full-scan-modal-option {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+  /* One .mgmt-row per way forward, inside the shared .well-surface with the shared
+     .divided-list hairline between rows. A dialog row gets more room than a dense management
+     list: 16px padding, equal to the gap between text and button, so the edge is never
+     tighter than the space inside. */
+  .mgmt-row.full-scan-modal-choice {
+    gap: 1rem;
     padding: 1rem;
-    border-radius: var(--theme-border-radius-lg);
-    border: 1px solid var(--theme-border-primary);
   }
 
-  .full-scan-modal-option-primary {
-    background-color: var(--theme-primary-on-bg);
-    border-color: var(--theme-primary-on-border);
+  /* The cost sentence is what the user decides on, so it keeps the dialog's reading size and
+     secondary text instead of the list's 11px muted meta line: a sentence the user must read
+     is never set below --font-size-base. */
+  .mgmt-row__meta.full-scan-modal-choice-summary {
+    font-size: var(--font-size-base);
+    line-height: 1.5;
+    color: var(--theme-text-secondary);
   }
 
-  .full-scan-modal-option-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: var(--font-size-md);
-    font-weight: 500;
-    color: var(--theme-text-primary);
+  /* The reason a row's button is off wears the shared .text-warning-text, which one class
+     cannot apply over the two-class rule above; this compound only lets it through. */
+  .mgmt-row__meta.full-scan-modal-choice-summary.text-warning-text {
+    color: var(--theme-warning-text);
   }
 
-  /* Box, type and color come from the Badge component (.themed-badge + .status-badge-success);
-     only the push to the right edge of the header row is local, and .themed-badge sets no
-     margin, so the two rules share no declaration. */
-  .full-scan-modal-badge {
-    margin-left: auto;
+  /* Both row buttons share one width, wide enough for the longest label of either
+     (the Downloading state included), so the pair lines up on one right edge. */
+  .full-scan-modal-choice-action {
+    flex: 0 0 10rem;
   }
 
-  /* Supporting facts read as one quiet line, separated by a rule rather than a glyph
-     each - the card header already carries this section's only icon. */
-  .full-scan-modal-option-features {
-    display: flex;
-    gap: 0.75rem;
-  }
-
-  .full-scan-modal-feature {
-    font-size: var(--font-size-sm);
-    color: var(--theme-text-muted);
-  }
-
-  .full-scan-modal-feature + .full-scan-modal-feature {
-    padding-left: 0.75rem;
-    border-left: 1px solid var(--theme-border-secondary);
-  }
-
-  .full-scan-modal-divider {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    color: var(--theme-text-muted);
-    font-size: var(--font-size-sm);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .full-scan-modal-divider::before,
-  .full-scan-modal-divider::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background-color: var(--theme-border-primary);
-  }
-
-  /* Dismiss sits on its own line behind a hairline, at its natural width. Stretching it
-     full width put a second button the size of the download action directly under it,
-     which read as a second choice of equal weight rather than a way out. */
-  .full-scan-modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    padding-top: 0.75rem;
-    border-top: 1px solid var(--theme-border-secondary);
-  }
-
-  /* Responsive adjustments for tablets */
+  /* Phones: each row stacks its text over a full-width 44px button (buttons.css raises the
+     height); the footer stacks through .confirmation-modal__actions. */
   @media (max-width: 639.98px) {
-    .full-scan-modal-content {
+    .mgmt-row.full-scan-modal-choice {
+      flex-direction: column;
+      align-items: stretch;
       gap: 0.75rem;
-    }
-
-    .full-scan-modal-stat {
       padding: 0.75rem;
     }
 
-    .full-scan-modal-option {
-      padding: 0.75rem;
-      gap: 0.5rem;
-    }
-  }
-
-  /* Responsive adjustments for mobile */
-  @media (max-width: 479.98px) {
-    .full-scan-modal-stats {
-      flex-direction: column;
-    }
-
-    .full-scan-modal-stat {
-      padding: 0.625rem 0.75rem;
-    }
-
-    .full-scan-modal-stat + .full-scan-modal-stat {
-      border-left: none;
-      border-top: 1px solid var(--theme-border-secondary);
-    }
-
-    .full-scan-modal-stat-value {
-      font-size: var(--font-size-lg);
-    }
-
-    .full-scan-modal-description {
-      font-size: var(--font-size-base);
-    }
-
-    .full-scan-modal-option {
-      padding: 0.625rem 0.75rem;
-    }
-
-    .full-scan-modal-option-header {
-      font-size: var(--font-size-base);
-      flex-wrap: wrap;
-    }
-
-    .full-scan-modal-option-features {
-      flex-direction: column;
-      gap: 0.25rem;
-    }
-
-    .full-scan-modal-feature {
-      font-size: var(--font-size-xs);
-    }
-
-    .full-scan-modal-feature + .full-scan-modal-feature {
-      padding-left: 0;
-      border-left: none;
+    .full-scan-modal-choice-action {
+      flex-basis: auto;
+      width: 100%;
     }
   }
 

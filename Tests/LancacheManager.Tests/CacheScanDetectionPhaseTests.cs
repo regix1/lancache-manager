@@ -399,6 +399,7 @@ public sealed class CacheScanDetectionPhaseTests
         registrations.AddSingleton(_ => logProcessor!);
         registrations.AddSingleton(_ => cacheManagement!);
         registrations.AddSingleton(_ => corruptionDetection!);
+        registrations.AddSingleton<IOperationConflictChecker>(_ => new OperationConflictChecker(tracker, operationState!, NullLogger<OperationConflictChecker>.Instance));
         registrations.AddSingleton(ctx.Datasources);
         registrations.AddSingleton(capability);
         registrations.AddSingleton((ISignalRNotificationService)(object)ctx.Notifications);
@@ -432,7 +433,8 @@ public sealed class CacheScanDetectionPhaseTests
             capability,
             tracker,
             gate,
-            new StateService(NullLogger<StateService>.Instance, paths, null!, null!));
+            new StateService(NullLogger<StateService>.Instance, paths, null!, null!),
+            new OperationConflictChecker(tracker, operationState, NullLogger<OperationConflictChecker>.Instance));
         var conflicts = new OperationConflictChecker(
             tracker,
             operationState,
@@ -464,7 +466,8 @@ public sealed class CacheScanDetectionPhaseTests
             capability,
             gate,
             nginxLogRotationService: null!,
-            stateService: null!);
+            stateService: null!,
+            conflictChecker: new OperationConflictChecker(tracker, operationState, NullLogger<OperationConflictChecker>.Instance));
         cacheManagement = new CacheManagementService(
             configuration,
             NullLogger<CacheManagementService>.Instance,
@@ -4275,7 +4278,8 @@ public sealed class CacheScanDetectionPhaseTests
                 capabilityService: null!,
                 operationTracker: null!,
                 Idle(),
-                new StateService(NullLogger<StateService>.Instance, paths, null!, null!));
+                new StateService(NullLogger<StateService>.Instance, paths, null!, null!),
+                conflictChecker: null!);
             var registrations = new ServiceCollection();
             registrations.AddScoped(_ => new AppDbContext(scopedOptions));
             registrations.AddSingleton(new CorruptionDetectionService(
@@ -4291,7 +4295,8 @@ public sealed class CacheScanDetectionPhaseTests
                 capabilityService: null!,
                 Idle(),
                 nginxLogRotationService: null!,
-                stateService: null!));
+                stateService: null!,
+                conflictChecker: null!));
             registrations.AddSingleton(
                 (CacheManagementService)RuntimeHelpers.GetUninitializedObject(typeof(CacheManagementService)));
             _services = registrations.BuildServiceProvider();
@@ -4419,6 +4424,7 @@ public sealed class CacheScanDetectionPhaseTests
             registrations.AddSingleton(capability);
             registrations.AddSingleton(notifications);
             registrations.AddSingleton(tracker);
+            registrations.AddSingleton<IOperationConflictChecker>(_ => new OperationConflictChecker(tracker, operationState, NullLogger<OperationConflictChecker>.Instance));
             registrations.AddSingleton(_ => operationState);
             registrations.AddSingleton(_ => detection);
             registrations.AddSingleton(_ => new CorruptionDetectionService(
@@ -4434,7 +4440,8 @@ public sealed class CacheScanDetectionPhaseTests
                 capability,
                 Idle(),
                 nginx,
-                state));
+                state,
+                new OperationConflictChecker(tracker, operationState, NullLogger<OperationConflictChecker>.Instance)));
             registrations.AddSingleton(_ => new CacheManagementService(
                 configuration,
                 NullLogger<CacheManagementService>.Instance,
@@ -4491,7 +4498,8 @@ public sealed class CacheScanDetectionPhaseTests
                 datasourceService,
                 tracker,
                 capability,
-                operationState));
+                operationState,
+                new OperationConflictChecker(tracker, operationState, NullLogger<OperationConflictChecker>.Instance)));
             var services = registrations.BuildServiceProvider();
             operationState = new OperationStateService(
                 NullLogger<OperationStateService>.Instance,
@@ -4515,7 +4523,8 @@ public sealed class CacheScanDetectionPhaseTests
                 capability,
                 tracker,
                 Idle(),
-                new StateService(NullLogger<StateService>.Instance, paths, null!, null!));
+                new StateService(NullLogger<StateService>.Instance, paths, null!, null!),
+                new OperationConflictChecker(tracker, operationState, NullLogger<OperationConflictChecker>.Instance));
             await operationState.StartAsync(CancellationToken.None);
             return new RepairRun(root, database, services, lifetime, state, rust, nginx, notificationState);
         }
@@ -4653,6 +4662,7 @@ public sealed class CacheScanDetectionPhaseTests
             registrations.AddSingleton(_ => operationStateService);
             registrations.AddSingleton(_ => detectionService);
             registrations.AddSingleton(_ => reconciliationService);
+            registrations.AddSingleton<IOperationConflictChecker>(_ => new OperationConflictChecker((IUnifiedOperationTracker)(object)Tracker, operationStateService, NullLogger<OperationConflictChecker>.Instance));
             registrations.AddSingleton(datasourceService);
             registrations.AddSingleton(capabilityService);
             registrations.AddSingleton((ISignalRNotificationService)(object)Notifications);
@@ -4671,7 +4681,9 @@ public sealed class CacheScanDetectionPhaseTests
                 capabilityService,
                 Idle(),
                 nginxLogRotationService: null!,
-                stateService));
+                stateService,
+                conflictChecker: new OperationConflictChecker(
+                    (IUnifiedOperationTracker)(object)Tracker, operationStateService, NullLogger<OperationConflictChecker>.Instance)));
             // An eviction removal's repair refreshes the per-service log counts.
             registrations.AddSingleton(_ => new CacheManagementService(
                 configuration,
@@ -4716,7 +4728,9 @@ public sealed class CacheScanDetectionPhaseTests
                 capabilityService,
                 (IUnifiedOperationTracker)(object)Tracker,
                 Idle(),
-                new StateService(NullLogger<StateService>.Instance, pathResolver, null!, null!));
+                new StateService(NullLogger<StateService>.Instance, pathResolver, null!, null!),
+                new OperationConflictChecker(
+                    (IUnifiedOperationTracker)(object)Tracker, operationStateService, NullLogger<OperationConflictChecker>.Instance));
             _operationStateService.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
 
             _scan = reconciliationService = new PhaseReconciliation(

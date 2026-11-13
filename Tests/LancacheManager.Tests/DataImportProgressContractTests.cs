@@ -23,17 +23,18 @@ public class DataImportProgressContractTests
         var tracker = new UnifiedOperationTracker(processes, NullLogger<UnifiedOperationTracker>.Instance);
         var notifications = new ScheduledRunReporterTests.CapturingNotificationService();
         var controller = new DataMigrationController(NullLogger<DataMigrationController>.Instance,
-            notifications, tracker, null!, new ConfigurationBuilder().Build());
+            notifications, tracker, null!, new ConfigurationBuilder().Build(),
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance), null!);
         var metrics = new DataImportMetrics();
         var id = tracker.RegisterOperation(OperationType.DataImport, "import", new CancellationTokenSource(),
             metadata: metrics, onTerminalCleanup: metrics.ClearProgress);
         var report = typeof(DataMigrationController).GetMethod("ReportProgressAsync",
             BindingFlags.Instance | BindingFlags.NonPublic)!;
-        await (Task)report.Invoke(controller, [id, metrics, 25UL, 100UL, 20UL, 5UL, "progress"])!;
+        await (Task)report.Invoke(controller, [id, metrics, 25UL, 100UL, 20UL, 5UL, 0UL, "progress"])!;
         Assert.Equal(25UL, metrics.CurrentProgress!.Context["processed"]);
         var count = notifications.Events.Count;
         tracker.CompleteOperation(id, false, error: "stopped");
-        await (Task)report.Invoke(controller, [id, metrics, 90UL, 100UL, 80UL, 10UL, "late"])!;
+        await (Task)report.Invoke(controller, [id, metrics, 90UL, 100UL, 80UL, 10UL, 0UL, "late"])!;
         Assert.Null(metrics.CurrentProgress);
         Assert.Equal(count, notifications.Events.Count);
         Assert.Equal("stopped", tracker.GetOperation(id)!.Message);
@@ -55,7 +56,8 @@ public class DataImportProgressContractTests
             NullLogger<OperationWaitlistService>.Instance);
         var clearing = tracker.RegisterOperation(OperationType.CacheClearing, "Cache Clear (All)", new CancellationTokenSource());
         var controller = new DataMigrationController(NullLogger<DataMigrationController>.Instance,
-            new ScheduledRunReporterTests.CapturingNotificationService(), tracker, queue, new ConfigurationBuilder().Build());
+            new ScheduledRunReporterTests.CapturingNotificationService(), tracker, queue, new ConfigurationBuilder().Build(),
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance), null!);
 
         var result = await controller.ImportLancacheManagerAsync(
             new DataMigrationImportRequest { ConnectionString = "Host=source;Database=history" },
@@ -103,7 +105,8 @@ public class DataImportProgressContractTests
         var notifications = new ScheduledRunReporterTests.CapturingNotificationService();
         var controller = new DataMigrationController(NullLogger<DataMigrationController>.Instance,
             notifications, tracker, queue,
-            new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+            new ConfigurationBuilder().AddInMemoryCollection(settings).Build(),
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance), null!);
         // Both schemas share one test database, which the import refuses as "the same database" when
         // the host is written the same way; naming the server by its host name keeps the two apart.
         var sourceConnection = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Host = "localhost" };
@@ -164,7 +167,8 @@ public class DataImportProgressContractTests
         var notifications = new ScheduledRunReporterTests.CapturingNotificationService();
         var controller = new DataMigrationController(NullLogger<DataMigrationController>.Instance,
             notifications, tracker, queue,
-            new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+            new ConfigurationBuilder().AddInMemoryCollection(settings).Build(),
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance), null!);
         var sourceConnection = new NpgsqlConnectionStringBuilder(source.ConnectionString) { Host = "localhost" };
 
         await controller.ImportLancacheManagerAsync(
@@ -194,7 +198,8 @@ public class DataImportProgressContractTests
             NullLogger<OperationWaitlistService>.Instance);
         var notifications = new ScheduledRunReporterTests.CapturingNotificationService();
         var controller = new DataMigrationController(NullLogger<DataMigrationController>.Instance,
-            notifications, tracker, queue, new ConfigurationBuilder().Build());
+            notifications, tracker, queue, new ConfigurationBuilder().Build(),
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance), null!);
         var start = typeof(DataMigrationController).GetMethod("StartImportAsync",
             BindingFlags.Instance | BindingFlags.NonPublic)!;
         var starting = (Task)start.Invoke(controller, ["LancacheManager Import", CancellationToken.None])!;
@@ -226,7 +231,8 @@ public class DataImportProgressContractTests
             NullLogger<OperationWaitlistService>.Instance);
         var notifications = new ScheduledRunReporterTests.CapturingNotificationService();
         var controller = new DataMigrationController(NullLogger<DataMigrationController>.Instance,
-            notifications, tracker, queue, new ConfigurationBuilder().Build());
+            notifications, tracker, queue, new ConfigurationBuilder().Build(),
+            OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance), null!);
 
         var result = await controller.ImportLancacheManagerAsync(
             new DataMigrationImportRequest { ConnectionString = "Port=5432" },

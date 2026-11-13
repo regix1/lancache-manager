@@ -4,6 +4,8 @@ import { AlertTriangle, Ban, CheckCircle2, HelpCircle, Minus, XCircle } from 'lu
 import { Tooltip } from '@components/ui/Tooltip';
 import type { StatusCheckDomainResult } from '@services/api.service';
 import { translateStageKeyMessage } from '@utils/stageKeyMessage';
+import { formatTimestamp } from '@utils/dateTimeFormat';
+import { useReaderClock } from '@hooks/useReaderClock';
 import {
   getProtocolOutcomeTranslationKey,
   getProtocolReasonTranslationKey
@@ -44,6 +46,7 @@ const CheckIcon: React.FC<{ state: CheckState }> = ({ state }) =>
 // over HTTP/HTTPS - each with its own pass/fail glyph so no verdict hides inside another.
 const DomainLeafRow: React.FC<DomainLeafRowProps> = ({ result }) => {
   const { t } = useTranslation();
+  const clock = useReaderClock();
   const keys = 'management.sections.statusCheck';
   const contentKeys = `${keys}.content`;
   const isWildcardProbe = result.domain !== result.originalEntry;
@@ -119,14 +122,9 @@ const DomainLeafRow: React.FC<DomainLeafRowProps> = ({ result }) => {
       label: heartbeatLabel,
       detail: t(`${keys}.checkHeartbeatNone`)
     });
-  } else {
-    lines.push({
-      id: 'heartbeat',
-      state: 'neutral',
-      label: heartbeatLabel,
-      detail: t(`${keys}.checkHeartbeatNotAttempted`)
-    });
   }
+  // A name whose DNS answer already failed was never asked for the heartbeat; a "not checked"
+  // line under it only repeats that.
 
   // The origin line answers the user's real question - "can this domain still be cached?" -
   // instead of protocol trivia. LANCache only caches plain HTTP, so an origin that has gone
@@ -134,14 +132,8 @@ const DomainLeafRow: React.FC<DomainLeafRowProps> = ({ result }) => {
   // stays in the tooltip (and the Test-a-domain drill-down).
   const edgeLabel = t(`${keys}.checks.edge`);
   const edgeProbe = result.edgeProbe ?? null;
-  if (!edgeProbe) {
-    lines.push({
-      id: 'edge',
-      state: 'neutral',
-      label: edgeLabel,
-      detail: t(`${keys}.checkEdgeNotTested`)
-    });
-  } else {
+  // No probe ran for this name, so there is no result to show: the row keeps its DNS line.
+  if (edgeProbe) {
     const status = edgeProbe.protocolStatus;
     const consensusText =
       edgeProbe.consensusEdges > 0 && edgeProbe.totalPublicEdges > 0
@@ -241,6 +233,18 @@ const DomainLeafRow: React.FC<DomainLeafRowProps> = ({ result }) => {
           );
         })}
       </div>
+      {/* The fact only; the service summary says once what to do about it. */}
+      {result.addedToListAtUtc && (
+        <p className="status-check-domain-note mt-1">
+          {t(`${keys}.addedToListNote`, {
+            date: formatTimestamp(result.addedToListAtUtc, {
+              ...clock,
+              style: 'dateOnly',
+              forceYear: false
+            })
+          })}
+        </p>
+      )}
     </div>
   );
 };

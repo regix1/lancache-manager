@@ -185,6 +185,8 @@ public partial class EpicMappingService
         // after the save, the background mapping.
         var attempt = CancellationTokenSource.CreateLinkedTokenSource(authCts.Token, window.Token);
         MappingOperationReporter? reporter = null;
+        // Null until the mapping's card exists: a sign-in that fails before it has no run to hold.
+        IDisposable? hold = null;
         long releaseVersion = 0;
         var handedOff = false;
         try
@@ -201,16 +203,8 @@ public partial class EpicMappingService
             // the last scheduled refresh's (which may have been silent under Manual mode).
             reporter = CreateEpicMappingReporter(
                 authCts.Token,
-                new RunNotice(EffectiveNotificationMode, RunTrigger.Manual),
-                () =>
-                {
-                    if (ReferenceEquals(_currentRefreshCts, authCts))
-                    {
-                        _currentOperationId = null;
-                        _currentMappingReporter = null;
-                        _currentStatus = EpicMappingStatus.Idle;
-                    }
-                });
+                new RunNotice(EffectiveNotificationMode, RunTrigger.Manual));
+            hold = HoldEpicRun(reporter);
             _currentMappingReporter = reporter;
             await reporter.StartAsync(CreateEpicContext(), login: login);
             _currentOperationId = reporter.OperationId;
@@ -245,7 +239,7 @@ public partial class EpicMappingService
                 _authStorage.RecordIntegrationLoginEnding(login, new IntegrationLoginEnding(
                     login.AttemptId, OperationStatus.Completed, "signalr.epicMapping.completed"));
             })) throw new OperationCanceledException();
-            _ = Task.Run(() => RunSignInMappingAsync(reporter, tokens, login, authCts, window, attempt, releaseVersion));
+            _ = Task.Run(() => RunSignInMappingAsync(reporter, tokens, login, authCts, window, attempt, releaseVersion, hold));
             handedOff = true;
         }
         // A person's cancel, a logout or a shutdown: the window's timer had not fired and the clock had not passed its end.
@@ -303,7 +297,7 @@ public partial class EpicMappingService
         {
             if (!handedOff)
             {
-                await ReleaseSignInAsync(login, reporter, authCts, window, attempt);
+                await ReleaseSignInAsync(login, reporter, authCts, window, attempt, hold);
             }
         }
     }
@@ -317,7 +311,8 @@ public partial class EpicMappingService
         CancellationTokenSource authCts,
         CancellationTokenSource window,
         CancellationTokenSource attempt,
-        long releaseVersion)
+        long releaseVersion,
+        IDisposable? hold)
     {
         var games = new List<OwnedGame>();
         var cdnPaths = new List<CdnInfo>();
@@ -471,7 +466,7 @@ public partial class EpicMappingService
         }
         finally
         {
-            await ReleaseSignInAsync(login, reporter, authCts, window, attempt);
+            await ReleaseSignInAsync(login, reporter, authCts, window, attempt, hold);
         }
     }
 
@@ -509,7 +504,8 @@ public partial class EpicMappingService
         MappingOperationReporter? reporter,
         CancellationTokenSource authCts,
         CancellationTokenSource window,
-        CancellationTokenSource attempt)
+        CancellationTokenSource attempt,
+        IDisposable? hold)
     {
         if (reporter is not null)
         {
@@ -537,6 +533,8 @@ public partial class EpicMappingService
         Interlocked.Exchange(ref _isProcessingInt, 0);
         if (_processingLogin == login) _processingLogin = null;
         _sessionLock.Release();
+        // Last, after the flag and the lock: a request that waited on this mapping starts once its code has ended.
+        hold?.Dispose();
         await NotifyLoginEndedAsync(login);
     }
 

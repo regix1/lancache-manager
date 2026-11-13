@@ -29,8 +29,9 @@ const SERVICE_ANALYTICS_CSS = 'src/styles/features/service-analytics.css';
 const { getServiceFilterKey } = await import(
   await compileToUrl('../src/utils/serviceDisplayName.ts')
 );
-const { getServiceBadgeStyles, getServiceColorClass, getServiceColorVar, UNKNOWN_COLOR_VAR } =
-  await import(await compileToUrl('../src/utils/serviceColors.ts'));
+const { getServiceBadgeStyles, getServiceColorVar, UNKNOWN_COLOR_VAR } = await import(
+  await compileToUrl('../src/utils/serviceColors.ts')
+);
 
 // Anchored on the shape of the memo rather than on either half of the predicate, so a wrong
 // predicate fails an assertion here instead of failing to be found at all.
@@ -164,10 +165,9 @@ test('a merged Xbox row led by microsoft draws the Xbox badge, not the generic o
 });
 
 test('microsoft resolves to the same service as xbox and xboxlive', () => {
-  assert.equal(getServiceColorClass('microsoft'), 'service-xbox');
-  assert.equal(getServiceColorClass('microsoft'), getServiceColorClass('xboxlive'));
   assert.equal(getServiceColorVar('microsoft'), '--theme-xbox');
   assert.equal(getServiceColorVar('microsoft'), getServiceColorVar('xbox'));
+  assert.equal(getServiceColorVar('microsoft'), getServiceColorVar('xboxlive'));
 });
 
 test('the panel builds no groups of its own', async () => {

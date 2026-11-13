@@ -228,6 +228,11 @@ public class GameDetectionService : ScheduledBackgroundService
         {
             _logger.LogInformation("[GameDetection] Detection held for a download: {Reason}", ex.Message);
         }
+        // A shutdown, or this run's card dismissed: the schedule loop ends the run as that, not as an error.
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
         // A Run Now the detection refuses before it registers goes on to the schedule's failure
         // handling, which shows it as a red card. An automatic refusal is only logged: a failed run
         // retries after a minute and the refusal (a datasource whose cache-key scheme is unknown)

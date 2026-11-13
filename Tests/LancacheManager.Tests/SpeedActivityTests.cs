@@ -886,24 +886,40 @@ public sealed class SpeedActivityTests
             File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
 
-        var (tracker, loop) = StartLoop(harness.Owner, script, logger, stop.Token);
         // Reading the visibility rules fails while the child counts as reporting, so the reader
         // faults on its first report with an error that is not a cancel. Once the run is marked
-        // unreported the reads answer again.
+        // unreported the reads answer again. Set before the loop starts: the child can print its
+        // line and have it read before the loop's caller gets control back.
         var unreportedSince = typeof(RustSpeedTrackerService).GetField(
             "_unreportedSinceUtc",
             BindingFlags.Instance | BindingFlags.NonPublic)!;
-        var state = typeof(RustSpeedTrackerService).GetField(
-            "_stateService",
-            BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker)!;
-        CacheScanGateHarness.SetField(tracker, "_stateService", CacheScanGateHarness.CreateProxy<IStateService>(
-            (method, arguments) => unreportedSince.GetValue(tracker) is null
-                ? throw new InvalidOperationException("state read failed")
-                : method.Invoke(state, arguments)));
+        var nativeRevision = typeof(RustSpeedTrackerService).GetField(
+            "_nativeRevision",
+            BindingFlags.Instance | BindingFlags.NonPublic)!;
+        long? revisionAtFault = null;
+        var (tracker, loop) = StartLoop(harness.Owner, script, logger, stop.Token, prepared =>
+        {
+            var state = typeof(RustSpeedTrackerService).GetField(
+                "_stateService",
+                BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(prepared)!;
+            CacheScanGateHarness.SetField(prepared, "_stateService", CacheScanGateHarness.CreateProxy<IStateService>(
+                (method, arguments) =>
+                {
+                    if (unreportedSince.GetValue(prepared) is null)
+                    {
+                        revisionAtFault = (long)nativeRevision.GetValue(prepared)!;
+                        throw new InvalidOperationException("state read failed");
+                    }
+
+                    return method.Invoke(state, arguments);
+                }));
+        });
 
         Assert.True(SpinWait.SpinUntil(
             () => logger.Entries.Any(entry => entry.Message.StartsWith("Error in RustSpeedTrackerService", StringComparison.Ordinal)),
             TimeSpan.FromSeconds(20)));
+        // The child's one snapshot was accepted before the read that faulted.
+        Assert.Equal(1L, revisionAtFault);
         var snapshotLock = typeof(RustSpeedTrackerService).GetField(
             "_snapshotLock",
             BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(tracker)!;
@@ -941,7 +957,8 @@ public sealed class SpeedActivityTests
         OperationStateService owner,
         string executable,
         CapturingLogger<RustSpeedTrackerService> logger,
-        CancellationToken stoppingToken)
+        CancellationToken stoppingToken,
+        Action<RustSpeedTrackerService>? prepare = null)
     {
         var tracker = CacheScanGateHarness.TrackerWith(
             new DownloadSpeedSnapshot(),
@@ -951,6 +968,7 @@ public sealed class SpeedActivityTests
         CacheScanGateHarness.SetField(tracker, "_processManager", new ProcessManager(NullLogger<ProcessManager>.Instance));
         CacheScanGateHarness.SetField(tracker, "_operationStateService", owner);
         CacheScanGateHarness.SetField(tracker, "_rustExecutablePath", executable);
+        prepare?.Invoke(tracker);
         var loop = (Task)typeof(RustSpeedTrackerService)
             .GetMethod("ExecuteWorkAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(tracker, [stoppingToken])!;

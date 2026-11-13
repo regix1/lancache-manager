@@ -128,7 +128,7 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({ durationOptions
         t(`user.guest.durationOptions.${state.durationHours}`));
 
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('user.guest.sections.help.accessSecurityTitle')}>
         {t('user.guest.sections.accessSecuritySubtitle')}
       </HelpSection>

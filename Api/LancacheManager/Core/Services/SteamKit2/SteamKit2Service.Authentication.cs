@@ -387,8 +387,15 @@ public partial class SteamKit2Service
         CancelLogin();
         if (IsRebuildRunning && _currentRebuildCts is { } rebuild)
         {
-            _currentMappingReporter?.RequestCancellation();
-            rebuild.Cancel();
+            try
+            {
+                _currentMappingReporter?.RequestCancellation();
+                rebuild.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // A run that ended between the read and the cancel has nothing left to stop.
+            }
             if (_currentBuildTask is { } build) await Task.WhenAny(build, Task.Delay(3000));
         }
 

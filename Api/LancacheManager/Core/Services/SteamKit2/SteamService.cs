@@ -48,7 +48,7 @@ public class SteamService : IDisposable
     /// Null both when Steam knows nothing about the app and when the lookup failed. Callers treat
     /// both as "no name yet" and try again on a later pass.
     /// </returns>
-    public async Task<GameInfo?> GetGameInfoAsync(long appId)
+    public async Task<GameInfo?> GetGameInfoAsync(long appId, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -70,7 +70,7 @@ public class SteamService : IDisposable
                 return null;
             }
 
-            var gameInfo = await GetDetailedGameInfoAsync(appId);
+            var gameInfo = await GetDetailedGameInfoAsync(appId, cancellationToken);
             if (gameInfo != null)
             {
                 _gameCache[appId] = gameInfo;
@@ -79,6 +79,11 @@ public class SteamService : IDisposable
 
             _lookupRetryAtUtc[appId] = DateTime.UtcNow + _failedLookupRetryAfter;
             return null;
+        }
+        // A stopped caller is not a failed lookup, so the stop reaches the caller instead of an error log and a null.
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -107,9 +112,9 @@ public class SteamService : IDisposable
     /// The store's answer, or null when the store could not be reached, answered with an error, or
     /// sent a body without a name.
     /// </returns>
-    private async Task<GameInfo?> GetDetailedGameInfoAsync(long appId)
+    private async Task<GameInfo?> GetDetailedGameInfoAsync(long appId, CancellationToken cancellationToken)
     {
-        await _apiSemaphore.WaitAsync();
+        await _apiSemaphore.WaitAsync(cancellationToken);
         try
         {
             var storeUrl = $"https://store.steampowered.com/api/appdetails?appids={appId}";

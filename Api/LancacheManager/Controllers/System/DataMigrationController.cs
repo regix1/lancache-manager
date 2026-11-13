@@ -2,6 +2,8 @@ using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Utilities;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -33,19 +35,26 @@ public class DataMigrationController : ControllerBase
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IOperationWaitlist _operationQueue;
     private readonly IConfiguration _configuration;
+    private readonly IOperationConflictChecker _conflictChecker;
+    private readonly DownloadHistoryUpgradeService _historyUpgrade;
+    private readonly ProgressEmitGate _progressEmitGate = new();
 
     public DataMigrationController(
         ILogger<DataMigrationController> logger,
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
         IOperationWaitlist operationQueue,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IOperationConflictChecker conflictChecker,
+        DownloadHistoryUpgradeService historyUpgrade)
     {
         _logger = logger;
         _notifications = notifications;
         _operationTracker = operationTracker;
         _operationQueue = operationQueue;
         _configuration = configuration;
+        _conflictChecker = conflictChecker;
+        _historyUpgrade = historyUpgrade;
     }
 
     /// <summary>
@@ -77,9 +86,12 @@ public class DataMigrationController : ControllerBase
 
         _logger.LogInformation("Starting import from LancacheManager database");
 
-        var cts = start.CancellationTokenSource!;
+        var token = start.Token;
         var operationId = start.OperationId!.Value;
         var result = start.Result!;
+        // A force stop ends the card at once while this request may still be writing rows; the hold keeps a second
+        // import, and every job that conflicts with one, out until this method returns.
+        using var hold = _conflictChecker.HoldRun(OperationType.DataImport, [ConflictScope.Bulk()], () => operationId);
 
         NpgsqlConnectionStringBuilder sourceConnBuilder;
         try
@@ -119,6 +131,7 @@ public class DataMigrationController : ControllerBase
         ulong recordsImported = 0;
         ulong recordsSkipped = 0;
         ulong recordsErrors = 0;
+        var planInvalidated = false;
 
         // Send started notification
         var startingSnapshot = result.CurrentProgress!;
@@ -180,15 +193,15 @@ public class DataMigrationController : ControllerBase
                 total: totalRecords,
                 imported: recordsImported,
                 skipped: recordsSkipped,
+                errors: recordsErrors,
                 message: $"Found {totalRecords:N0} records to import");
 
             // Read and insert in batches
             var offset = 0;
-            var planInvalidated = false;
             while (true)
             {
                 // Check for cancellation between batches
-                cts.Token.ThrowIfCancellationRequested();
+                token.ThrowIfCancellationRequested();
 
                 // Read batch from source
                 using var readCmd = sourceConn.CreateCommand();
@@ -370,6 +383,10 @@ public class DataMigrationController : ControllerBase
                     await BatchCommitted();
                 }
 
+                // The batch before this empty one already sent the final count.
+                if (!hasRecords)
+                    break;
+
                 // Send progress notification after each batch
                 var recordsProcessed = (ulong)offset + (ulong)batchSize;
                 if (recordsProcessed > totalRecords) recordsProcessed = totalRecords;
@@ -382,10 +399,8 @@ public class DataMigrationController : ControllerBase
                     totalRecords,
                     recordsImported,
                     recordsSkipped,
+                    recordsErrors,
                     progressMessage);
-
-                if (!hasRecords)
-                    break;
 
                 offset += batchSize;
 
@@ -475,6 +490,17 @@ public class DataMigrationController : ControllerBase
                 result.TotalRecords = totalRecords;
             });
             throw;
+        }
+        finally
+        {
+            // The run's ending asks for the history merge when its row holds imported rows. A force stop can end
+            // the run with 0 while a batch is still writing; that batch then commits and drops the merge plan, so
+            // the import asks itself, as a replan so a request still reading the plan cannot drop it. The hold keeps
+            // the merge waiting until this method returns.
+            if (planInvalidated && result.RecordsImported == 0)
+            {
+                _ = _historyUpgrade.RequestReplanAsync();
+            }
         }
     }
 
@@ -577,24 +603,27 @@ public class DataMigrationController : ControllerBase
         }
     }
 
-    private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, DataImportMetrics? Result, OperationConflictResponse? Conflict)> StartImportAsync(
+    private async Task<(Guid? OperationId, CancellationToken Token, DataImportMetrics? Result, OperationConflictResponse? Conflict)> StartImportAsync(
         string operationName,
         CancellationToken cancellationToken)
     {
         // The queue checks and registers under one lock, so a clear and an import sent at the same moment
         // cannot both start; a conflicting import is still answered 409, never parked.
-        (Guid? OperationId, CancellationTokenSource? CancellationTokenSource, DataImportMetrics? Result, OperationConflictResponse? Conflict) started = default;
+        (Guid? OperationId, CancellationToken Token, DataImportMetrics? Result, OperationConflictResponse? Conflict) started = default;
         var conflict = await _operationQueue.StartUnlessBusyAsync(
             OperationType.DataImport,
             ConflictScope.Bulk(),
             StartAsync,
             cancellationToken,
             OperationRequestKey.Plain);
-        return conflict != null ? (null, null, null, conflict) : started;
+        return conflict != null ? (null, default, null, conflict) : started;
 
         Task<Guid?> StartAsync()
         {
             var cts = new CancellationTokenSource();
+            // Read before the tracker owns the source: a force stop disposes it when it ends the card while this
+            // request still runs, and a token read from the disposed source throws instead of reporting the cancel.
+            var token = cts.Token;
             var result = new DataImportMetrics();
             var startingSnapshot = result.CaptureProgress(
                 "signalr.dataImport.starting",
@@ -640,7 +669,7 @@ public class DataMigrationController : ControllerBase
                 operationId,
                 startingSnapshot.PercentComplete,
                 startingSnapshot.StageKey);
-            started = (operationId, cts, result, null);
+            started = (operationId, token, result, null);
             return Task.FromResult<Guid?>(operationId);
         }
     }
@@ -672,6 +701,7 @@ public class DataMigrationController : ControllerBase
         ulong total,
         ulong imported,
         ulong skipped,
+        ulong errors,
         string message)
     {
         var percentComplete = total > 0 ? (double)processed / total * 100.0 : 0.0;
@@ -687,9 +717,22 @@ public class DataMigrationController : ControllerBase
         _operationTracker.UpdateProgress(operationId, snapshot.PercentComplete, snapshot.StageKey, _ =>
         {
             snapshot = metrics.CaptureProgress(snapshot.StageKey, snapshot.PercentComplete, snapshot.Context);
+            // Stored under the same lock that ends the run, so a force stop's terminal row carries the rows counted
+            // before the stop and the download history upgrade merges them. A batch that commits after the stop is
+            // not counted here; when no earlier batch was, the import asks for the merge itself when it ends.
+            metrics.RecordsImported = imported;
+            metrics.RecordsSkipped = skipped;
+            metrics.RecordsErrors = errors;
+            metrics.TotalRecords = total;
             accepted = true;
         });
         if (!accepted)
+        {
+            return;
+        }
+        // Every browser gets each send and a batch can hold one row, so the broadcast goes out on a stage change or
+        // at most every 250 ms while the tracker takes every batch. The last batch's count always goes out.
+        if (processed < total && !_progressEmitGate.ShouldEmit(snapshot.StageKey, snapshot.Revision))
         {
             return;
         }

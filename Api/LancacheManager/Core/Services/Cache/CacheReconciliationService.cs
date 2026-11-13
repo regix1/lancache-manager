@@ -1947,10 +1947,21 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             onTerminalEmit: BuildTerminalEmit(() => operationId, terminalState),
             ownerCompletes: true);
         _evictionRemovalTerminalStates[operationId] = terminalState;
-
-        await _notifications.NotifyAllAsync(
-            SignalREvents.EvictionRemovalStarted,
-            new EvictionRemovalStarted("signalr.evictionRemove.starting.bulk", operationId));
+        // Held from the registration until the worker ends: a force stop during the Started send, or before the
+        // removal takes its own hold, still leaves a request made meanwhile waiting on a card.
+        var hold = HoldEvictionRemoval(operationId, new EvictionRemovalMetadata());
+        try
+        {
+            await _notifications.NotifyAllAsync(
+                SignalREvents.EvictionRemovalStarted,
+                new EvictionRemovalStarted("signalr.evictionRemove.starting.bulk", operationId));
+        }
+        catch
+        {
+            // No worker starts, so nothing else releases the hold.
+            hold.Dispose();
+            throw;
+        }
 
         _ = Task.Run(async () =>
         {
@@ -1970,6 +1981,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     success: false,
                     stageKey: "signalr.evictionRemove.failedToStart",
                     error: ex.Message);
+            }
+            finally
+            {
+                hold.Dispose();
             }
         }, CancellationToken.None);
 
@@ -2015,16 +2030,26 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             ownerCompletes: true,
             target: key);
         _evictionRemovalTerminalStates[operationId] = terminalState;
-
-        await _notifications.NotifyAllAsync(
-            SignalREvents.EvictionRemovalStarted,
-            new EvictionRemovalStarted(
-                "signalr.evictionRemove.starting.entity",
-                operationId,
-                new Dictionary<string, object?> { ["scope"] = scope.ToString(), ["key"] = key },
-                resolvedGameName,
-                resolvedGameAppId,
-                resolvedEpicAppId));
+        // Held from the registration until the worker ends, as in the bulk start.
+        var hold = HoldEvictionRemoval(operationId, metadata);
+        try
+        {
+            await _notifications.NotifyAllAsync(
+                SignalREvents.EvictionRemovalStarted,
+                new EvictionRemovalStarted(
+                    "signalr.evictionRemove.starting.entity",
+                    operationId,
+                    new Dictionary<string, object?> { ["scope"] = scope.ToString(), ["key"] = key },
+                    resolvedGameName,
+                    resolvedGameAppId,
+                    resolvedEpicAppId));
+        }
+        catch
+        {
+            // No worker starts, so nothing else releases the hold.
+            hold.Dispose();
+            throw;
+        }
 
         _ = Task.Run(async () =>
         {
@@ -2045,10 +2070,25 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     stageKey: "signalr.evictionRemove.failedToStart",
                     error: ex.Message);
             }
+            finally
+            {
+                hold.Dispose();
+            }
         }, CancellationToken.None);
 
         return operationId;
     }
+
+    /// <summary>
+    /// Keeps an eviction removal visible to every conflict check until its own code ends. A force stop ends the card
+    /// at once while the removal may still be deleting; without this a second removal could start beside it. The
+    /// scope is the one the checker reads from the run's own selection, so the hold blocks what the run blocked.
+    /// </summary>
+    private IDisposable HoldEvictionRemoval(Guid operationId, EvictionRemovalMetadata selection) =>
+        _serviceProvider.GetRequiredService<IOperationConflictChecker>().HoldRun(
+            OperationType.EvictionRemoval,
+            [ConflictScope.EvictionSelection(selection.Scope, selection.Key)],
+            () => operationId);
 
     private async Task ReportRemovalProgressAsync(
         Guid operationId,
@@ -2727,6 +2767,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             ?? throw new InvalidDataException($"Eviction removal {opId} has no typed selection.");
         var repairOwner = _serviceProvider.GetRequiredService<OperationStateService>();
         var repairPrepared = false;
+        // Released in the finally below, the end of this removal's code.
+        var hold = HoldEvictionRemoval(opId, selection);
         try
         {
             await repairOwner.PrepareRepairAsync(
@@ -2876,6 +2918,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         finally
         {
             cts?.Dispose();
+            hold.Dispose();
         }
     }
 
@@ -3405,6 +3448,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             ?? throw new InvalidDataException($"Eviction removal {opId} has no typed selection.");
         var repairOwner = _serviceProvider.GetRequiredService<OperationStateService>();
         var repairPrepared = false;
+        // Released in the finally below, the end of this removal's code.
+        var hold = HoldEvictionRemoval(opId, selection);
         try
         {
             await repairOwner.PrepareRepairAsync(
@@ -3738,6 +3783,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         finally
         {
             cts?.Dispose();
+            hold.Dispose();
         }
     }
 

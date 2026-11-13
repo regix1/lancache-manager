@@ -99,19 +99,8 @@ public class RustLogProcessorService
             OperationType.LogProcessing,
             "Log Processing",
             _cancellationTokenSource,
-            onTerminalCleanup: () =>
-            {
-                if (_currentOperationId != operationId) return;
-                _currentOperationId = null;
-                _currentDatasourceName = null;
-                _currentProgressPath = null;
-                _currentBatch = null;
-                _cancellationTokenSource = null;
-                // Reset the busy/state gates too: the universal force-kill path bypasses
-                // EndLogProcessingOperation/ResetState, so without this IsProcessing stays true and
-                // blocks the next StartProcessing (guard at the IsProcessing check).
-                IsProcessing = false;
-            },
+            // No terminal cleanup: a force stop ends the card while the batch may still be saving, so the busy
+            // state is freed only by EndOperation at the end of the batch's own code.
             // The batch path is never live ingest, so the terminal SignalR emitter is always wired here.
             onTerminalEmit: BuildTerminalEmit(() => operationId),
             ownerCompletes: true);
@@ -120,6 +109,14 @@ public class RustLogProcessorService
         IsProcessing = true;
         return operationId;
     }
+
+    /// <summary>
+    /// Keeps an interactive log pass visible to every conflict check until its own code ends. A force stop ends the
+    /// card at once while the pass may still be saving; without this a second pass could start beside it.
+    /// </summary>
+    private IDisposable HoldLogRun(Guid operationId) =>
+        _serviceProvider.GetRequiredService<IOperationConflictChecker>().HoldRun(
+            OperationType.LogProcessing, [ConflictScope.Bulk()], () => operationId);
 
     private Func<OperationTerminalInfo, Task> BuildTerminalEmit(Func<Guid?> getOperationId)
     {
@@ -383,6 +380,8 @@ public class RustLogProcessorService
         }
 
         var batchOperationId = BeginOperation();
+        // Disposed after the finally below runs EndOperation, so a pass waiting on this batch starts once its code ends.
+        using var hold = HoldLogRun(batchOperationId);
         var batch = new LogProcessingBatchState { ChildCount = datasources.Count };
         _currentBatch = batch;
         var batchToken = _operationTracker.GetOperation(batchOperationId)!.CancellationTokenSource!.Token;
@@ -1243,6 +1242,8 @@ public class RustLogProcessorService
         var repairPrepared = sharedOperationId.HasValue;
         var repairFinished = false;
         LogFileLock? logLock = null;
+        // Set only for an interactive run of its own; a batch child and a live pass hold nothing.
+        IDisposable? hold = null;
 
         try
         {
@@ -1267,31 +1268,17 @@ public class RustLogProcessorService
                     // nothing for it unless it fails. An interactive run has no notice: a full card.
                     notice: liveIngest ? new RunNotice(NotificationMode.Hidden, RunTrigger.Scheduled) : null,
                     liveIngest: liveIngest,
-                    onTerminalCleanup: () =>
-                    {
-                        // Clear only the state this run installed. A later run can have registered
-                        // its own id and cancellation source while this one was finishing, and
-                        // clearing those here would leave it running with nothing able to cancel it.
-                        if (!OwnsOperationState(_currentOperationId, ownerOperationId))
-                        {
-                            return;
-                        }
-
-                        _currentOperationId = null;
-                        _currentDatasourceName = null;
-                        _currentProgressPath = null;
-                        _cancellationTokenSource = null;
-                        // Reset the busy/state gates too: the universal force-kill path bypasses
-                        // EndLogProcessingOperation/ResetState, so without this IsProcessing stays true
-                        // and blocks the next StartProcessing (guard at the IsProcessing check).
-                        IsProcessing = false;
-                    },
+                    // No terminal cleanup: a force stop ends the card while the pass may still be saving, so the
+                    // busy state is freed only by EndOperation in the finally below, at the end of this run's code.
                     // Live ingest runs about once a second and every LogProcessingComplete refreshes
                     // the dashboard, so only interactive runs wire the emitter. The single terminal
                     // event then fires exactly once from CompleteOperation (success / OCE / force-kill).
                     onTerminalEmit: liveIngest ? null : BuildTerminalEmit(() => ownerOperationId),
                     ownerCompletes: true);
                 _currentOperationId = ownerOperationId;
+                // A live pass takes no hold: a held step carries no live flag, so the queue would answer a full
+                // pass's request as a duplicate of a live pass, which covers only the logs with new lines.
+                if (!liveIngest) hold = HoldLogRun(ownerOperationId.Value);
                 _operationRegisteredTcs.Value?.TrySetResult(ownerOperationId.Value);
             }
 
@@ -2092,12 +2079,11 @@ public class RustLogProcessorService
             _logger.LogInformation("Log processing was canceled for datasource '{DatasourceName}'", datasourceName);
 
             // This run's own id. It is null only when the cancellation arrived before the operation
-            // was registered; a universal force-kill that already ran the terminal cleanup is caught
-            // by the status check below instead.
+            // was registered; a universal force-kill that already completed the run is caught by the
+            // status check below instead.
             var cancelOpId = ownerOperationId;
 
-            // If a universal force-kill already completed this op (or already cleared the id),
-            // suppress the duplicate SignalR completion + CompleteOperation so only ONE
+            // If a universal force-kill already completed this op, suppress the duplicate SignalR completion + CompleteOperation so only ONE
             // terminal event is emitted.
             var alreadyTerminal = !cancelOpId.HasValue
                 || _operationTracker.GetOperation(cancelOpId.Value)?.Status.IsTerminal() == true;
@@ -2191,8 +2177,7 @@ public class RustLogProcessorService
                 // guard during the interactive display window has already registered its own
                 // operation into the field and its own cancellation source; disposing those here
                 // would leave that run with no way to be canceled. When the field no longer holds
-                // this run's id, the newer registration owns them, and a terminal cleanup that
-                // already cleared the field has done this teardown itself.
+                // this run's id, the newer registration owns them.
                 if (OwnsOperationState(_currentOperationId, ownerOperationId))
                 {
                     EndOperation();
@@ -2203,6 +2188,9 @@ public class RustLogProcessorService
                 _currentDatasourceName = null;
                 _currentProgressPath = null;
             }
+
+            // Last: a pass waiting on this run starts only after the state above is free.
+            hold?.Dispose();
         }
     }
 

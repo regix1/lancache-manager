@@ -1105,9 +1105,6 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         var displayName = ScheduleTitles.ByServiceKey[serviceKey];
 
         var cts = new CancellationTokenSource();
-        // Read once: the card names this scan and the run performs it.
-        notice.HeldScanType = loop.ScanTypeOf(notice);
-
         var heldId = _tracker.RegisterOperation(
             operationType,
             displayName,
@@ -1136,8 +1133,10 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         if (notice.PendingId is null)
         {
             var cts = new CancellationTokenSource();
+            // Read once: the card names this scan and the run performs it.
+            notice.HeldScanType = loop.ScanTypeOf(notice);
             var pendingId = _tracker.RegisterOperation(operationType, ScheduleTitles.ByServiceKey[serviceKey], cts,
-                initialStatus: OperationStatus.Waiting, notice: notice, detectionScanType: loop.ScanTypeOf(notice));
+                initialStatus: OperationStatus.Waiting, notice: notice, detectionScanType: notice.HeldScanType);
             notice.PendingId = pendingId;
             notice.Token = cts.Token;
             DropWhenDismissed(loop, _tracker, cts.Token, pendingId, notice);

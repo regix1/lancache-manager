@@ -55,6 +55,9 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private readonly ConcurrentDictionary<Guid, string> _depotRunFailures = new();
     private DepotScanMode _activeDepotScanMode;
     private int _rebuildActive;
+    // Taken with _rebuildActive and released with it at the end of the run's own code, so every conflict check
+    // sees the run until then, also after a force stop has ended its card.
+    private IDisposable? _depotRunHold;
 
     // Set while a PICS crawl runs, the one rebuild holder that uses the Steam session.
     private volatile bool _picsCrawlRunning;

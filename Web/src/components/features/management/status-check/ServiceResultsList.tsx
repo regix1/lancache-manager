@@ -6,13 +6,15 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import { SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { Tooltip } from '@components/ui/Tooltip';
-import { getServiceColorClass } from '@utils/serviceColors';
+import { HelpPopover } from '@components/ui/HelpPopover';
 import type { StatusCheckContentReport, StatusCheckServiceResult } from '@services/api.service';
 import DomainLeafRow from './DomainLeafRow';
 import ContentPathGroup from './ContentPathGroup';
 import { getContentPathsForService, isVisibleWithProblemsOnly } from './contentPathHelpers';
 import { getServiceAccentColor, splitExamples } from './helpers';
 import { formatServiceLabel } from '@utils/serviceDisplayName';
+import { formatTimestamp } from '@utils/dateTimeFormat';
+import { useReaderClock } from '@hooks/useReaderClock';
 
 interface ServiceResultsListProps {
   /** Already sorted problems-first by the parent. */
@@ -51,6 +53,7 @@ const ServiceResultItem: React.FC<ServiceResultItemProps> = ({
   registerRef
 }) => {
   const { t } = useTranslation();
+  const clock = useReaderClock();
   const keys = 'management.sections.statusCheck';
 
   useAccordionGroupItem(`status-check-${service.service}`, isExpanded, () =>
@@ -100,6 +103,13 @@ const ServiceResultItem: React.FC<ServiceResultItemProps> = ({
   const expectedLabel =
     expectedShown[0] + (expectedMore > 0 ? ` ${t(`${keys}.ipMore`, { count: expectedMore })}` : '');
 
+  // Names that joined the domain list after every name the DNS server sends to the cache. Each
+  // row shows its own date; the instruction is said once here, from the earliest of those dates.
+  const addedDates = service.domains
+    .map((domain) => domain.addedToListAtUtc)
+    .filter((date): date is string => !!date)
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+
   return (
     <div ref={(element) => registerRef(service.service, element)}>
       {/* No `count` here on purpose: the status badge below already shows
@@ -114,16 +124,14 @@ const ServiceResultItem: React.FC<ServiceResultItemProps> = ({
         badge={badge}
       >
         {service.description && (
-          <p className="text-xs mb-3">
-            <span className={`font-medium ${getServiceColorClass(service.service)}`}>
-              {formatServiceLabel(service.service)}
-            </span>
-            <span className="text-themed-muted">: {service.description}</span>
-          </p>
+          <p className="text-xs mb-3 text-themed-muted">{service.description}</p>
         )}
         {service.status === 'disabled' ? (
-          <p className="text-sm text-themed-muted">
-            {t(`${keys}.disabledNote`, { service: service.service.toUpperCase() })}
+          <p className="text-sm text-themed-muted status-check-help-line">
+            {t(`${keys}.disabledNote`)}
+            <HelpPopover width={320} aria-label={t(`${keys}.disabledReasonLabel`)}>
+              {t(`${keys}.disabledReason`, { service: service.service.toUpperCase() })}
+            </HelpPopover>
           </p>
         ) : (
           <div>
@@ -134,6 +142,26 @@ const ServiceResultItem: React.FC<ServiceResultItemProps> = ({
               >
                 {t(`${keys}.expectedForService`, { ips: expectedLabel })}
               </Tooltip>
+            )}
+            {addedDates.length > 0 && (
+              <>
+                <p className="status-check-domain-note">
+                  {t(`${keys}.addedToListService`, {
+                    count: addedDates.length,
+                    date: formatTimestamp(addedDates[0], {
+                      ...clock,
+                      style: 'dateOnly',
+                      forceYear: false
+                    })
+                  })}
+                </p>
+                <p className="status-check-todo status-check-help-line mb-2">
+                  {t(`${keys}.addedToListRestart`, { count: addedDates.length })}
+                  <HelpPopover width={320} aria-label={t(`${keys}.addedToListRestartLabel`)}>
+                    {t(`${keys}.addedToListRestartWhy`)}
+                  </HelpPopover>
+                </p>
+              </>
             )}
             <div className="mgmt-list divided-list">
               {sortedDomains.map((domain) => (

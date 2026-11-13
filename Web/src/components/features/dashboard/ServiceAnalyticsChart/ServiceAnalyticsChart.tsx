@@ -248,7 +248,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         <div className="service-analytics-header">
           <div className="service-analytics-heading">
             <h3 className="dash-panel-title">{t('dashboard.serviceAnalytics.title')}</h3>
-            <HelpPopover width={320}>
+            <HelpPopover width={320} aria-label={t('common.help')}>
               <HelpSection title={t('dashboard.serviceAnalytics.help.aboutTitle')}>
                 {t('dashboard.serviceAnalytics.help.about')}
               </HelpSection>

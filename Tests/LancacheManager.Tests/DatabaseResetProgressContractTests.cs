@@ -49,7 +49,7 @@ public class DatabaseResetProgressContractTests
             steamKit2Service: null!,
             xboxCatalogMappingService: null!,
             epicMappingService: null!,
-            serviceProvider: new ServiceCollection().BuildServiceProvider(),
+            serviceProvider: new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance), NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider(),
             cacheManagementService: null!,
             stateRepository: null!,
             datasourceService: null!,
@@ -89,7 +89,7 @@ public class DatabaseResetProgressContractTests
             steamKit2Service: null!,
             xboxCatalogMappingService: null!,
             epicMappingService: null!,
-            serviceProvider: new ServiceCollection().BuildServiceProvider(),
+            serviceProvider: new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance), NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider(),
             cacheManagementService: null!,
             stateRepository: null!,
             datasourceService: null!,
@@ -131,7 +131,7 @@ public class DatabaseResetProgressContractTests
             steamKit2Service: null!,
             xboxCatalogMappingService: null!,
             epicMappingService: null!,
-            serviceProvider: new ServiceCollection().BuildServiceProvider(),
+            serviceProvider: new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance), NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider(),
             cacheManagementService: null!,
             stateRepository: null!,
             datasourceService: null!,
@@ -188,7 +188,7 @@ public class DatabaseResetProgressContractTests
             steamKit2Service: null!,
             xboxCatalogMappingService: null!,
             epicMappingService: null!,
-            serviceProvider: new ServiceCollection().BuildServiceProvider(),
+            serviceProvider: new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance), NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider(),
             cacheManagementService: null!,
             stateRepository: null!,
             datasourceService: null!,
@@ -228,7 +228,7 @@ public class DatabaseResetProgressContractTests
             steamKit2Service: null!,
             xboxCatalogMappingService: null!,
             epicMappingService: null!,
-            serviceProvider: new ServiceCollection().BuildServiceProvider(),
+            serviceProvider: new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance), NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider(),
             cacheManagementService: null!,
             stateRepository: null!,
             datasourceService: null!,
@@ -279,7 +279,7 @@ public class DatabaseResetProgressContractTests
             applicationLifetime: null!,
             new ProcessManager(NullLogger<ProcessManager>.Instance),
             tracker);
-        await using var services = new ServiceCollection().AddSingleton(owner).BuildServiceProvider();
+        await using var services = new ServiceCollection().AddSingleton(owner).AddSingleton<IOperationConflictChecker>(new OperationConflictChecker(tracker, owner, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var paths = DispatchProxy.Create<IPathResolver, PathResolverProxy>();
         ((PathResolverProxy)(object)paths).Root = Path.Combine(
             Path.GetTempPath(),

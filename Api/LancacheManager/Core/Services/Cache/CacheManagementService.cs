@@ -1891,6 +1891,10 @@ public partial class CacheManagementService
             return null;
         }
         operationId = registered.Value;
+        // A force stop ends the card at once while this scan still sends its Started event and walks the cache. The
+        // hold keeps every conflict check seeing it from its registration until this method ends; the caller's own
+        // hold, taken in onScanStarted, covers the save and the complete event after that.
+        using var hold = _conflictChecker.HoldRun(OperationType.CacheSizeScan, [ConflictScope.Bulk()], () => operationId);
 
         _operationTracker.UpdateProgress(operationId, 0, "signalr.cacheSizeScan.starting", _ =>
         {
@@ -2041,6 +2045,10 @@ public partial class CacheManagementService
     private async Task RunCacheSizeScanInBackgroundAsync(TaskCompletionSource<Guid?> started, RunNotice notice)
     {
         Guid? operationId = null;
+        // Taken when the scan registers and kept until this method ends: a force stop ends the card at once, and
+        // without the hold the next scan's start would wait on _scanCacheLock inside the queue with no card.
+        // Null when the scan never registered (a refusal or a declined start).
+        IDisposable? hold = null;
         try
         {
             // A request parked in the queue can be promoted long after it was accepted, so the
@@ -2060,6 +2068,7 @@ public partial class CacheManagementService
                 onScanStarted: id =>
                 {
                     operationId = id;
+                    hold = _conflictChecker.HoldRun(OperationType.CacheSizeScan, [ConflictScope.Bulk()], () => id);
                     started.TrySetResult(id);
                 },
                 notice: notice);
@@ -2086,6 +2095,10 @@ public partial class CacheManagementService
                 // later cache-persistence or notification failure.
                 _logger.LogError(ex, "Background cache size scan failed after operation {OperationId} started", operationId);
             }
+        }
+        finally
+        {
+            hold?.Dispose();
         }
     }
 

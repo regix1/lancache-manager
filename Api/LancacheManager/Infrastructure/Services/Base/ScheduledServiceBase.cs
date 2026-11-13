@@ -62,6 +62,24 @@ public abstract class ScheduledServiceBase : BackgroundService
         }
     }
 
+    // The slot a run looks for a waiting run to join in. The schedule's own run joins the own run already waiting,
+    // whose slot is the scan type its card named and may no longer be the schedule's type after a scan mode change.
+    private int JoinSlotOf(RunNotice?[] slots, RunNotice notice)
+    {
+        if (notice.RequestedScanType is null)
+        {
+            var own = Array.FindIndex(slots, run => run is { Canceled: false, RequestedScanType: null });
+            if (own >= 0) return own;
+        }
+        return SlotOf(notice);
+    }
+
+    // Whether a run on <paramref name="run"/> does the work <paramref name="other"/> asked for: the same scan, or,
+    // for two of the schedule's own runs, a Full scan standing in for an Incremental one.
+    private bool Covers(RunNotice run, RunNotice other)
+        => ScanTypeOf(run) == ScanTypeOf(other)
+            || run.RequestedScanType is null && other.RequestedScanType is null && ScanTypeOf(run) > ScanTypeOf(other);
+
     /// <summary>
     /// The detection scan type a run on <paramref name="notice"/> would perform, or null for a schedule that
     /// does not run detection scans. A detection schedule also answers for a run that did not name a type,
@@ -424,12 +442,17 @@ public abstract class ScheduledServiceBase : BackgroundService
             if (_requested[index] is { Canceled: true }) _requested[index] = null;
         }
         MoveOwnRun(_requested);
-        var slot = SlotOf(notice);
+        var slot = JoinSlotOf(_requested, notice);
         // A request joining one already waiting rides on it: a Run Now makes a waiting Run All a
         // person's own, so it draws the way a Run Now does, also on a schedule that takes no
         // second run. A waiting request whose card is ending cannot take it in, so the new request
-        // takes its place.
-        if (_requested[slot] is { } waitingRequest && !waitingRequest.Adopt(Tracker, notice)) _requested[slot] = null;
+        // takes its place, in the slot of its own scan type.
+        if (_requested[slot] is { } waitingRequest && !waitingRequest.Adopt(Tracker, notice))
+        {
+            _requested[slot] = null;
+            slot = SlotOf(notice);
+            if (_requested[slot] is { } sameType && !sameType.Adopt(Tracker, notice)) _requested[slot] = null;
+        }
         // Only a request of this scan type is this schedule's run waiting; one of another type is its own scan.
         var anyRequested = _requested[slot] is not null;
         var busy = IsDoingWork(_running);
@@ -508,8 +531,17 @@ public abstract class ScheduledServiceBase : BackgroundService
         {
             _running = taken;
             _phase = RunPhase.Starting;
+            // A request of the schedule's own that this run covers is done by it, and its card closes into it.
+            for (var index = 0; index < SlotCount; index++)
+            {
+                if (_requested[index] is { Canceled: false, RequestedScanType: null } request
+                    && Covers(taken, request) && taken.Adopt(Tracker, request))
+                {
+                    _requested[index] = null;
+                }
+            }
         }
-        else if (ScanTypeOf(_running) != ScanTypeOf(taken) || !_running.Adopt(Tracker, taken))
+        else if (!Covers(_running, taken) || !_running.Adopt(Tracker, taken))
         {
             // The run taken this pass is ending or is another scan's work, so the owed run waits for the
             // next pass.
@@ -530,7 +562,15 @@ public abstract class ScheduledServiceBase : BackgroundService
             _phase = RunPhase.Idle;
         }
         MoveOwnRun(_held);
-        var slot = SlotOf(notice);
+        var slot = JoinSlotOf(_held, notice);
+        if (_held[slot] is { } own && slot != SlotOf(notice))
+        {
+            // The schedule's own run held under the scan type its card named takes in a later own run.
+            if (own.Adopt(Tracker, notice)) return own;
+            // Its card is ending, so this request is held under its own scan type.
+            _held[slot] = null;
+            slot = SlotOf(notice);
+        }
         if (_held[slot] is { Canceled: true }) _held[slot] = null;
         if (_held[slot] is { } held)
         {
@@ -541,6 +581,8 @@ public abstract class ScheduledServiceBase : BackgroundService
             _held[slot] = null;
         }
 
+        // Read once: the card names this scan and the run performs it.
+        notice.HeldScanType = ScanTypeOf(notice);
         raiseCard(notice);
         _held[slot] = notice;
         return notice;
@@ -568,8 +610,9 @@ public abstract class ScheduledServiceBase : BackgroundService
         if (Tracker is not null && runningOperation(held) is { } running && held.CloseInto(Tracker, running)) return;
         // The run the loop took does the work it waited for, unless it is a person's Run Now and
         // that run already started, which queues a second run the way a Run Now does then. A run asked
-        // for a scan type other than the held run's is another scan's work, so the held run queues.
-        if (_running is { Canceled: false } taken && ScanTypeOf(taken) == ScanTypeOf(held)
+        // for a scan type other than the held run's is another scan's work, so the held run queues, unless both are
+        // the schedule's own and the taken run's Full scan stands in for the held Incremental one.
+        if (_running is { Canceled: false } taken && Covers(taken, held)
             && (held.Trigger != RunTrigger.Manual || _phase == RunPhase.Starting)
             && taken.Adopt(Tracker, held))
         {

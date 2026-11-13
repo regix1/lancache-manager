@@ -365,13 +365,20 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       );
 
       await assertOk(response);
-      // If current default is no longer in allowed list, update to first allowed format
+      applyDefaultPrefsReply({ allowedTimeFormats: formats }, pushesBefore);
+
+      // If current default is no longer in allowed list, update to first allowed format.
+      // The allowed list is already saved, so a failure here names the default clock save.
       const currentDefault = getCurrentDefaultFormat();
       if (!formats.includes(currentDefault) && formats.length > 0) {
-        await updateDefaultTimeFormat(formats[0] as TimeSettingValue);
+        try {
+          await updateDefaultTimeFormat(formats[0] as TimeSettingValue);
+        } catch (err: unknown) {
+          notifyError(t('user.guest.errors.updateDefaultTimeFormat'), err, {
+            logLabel: 'Failed to update default time format'
+          });
+        }
       }
-
-      applyDefaultPrefsReply({ allowedTimeFormats: formats }, pushesBefore);
     } catch (err: unknown) {
       notifyError(t('user.guest.errors.updateAllowedTimeFormats'), err, {
         logLabel: 'Failed to update allowed time formats'
@@ -587,7 +594,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   ]);
 
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('user.guest.prefill.help.aboutTitle')}>
         {t('user.guest.prefill.sectionSubtitle')}
       </HelpSection>

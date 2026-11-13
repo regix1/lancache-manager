@@ -514,7 +514,8 @@ public sealed partial class CacheFileCountContractTests
         OperationStateService? operationStateService = null,
         ILogger<CacheManagementService>? logger = null,
         DatasourceService? datasourceService = null,
-        RustLogProcessorService? logProcessor = null)
+        RustLogProcessorService? logProcessor = null,
+        IOperationConflictChecker? conflictChecker = null)
     {
         var configuration = new ConfigurationBuilder().Build();
         pathResolver ??= DispatchProxy.Create<IPathResolver, PathResolverProxy>();
@@ -536,7 +537,7 @@ public sealed partial class CacheFileCountContractTests
             tracker ?? DispatchProxy.Create<IUnifiedOperationTracker, NullReturningProxy>(),
             notifications ?? DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
             DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
-            DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
+            conflictChecker ?? DispatchProxy.Create<IOperationConflictChecker, NullReturningProxy>(),
             new DatasourceCapabilityService(datasourceService),
             cacheScanGate ?? CacheScanGateHarness.Idle(),
             operationStateService ?? (OperationStateService)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(

@@ -45,7 +45,7 @@ public sealed class EpicCatalogRefreshWarningTests
             var tracker = new UnifiedOperationTracker(
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
                 NullLogger<UnifiedOperationTracker>.Instance);
-            using var services = new ServiceCollection().BuildServiceProvider();
+            using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
             using var service = new EpicMappingService(
                 NullLogger<EpicMappingService>.Instance,
                 new EpicApiDirectClient(http, NullLogger<EpicApiDirectClient>.Instance),
@@ -131,7 +131,7 @@ public sealed class EpicCatalogRefreshWarningTests
             var tracker = new UnifiedOperationTracker(
                 new ProcessManager(NullLogger<ProcessManager>.Instance),
                 NullLogger<UnifiedOperationTracker>.Instance);
-            using var services = new ServiceCollection().BuildServiceProvider();
+            using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
             using var service = new EpicMappingService(
                 NullLogger<EpicMappingService>.Instance,
                 new EpicApiDirectClient(http, NullLogger<EpicApiDirectClient>.Instance),

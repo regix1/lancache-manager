@@ -481,7 +481,7 @@ const DepotIncrementalCheck = memo(function DepotIncrementalCheck({
             the row keeps one help affordance. */}
         <span className="schedule-detail-label schedule-detail-label-help">
           {t('management.schedules.services.depotMapping.incrementalCheckLabel')}
-          <HelpPopover position="left" width={320}>
+          <HelpPopover position="left" width={320} aria-label={t('common.help')}>
             <HelpSection
               title={t('management.schedules.services.depotMapping.incrementalHelpTitle')}
             >
@@ -842,7 +842,7 @@ const ScheduleRow = memo(function ScheduleRow({
               <span className="schedule-task-name">
                 {t(`management.schedules.services.${service.key}.displayName`)}
                 <span className="schedule-task-help" onClick={stopRowToggle}>
-                  <HelpPopover position="left" width={320}>
+                  <HelpPopover position="left" width={320} aria-label={t('common.help')}>
                     <p className="schedule-help-description">
                       {t(`management.schedules.services.${service.key}.description`)}
                     </p>
@@ -1330,7 +1330,7 @@ const ScheduledPrefillCard = memo(function ScheduledPrefillCard({
                   }
                 />
                 {t(`management.schedules.services.${service.key}.displayName`)}
-                <HelpPopover position="left" width={320}>
+                <HelpPopover position="left" width={320} aria-label={t('common.help')}>
                   <p className="schedule-help-description">
                     {t(`management.schedules.services.${service.key}.description`)}
                   </p>

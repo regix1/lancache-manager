@@ -1,6 +1,4 @@
 using System.Net;
-using System.Reflection;
-using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.StatusCheck;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -16,7 +14,7 @@ public sealed class CacheDomainsLoadTests : IDisposable
 {
     private readonly string _rootDirectory = Path.Combine(Path.GetTempPath(), "cache-domains-load-" + Guid.NewGuid().ToString("N"));
     private readonly HeldHandler _handler = new();
-    private readonly TestEnvironment _environment = new();
+    private readonly CacheDomainsTestEnvironment _environment = new();
     private readonly CapturingLogger<CacheDomainsService> _logger = new();
 
     public void Dispose()
@@ -232,19 +230,7 @@ public sealed class CacheDomainsLoadTests : IDisposable
         return archive.ToArray();
     }
 
-    private CacheDomainsService NewService()
-    {
-        var paths = CacheScanGateHarness.CreateProxy<IPathResolver>((method, _) =>
-            method.Name == nameof(IPathResolver.GetDataDirectory) ? _rootDirectory : null);
-
-        return new CacheDomainsService(
-            _logger,
-            paths,
-            DispatchProxy.Create<ILancacheEnvFileReader, NullReturningProxy>(),
-            _environment,
-            new SingleHandlerHttpClients(_handler),
-            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>());
-    }
+    private CacheDomainsService NewService() => _environment.NewService(_rootDirectory, _handler, _logger);
 
     /// <summary>Loads a disk copy written two days ago with NOFETCH set, so the service holds a
     /// stale list without any HTTP request, then lets later loads fetch.</summary>
@@ -264,20 +250,6 @@ public sealed class CacheDomainsLoadTests : IDisposable
 
         Assert.Equal("steam", Assert.Single(primed.Services).Name);
         Assert.Equal(0, _handler.RequestCount);
-    }
-
-    /// <summary>Supplies NOFETCH as the test sets it and no other variable, so the service uses its
-    /// default GitHub repository.</summary>
-    private sealed class TestEnvironment : ILancacheEnvironmentSource
-    {
-        public string? NoFetch { get; set; }
-
-        public Task<EnvValueResult> GetValueAsync(string key, CancellationToken cancellationToken) =>
-            Task.FromResult(new EnvValueResult
-            {
-                Value = key == "NOFETCH" ? NoFetch : null,
-                Source = EnvValueSource.EnvFile
-            });
     }
 
     /// <summary>Holds every request until the test releases it, then fails it, as an unreachable

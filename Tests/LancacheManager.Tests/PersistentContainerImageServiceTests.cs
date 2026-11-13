@@ -57,7 +57,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         await service.RunOnceAsync(CancellationToken.None);
 
         Assert.Single(gateway.ImagePulls);
-        Assert.Equal(2, gateway.CountOf("InspectImage:"));
+        Assert.Equal(3, gateway.CountOf("InspectImage:"));
     }
 
     [Fact]
@@ -207,6 +207,6 @@ public sealed partial class PrefillContainerOrchestrationTests
         await service.RunOnceAsync(CancellationToken.None);
 
         Assert.Single(gateway.ImagePulls);
-        Assert.Equal(1, gateway.CountOf("InspectImage:"));
+        Assert.Equal(2, gateway.CountOf("InspectImage:"));
     }
 }

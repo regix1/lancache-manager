@@ -28,6 +28,9 @@ public sealed class GameImageFetchBannerNotificationTests
 {
     private static readonly TimeSpan PassTimeout = TimeSpan.FromSeconds(15);
 
+    // The in-pass banner signal's gate interval (GameImageFetchService._bannerEmitGate).
+    private static readonly TimeSpan BannerGate = TimeSpan.FromMilliseconds(2000);
+
     [Fact]
     public async Task AllFetchesFailingAsync_StillEmitsGameImagesUpdatedOnceAsync()
     {
@@ -120,6 +123,101 @@ public sealed class GameImageFetchBannerNotificationTests
     public async Task AnEpicImageRefreshThatTimesOutEndsAmberAndThePassGoesOnAsync()
     {
         await AssertEpicLinkRefreshFailureEndsAmberAsync(new TimedOutHandler());
+    }
+
+    // A batch that stored banners inside the two-second window must still reach the browsers once the window has
+    // passed, when the rest of the pass stores nothing for longer.
+    [Fact]
+    public async Task ABatchStoredInsideTheWindowIsSentBeforeAQuietPassEndsAsync()
+    {
+        var handler = new QuietStaleRefreshHandler();
+        await using var services = BuildProvider(new SingleHandlerHttpClients(handler));
+        await SeedQuietStretchAsync(services, withStaleImage: true);
+        var tracker = NewTracker();
+        var sent = new ScheduledRunReporterTests.CapturingNotificationService();
+        var service = NewService(services, tracker, sent);
+
+        // The Steam batch stores a banner and is sent; the Epic batch stores one inside the window and is held;
+        // the stale refresh then stores nothing and does not answer for longer than the window.
+        Assert.NotNull(await service.StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
+        try
+        {
+            await handler.QuietStretchEntered.WaitAsync(PassTimeout);
+            var deadline = DateTime.UtcNow + BannerGate + TimeSpan.FromSeconds(1);
+            while (sent.Events.Count(e => e.EventName == SignalREvents.GameImagesUpdated) < 2
+                && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(10);
+            }
+
+            var refreshes = sent.Events.Count(e => e.EventName == SignalREvents.GameImagesUpdated);
+            Assert.True(
+                refreshes >= 2,
+                $"The Epic batch's stored banner never reached the browsers while the pass went quiet for more than "
+                + $"{BannerGate.TotalSeconds:0} s: {refreshes} GameImagesUpdated before the pass ended.");
+        }
+        finally
+        {
+            handler.Release();
+            await WaitForPassesToFinishAsync(tracker);
+        }
+    }
+
+    // A held banner signal must not go out after the pass has ended and sent its own.
+    [Fact]
+    public async Task AHeldSignalSendsNothingAfterThePassEndedAsync()
+    {
+        var handler = new QuietStaleRefreshHandler();
+        await using var services = BuildProvider(new SingleHandlerHttpClients(handler));
+        await SeedQuietStretchAsync(services, withStaleImage: false);
+        var tracker = NewTracker();
+        var sent = new ScheduledRunReporterTests.CapturingNotificationService();
+        var service = NewService(services, tracker, sent);
+
+        // The Epic batch's signal is held, and the pass ends well inside the window, sending its own ending signal.
+        Assert.NotNull(await service.StartFetchInBackgroundAsync(refreshEpicImageUrls: false, RunTrigger.Scheduled));
+        await WaitForPassesToFinishAsync(tracker);
+        var atEnd = sent.Events.Count(e => e.EventName == SignalREvents.GameImagesUpdated);
+        await Task.Delay(BannerGate + TimeSpan.FromMilliseconds(500));
+        var later = sent.Events.Count(e => e.EventName == SignalREvents.GameImagesUpdated);
+
+        Assert.True(
+            later == atEnd,
+            $"A held banner signal went out after the pass had ended: {later - atEnd} more GameImagesUpdated.");
+        Assert.True(
+            atEnd == 2,
+            $"The pass ended with {atEnd} GameImagesUpdated instead of the Steam batch's one and its ending's one.");
+    }
+
+    private static async Task SeedQuietStretchAsync(IServiceProvider services, bool withStaleImage)
+    {
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.Downloads.Add(new Download
+        {
+            Service = "steam",
+            ClientIp = "10.0.0.1",
+            GameAppId = 570,
+            GameName = "Dota 2"
+        });
+        db.EpicGameMappings.Add(new EpicGameMapping
+        {
+            AppId = "fortnite",
+            Name = "Fortnite",
+            ImageUrl = "https://example.com/fortnite.jpg"
+        });
+        if (withStaleImage)
+        {
+            db.GameImages.Add(new GameImage
+            {
+                AppId = "440",
+                Service = "steam",
+                ImageData = new byte[6000],
+                SourceUrl = "https://example.com/440.jpg",
+                FetchedAtUtc = DateTime.UtcNow.AddDays(-10)
+            });
+        }
+        await db.SaveChangesAsync();
     }
 
     private static async Task AssertEpicLinkRefreshFailureEndsAmberAsync(HttpMessageHandler epicHandler)
@@ -258,6 +356,33 @@ public sealed class GameImageFetchBannerNotificationTests
             => throw new TaskCanceledException(
                 "The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.",
                 new TimeoutException());
+    }
+
+    /// <summary>
+    /// Answers every banner fetch with an image, except the stale refresh of app 440, which waits until the test
+    /// lets it go and then fails, so that stretch stores nothing.
+    /// </summary>
+    private sealed class QuietStaleRefreshHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task QuietStretchEntered => _entered.Task;
+
+        public void Release() => _released.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri!.AbsoluteUri.Contains("440", StringComparison.Ordinal))
+            {
+                _entered.TrySetResult();
+                await _released.Task.WaitAsync(cancellationToken);
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[6000]) };
+        }
     }
 
     /// <summary>Succeeds on every request with a payload past MinImageBytes, so any phase given a

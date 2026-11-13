@@ -192,8 +192,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         using var service = NewEpicService(fixture, http, services, tracker);
         service.SetNotificationMode(mode);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
@@ -214,8 +214,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler { HangExchange = true });
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         using var service = NewEpicService(fixture, http, services, tracker);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
         var login = fixture.Epic.ContinueIntegrationLogin(fixture.Owner, start.AttemptId);
@@ -240,8 +240,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var state = DispatchProxy.Create<IStateService, SlowLastCollectionState>();
         using var service = NewEpicService(fixture, http, services, tracker, state);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
@@ -269,8 +269,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         using var service = NewEpicService(fixture, http, services, tracker);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
         await service.OnAuthCodeReceivedAsync("code", caller: fixture.Owner, attemptId: start.AttemptId);
@@ -291,8 +291,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler { FailCdn = true });
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         using var service = NewEpicService(fixture, http, services, tracker);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
 
@@ -325,7 +325,7 @@ public sealed class IntegrationCancellationTests
                 await release.Task.WaitAsync(cancellationToken);
             }
         });
-        using var services = new ServiceCollection().BuildServiceProvider();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         using var service = NewEpicService(fixture, http, services, tracker);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
 
@@ -357,8 +357,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var state = DispatchProxy.Create<IStateService, SlowLastCollectionState>();
         using var service = NewEpicService(fixture, http, services, tracker, state);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
@@ -384,8 +384,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
         var recorder = (Notifications)(object)notifications;
         recorder.HeldEvent = SignalREvents.EpicMappingStarted;
@@ -420,8 +420,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
         using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
@@ -448,8 +448,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
         using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
@@ -475,8 +475,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
         var recorder = (Notifications)(object)notifications;
         recorder.HeldEvent = SignalREvents.IntegrationLoginEnded;
@@ -509,8 +509,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
         var recorder = (Notifications)(object)notifications;
         recorder.HeldEvent = SignalREvents.IntegrationLoginEnded;
@@ -551,8 +551,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
         fixture.Epic.IntegrationLoginWindow = TimeSpan.FromDays(60);
         using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
@@ -573,8 +573,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
         using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
@@ -596,8 +596,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
         using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
@@ -619,8 +619,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
         using var service = NewEpicService(fixture, http, services, tracker, notifications: notifications);
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
@@ -642,10 +642,10 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
+        var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         var logger = new RefreshEndingLogger();
         var notifications = DispatchProxy.Create<ISignalRNotificationService, Notifications>();
-        var tracker = NewTracker();
         using var service = new EpicMappingService(
             logger,
             new EpicApiDirectClient(http, NullLogger<EpicApiDirectClient>.Instance), fixture.Epic,
@@ -685,8 +685,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler { HangCatalog = true }) { Timeout = TimeSpan.FromSeconds(1) };
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         using var service = NewEpicService(fixture, http, services, tracker);
         var start = await service.GetAuthorizationUrl(fixture.Owner);
 
@@ -705,8 +705,8 @@ public sealed class IntegrationCancellationTests
     {
         using var fixture = new IntegrationFixture();
         using var http = new HttpClient(new EpicSignInHandler());
-        using var services = new ServiceCollection().BuildServiceProvider();
         var tracker = NewTracker();
+        using var services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
         using var service = NewEpicService(fixture, http, services, tracker);
 
         // Signed out, a scheduled tick still resolves the stored patterns under its admitted notice.

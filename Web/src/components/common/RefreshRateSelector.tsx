@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Lightbulb, Gauge, Zap, Lock } from 'lucide-react';
+import { Lightbulb, Gauge, Zap, Lock, AlertCircle } from 'lucide-react';
 import { useRefreshRate } from '@contexts/useRefreshRate';
 import { type RefreshRate } from '@utils/constants';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -80,7 +80,8 @@ const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({
 
   // A failed settings read shows no rate or lock, since either would read as the saved setting.
   // The chip repeats the read on click; under the outage banner the slot stays empty until the
-  // reconnect read answers.
+  // reconnect read answers. The phone row is a strip of single-glyph squares with no room for the
+  // chip's words, so there it is a glyph too, named for screen readers.
   if (error !== null) {
     if (connectionLost) return null;
 
@@ -90,8 +91,9 @@ const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({
           type="button"
           className="ed-trigger flex items-center justify-center px-3 h-10 themed-border-radius-sm border border-themed-secondary cursor-pointer"
           onClick={reload}
+          aria-label={iconOnly ? t('common.failedToLoad') : undefined}
         >
-          <SectionErrorChip />
+          {iconOnly ? <AlertCircle className="icon-error" /> : <SectionErrorChip />}
         </button>
       </Tooltip>
     );

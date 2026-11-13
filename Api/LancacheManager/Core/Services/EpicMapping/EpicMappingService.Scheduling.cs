@@ -1,3 +1,4 @@
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
@@ -96,22 +97,9 @@ public partial class EpicMappingService
 
         _currentRefreshTask = Task.Run(async () =>
         {
-            await using var reporter = CreateEpicMappingReporter(
-                runCts.Token,
-                runNotice,
-                () =>
-                {
-                    if (ReferenceEquals(_currentRefreshCts, runCts))
-                    {
-                        _currentRefreshCts = null;
-                        _currentMappingReporter = null;
-                        _currentOperationId = null;
-                    }
-
-                    _currentProgressPercent = 0;
-                    _currentStatus = EpicMappingStatus.Idle;
-                    Interlocked.Exchange(ref _isProcessingInt, 0);
-                });
+            await using var reporter = CreateEpicMappingReporter(runCts.Token, runNotice);
+            // Disposed after the finally below frees the flag, so a request waiting on this run starts once its code ends.
+            using var hold = HoldEpicRun(reporter);
             _currentMappingReporter = reporter;
 
             try
@@ -146,16 +134,15 @@ public partial class EpicMappingService
             }
             finally
             {
+                // The run is freed here, at the end of its own code, and not when a force stop ends its card: the flag
+                // is this run's until this line, so no other run can have replaced the fields it clears.
                 runCts.Dispose();
-                if (ReferenceEquals(_currentRefreshCts, runCts))
-                {
-                    _currentRefreshCts = null;
-                    _currentMappingReporter = null;
-                    _currentOperationId = null;
-                    _currentProgressPercent = 0;
-                    _currentStatus = EpicMappingStatus.Idle;
-                    Interlocked.Exchange(ref _isProcessingInt, 0);
-                }
+                _currentRefreshCts = null;
+                _currentMappingReporter = null;
+                _currentOperationId = null;
+                _currentProgressPercent = 0;
+                _currentStatus = EpicMappingStatus.Idle;
+                Interlocked.Exchange(ref _isProcessingInt, 0);
             }
         }, CancellationToken.None);
 
@@ -208,16 +195,26 @@ public partial class EpicMappingService
 
     private MappingOperationReporter CreateEpicMappingReporter(
         CancellationToken token,
-        RunNotice notice,
-        Action? onTerminalCleanup = null) =>
+        RunNotice notice) =>
         new(
             _notifications,
             _operationTracker,
             MappingOperations.Epic,
             notice,
             token,
-            _logger,
-            onTerminalCleanup: onTerminalCleanup);
+            _logger);
+
+    /// <summary>
+    /// Keeps an Epic mapping run visible to every conflict check until the run's own code ends. A force stop ends the
+    /// card at once; without this a database reset or cache clear could start while the run still writes.
+    /// </summary>
+    private IDisposable HoldEpicRun(MappingOperationReporter reporter)
+    {
+        // The checker is a singleton (Program.cs registration), so every conflict check reads this hold.
+        using var scope = _scopeFactory.CreateScope();
+        return scope.ServiceProvider.GetRequiredService<IOperationConflictChecker>().HoldRun(
+            OperationType.EpicMapping, [ConflictScope.Bulk()], () => reporter.OperationId);
+    }
 
     private Dictionary<string, object?> CreateEpicContext(string? errorDetail = null) =>
         new()

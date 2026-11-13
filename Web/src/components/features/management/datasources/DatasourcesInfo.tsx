@@ -513,7 +513,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   // Help content
   const helpContent = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.datasources.help.aboutTitle')}>
         {t('management.datasources.summary')}
       </HelpSection>

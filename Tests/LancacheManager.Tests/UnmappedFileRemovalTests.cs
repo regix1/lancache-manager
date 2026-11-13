@@ -1137,6 +1137,7 @@ public sealed partial class UnmappedFileRemovalTests
             // Stands in for a child that keeps publishing, so it never falls silent during a test.
             CacheScanGateHarness.SetField(Tracker, "_reportDueUtc", DateTime.MaxValue);
             var gate = CacheScanGateHarness.GateOver(Tracker);
+            var checker = new OperationConflictChecker(repairs.Tracker, repairs.Owner, NullLogger<OperationConflictChecker>.Instance);
             Detection = new GameCacheDetectionService(
                 DetectionLog,
                 Paths,
@@ -1151,7 +1152,8 @@ public sealed partial class UnmappedFileRemovalTests
                 new DatasourceCapabilityService(datasources),
                 repairs.Tracker,
                 gate,
-                new StateService(NullLogger<StateService>.Instance, Paths, null!, null!));
+                new StateService(NullLogger<StateService>.Instance, Paths, null!, null!),
+                checker);
             Service = CacheFileCountContractTests.NewServiceForCountState(
                 repairs.Tracker,
                 Notifications,
@@ -1163,7 +1165,8 @@ public sealed partial class UnmappedFileRemovalTests
                 repairs.Owner,
                 Log,
                 datasources,
-                Importer);
+                Importer,
+                checker);
         }
 
         public OperationRepairTests.RepairHarness Repairs { get; }

@@ -23,9 +23,11 @@ import { translateStageKeyMessage } from '@utils/stageKeyMessage';
 
 interface TestDomainCardProps {
   groups: StatusCheckDomainGroup[] | null;
+  /** Where the domain list came from and its Refresh list button, drawn under a hairline. */
+  footer?: React.ReactNode;
 }
 
-const TestDomainCard: React.FC<TestDomainCardProps> = ({ groups }) => {
+const TestDomainCard: React.FC<TestDomainCardProps> = ({ groups, footer }) => {
   const { t } = useTranslation();
   const keys = 'management.sections.statusCheck';
 
@@ -175,6 +177,8 @@ const TestDomainCard: React.FC<TestDomainCardProps> = ({ groups }) => {
           )}
         </div>
       )}
+
+      {footer && <div className="status-check-test-footer">{footer}</div>}
     </Card>
   );
 };

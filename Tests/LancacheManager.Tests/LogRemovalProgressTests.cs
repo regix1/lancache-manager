@@ -122,7 +122,8 @@ public class LogRemovalProgressTests
                 new RustProcessHelper(NullLogger<RustProcessHelper>.Instance,
                     new ProcessManager(NullLogger<ProcessManager>.Instance), paths, tracker),
                 null!, null!, datasourceService,
-                tracker, null!, repairOwner);
+                tracker, null!, repairOwner,
+                new OperationConflictChecker(tracker, repairOwner, NullLogger<OperationConflictChecker>.Instance));
             var sourceField = typeof(RustLogRemovalService).GetField("_cancellationTokenSource", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var start = typeof(RustLogRemovalService).GetMethod("StartRemovalForDatasourceAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var firstTask = (Task<bool>)start.Invoke(removal, ["steam", "default"])!;
@@ -135,16 +136,36 @@ public class LogRemovalProgressTests
             tracker.CompleteOperation(first, false, canceled: true);
             Assert.Throws<ObjectDisposedException>(() => _ = firstRegisteredSource.Token);
             Assert.Equal(0, firstCleanupSource.DisposeCalls);
-            // The next removal registers at once but waits for the cache lock the first one still holds.
+            // The stopped removal's code still runs, so it keeps the removal busy until that code ends: a second
+            // removal started now is refused, and the queue's check for a removal of the same service sees the
+            // stopped one, so a request through the queue waits on a card instead of starting beside it.
+            var checker = (IOperationConflictChecker)typeof(RustLogRemovalService)
+                .GetField("_conflictChecker", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(removal)!;
+            Assert.NotNull(await checker.CheckAsync(
+                OperationType.LogRemoval, ConflictScope.Service("steam"), CancellationToken.None));
+            Assert.False(await ((Task<bool>)start.Invoke(removal, ["epicgames", "default"])!)
+                .WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(first, removal.CurrentOperationId);
+            Assert.True(removal.IsProcessing);
+            Assert.Same(firstCleanupSource, sourceField.GetValue(removal));
+
+            messages.Release[first].TrySetResult();
+            Assert.False(await firstTask.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.False(removal.IsProcessing);
+            Assert.Null(sourceField.GetValue(removal));
+            Assert.Equal(0, firstCleanupSource.DisposeCalls);
+            Assert.Null(await checker.CheckAsync(
+                OperationType.LogRemoval, ConflictScope.Service("steam"), CancellationToken.None));
+
+            // Once the stopped removal's code has ended, the next removal starts.
             var nextTask = (Task<bool>)start.Invoke(removal, ["epicgames", "default"])!;
+            Assert.Equal(await messages.Started.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)),
+                removal.CurrentOperationId);
             var next = removal.CurrentOperationId!.Value;
             Assert.NotEqual(first, next);
             var nextRegisteredSource = tracker.GetOperation(next)!.CancellationTokenSource!;
             using var nextCleanupSource = new DisposeTrackingCancellationTokenSource();
             sourceField.SetValue(removal, nextCleanupSource);
-            messages.Release[first].TrySetResult();
-            Assert.False(await firstTask.WaitAsync(TimeSpan.FromSeconds(10)));
-            Assert.Equal(next, await messages.Started.Reader.ReadAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)));
 
             Assert.Equal(next, removal.CurrentOperationId);
             Assert.True(removal.IsProcessing);
@@ -265,7 +286,8 @@ public class LogRemovalProgressTests
                 new RustProcessHelper(NullLogger<RustProcessHelper>.Instance,
                     new ProcessManager(NullLogger<ProcessManager>.Instance), paths, tracker),
                 null!, null!, datasourceService,
-                forwarding, null!, repairOwner);
+                forwarding, null!, repairOwner,
+                new OperationConflictChecker(forwarding, repairOwner, NullLogger<OperationConflictChecker>.Instance));
 
             var first = await removal.StartRemovalForDatasourceInBackgroundAsync("steam", "default")
                 .WaitAsync(TimeSpan.FromSeconds(10));
@@ -365,7 +387,7 @@ public class LogRemovalProgressTests
         var datasources = new DatasourceService(configuration, paths, NullLogger<DatasourceService>.Instance);
         Assert.False(datasources.GetDatasource("default")!.LogsWritable);
         return new RustLogRemovalService(NullLogger<RustLogRemovalService>.Instance,
-            paths, null!, null!, null!, null!, null!, datasources, null!, null!, null!);
+            paths, null!, null!, null!, null!, null!, datasources, null!, null!, null!, null!);
     }
 
     [Fact]
@@ -930,7 +952,8 @@ public class LogRemovalProgressTests
                 datasources,
                 repairs.Tracker,
                 state,
-                repairs.Owner);
+                repairs.Owner,
+                new OperationConflictChecker(repairs.Tracker, repairs.Owner, NullLogger<OperationConflictChecker>.Instance));
             return new LogStepHarness(
                 root,
                 datasources.GetDatasource("default")!.LogPath,

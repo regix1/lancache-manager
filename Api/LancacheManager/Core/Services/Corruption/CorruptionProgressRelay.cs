@@ -1,14 +1,12 @@
-using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
 
-/// <summary>Captures every distinct corruption checkpoint and independently gates broadcasts.</summary>
+/// <summary>Captures every distinct corruption checkpoint.</summary>
 internal sealed class CorruptionProgressRelay
 {
     private readonly object _sync = new();
     private readonly CorruptionDetectionMetrics _metrics;
-    private readonly ProgressEmitGate _emitGate = new();
     private readonly int _datasourceIndex;
     private readonly int _datasourceCount;
     private readonly IReadOnlyDictionary<string, object?> _hostContext;
@@ -48,8 +46,7 @@ internal sealed class CorruptionProgressRelay
         double datasourcePercent,
         IReadOnlyDictionary<string, object?>? sourceContext,
         long filesProcessed,
-        long totalFiles,
-        long? nowTicks = null)
+        long totalFiles)
     {
         lock (_sync)
         {
@@ -79,10 +76,7 @@ internal sealed class CorruptionProgressRelay
             var snapshot = isNew
                 ? _metrics.CaptureProgress(stageKey, overallPercent, sourceContext, additions)
                 : current!;
-            var shouldEmit = nowTicks.HasValue
-                ? _emitGate.ShouldEmit(snapshot.StageKey, snapshot.Revision, nowTicks.Value)
-                : _emitGate.ShouldEmit(snapshot.StageKey, snapshot.Revision);
-            return new CorruptionRelayDecision(snapshot, isNew, shouldEmit);
+            return new CorruptionRelayDecision(snapshot, isNew);
         }
     }
 }

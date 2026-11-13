@@ -53,7 +53,7 @@ public class SteamWebApiService
     /// <summary>
     /// Get current Steam Web API status with V2/V1 fallback information
     /// </summary>
-    public async Task<ApiStatus> GetApiStatusAsync(bool forceRefresh = false)
+    public async Task<ApiStatus> GetApiStatusAsync(bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
         // Return cached status if recent enough and not forcing refresh
         if (!forceRefresh && DateTime.UtcNow - _lastStatusCheck < _statusCheckInterval && _cachedVersion != SteamApiVersion.Unknown)
@@ -62,7 +62,7 @@ public class SteamWebApiService
         }
 
         // Acquire lock to prevent concurrent status checks
-        await _statusCheckLock.WaitAsync();
+        await _statusCheckLock.WaitAsync(cancellationToken);
         try
         {
             // Double-check after acquiring lock
@@ -76,7 +76,7 @@ public class SteamWebApiService
             var hasApiKey = !string.IsNullOrWhiteSpace(authData.SteamApiKey);
 
             // Test V2 first (no API key needed)
-            var isV2Available = await TestV2ApiAsync();
+            var isV2Available = await TestV2ApiAsync(cancellationToken);
 
             if (isV2Available)
             {
@@ -101,7 +101,7 @@ public class SteamWebApiService
             // V2 failed, check V1 with API key
             if (hasApiKey)
             {
-                var isV1Available = await TestV1ApiAsync(authData.SteamApiKey!);
+                var isV1Available = await TestV1ApiAsync(authData.SteamApiKey!, cancellationToken);
 
                 if (isV1Available)
                 {
@@ -180,18 +180,18 @@ public class SteamWebApiService
     /// request never completed. This is a probe, so an unreachable endpoint and a broken one are
     /// the same answer: do not use V2.
     /// </returns>
-    private async Task<bool> TestV2ApiAsync()
+    private async Task<bool> TestV2ApiAsync(CancellationToken cancellationToken = default)
     {
         try
         {
             // V2 endpoint for getting app list (no key required)
             var url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/";
 
-            using var response = await FetchAsync(url, TimeSpan.FromSeconds(10));
+            using var response = await FetchAsync(url, TimeSpan.FromSeconds(10), cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
-                var content = await response.Content.ReadAsStringAsync();
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
                 // Verify it's actually valid JSON with expected structure
                 using var doc = JsonDocument.Parse(content);
                 // V2 uses "applist" structure
@@ -202,6 +202,11 @@ public class SteamWebApiService
             }
 
             return false;
+        }
+        // A canceled caller is not an unavailable API: answering false here would cache that answer.
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -218,19 +223,19 @@ public class SteamWebApiService
     /// False both when the key was rejected and when the request never completed. Same as the V2
     /// probe: both mean do not use V1.
     /// </returns>
-    private async Task<bool> TestV1ApiAsync(string apiKey)
+    private async Task<bool> TestV1ApiAsync(string apiKey, CancellationToken cancellationToken = default)
     {
         try
         {
             // V1 endpoint that validates API key
             var url = $"https://api.steampowered.com/IStoreService/GetAppList/v1/?key={apiKey}&max_results=1";
 
-            using var response = await FetchAsync(url, TimeSpan.FromSeconds(10));
+            using var response = await FetchAsync(url, TimeSpan.FromSeconds(10), cancellationToken);
 
             // Check if response is successful (200 OK means valid key)
             if (response.IsSuccessStatusCode)
             {
-                var content = await response.Content.ReadAsStringAsync();
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
                 // Verify it's actually valid JSON with expected structure
                 using var doc = JsonDocument.Parse(content);
                 // Valid response should have "response" property (same as V2 but this one validates the key)
@@ -244,6 +249,10 @@ public class SteamWebApiService
             // Log the status code for debugging (403 = invalid key, 401 = missing key)
             _logger.LogWarning("Steam Web API V1 test failed with status code: {StatusCode}", response.StatusCode);
             return false;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -314,9 +323,9 @@ public class SteamWebApiService
     /// the call failed. Never an empty list standing in for a failure: callers must not read null
     /// as "Steam has no apps".
     /// </returns>
-    public async Task<List<SteamApp>?> GetAppListAsync()
+    public async Task<List<SteamApp>?> GetAppListAsync(CancellationToken cancellationToken)
     {
-        var status = await GetApiStatusAsync();
+        var status = await GetApiStatusAsync(cancellationToken: cancellationToken);
 
         if (!status.IsFullyOperational)
         {
@@ -328,7 +337,7 @@ public class SteamWebApiService
         {
             if (status.Version == SteamApiVersion.V2Active)
             {
-                var v2Apps = await FetchV2AppListAsync();
+                var v2Apps = await FetchV2AppListAsync(cancellationToken);
                 if (v2Apps != null && v2Apps.Count > 0)
                 {
                     return v2Apps;
@@ -345,9 +354,9 @@ public class SteamWebApiService
                     return null;
                 }
 
-                await GetApiStatusAsync(forceRefresh: true);
+                await GetApiStatusAsync(forceRefresh: true, cancellationToken);
 
-                var fallbackApps = await FetchV1AppListAsync();
+                var fallbackApps = await FetchV1AppListAsync(cancellationToken);
                 if (fallbackApps == null || fallbackApps.Count == 0)
                 {
                     _logger.LogError("Steam Web API V1 fallback failed to return any apps");
@@ -358,13 +367,18 @@ public class SteamWebApiService
             else if (status.Version == SteamApiVersion.V1WithKey)
             {
                 // V1 requires pagination - fetch all pages
-                return await FetchV1AppListAsync();
+                return await FetchV1AppListAsync(cancellationToken);
             }
             else
             {
                 _logger.LogError("Invalid API status for getting app list: {Version}", status.Version);
                 return null;
             }
+        }
+        // A canceled caller is not a failed listing: answering null here would end its run as a failure.
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -376,7 +390,7 @@ public class SteamWebApiService
     /// <summary>
     /// Get all apps from V1 API with pagination (V1 limits to 50k per request)
     /// </summary>
-    private async Task<List<SteamApp>?> FetchV1AppListAsync()
+    private async Task<List<SteamApp>?> FetchV1AppListAsync(CancellationToken cancellationToken)
     {
         var authData = _steamAuthRepository.GetAuthData();
         var apiKey = authData.SteamApiKey;
@@ -399,14 +413,14 @@ public class SteamWebApiService
             pageCount++;
             var url = $"https://api.steampowered.com/IStoreService/GetAppList/v1/?key={apiKey}&max_results=50000&last_appid={lastAppId}";
 
-            using var response = await FetchAsync(url, TimeSpan.FromSeconds(30));
+            using var response = await FetchAsync(url, TimeSpan.FromSeconds(30), cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogError("Failed to get V1 app list page {Page}: HTTP {StatusCode}", pageCount, response.StatusCode);
                 return null;
             }
 
-            var content = await response.Content.ReadAsStringAsync();
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
             var (apps, hasMore, nextLastAppId) = ParseV1AppListPage(content);
 
             if (apps == null || apps.Count == 0)
@@ -433,12 +447,12 @@ public class SteamWebApiService
 
     /// <summary>Fetches the full app list from the V2 endpoint.</summary>
     /// <returns>Null when the V2 fetch failed or answered with a status we cannot use.</returns>
-    private async Task<List<SteamApp>?> FetchV2AppListAsync()
+    private async Task<List<SteamApp>?> FetchV2AppListAsync(CancellationToken cancellationToken)
     {
         try
         {
             var url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/";
-            using var response = await FetchAsync(url, TimeSpan.FromSeconds(30));
+            using var response = await FetchAsync(url, TimeSpan.FromSeconds(30), cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -446,8 +460,13 @@ public class SteamWebApiService
                 return null;
             }
 
-            var content = await response.Content.ReadAsStringAsync();
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
             return ParseV2AppList(content);
+        }
+        // A canceled caller is not an unavailable V2: answering null here would start the V1 fallback.
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

@@ -76,7 +76,7 @@ const SteamIntegrationCard: React.FC<SteamIntegrationCardProps> = ({
   }
 
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.sections.integrations.steamCard.help.aboutTitle')}>
         {t('management.sections.integrations.steamCard.summary')}
       </HelpSection>

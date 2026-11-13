@@ -1231,7 +1231,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   );
 
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.gameDetection.help.aboutTitle')}>
         {t('management.gameDetection.subtitle')}
       </HelpSection>

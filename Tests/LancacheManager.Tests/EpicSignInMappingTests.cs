@@ -695,7 +695,7 @@ public sealed class EpicSignInMappingTests
     private sealed class Rig : IDisposable
     {
         private readonly HttpClient _http;
-        private readonly ServiceProvider _services = new ServiceCollection().BuildServiceProvider();
+        private readonly ServiceProvider _services;
         private readonly List<EpicMappingService> _extra = [];
 
         public Rig(Func<Rig, IStateService>? state = null, TimeSpan? httpTimeout = null)
@@ -704,6 +704,7 @@ public sealed class EpicSignInMappingTests
             _http = new HttpClient(Handler) { Timeout = httpTimeout ?? TimeSpan.FromMinutes(5) };
             Tracker = new UnifiedOperationTracker(
                 new ProcessManager(NullLogger<ProcessManager>.Instance), NullLogger<UnifiedOperationTracker>.Instance);
+            _services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(Tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
             Databases = new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>()
                 .UseInMemoryDatabase($"epic_sign_in_mapping_{Guid.NewGuid():N}").Options);
             Service = Create(state?.Invoke(this) ?? DispatchProxy.Create<IStateService, NullReturningProxy>());
@@ -778,7 +779,7 @@ public sealed class EpicSignInMappingTests
     }
 
     // Answers the sign-in token, one asset list, a title per catalog item and nothing else.
-    private sealed class Handler : HttpMessageHandler
+    internal sealed class Handler : HttpMessageHandler
     {
         public string AccountId { get; set; } = "epic";
         public string Assets { get; set; } =

@@ -84,8 +84,23 @@ const STYLE_OPTIONS: Record<TimestampStyle, Intl.DateTimeFormatOptions> = {
   dateShort: { dateStyle: 'short' }
 };
 
+// The language Intl formats in when it is given no locale: the browser's. Read once, because the
+// schedule preview formats thousands of candidate days per recompute.
+const RUNTIME_LANGUAGE = new Intl.Locale(new Intl.DateTimeFormat().resolvedOptions().locale)
+  .language;
+
 /**
- * Format an absolute moment for display, in the browser's locale.
+ * The locale a date or relative time is written in. The browser's own when it speaks the app's
+ * language, so an en-GB reader keeps day-month order; the app's language when it does not, so a
+ * Chinese page on an English browser does not print "Nov 11, 2026" inside a Chinese sentence.
+ */
+export function resolveDisplayLocale(): string | undefined {
+  return i18n.language === RUNTIME_LANGUAGE ? undefined : i18n.language;
+}
+
+/**
+ * Format an absolute moment for display, in the browser's locale when it speaks the app's language
+ * and in the app's language otherwise.
  *
  * Preferences are arguments rather than reads, so the same body serves the reactive hook and the
  * plain function without either of them keeping a copy of the Intl options.
@@ -122,15 +137,16 @@ export function formatTimestamp(
     // it fires in, and its preview formats up to 3700 candidate days per recompute, so retrying an
     // id this runtime rejects costs a thrown Intl construction and an identical warning per
     // day.
+    const locale = resolveDisplayLocale();
     if (isUnresolvableTimezone(targetTimezone)) {
-      return date.toLocaleString(undefined, { ...formatOptions, timeZone: 'UTC' });
+      return date.toLocaleString(locale, { ...formatOptions, timeZone: 'UTC' });
     }
 
     try {
-      return date.toLocaleString(undefined, formatOptions);
+      return date.toLocaleString(locale, formatOptions);
     } catch (_tzError) {
       rememberUnresolvableTimezone(targetTimezone);
-      return date.toLocaleString(undefined, {
+      return date.toLocaleString(locale, {
         ...formatOptions,
         timeZone: 'UTC'
       });

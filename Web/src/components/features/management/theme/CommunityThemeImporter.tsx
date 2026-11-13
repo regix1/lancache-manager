@@ -500,7 +500,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   );
 
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.themes.community.help.aboutTitle')}>
         {t('management.themes.community.summary')}
       </HelpSection>

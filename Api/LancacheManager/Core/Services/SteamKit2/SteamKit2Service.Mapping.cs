@@ -14,13 +14,16 @@ public partial class SteamKit2Service
     /// </summary>
     public async Task ManuallyApplyDepotMappingsAsync()
     {
-        if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
+        if (!TryTakeDepotLock())
         {
             throw new ConflictException("A depot mapping operation is already running.")
             {
                 StageKey = "errors.depot.mappingInProgress"
             };
         }
+        // The progress answer must not carry the phase an earlier run ended on: a polled "completed"
+        // reads as this run having finished.
+        _currentStatus = DepotScanPhase.ApplyingMappings;
 
         lock (_baselineLock) _baselineCommitted = false;
         _activeDepotScanMode = DepotScanMode.Incremental;
@@ -64,15 +67,9 @@ public partial class SteamKit2Service
         }
         finally
         {
+            // Unpublished before it is disposed, so a sign-out never finds a disposed source to cancel.
+            ReleaseDepotLock();
             runCts.Dispose();
-            if (ReferenceEquals(_currentRebuildCts, runCts))
-            {
-                _currentRebuildCts = null;
-                _currentMappingReporter = null;
-                _currentPicsOperationId = null;
-                Interlocked.Exchange(ref _rebuildActive, 0);
-                RaiseExecutionStateChanged();
-            }
         }
     }
 
@@ -394,7 +391,7 @@ public partial class SteamKit2Service
                         }
 
                         // Get game info from Steam API
-                        var gameInfo = await _steamService.GetGameInfoAsync(appId.Value);
+                        var gameInfo = await _steamService.GetGameInfoAsync(appId.Value, cancellationToken);
                         if (gameInfo != null)
                         {
                             download.GameName = gameInfo.Name;
@@ -482,7 +479,7 @@ public partial class SteamKit2Service
                 // one ends.
                 using var imageFetchScope = _scopeFactory.CreateScope();
                 var imageFetchService = imageFetchScope.ServiceProvider.GetRequiredService<GameImageFetchService>();
-                await imageFetchService.StartFetchThroughQueueAsync();
+                await imageFetchService.StartFetchThroughQueueAsync(cancellationToken);
             }
             else
             {

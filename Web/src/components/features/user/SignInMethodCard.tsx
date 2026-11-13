@@ -70,7 +70,7 @@ const SignInMethodCard: React.FC = () => {
   };
 
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('user.guest.sections.help.accessSecurityTitle')}>
         {t('accessSetup.manageDescription')}
       </HelpSection>

@@ -29,10 +29,10 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
     private readonly OperationStateService _operationStateService;
     private readonly Task _startupCleanupFinished;
     private readonly ILogger<DownloadHistoryUpgradeService> _logger;
+    private readonly IOperationConflictChecker _conflictChecker;
     private CancellationToken _stoppingToken;
     private int _requested;
     private int _replanRequested;
-    private Guid? _waitingOperationId;
     private Guid? _lastFailedOperationId;
 
     internal Task StartupRequest { get; private set; } = Task.CompletedTask;
@@ -45,7 +45,8 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
         IOperationWaitlist operationQueue,
         OperationStateService operationStateService,
         DownloadCleanupService downloadCleanup,
-        ILogger<DownloadHistoryUpgradeService> logger)
+        ILogger<DownloadHistoryUpgradeService> logger,
+        IOperationConflictChecker conflictChecker)
         : this(
             contexts,
             notifications,
@@ -53,7 +54,8 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
             operationQueue,
             operationStateService,
             downloadCleanup.StartupCleanupFinished,
-            logger)
+            logger,
+            conflictChecker)
     {
     }
 
@@ -64,7 +66,8 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
         IOperationWaitlist operationQueue,
         OperationStateService operationStateService,
         Task startupCleanupFinished,
-        ILogger<DownloadHistoryUpgradeService> logger)
+        ILogger<DownloadHistoryUpgradeService> logger,
+        IOperationConflictChecker conflictChecker)
     {
         _contexts = contexts;
         _notifications = notifications;
@@ -73,6 +76,7 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
         _operationStateService = operationStateService;
         _startupCleanupFinished = startupCleanupFinished;
         _logger = logger;
+        _conflictChecker = conflictChecker;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -103,7 +107,8 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
             if (Volatile.Read(ref _replanRequested) == 0
                 && !await NeedsWorkAsync(_stoppingToken))
             {
-                Volatile.Write(ref _requested, 0);
+                // A full fence, so the flag read below sees a replan set by a request that lost the exchange above.
+                Interlocked.Exchange(ref _requested, 0);
                 if (Volatile.Read(ref _replanRequested) == 1
                     && !_stoppingToken.IsCancellationRequested)
                 {
@@ -112,18 +117,13 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
                 return;
             }
 
-            var outcome = await _operationQueue.EnqueueAsync(
+            await _operationQueue.EnqueueAsync(
                 OperationType.DownloadHistoryUpgrade,
                 ConflictScope.Bulk(),
                 OperationName,
                 StartUpgradeAsync,
                 _stoppingToken,
                 OperationRequestKey.Plain);
-
-            if (outcome.Status == OperationStartStatus.Waiting)
-            {
-                _waitingOperationId = outcome.OperationId;
-            }
         }
         catch (OperationCanceledException) when (_stoppingToken.IsCancellationRequested)
         {
@@ -137,6 +137,13 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
         }
     }
 
+    // The flag is set before the request, so a request that loses to one still reading the plan is asked again by it.
+    internal Task RequestReplanAsync()
+    {
+        Interlocked.Exchange(ref _replanRequested, 1);
+        return RequestRunAsync();
+    }
+
     private Task<Guid?> StartUpgradeAsync()
     {
         var cts = CancellationTokenSource.CreateLinkedTokenSource(_stoppingToken);
@@ -144,13 +151,15 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
             OperationType.DownloadHistoryUpgrade,
             OperationName,
             cts);
-        _waitingOperationId = null;
         var replan = Interlocked.Exchange(ref _replanRequested, 0) == 1;
-        LastRun = Task.Run(() => RunUpgradeAsync(operationId, replan, cts.Token));
+        // The upgrade is global: a force stop ends its card at once while its last batch may still be writing, and
+        // the hold keeps every job out until the run's own code ends.
+        var hold = _conflictChecker.HoldRun(OperationType.DownloadHistoryUpgrade, [ConflictScope.Bulk()], () => operationId);
+        LastRun = Task.Run(() => RunUpgradeAsync(operationId, replan, hold, cts.Token));
         return Task.FromResult<Guid?>(operationId);
     }
 
-    private async Task RunUpgradeAsync(Guid operationId, bool replan, CancellationToken ct)
+    private async Task RunUpgradeAsync(Guid operationId, bool replan, IDisposable hold, CancellationToken ct)
     {
         try
         {
@@ -175,7 +184,9 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
         }
         finally
         {
-            Volatile.Write(ref _requested, 0);
+            Interlocked.Exchange(ref _requested, 0);
+            // Before the replan request below, which is a new run and would otherwise wait on this one's hold.
+            hold.Dispose();
             if (Volatile.Read(ref _replanRequested) == 1 && !_stoppingToken.IsCancellationRequested)
             {
                 _ = RequestRunAsync();
@@ -459,10 +470,12 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
     {
         try
         {
-            if (operation.Id == _waitingOperationId
-                && operation.Status == OperationStatus.Canceled)
+            // A waiting card that ended before any run took its work leaves no run to release the request. It is
+            // read from the card itself, which the queue can end before the request gets its id back.
+            if (operation.Type == OperationType.DownloadHistoryUpgrade
+                && !operation.WorkerStarted
+                && operation.NextOperationId == null)
             {
-                _waitingOperationId = null;
                 Volatile.Write(ref _requested, 0);
                 return;
             }
@@ -470,8 +483,7 @@ public sealed class DownloadHistoryUpgradeService : BackgroundService
             if (operation.Type == OperationType.DataImport
                 && operation.Metadata is DataImportMetrics { RecordsImported: > 0 })
             {
-                Interlocked.Exchange(ref _replanRequested, 1);
-                _ = RequestRunAsync();
+                _ = RequestReplanAsync();
             }
         }
         catch (Exception ex)

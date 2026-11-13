@@ -65,6 +65,39 @@ public class ProgressEmitGateTests
     }
 
     [Fact]
+    public async Task ARepeatedReportAfterTheIntervalNeitherStopsLaterHeldSendsNorGoesOutAgainAsync()
+    {
+        var gate = new ProgressEmitGate(250);
+        var sent = new List<long>();
+        Func<Task> Send(long revision) => () =>
+        {
+            lock (sent) sent.Add(revision);
+            return Task.CompletedTask;
+        };
+
+        await gate.EmitAsync("stage", 1, Send(1));
+        await Task.Delay(300);
+        await gate.EmitAsync("stage", 1, Send(1));
+        await gate.EmitAsync("stage", 2, Send(2));
+        await gate.EmitAsync("stage", 3, Send(3));
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (DateTime.UtcNow < deadline)
+        {
+            lock (sent)
+            {
+                if (sent.Contains(3)) break;
+            }
+
+            await Task.Delay(10);
+        }
+
+        // One more interval, so a second copy of the repeat would have gone out by now.
+        await Task.Delay(300);
+        lock (sent) Assert.Equal([1L, 2L, 3L], sent);
+    }
+
+    [Fact]
     public async Task SlowRunSubscriberAsync()
     {
         var notifications = DispatchProxy.Create<ISignalRNotificationService, BlockedSend>();

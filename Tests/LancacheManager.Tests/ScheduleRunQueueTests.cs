@@ -708,9 +708,10 @@ public sealed class ScheduleRunQueueTests
         Assert.Same(quick, await loop.TakeRequestAsync());
     }
 
-    // The same holds for runs held for a download: two holds, two cards.
+    // A Run Now held for a download keeps the scan its card named when it was held, so after a scan mode change
+    // a Games-page scan of that type joins it: one hold, one card.
     [Fact]
-    public async Task AHeldGamesPageScanAfterAScanModeChange_DoesNotJoinTheHeldRunNow()
+    public async Task AHeldGamesPageScanAfterAScanModeChange_JoinsTheHeldRunNow()
     {
         using var loop = new LoopProbe("gameDetection") { OwnScanType = DetectionScanType.Incremental };
         var cards = 0;
@@ -719,9 +720,9 @@ public sealed class ScheduleRunQueueTests
         loop.OwnScanType = DetectionScanType.Full;
         var quick = new RunNotice(NotificationMode.All, RunTrigger.Manual) { RequestedScanType = DetectionScanType.Incremental };
 
-        Assert.Same(quick, await loop.HoldRunAsync(quick, _ => cards++));
-        Assert.Equal(2, cards);
-        Assert.Null(runNow.RequestedScanType);
+        Assert.Same(runNow, await loop.HoldRunAsync(quick, _ => cards++));
+        Assert.Equal(1, cards);
+        Assert.Equal(DetectionScanType.Incremental, runNow.RequestedScanType);
     }
 
     // A stored last full scan far ahead of the clock puts the hybrid week's end past what a timer can wait for;
@@ -1928,7 +1929,8 @@ public sealed class ScheduleRunQueueTests
         // The scan type a run that named none resolves to, standing for a detection schedule's own mode.
         public DetectionScanType? OwnScanType { get; set; }
 
-        protected internal override DetectionScanType? ScanTypeOf(RunNotice notice) => notice.RequestedScanType ?? OwnScanType;
+        protected internal override DetectionScanType? ScanTypeOf(RunNotice notice)
+            => notice.RequestedScanType ?? notice.HeldScanType ?? OwnScanType;
 
         public Task<bool> SleepAsync(TimeSpan delay) => InterruptibleDelayAsync(delay, CancellationToken.None);
 

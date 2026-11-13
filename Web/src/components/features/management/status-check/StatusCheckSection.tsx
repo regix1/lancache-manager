@@ -406,21 +406,16 @@ const StatusCheckSection: React.FC = () => {
   const lastResult = status?.lastResult ?? null;
   const hostHeartbeatVerified = isProbeHostHeartbeatVerified(lastResult, CLIENT_PROBE_HOST);
 
-  // Rendered as a quiet toolbar at the top of the verdict card; each option's
-  // tooltip explains its strategy, so no hint paragraph floats in the layout.
+  // Drawn beside Run Check at the same height; each option's tooltip explains its strategy, so
+  // no hint paragraph floats in the layout.
   const resolverControl = status ? (
-    <>
-      <span className="status-check-resolver-label caps-label caps-label--sm">
-        {t(`${keys}.resolverMode.label`)}
-      </span>
-      <SegmentedControl
-        size="sm"
-        showLabels
-        options={resolverModeOptions}
-        value={resolverMode}
-        onChange={(value) => void handleResolverModeChange(value as StatusCheckResolverMode)}
-      />
-    </>
+    <SegmentedControl
+      size="md"
+      showLabels
+      options={resolverModeOptions}
+      value={resolverMode}
+      onChange={(value) => void handleResolverModeChange(value as StatusCheckResolverMode)}
+    />
   ) : null;
 
   return sectionShell(
@@ -454,7 +449,9 @@ const StatusCheckSection: React.FC = () => {
             <GroupHeading
               label={t(`${keys}.serverLane`)}
               actions={
-                <div className="flex items-center gap-2">
+                // Takes the rest of the heading's line and wraps its own buttons there, so the
+                // first one stays beside the label on a phone.
+                <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
                   {lastResult && (
                     <TogglePill
                       size="md"
@@ -494,16 +491,20 @@ const StatusCheckSection: React.FC = () => {
 
         <section>
           <GroupHeading label={t(`${keys}.testLane`)} />
-          <TestDomainCard groups={domainGroups} />
+          {/* The list's source and Refresh list sit in the card that browses that list. */}
+          <TestDomainCard
+            groups={domainGroups}
+            footer={
+              <DomainSourceFooter
+                source={status?.domainsSource ?? null}
+                onRefresh={() => void handleRefreshDomains()}
+                refreshing={refreshingDomains}
+                refreshError={refreshError}
+                reloadError={reloadError}
+              />
+            }
+          />
         </section>
-
-        <DomainSourceFooter
-          source={status?.domainsSource ?? null}
-          onRefresh={() => void handleRefreshDomains()}
-          refreshing={refreshingDomains}
-          refreshError={refreshError}
-          reloadError={reloadError}
-        />
       </div>
     </>
   );

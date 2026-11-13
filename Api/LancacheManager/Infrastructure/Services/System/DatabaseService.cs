@@ -168,12 +168,10 @@ public class DatabaseService
         var cts = new CancellationTokenSource();
 
         // Register with unified operation tracker for cancel support.
-        // Declare-then-assign so the onTerminalCleanup lambda closes over the variable (the lambda runs
-        // later, after opId is assigned). onTerminalCleanup is the safety net for the universal force-kill
-        // path: this is an in-process EF worker with no associated process, so force-kill cancels the CTS
-        // and completes the op immediately WITHOUT unwinding the worker finally — leaving the static
-        // _activeResetOperations dict populated (IsResetOperationRunning stays true, blocking all future
-        // resets process-wide). The lambda mirrors the worker finally (lines 900-904).
+        // No terminal cleanup: this is an in-process EF worker, so a force stop ends the card while the
+        // deletes may still run. The reset's state is released only at the end of its own code
+        // (ReleaseResetOperation), and the hold taken below keeps every other job out until then.
+        // Declare-then-assign so the emit lambda closes over the variable (it runs after opId is assigned).
         // onTerminalEmit fires the typed DatabaseResetComplete event EXACTLY ONCE (CompletedFlag-gated) for
         // the normal success/error path AND the universal force-kill/cancel path. The legacy
         // All phase progress is routed through ReportProgressAsync below; terminal completion
@@ -183,19 +181,6 @@ public class DatabaseService
             OperationType.DatabaseReset,
             "Database Reset",
             cts,
-            onTerminalCleanup: () =>
-            {
-                _activeResetOperations.TryRemove(opId, out _);
-                if (_currentResetOperationId == opId)
-                {
-                    _currentResetOperationId = null;
-                }
-                var progress = Volatile.Read(ref _currentResetProgress);
-                if (progress?.OperationId == opId)
-                {
-                    Volatile.Write(ref _currentResetProgress, null);
-                }
-            },
             onTerminalEmit: info => info.Canceled
                 ? _notifications.NotifyAllAsync(
                     SignalREvents.DatabaseResetComplete,
@@ -261,6 +246,15 @@ public class DatabaseService
                 startingSnapshot.Context
             });
 
+            // The reset is global: every conflict check reads this hold until the reset's own code ends,
+            // so no job starts while a force-stopped reset is still deleting. The checker is a singleton.
+            IDisposable hold;
+            using (var scope = _scopes.CreateScope())
+            {
+                hold = scope.ServiceProvider.GetRequiredService<IOperationConflictChecker>().HoldRun(
+                    OperationType.DatabaseReset, [ConflictScope.Bulk()], () => operationId);
+            }
+
             // Start background task with cancellation token.
             // A full wipe empties every table at once, so it holds the cache lock for its whole run:
             // a cache or log operation writing rows into a table the wipe already emptied would
@@ -296,11 +290,25 @@ public class DatabaseService
                         _operationTracker.CompleteOperation(operationId, success: false, canceled: true);
                         ReleaseResetOperation(operationId);
                     }
+                    finally
+                    {
+                        hold.Dispose();
+                    }
                 });
             }
             else
             {
-                _ = Task.Run(async () => await DoResetAsync(operationId, tableNames, fullReset: false, cts.Token));
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await DoResetAsync(operationId, tableNames, fullReset: false, cts.Token);
+                    }
+                    finally
+                    {
+                        hold.Dispose();
+                    }
+                });
             }
         }
         else
@@ -418,11 +426,13 @@ public class DatabaseService
                 // They run once, outside the retried transaction and before the log lock, so a retry
                 // never logs out twice and a slow logout never pauses the log import.
                 _logger.LogInformation("Clearing platform authentication data first...");
+                // Each sign-out waits on its platform's sign-in lock, which a sign-in can hold for minutes, so
+                // the wait takes the reset's token: a stop ends the reset here and the sign-out finishes on its own.
                 try
                 {
-                    await _steamKit2Service.ClearAllSteamAuthAsync();
+                    await _steamKit2Service.ClearAllSteamAuthAsync().WaitAsync(cancellationToken);
                 }
-                catch (Exception steamEx)
+                catch (Exception steamEx) when (steamEx is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
                 {
                     signInsNotReset.Add("Steam");
                     _logger.LogWarning(steamEx, "Error clearing Steam auth during session reset");
@@ -430,9 +440,9 @@ public class DatabaseService
 
                 try
                 {
-                    await _xboxCatalogMappingService.LogoutAsync();
+                    await _xboxCatalogMappingService.LogoutAsync().WaitAsync(cancellationToken);
                 }
-                catch (Exception xboxEx)
+                catch (Exception xboxEx) when (xboxEx is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
                 {
                     signInsNotReset.Add("Xbox");
                     _logger.LogWarning(xboxEx, "Error clearing Xbox auth during session reset");
@@ -440,9 +450,9 @@ public class DatabaseService
 
                 try
                 {
-                    await _epicMappingService.LogoutAsync();
+                    await _epicMappingService.LogoutAsync().WaitAsync(cancellationToken);
                 }
-                catch (Exception epicEx)
+                catch (Exception epicEx) when (epicEx is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
                 {
                     signInsNotReset.Add("Epic");
                     _logger.LogWarning(epicEx, "Error clearing Epic auth during session reset");
@@ -1196,7 +1206,8 @@ public class DatabaseService
             {
                 foreach (var daemon in PrefillDaemonServiceBase.ResolveAllDaemons(scope.ServiceProvider))
                 {
-                    await daemon.ForgetFinishedRunsAsync(deletedRunIds);
+                    // Waits for the session's run sweep, so it takes the reset's token like the sign-outs above.
+                    await daemon.ForgetFinishedRunsAsync(deletedRunIds).WaitAsync(cancellationToken);
                 }
             }
 
@@ -1379,12 +1390,7 @@ public class DatabaseService
             return;
         }
 
-        if (isProcessing && !_resetProgressEmitGate.ShouldEmit(snapshot.StageKey, snapshot.Revision))
-        {
-            return;
-        }
-
-        await _notifications.NotifyAllAsync(
+        Func<Task> send = () => _notifications.NotifyAllAsync(
             SignalREvents.DatabaseResetProgress,
             new DatabaseResetProgress(
                 OperationId: operationId,
@@ -1398,6 +1404,27 @@ public class DatabaseService
                 FilesDeleted: filesDeleted,
                 Timestamp: DateTime.UtcNow,
                 Context: snapshot.Context));
+
+        if (isProcessing)
+        {
+            await _resetProgressEmitGate.EmitAsync(snapshot.StageKey, snapshot.Revision, async () =>
+            {
+                // A held report goes out up to one interval later, and a force stop can end the run from outside in
+                // between. The gate outlives a reset, so the check reads this report's own run.
+                if (_operationTracker.GetOperation(operationId) is not { CompletedFlag: 0 } run
+                    || run.Status.IsTerminal())
+                {
+                    return;
+                }
+
+                await send();
+            });
+            return;
+        }
+
+        // The held report goes out before the reset's ending.
+        await _resetProgressEmitGate.FlushAsync();
+        await send();
     }
 
     /// <summary>

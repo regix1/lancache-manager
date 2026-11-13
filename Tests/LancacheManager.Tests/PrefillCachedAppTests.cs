@@ -99,6 +99,9 @@ public class PrefillCachedAppTests
         ]);
 
         Assert.True(changed);
+        // The depot mappings are written in the background after the call returns. Dropping the schema while
+        // that write still holds locks on SteamDepotMappings can deadlock the drop.
+        await DepotOwnerLockTests.WaitForMappingsAsync(database, 2);
         await using var context = new AppDbContext(database.Options);
         var app = Assert.Single(await context.PrefillCachedApps.ToListAsync());
         Assert.Equal(PrefillCacheService.SteamCacheReceipt, app.CacheRevision);
@@ -181,6 +184,7 @@ public class PrefillCachedAppTests
             service.RecordSteamCacheAsync(20, "Game", 1, "two", evidence));
 
         Assert.Single(changes, changed => changed);
+        await DepotOwnerLockTests.WaitForMappingsAsync(database, 1);
         await using var context = new AppDbContext(database.Options);
         Assert.Single(await context.PrefillCachedApps.ToListAsync());
         Assert.Single(await context.PrefillCachedDepots.ToListAsync());

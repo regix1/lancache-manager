@@ -28,6 +28,7 @@ public partial class GameCacheDetectionService : IDisposable
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly CacheScanGate _cacheScanGate;
     private readonly IStateService _stateService;
+    private readonly IOperationConflictChecker _conflictChecker;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private CancellationTokenSource? _cancellationTokenSource;
     private Guid? _currentTrackerOperationId;
@@ -102,7 +103,8 @@ public partial class GameCacheDetectionService : IDisposable
         DatasourceCapabilityService capabilityService,
         IUnifiedOperationTracker operationTracker,
         CacheScanGate cacheScanGate,
-        IStateService stateService)
+        IStateService stateService,
+        IOperationConflictChecker conflictChecker)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -118,6 +120,7 @@ public partial class GameCacheDetectionService : IDisposable
         _operationTracker = operationTracker;
         _cacheScanGate = cacheScanGate;
         _stateService = stateService;
+        _conflictChecker = conflictChecker;
 
         _logger.LogInformation("GameCacheDetectionService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
     }
@@ -220,71 +223,94 @@ public partial class GameCacheDetectionService : IDisposable
                 _currentTrackerOperationId = registeredId;
             }
             var operationId = registeredId;
-            cancellationToken.Register(() => notice.Cancel(_operationTracker, operationId));
-            notice.Attach(_operationTracker, operationId);
-
+            // The start gate above reads only the tracker, which a force stop clears at once while this code (the
+            // repair save, the Started send, then the worker) still runs. The hold keeps every conflict check seeing
+            // this detection from its registration until that code ends, so a request made meanwhile waits on a card.
+            var hold = _conflictChecker.HoldRun(OperationType.GameDetection, [ConflictScope.Bulk()], () => operationId);
             try
             {
-                await _operationStateService.PrepareRepairAsync(
-                    new OperationRepair
-                    {
-                        Id = operationId,
-                        Type = OperationType.GameDetection,
-                        Name = "Game Detection",
-                        StartedAt = metadata.StartTime,
-                        Notice = notice,
-                        GameDetection = SnapshotDetectionMetrics(metadata)
-                    },
-                    CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.gameDetect.error.fatal",
-                    onCompleting: operation => operation.FailureReason = new RunWarning("signalr.gameDetect.error.fatal",
-                        new Dictionary<string, object?> { ["errorDetail"] = ex.Message }));
-                throw;
-            }
+                cancellationToken.Register(() => notice.Cancel(_operationTracker, operationId));
+                notice.Attach(_operationTracker, operationId);
 
-            // Set initial progress message
-            _operationTracker.UpdateProgress(operationId, 0, stageKeyStarting);
-
-            // Send SignalR notification that detection started. Awaited (not fire-and-forget) so the
-            // Started event is on the wire before any progress tick can be emitted by the background
-            // run below, which prevents a progress event racing ahead of the card's creation.
-            try
-            {
-                await _notifications.NotifyAllAsync(SignalREvents.GameDetectionStarted, new
+                try
                 {
-                    OperationId = operationId,
-                    ParentOperationId = parentOperationId,
-                    StageKey = stageKeyStarting,
-                    scanType,
-                    timestamp = DateTime.UtcNow
-                });
+                    await _operationStateService.PrepareRepairAsync(
+                        new OperationRepair
+                        {
+                            Id = operationId,
+                            Type = OperationType.GameDetection,
+                            Name = "Game Detection",
+                            StartedAt = metadata.StartTime,
+                            Notice = notice,
+                            GameDetection = SnapshotDetectionMetrics(metadata)
+                        },
+                        CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.gameDetect.error.fatal",
+                        onCompleting: operation => operation.FailureReason = new RunWarning("signalr.gameDetect.error.fatal",
+                            new Dictionary<string, object?> { ["errorDetail"] = ex.Message }));
+                    throw;
+                }
+
+                // Set initial progress message
+                _operationTracker.UpdateProgress(operationId, 0, stageKeyStarting);
+
+                // Send SignalR notification that detection started. Awaited (not fire-and-forget) so the
+                // Started event is on the wire before any progress tick can be emitted by the background
+                // run below, which prevents a progress event racing ahead of the card's creation.
+                try
+                {
+                    await _notifications.NotifyAllAsync(SignalREvents.GameDetectionStarted, new
+                    {
+                        OperationId = operationId,
+                        ParentOperationId = parentOperationId,
+                        StageKey = stageKeyStarting,
+                        scanType,
+                        timestamp = DateTime.UtcNow
+                    });
+                }
+                catch (Exception ex)
+                {
+                    // The saved repair keeps the same failure as the run, so a restart restores its detail too.
+                    var failureReason = new RunWarning("signalr.gameDetect.error.fatal",
+                        new Dictionary<string, object?> { ["errorDetail"] = ex.Message });
+                    await _operationStateService.FinishRepairAsync(
+                        operationId,
+                        success: false,
+                        canceled: false,
+                        error: "signalr.gameDetect.error.fatal",
+                        update: repair => repair.FailureReason = failureReason);
+                    _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.gameDetect.error.fatal",
+                        onCompleting: operation => operation.FailureReason = failureReason);
+                    throw;
+                }
+
+                // Start detection in background with cancellation token; the worker releases the hold when it ends.
+                _currentDetectionTask = (operationId, Task.Run(
+                    async () =>
+                    {
+                        try
+                        {
+                            await RunDetectionAsync(
+                                operationId,
+                                incremental,
+                                cancellationToken);
+                        }
+                        finally
+                        {
+                            hold.Dispose();
+                        }
+                    },
+                    CancellationToken.None));
             }
-            catch (Exception ex)
+            catch
             {
-                // The saved repair keeps the same failure as the run, so a restart restores its detail too.
-                var failureReason = new RunWarning("signalr.gameDetect.error.fatal",
-                    new Dictionary<string, object?> { ["errorDetail"] = ex.Message });
-                await _operationStateService.FinishRepairAsync(
-                    operationId,
-                    success: false,
-                    canceled: false,
-                    error: "signalr.gameDetect.error.fatal",
-                    update: repair => repair.FailureReason = failureReason);
-                _operationTracker.CompleteOperation(operationId, success: false, error: "signalr.gameDetect.error.fatal",
-                    onCompleting: operation => operation.FailureReason = failureReason);
+                // A start that threw launched no worker, so nothing else releases the hold.
+                hold.Dispose();
                 throw;
             }
-
-            // Start detection in background with cancellation token
-            _currentDetectionTask = (operationId, Task.Run(
-                async () => await RunDetectionAsync(
-                    operationId,
-                    incremental,
-                    cancellationToken),
-                CancellationToken.None));
 
             return operationId;
         }

@@ -1,6 +1,7 @@
 import React from 'react';
 import '../managementSectionContent.css';
 import { useTranslation } from 'react-i18next';
+import { HelpPopover } from '@components/ui/HelpPopover';
 import type { StatusCheckContentPathResult } from '@services/api.service';
 import ContentPathRow from './ContentPathRow';
 
@@ -22,9 +23,11 @@ const ContentPathGroup: React.FC<ContentPathGroupProps> = ({ paths }) => {
   return (
     <section className="status-check-content-group" aria-label={t(`${keys}.groupTitle`)}>
       <div className="status-check-content-group-head">
-        <div>
+        <div className="status-check-content-summary-head">
           <h4>{t(`${keys}.groupTitle`)}</h4>
-          <p>{t(`${keys}.groupHelp`)}</p>
+          <HelpPopover position="left" width={320} aria-label={t('common.help')}>
+            {t(`${keys}.groupHelp`)}
+          </HelpPopover>
         </div>
         <span className="status-check-content-path-count tabular-nums">
           {t(`${keys}.pathCount`, { count: paths.length })}

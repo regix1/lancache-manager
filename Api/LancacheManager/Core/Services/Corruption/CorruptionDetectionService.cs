@@ -45,6 +45,7 @@ public class CorruptionDetectionService
     private readonly CacheScanGate _cacheScanGate;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly IStateService _stateService;
+    private readonly IOperationConflictChecker _conflictChecker;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
     public CorruptionDetectionService(
@@ -60,8 +61,10 @@ public class CorruptionDetectionService
         DatasourceCapabilityService capabilityService,
         CacheScanGate cacheScanGate,
         NginxLogRotationService nginxLogRotationService,
-        IStateService stateService)
+        IStateService stateService,
+        IOperationConflictChecker conflictChecker)
     {
+        _conflictChecker = conflictChecker;
         _capabilityService = capabilityService;
         _cacheScanGate = cacheScanGate;
         _nginxLogRotationService = nginxLogRotationService;
@@ -173,45 +176,70 @@ public class CorruptionDetectionService
                 return null;
             }
             operationId = registered.Value;
-            _operationTracker.UpdateProgress(operationId, 0, startingStageKey);
-
-            var operationStateKey = operationId.ToString();
-            _operationStateService.SaveState(operationStateKey, new OperationState
+            // The start gate above reads only the tracker, which a force stop clears at once while this code (the
+            // Started send, then the worker) still runs. The hold keeps every conflict check seeing this scan from
+            // its registration until that code ends, so a request made meanwhile waits on a card.
+            var hold = _conflictChecker.HoldRun(
+                OperationType.CorruptionDetection, [ConflictScope.Bulk()], () => operationId);
+            try
             {
-                Key = operationStateKey,
-                Type = OperationType.CorruptionDetection.ToWireString(),
-                Status = OperationStatus.Running.ToWireString(),
-                Message = "Starting corruption detection...",
-                Fields = JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+                _operationTracker.UpdateProgress(operationId, 0, startingStageKey);
+
+                var operationStateKey = operationId.ToString();
+                _operationStateService.SaveState(operationStateKey, new OperationState
                 {
-                    ["operationId"] = operationId,
-                    ["detectionMethod"] = detectionMethod.ToWireString(),
-                    ["scanMode"] = scanMode?.ToWireString()
-                })
-            });
+                    Key = operationStateKey,
+                    Type = OperationType.CorruptionDetection.ToWireString(),
+                    Status = OperationStatus.Running.ToWireString(),
+                    Message = "Starting corruption detection...",
+                    Fields = JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+                    {
+                        ["operationId"] = operationId,
+                        ["detectionMethod"] = detectionMethod.ToWireString(),
+                        ["scanMode"] = scanMode?.ToWireString()
+                    })
+                });
 
-            await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
+                await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
+                {
+                    OperationId = operationId,
+                    StageKey = startingStageKey,
+                    DetectionMethod = detectionMethod.ToWireString(),
+                    ScanMode = scanMode?.ToWireString(),
+                    Context = startingContext
+                });
+
+                var startedAtUtc = CaptureScanStartedUtc();
+                var token = cts.Token;
+                // The worker releases the hold when it ends.
+                _ = StartDetectionWorker(
+                    async workerToken =>
+                    {
+                        try
+                        {
+                            await RunDetectionAsync(
+                                operationId,
+                                threshold,
+                                lookbackDays,
+                                detectionMethod,
+                                scanMode,
+                                metadata,
+                                startedAtUtc,
+                                workerToken);
+                        }
+                        finally
+                        {
+                            hold.Dispose();
+                        }
+                    },
+                    token);
+            }
+            catch
             {
-                OperationId = operationId,
-                StageKey = startingStageKey,
-                DetectionMethod = detectionMethod.ToWireString(),
-                ScanMode = scanMode?.ToWireString(),
-                Context = startingContext
-            });
-
-            var startedAtUtc = CaptureScanStartedUtc();
-            var token = cts.Token;
-            _ = StartDetectionWorker(
-                workerToken => RunDetectionAsync(
-                    operationId,
-                    threshold,
-                    lookbackDays,
-                    detectionMethod,
-                    scanMode,
-                    metadata,
-                    startedAtUtc,
-                    workerToken),
-                token);
+                // A start that threw launched no worker, so nothing else releases the hold.
+                hold.Dispose();
+                throw;
+            }
 
             return operationId;
         }
@@ -559,6 +587,9 @@ public class CorruptionDetectionService
                 datasourceIndex,
                 datasourceCount,
                 scanMode);
+            // The live broadcast goes out on a stage change or at most every 250 ms while the tracker takes every
+            // checkpoint; a checkpoint held by the interval goes out when it ends.
+            var progressEmitGate = new ProgressEmitGate();
             var startingStageKey = detectionMethod == CorruptionDetectionMethod.Structural
                 ? "signalr.corruptionDetect.startingStructural"
                 : "signalr.corruptionDetect.startingRepeatedMiss";
@@ -656,6 +687,8 @@ public class CorruptionDetectionService
             finally
             {
                 stderrObserver?.Complete();
+                // The held checkpoint goes out before the next datasource's start and the scan's ending.
+                await progressEmitGate.FlushAsync();
             }
 
             if (!string.IsNullOrEmpty(result.Error))
@@ -738,35 +771,47 @@ public class CorruptionDetectionService
                             accepted = true;
                         });
 
-                if (!accepted || !decision.ShouldEmit)
+                // An unchanged checkpoint is the one already sent or the one already held.
+                if (!accepted || !decision.IsNew)
                 {
                     return;
                 }
 
-                await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
+                await progressEmitGate.EmitAsync(decision.Snapshot.StageKey, decision.Snapshot.Revision, async () =>
                 {
-                    OperationId = operationId,
-                    decision.Snapshot.PercentComplete,
-                    Status = OperationStatus.Running,
-                    decision.Snapshot.StageKey,
-                    DetectionMethod = detectionMethod.ToWireString(),
-                    ScanMode = scanMode?.ToWireString(),
-                    EffectiveScanMode = GetContextValue(decision.Snapshot.Context, "effectiveScanMode"),
-                    BaselineStatus = GetContextValue(decision.Snapshot.Context, "baselineStatus"),
-                    Resumed = GetContextValue(decision.Snapshot.Context, "resumed"),
-                    FilesDiscovered = GetContextValue(decision.Snapshot.Context, "filesDiscovered"),
-                    decision.Snapshot.Context,
-                    FilesProcessed = decision.Snapshot.Context["filesProcessed"],
-                    FilesReused = GetContextValue(decision.Snapshot.Context, "filesReused"),
-                    FilesInspected = GetContextValue(decision.Snapshot.Context, "filesInspected"),
-                    FilesRevalidated = GetContextValue(decision.Snapshot.Context, "filesRevalidated"),
-                    InvalidFiles = GetContextValue(decision.Snapshot.Context, "invalidFiles"),
-                    FilesPendingRetry = GetContextValue(decision.Snapshot.Context, "filesPendingRetry"),
-                    FilesPruned = GetContextValue(decision.Snapshot.Context, "filesPruned"),
-                    StateEntries = GetContextValue(decision.Snapshot.Context, "stateEntries"),
-                    StateCommitted = GetContextValue(decision.Snapshot.Context, "stateCommitted"),
-                    TotalFiles = decision.Snapshot.Context["totalFiles"],
-                    DatasourceName = datasourceName
+                    // A held checkpoint goes out up to one interval later, and a force stop can end the run from
+                    // outside in between.
+                    if (_operationTracker.GetOperation(operationId) is not { CompletedFlag: 0 } run
+                        || run.Status.IsTerminal())
+                    {
+                        return;
+                    }
+
+                    await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
+                    {
+                        OperationId = operationId,
+                        decision.Snapshot.PercentComplete,
+                        Status = OperationStatus.Running,
+                        decision.Snapshot.StageKey,
+                        DetectionMethod = detectionMethod.ToWireString(),
+                        ScanMode = scanMode?.ToWireString(),
+                        EffectiveScanMode = GetContextValue(decision.Snapshot.Context, "effectiveScanMode"),
+                        BaselineStatus = GetContextValue(decision.Snapshot.Context, "baselineStatus"),
+                        Resumed = GetContextValue(decision.Snapshot.Context, "resumed"),
+                        FilesDiscovered = GetContextValue(decision.Snapshot.Context, "filesDiscovered"),
+                        decision.Snapshot.Context,
+                        FilesProcessed = decision.Snapshot.Context["filesProcessed"],
+                        FilesReused = GetContextValue(decision.Snapshot.Context, "filesReused"),
+                        FilesInspected = GetContextValue(decision.Snapshot.Context, "filesInspected"),
+                        FilesRevalidated = GetContextValue(decision.Snapshot.Context, "filesRevalidated"),
+                        InvalidFiles = GetContextValue(decision.Snapshot.Context, "invalidFiles"),
+                        FilesPendingRetry = GetContextValue(decision.Snapshot.Context, "filesPendingRetry"),
+                        FilesPruned = GetContextValue(decision.Snapshot.Context, "filesPruned"),
+                        StateEntries = GetContextValue(decision.Snapshot.Context, "stateEntries"),
+                        StateCommitted = GetContextValue(decision.Snapshot.Context, "stateCommitted"),
+                        TotalFiles = decision.Snapshot.Context["totalFiles"],
+                        DatasourceName = datasourceName
+                    });
                 });
             }
         }

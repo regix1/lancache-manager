@@ -646,7 +646,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   };
 
   const nicknamesHelpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.sections.clients.help.aboutTitle')}>
         {t('management.sections.clients.subtitle')}
       </HelpSection>
@@ -654,15 +654,18 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   );
 
   const exclusionsHelpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.sections.clients.help.exclusionsTitle')}>
         {t('management.sections.clients.exclusionsSummary')}
+      </HelpSection>
+      <HelpSection title={t('management.sections.clients.help.prefillRulesTitle')}>
+        {t('management.sections.clients.prefillNatLimit')}
       </HelpSection>
     </HelpPopover>
   );
 
   const hostnamesHelpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.sections.clients.hostnames.help.aboutTitle')}>
         {t('management.sections.clients.hostnames.description')}
       </HelpSection>
@@ -990,7 +993,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                 </span>
               </Alert>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div className="space-y-3">
                   {/* What each mode does is the first thing anyone adding a client wants to know. */}
                   <Tooltip
@@ -998,9 +1001,11 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     position="bottom"
                   >
                     <h4 className="mgmt-subhead caps-label">
-                      {t('management.sections.clients.pickFromKnownClients')}
+                      {t('management.sections.clients.addClientsHeading')}
                     </h4>
                   </Tooltip>
+                  {/* Every add button in the card is one fixed width that never shrinks, so they
+                      share one column edge with Save below. */}
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                     <MultiSelectDropdown
                       options={knownClientOptions}
@@ -1010,13 +1015,13 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       minSelections={0}
                       searchable
                       disabled={loadingExcluded || knownClientOptions.length === 0}
-                      className="w-full"
+                      className="w-full min-w-0"
                     />
                     <Button
                       onClick={handleAddKnownIps}
                       variant="filled"
                       color="secondary"
-                      className="sm:w-40"
+                      className="sm:w-40 flex-shrink-0"
                       disabled={selectedKnownIps.length === 0 || loadingExcluded}
                     >
                       {t('management.sections.clients.addSelected')}
@@ -1036,14 +1041,14 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       value={excludeInput}
                       onChange={(e) => setExcludeInput(e.target.value)}
                       placeholder={t('management.sections.clients.addIpsPlaceholder')}
-                      className="themed-input control-h-md w-full px-3 text-sm transition-colors"
+                      className="themed-input control-h-md w-full min-w-0 px-3 text-sm transition-colors"
                       disabled={loadingExcluded}
                     />
                     <Button
                       onClick={handleAddExcluded}
                       variant="filled"
                       color="secondary"
-                      className="sm:w-40"
+                      className="sm:w-40 flex-shrink-0"
                       disabled={
                         loadingExcluded ||
                         excludeInput.trim().length === 0 ||
@@ -1067,12 +1072,15 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       </span>
                     </Alert>
                   )}
+                </div>
 
-                  {/* A rule with no address covers prefill traffic from every client. */}
+                <div className="space-y-3">
+                  {/* A prefill rule needs no address, so its add button belongs to the list. A rule
+                      with no address covers prefill traffic from every client. */}
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <p className="text-xs text-themed-muted">
-                      {t('management.sections.clients.prefillNatLimit')}
-                    </p>
+                    <h4 className="mgmt-subhead caps-label">
+                      {t('management.sections.clients.rulesHeading')}
+                    </h4>
                     <Button
                       onClick={() => addRules([''], 'prefill')}
                       variant="filled"
@@ -1083,128 +1091,128 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       {t('management.sections.clients.addPrefillRule')}
                     </Button>
                   </div>
-                </div>
 
-                {excludedLoadError && (
-                  <ErrorBlock
-                    title={t('management.sections.clients.errors.failedToLoadExcluded')}
-                    message={excludedLoadError}
-                    retryLabel={t('common.retry')}
-                    onRetry={() => void loadExcludedIps(true)}
-                  />
-                )}
-                {loadingExcluded ? (
-                  <LoadingState
-                    message={t('management.sections.clients.loadingExcludedIps')}
-                    shape="list"
-                    rows={3}
-                  />
-                ) : excludedRules.length === 0 ? (
-                  excludedLoadError ? null : (
-                    <EmptyState
-                      variant="text"
-                      title={t('management.sections.clients.noExcludedIps')}
+                  {excludedLoadError && (
+                    <ErrorBlock
+                      title={t('management.sections.clients.errors.failedToLoadExcluded')}
+                      message={excludedLoadError}
+                      retryLabel={t('common.retry')}
+                      onRetry={() => void loadExcludedIps(true)}
                     />
-                  )
-                ) : (
-                  <div className="mgmt-list divided-list">
-                    {excludedRules.map((rule) => (
-                      <div key={rule.rowId} className="mgmt-row clients-exclusion-row flex-wrap">
-                        <div className="mgmt-row__body">
-                          {rule.ip === '' ? (
-                            <div className="mgmt-row__title">
-                              {t('management.sections.clients.anyAddress')}
+                  )}
+                  {loadingExcluded ? (
+                    <LoadingState
+                      message={t('management.sections.clients.loadingExcludedIps')}
+                      shape="list"
+                      rows={3}
+                    />
+                  ) : excludedRules.length === 0 ? (
+                    excludedLoadError ? null : (
+                      <EmptyState
+                        variant="text"
+                        title={t('management.sections.clients.noExcludedIps')}
+                      />
+                    )
+                  ) : (
+                    <div className="mgmt-list divided-list">
+                      {excludedRules.map((rule) => (
+                        <div key={rule.rowId} className="mgmt-row clients-exclusion-row flex-wrap">
+                          <div className="mgmt-row__body">
+                            {rule.ip === '' ? (
+                              <div className="mgmt-row__title">
+                                {t('management.sections.clients.anyAddress')}
+                              </div>
+                            ) : (
+                              <div className="mgmt-row__title font-mono">
+                                <ClientIpDisplay clientIp={rule.ip} showTooltip={false} />
+                              </div>
+                            )}
+                          </div>
+                          <div className="mgmt-row__actions">
+                            {rule.traffic === 'prefill' && (
+                              <MultiSelectDropdown
+                                options={PERSISTENT_PREFILL_SERVICES.map((item) => ({
+                                  value: item.service,
+                                  label: t(`errors.prefill.serviceNames.${item.service}`)
+                                }))}
+                                values={rule.services}
+                                onChange={(values: string[]) =>
+                                  handleChangeServices(rule.rowId, values)
+                                }
+                                placeholder={t('management.sections.clients.allServices')}
+                                title={t('management.sections.clients.servicesLabel')}
+                                minSelections={0}
+                                className="w-44"
+                              />
+                            )}
+                            <div
+                              role="group"
+                              aria-label={t('management.sections.clients.trafficLabel')}
+                            >
+                              <SegmentedControl
+                                size="sm"
+                                showLabels
+                                value={rule.traffic}
+                                onChange={(traffic: string) =>
+                                  handleChangeTraffic(
+                                    rule.rowId,
+                                    traffic === 'prefill' ? 'prefill' : 'all'
+                                  )
+                                }
+                                options={[
+                                  {
+                                    value: 'all',
+                                    label: t('management.sections.clients.trafficAll'),
+                                    // The server refuses an all-traffic rule with no address.
+                                    disabled: rule.ip === ''
+                                  },
+                                  {
+                                    value: 'prefill',
+                                    label: t('management.sections.clients.trafficPrefill')
+                                  }
+                                ]}
+                              />
                             </div>
-                          ) : (
-                            <div className="mgmt-row__title font-mono">
-                              <ClientIpDisplay clientIp={rule.ip} showTooltip={false} />
-                            </div>
-                          )}
-                        </div>
-                        <div className="mgmt-row__actions">
-                          {rule.traffic === 'prefill' && (
-                            <MultiSelectDropdown
-                              options={PERSISTENT_PREFILL_SERVICES.map((item) => ({
-                                value: item.service,
-                                label: t(`errors.prefill.serviceNames.${item.service}`)
-                              }))}
-                              values={rule.services}
-                              onChange={(values: string[]) =>
-                                handleChangeServices(rule.rowId, values)
-                              }
-                              placeholder={t('management.sections.clients.allServices')}
-                              title={t('management.sections.clients.servicesLabel')}
-                              minSelections={0}
-                              className="w-44"
-                            />
-                          )}
-                          <div
-                            role="group"
-                            aria-label={t('management.sections.clients.trafficLabel')}
-                          >
                             <SegmentedControl
                               size="sm"
                               showLabels
-                              value={rule.traffic}
-                              onChange={(traffic: string) =>
-                                handleChangeTraffic(
-                                  rule.rowId,
-                                  traffic === 'prefill' ? 'prefill' : 'all'
-                                )
+                              value={rule.mode}
+                              onChange={(mode: string) =>
+                                handleChangeMode(rule.rowId, mode === 'hide' ? 'hide' : 'exclude')
                               }
                               options={[
                                 {
-                                  value: 'all',
-                                  label: t('management.sections.clients.trafficAll'),
-                                  // The server refuses an all-traffic rule with no address.
-                                  disabled: rule.ip === ''
+                                  value: 'exclude',
+                                  label: t('management.sections.clients.modeExclude'),
+                                  tooltip: t('management.sections.clients.modeExcludeTooltip')
                                 },
                                 {
-                                  value: 'prefill',
-                                  label: t('management.sections.clients.trafficPrefill')
+                                  value: 'hide',
+                                  label: t('management.sections.clients.modeHide'),
+                                  tooltip: t('management.sections.clients.modeHideTooltip')
                                 }
                               ]}
                             />
+                            <Tooltip content={t('management.sections.clients.removeIp')}>
+                              <Button
+                                variant="filled"
+                                color="secondary"
+                                size="sm"
+                                className="btn-icon-square btn-icon-square--sm delete-hover pointer-target-44"
+                                onClick={() => handleRemoveExcluded(rule.rowId)}
+                                aria-label={t('management.sections.clients.removeIp')}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </Tooltip>
                           </div>
-                          <SegmentedControl
-                            size="sm"
-                            showLabels
-                            value={rule.mode}
-                            onChange={(mode: string) =>
-                              handleChangeMode(rule.rowId, mode === 'hide' ? 'hide' : 'exclude')
-                            }
-                            options={[
-                              {
-                                value: 'exclude',
-                                label: t('management.sections.clients.modeExclude'),
-                                tooltip: t('management.sections.clients.modeExcludeTooltip')
-                              },
-                              {
-                                value: 'hide',
-                                label: t('management.sections.clients.modeHide'),
-                                tooltip: t('management.sections.clients.modeHideTooltip')
-                              }
-                            ]}
-                          />
-                          <Tooltip content={t('management.sections.clients.removeIp')}>
-                            <Button
-                              variant="filled"
-                              color="secondary"
-                              size="sm"
-                              className="btn-icon-square btn-icon-square--sm delete-hover pointer-target-44"
-                              onClick={() => handleRemoveExcluded(rule.rowId)}
-                              aria-label={t('management.sections.clients.removeIp')}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </Tooltip>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                   <span className="text-xs text-themed-muted">
                     {hasExcludedChanges ? t('management.sections.clients.unsavedChanges') : ''}
                   </span>

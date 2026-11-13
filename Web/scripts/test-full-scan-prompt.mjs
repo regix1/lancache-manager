@@ -238,7 +238,8 @@ test('a skipped run releases the full-scan action and leaves an open prompt open
   app.requests[0].resolve(required());
   await settled();
   assert.equal(app.state.visible, true);
-  // A full-scan click that met the skipped run got a conflict and left the action marked running.
+  // Set by hand: it stands for a full-scan click whose start request is still open when the
+  // skipped run ends.
   app.fullScanActionRunningRef.current = true;
   // The server reports a skipped run as successful, with its typed status.
   app.emit('DepotMappingComplete', { success: true, status: 'skipped' });

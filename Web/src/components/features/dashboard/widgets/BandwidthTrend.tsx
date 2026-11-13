@@ -431,7 +431,7 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
           <h3 className="dash-panel-title">
             {t(isCompare ? 'widgets.eventCompare.title' : 'widgets.bandwidthTrend.title')}
           </h3>
-          <HelpPopover width={280}>
+          <HelpPopover width={280} aria-label={t('common.help')}>
             {isCompare ? (
               <>
                 <HelpSection title={t('widgets.eventCompare.help.aboutTitle')}>

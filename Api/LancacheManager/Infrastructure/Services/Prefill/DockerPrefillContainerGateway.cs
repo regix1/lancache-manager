@@ -1,3 +1,7 @@
+using System.IO.Pipes;
+using System.Net;
+using System.Net.Sockets;
+using System.Text.Json;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Core.Interfaces;
@@ -6,7 +10,8 @@ namespace LancacheManager.Infrastructure.Services;
 
 /// <summary>
 /// Production <see cref="IPrefillContainerGateway"/> backed by a Docker.DotNet <see cref="DockerClient"/>.
-/// Every member delegates one-to-one to the matching <c>DockerClient</c> call. Short calls, including the
+/// Every member delegates one-to-one to the matching <c>DockerClient</c> call, except
+/// <see cref="GetDistributionDigestAsync"/>, which sends its one Engine request itself. Short calls, including the
 /// open step of logs and exec, fail with <see cref="DockerTimeoutException"/> after <c>_shortCallLimit</c>
 /// instead of Docker.DotNet's 100-second default; a pull fails after <c>_pullSilenceLimit</c> without a
 /// progress message. A cancel of the caller's own token stays a cancel. <see cref="ConnectAsync"/> keeps a
@@ -21,6 +26,7 @@ public sealed class DockerPrefillContainerGateway : IPrefillContainerGateway
     private static readonly TimeSpan _pullSilenceLimit = TimeSpan.FromSeconds(60);
 
     private DockerClient? _client;
+    private HttpClient? _engine;
     private bool _disposed;
 
     public bool IsAvailable => _client != null;
@@ -30,10 +36,65 @@ public sealed class DockerPrefillContainerGateway : IPrefillContainerGateway
         var client = new DockerClientConfiguration(dockerUri).CreateClient();
         var version = await WithinLimitAsync(limitedToken => client.System.GetVersionAsync(limitedToken), cancellationToken);
         _client = client;
+        // Docker.DotNet has no distribution call, so that one request goes over the same endpoint directly.
+        _engine = new HttpClient(new SocketsHttpHandler
+        {
+            UseProxy = false,
+            ConnectCallback = (_, connectToken) => OpenEngineStreamAsync(dockerUri, connectToken)
+        })
+        {
+            BaseAddress = new Uri("http://localhost")
+        };
         return version;
     }
 
+    private static async ValueTask<Stream> OpenEngineStreamAsync(Uri dockerUri, CancellationToken cancellationToken)
+    {
+        if (dockerUri.Scheme == "npipe")
+        {
+            // npipe://./pipe/docker_engine: the server is the host and the pipe is the last segment.
+            var pipe = new NamedPipeClientStream(dockerUri.Host, dockerUri.Segments[^1], PipeDirection.InOut, PipeOptions.Asynchronous);
+            try
+            {
+                await pipe.ConnectAsync(cancellationToken);
+            }
+            catch
+            {
+                // The handler owns only a stream this method returns, so a connect that fails closes its own.
+                await pipe.DisposeAsync();
+                throw;
+            }
+            return pipe;
+        }
+
+        Socket socket;
+        EndPoint endpoint;
+        if (dockerUri.Scheme == "unix")
+        {
+            socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+            endpoint = new UnixDomainSocketEndPoint(dockerUri.LocalPath);
+        }
+        else
+        {
+            socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+            endpoint = new DnsEndPoint(dockerUri.Host, dockerUri.Port);
+        }
+        try
+        {
+            await socket.ConnectAsync(endpoint, cancellationToken);
+        }
+        catch
+        {
+            socket.Dispose();
+            throw;
+        }
+        return new NetworkStream(socket, ownsSocket: true);
+    }
+
     private DockerClient Client => _client
+        ?? throw new InvalidOperationException("Docker client is not connected. Check IsAvailable before invoking container operations.");
+
+    private HttpClient Engine => _engine
         ?? throw new InvalidOperationException("Docker client is not connected. Check IsAvailable before invoking container operations.");
 
     private static async Task<T> WithinLimitAsync<T>(Func<CancellationToken, Task<T>> call, CancellationToken cancellationToken)
@@ -122,6 +183,34 @@ public sealed class DockerPrefillContainerGateway : IPrefillContainerGateway
     public Task<ImageInspectResponse> InspectImageAsync(string name, CancellationToken cancellationToken)
         => WithinLimitAsync(limitedToken => Client.Images.InspectImageAsync(name, limitedToken), cancellationToken);
 
+    public async Task<string> GetDistributionDigestAsync(string name, CancellationToken cancellationToken)
+    {
+        // The registry lookup is the step of a pull that sends no progress message, so it gets the same limit.
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limit.CancelAfter(_pullSilenceLimit);
+        try
+        {
+            using var response = await Engine.GetAsync($"/distribution/{name}/json", limit.Token);
+            var body = await response.Content.ReadAsStringAsync(limit.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new DockerApiException(response.StatusCode, body);
+            }
+
+            using var document = JsonDocument.Parse(body);
+            var digest = document.RootElement.GetProperty("Descriptor").GetProperty("digest").GetString();
+            if (string.IsNullOrWhiteSpace(digest))
+            {
+                throw new InvalidOperationException($"Docker returned no registry digest for {name}.");
+            }
+            return digest;
+        }
+        catch (OperationCanceledException ex) when (limit.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new DockerTimeoutException($"Docker did not answer the registry lookup within {_pullSilenceLimit.TotalSeconds:0} seconds.", ex);
+        }
+    }
+
     public Task<ContainerExecCreateResponse> ExecCreateContainerAsync(string id, ContainerExecCreateParameters parameters, CancellationToken cancellationToken)
         => WithinLimitAsync(limitedToken => Client.Exec.ExecCreateContainerAsync(id, parameters, limitedToken), cancellationToken);
 
@@ -141,5 +230,7 @@ public sealed class DockerPrefillContainerGateway : IPrefillContainerGateway
         _disposed = true;
         _client?.Dispose();
         _client = null;
+        _engine?.Dispose();
+        _engine = null;
     }
 }

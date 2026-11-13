@@ -1,19 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   bindLifted,
+  builtStyles,
   compileToUrl,
   liftConstArrow,
   liftHookCallback,
+  make,
   moduleUrl,
   parseSource,
-  collectNodes,
-  transpile
+  collectNodes
 } from './transpile-module.mjs';
 
 const reactUrl = moduleUrl(`
@@ -209,18 +210,6 @@ const mount = async (hook) => {
   await settle();
   render();
   return { render, read: () => value, unmount: () => component.unmount() };
-};
-
-const make = (path, name, bindings) => {
-  const source = parseSource(path, ts.ScriptKind.TSX);
-  const body = source.statements
-    .filter((node) => !ts.isImportDeclaration(node) && !ts.isExportAssignment(node))
-    .map((node) => node.getText(source))
-    .join('\n')
-    .replace(/\bexport\s+/g, '');
-  const code = transpile(body, ts.ModuleKind.CommonJS, { jsx: ts.JsxEmit.React });
-  const names = Object.keys(bindings).filter((key) => key !== name);
-  return new Function(...names, `${code}\nreturn ${name};`)(...names.map((key) => bindings[key]));
 };
 
 const noop = () => undefined;
@@ -1953,12 +1942,7 @@ test(
       });
       applyTheme.call({ generateComputedColorVars }, theme, { persist: false });
     }
-    const assets = new URL('../dist/assets/', import.meta.url);
-    const styles = readdirSync(assets)
-      .filter((file) => file.endsWith('.css'))
-      .sort((a, b) => Number(b.startsWith('index-')) - Number(a.startsWith('index-')))
-      .map((file) => readFileSync(new URL(file, assets), 'utf8'))
-      .join('\n');
+    const styles = builtStyles();
     const shared = {
       React,
       Button,
@@ -1972,6 +1956,7 @@ test(
       User: icon,
       UserCheck: icon,
       Key: icon,
+      SteamIcon: icon,
       EpicIcon: icon,
       XboxIcon: icon,
       ExternalLink: icon,
@@ -1980,6 +1965,7 @@ test(
       HelpDefinition: () => null,
       HelpNote: passthrough,
       Alert: passthrough,
+      CustomScrollbar: passthrough,
       SteamAuthModal: () => null,
       SteamWebApiKeyModal: () => null,
       ConfirmationModal: () => null,

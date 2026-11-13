@@ -13,6 +13,7 @@ export const useFormattedDateTime = (
   dateString: string | Date | null | undefined,
   forceYear = false
 ): string => {
+  // A new clock also arrives on a language switch, which changes the date's form.
   const clock = useReaderClock();
 
   return useMemo(() => {

@@ -22,7 +22,7 @@ public partial class SteamKit2Service
         RunNotice? notice = null,
         TaskCompletionSource<Guid?>? started = null)
     {
-        if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
+        if (!TryTakeDepotLock())
         {
             return false;
         }
@@ -83,7 +83,7 @@ public partial class SteamKit2Service
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Steam PICS depot crawl canceled");
-                // Also a run stopped while it connects, before the depot scan writes its own end state.
+                // Also a run stopped while it connects.
                 _currentStatus = DepotScanPhase.Canceled;
                 _depotRunFailures.TryRemove(reporter.OperationId, out var failure);
                 await reporter.CompleteAsync(
@@ -99,6 +99,7 @@ public partial class SteamKit2Service
             {
                 _logger.LogError(ex, "Steam PICS depot crawl failed");
                 _currentStatus = DepotScanPhase.Error;
+                _lastErrorMessage = ex.Message;
                 await reporter.CompleteAsync(
                     success: false,
                     error: ex.Message,
@@ -107,10 +108,12 @@ public partial class SteamKit2Service
             }
             finally
             {
-                if (!_hasPendingLoginOwner && _steamClient?.IsConnected == true)
+                // A sign-in can hold the gate for minutes; it then owns the session, so the crawl leaves it and
+                // ends instead of waiting.
+                var version = Interlocked.Read(ref _sessionVersion);
+                if (!_hasPendingLoginOwner && _steamClient?.IsConnected == true
+                    && await _sessionGate.WaitAsync(TimeSpan.FromSeconds(5)))
                 {
-                    var version = Interlocked.Read(ref _sessionVersion);
-                    await _sessionGate.WaitAsync();
                     try
                     {
                         if (!_hasPendingLoginOwner && version == Interlocked.Read(ref _sessionVersion))
@@ -122,17 +125,10 @@ public partial class SteamKit2Service
                     finally { _sessionGate.Release(); }
                 }
 
-                runCts.Dispose();
                 _depotRunFailures.TryRemove(reporter.OperationId, out _);
-                if (ReferenceEquals(_currentRebuildCts, runCts))
-                {
-                    _currentRebuildCts = null;
-                    _currentMappingReporter = null;
-                    _currentPicsOperationId = null;
-                    _picsCrawlRunning = false;
-                    Interlocked.Exchange(ref _rebuildActive, 0);
-                    RaiseExecutionStateChanged();
-                }
+                // Unpublished before it is disposed, so a sign-out never finds a disposed source to cancel.
+                ReleaseDepotLock();
+                runCts.Dispose();
             }
         }
 
@@ -152,6 +148,48 @@ public partial class SteamKit2Service
             }
         }, CancellationToken.None);
         return true;
+    }
+
+    /// <summary>
+    /// Takes the single depot-run flag, with a conflict hold beside it, or answers false while another depot run
+    /// holds it. Both stay until <see cref="ReleaseDepotLock"/> at the end of the run's own code: a force stop
+    /// ends the run's card at once while its code may still be finishing, and the hold keeps every conflict
+    /// check seeing the run until then, so a request made meanwhile waits on a card and starts after it.
+    /// </summary>
+    private bool TryTakeDepotLock()
+    {
+        if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0) return false;
+        try
+        {
+            // The checker is a singleton (Program.cs registration), so every conflict check reads this hold.
+            using var scope = _scopeFactory.CreateScope();
+            _depotRunHold = scope.ServiceProvider.GetRequiredService<IOperationConflictChecker>().HoldRun(
+                OperationType.DepotMapping, [ConflictScope.Bulk()], () => _currentPicsOperationId ?? Guid.Empty);
+            return true;
+        }
+        catch
+        {
+            // No run starts, so nothing else would free the flag.
+            Interlocked.Exchange(ref _rebuildActive, 0);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Ends a depot run at the end of its own code, on every exit: clears what it published, frees the flag,
+    /// then drops the hold, which wakes the requests waiting on it.
+    /// </summary>
+    private void ReleaseDepotLock()
+    {
+        _currentRebuildCts = null;
+        _currentMappingReporter = null;
+        _currentPicsOperationId = null;
+        _picsCrawlRunning = false;
+        // Taken before the flag frees: a run that starts right after it installs a hold of its own.
+        var hold = Interlocked.Exchange(ref _depotRunHold, null);
+        Interlocked.Exchange(ref _rebuildActive, 0);
+        hold?.Dispose();
+        RaiseExecutionStateChanged();
     }
 
     /// <summary>
@@ -248,8 +286,7 @@ public partial class SteamKit2Service
 
     private MappingOperationReporter CreateDepotMappingReporter(
         CancellationToken token,
-        RunNotice notice,
-        Action? onTerminalCleanup = null) =>
+        RunNotice notice) =>
         new(
             _notifications,
             _operationTracker,
@@ -257,32 +294,17 @@ public partial class SteamKit2Service
             notice,
             token,
             _logger,
-            CreateDepotPayloadFactories(),
-            onTerminalCleanup);
+            CreateDepotPayloadFactories());
 
     /// <summary>
-    /// The reporter every rebuild-style depot run uses (PICS, GitHub, apply-to-downloads): its
-    /// terminal cleanup releases the run's tracking fields only when this run still owns them,
-    /// then clears the rebuild flag and re-publishes execution state. One home for the closure
-    /// the three run entry points used to carry as identical copies.
+    /// The reporter every rebuild-style depot run uses (PICS, GitHub, local import, apply-to-downloads),
+    /// published as the current run's. The run releases its tracking fields and the rebuild flag itself, in
+    /// <see cref="ReleaseDepotLock"/> at the end of its code, not when its card ends: a force stop ends the card
+    /// while the code may still be finishing.
     /// </summary>
     private MappingOperationReporter CreateTrackedRebuildReporter(CancellationTokenSource runCts, RunNotice notice)
     {
-        var reporter = CreateDepotMappingReporter(
-            runCts.Token,
-            notice,
-            () =>
-            {
-                if (ReferenceEquals(_currentRebuildCts, runCts))
-                {
-                    _currentRebuildCts = null;
-                    _currentMappingReporter = null;
-                    _currentPicsOperationId = null;
-                }
-
-                Interlocked.Exchange(ref _rebuildActive, 0);
-                RaiseExecutionStateChanged();
-            });
+        var reporter = CreateDepotMappingReporter(runCts.Token, notice);
         _currentMappingReporter = reporter;
         return reporter;
     }
@@ -396,7 +418,7 @@ public partial class SteamKit2Service
     private static bool ContextBool(Dictionary<string, object?>? context, string key) =>
         context?.TryGetValue(key, out var value) == true && value is bool flag && flag;
 
-    private async Task ConnectAndBuildIndexAsync(CancellationToken ct, bool incrementalOnly = false)
+    private async Task ConnectAndBuildIndexAsync(CancellationToken ct, bool incrementalOnly)
     {
         try
         {
@@ -413,34 +435,45 @@ public partial class SteamKit2Service
     /// <summary>
     /// Build depot index by querying PICS for all apps
     /// </summary>
-    private async Task BuildDepotIndexAsync(CancellationToken ct, bool incrementalOnly = false)
+    private async Task BuildDepotIndexAsync(CancellationToken ct, bool incrementalOnly)
     {
+        var finished = false;
         try
         {
             var (appIds, isIncremental) = await PrepareForScanAsync(ct, incrementalOnly);
             await ProcessAppBatchesAsync(appIds, ct);
             await FinalizeAndNotifyAsync(isIncremental, ct);
+            finished = true;
         }
         catch (OperationCanceledException)
         {
             // Cancellation is expected - don't log as error
-            _currentStatus = DepotScanPhase.Canceled;
             _logger.LogDebug("Depot mapping scan was canceled");
-            // Notification is sent by RunAsync when it catches this exception
+            // The phase and the notification are set by RunAsync when it catches this exception
             throw;
         }
         catch (Exception ex)
         {
-            _currentStatus = DepotScanPhase.Error;
-            _lastErrorMessage = ex.Message;
             _logger.LogError(ex, "Error building depot index");
 
             // Terminal DepotMappingComplete (error) is emitted by the onTerminalEmit closure inside
-            // CompleteOperation. The exception propagates to RunAsync, which passes ex.Message as the
-            // error to CompleteOperation, so the closure reconstructs the same wire message/error.
+            // CompleteOperation. The exception propagates to RunAsync, which sets the phase and error and
+            // passes ex.Message as the error to CompleteOperation, so the closure reconstructs the same
+            // wire message/error.
 
             // Re-throw the exception so calling code knows the operation failed
             throw;
+        }
+        finally
+        {
+            // A full crawl empties the maps before it lists apps, and only a finished one saves what it
+            // found. One that stops early would leave them empty or partial while the table still holds
+            // the last saved set, so the progress count and readiness read the table again. The crawl still
+            // holds the depot lock here, so no other depot run can start before this read lands.
+            if (!incrementalOnly && !finished)
+            {
+                await ReadMappingsBackAsync("an unfinished full crawl");
+            }
         }
     }
 
@@ -449,8 +482,9 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task<(List<uint> appIds, bool isIncremental)> PrepareForScanAsync(CancellationToken ct, bool incrementalOnly)
     {
-        await PinBaselineAsync();
+        await PinBaselineAsync(ct);
         var baseline = await GetDepotBaselineAsync();
+        ct.ThrowIfCancellationRequested();
         if (incrementalOnly && !baseline.HasUsableBaseline)
             throw new InvalidOperationException("A full scan or a committed depot snapshot is required before incremental updates");
         _currentStatus = DepotScanPhase.Connecting;
@@ -481,6 +515,8 @@ public partial class SteamKit2Service
 
         // Load existing data from JSON file if it exists
         var existingData = await _picsDataService.LoadFromJsonAsync();
+        // The file read takes no token; a run stopped during it ends here, before it clears or loads the maps.
+        ct.ThrowIfCancellationRequested();
         bool hasExistingJsonData = existingData?.DepotMappings?.Any() == true;
         bool hasExistingDatabaseData = estimatedDatabaseDepotCount > 1000; // Require substantial database data (not just a few mappings)
         bool hasExistingData = hasExistingJsonData || hasExistingDatabaseData;
@@ -508,7 +544,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("Incremental update mode - loading existing data");
 
             // Load existing mappings from database first
-            await LoadDepotMappingsAsync();
+            await LoadDepotMappingsAsync(cancellationToken: ct);
             _logger.LogInformation("Loaded {Count} mappings from database into memory", _depotToAppMappings.Count);
 
             // Load change number from JSON if available
@@ -705,7 +741,7 @@ public partial class SteamKit2Service
             "signalr.depotMapping.saving");
 
         // Final save - use merge for incremental, full save for complete rebuild
-        await SaveAllMappingsToJsonAsync(incrementalOnly);
+        await SaveAllMappingsToJsonAsync(incrementalOnly, ct);
 
         // Resolve orphan depots BEFORE DB import: depots observed in Downloads but not found during PICS enumeration
         // This handles delisted/removed games whose depots are still served by the lancache
@@ -731,7 +767,7 @@ public partial class SteamKit2Service
             _logger.LogWarning(ex, "Orphan depot resolution failed (non-fatal)");
             _failedOrphanBatches++;
         }
-        if (orphanDepotIds.Count > 0) await SaveAllMappingsToJsonAsync(incrementalOnly);
+        if (orphanDepotIds.Count > 0) await SaveAllMappingsToJsonAsync(incrementalOnly, ct);
 
         _currentStatus = DepotScanPhase.Importing;
         await SendPostProcessingProgressAsync(
@@ -909,7 +945,7 @@ public partial class SteamKit2Service
     ///
     /// SECONDARY VIABILITY CHECK (during execution):
     /// - If incrementalOnly=true (automatic scans): Throws exception if Steam requires full scan
-    /// - If incrementalOnly=false (manual scans): Silently falls back to Web API if needed
+    /// - If incrementalOnly=false (manual scans): Lists every app through the Web API
     ///
     /// This is separate from the pre-flight check in the controller because:
     /// 1. Automatic scheduled scans don't go through the controller viability check
@@ -937,7 +973,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("Full scan requested - enumerating all apps via Web API V2/V1");
             try
             {
-                var webApiAppIds = await GetAppIdsViaWebApiAsync();
+                var webApiAppIds = await GetAppIdsViaWebApiAsync(ct);
 
                 // Success! Add all app IDs to our collection
                 foreach (var appId in webApiAppIds)
@@ -996,10 +1032,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("Updated change number to {ChangeNumber} for this crawl", _lastChangeNumberSeen);
         }
 
-        int consecutiveFullUpdates = 0;
-        const int maxFullUpdates = 3;
-
-        while (since < currentChangeNumber && consecutiveFullUpdates < maxFullUpdates)
+        while (since < currentChangeNumber)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -1010,53 +1043,23 @@ public partial class SteamKit2Service
                 return await WaitForCallbackAsync(job, ct);
             }, "PICS incremental changes", ct);
 
-            if (changes.RequiresFullUpdate || changes.RequiresFullAppUpdate)
+            // Steam knows the change number but refuses to list that many changed apps at once, and the
+            // request takes no upper bound to split it by, so the changed apps come from their own change numbers.
+            if (!changes.RequiresFullUpdate && changes.RequiresFullAppUpdate)
             {
-                consecutiveFullUpdates++;
-
-                // Steam is requesting a full update - this means the change gap is too large
-                // Try to use the Steam Web API (V2/V1) to get all app IDs
-                _logger.LogWarning("PICS requesting full update - change gap is too large for incremental scan. Attempting to use Steam Web API for full enumeration.");
-                _lastScanWasForced = true; // Mark that scan was forced to be full
-
-                if (incrementalOnly)
-                {
-                    throw new InvalidOperationException("Steam requires a full scan - change gap is too large for incremental update. Please download the latest depot mappings from GitHub using the 'Download Pre-created Data' button in the Management page, or run a full scan instead.");
-                }
-
-                try
-                {
-                    // Try to enumerate via Web API (V2 or V1 with API key)
-                    _logger.LogInformation("Attempting full scan via Steam Web API (V2/V1 fallback)");
-                    var webApiAppIds = await GetAppIdsViaWebApiAsync();
-
-                    // Success! Add all app IDs to our collection
-                    foreach (var appId in webApiAppIds)
-                    {
-                        allApps.Add(appId);
-                    }
-
-                    _logger.LogInformation("Successfully enumerated {Count} apps via Steam Web API - continuing with PICS scan", webApiAppIds.Count);
-
-                    // Break out of PICS loop since we got all apps via Web API
-                    break;
-                }
-                catch (Exception webApiEx)
-                {
-                    _logger.LogError(webApiEx, "Failed to enumerate via Steam Web API - full scan not possible");
-
-                    // Provide helpful error message based on the exception
-                    var errorMessage = webApiEx.Message;
-                    if (string.IsNullOrEmpty(errorMessage))
-                    {
-                        errorMessage = "Steam requires a full scan, but the Steam Web API is unavailable. Please download the latest depot mappings from GitHub using the 'Download Pre-created Data' button in the Management page.";
-                    }
-
-                    throw new InvalidOperationException(errorMessage, webApiEx);
-                }
+                allApps.UnionWith(await GetAppsChangedSinceAsync(currentSince, currentChangeNumber, ct));
+                break;
             }
 
-            consecutiveFullUpdates = 0;
+            if (changes.RequiresFullUpdate)
+            {
+                // Steam is requesting a full update - this means the change gap is too large, and an
+                // incremental crawl stops here; only a full scan lists every app
+                _logger.LogWarning("PICS requesting full update - change gap is too large for incremental scan.");
+                _lastScanWasForced = true; // Mark that scan was forced to be full
+
+                throw new InvalidOperationException("Steam requires a full scan - change gap is too large for incremental update. Please download the latest depot mappings from GitHub using the 'Download Pre-created Data' button in the Management page, or run a full scan instead.");
+            }
 
             foreach (var change in changes.AppChanges)
             {
@@ -1091,15 +1094,52 @@ public partial class SteamKit2Service
     }
 
     /// <summary>
-    /// Enumerate all app IDs via Steam Web API V2/V1 (used when PICS requires full update)
+    /// Lists the apps the depot mappings know whose PICS change number is past <paramref name="since"/>.
+    /// A metadata-only request carries each app's change number without its app info and needs no access token.
+    /// Apps the mappings do not know yet are listed by the next run in which they change, or by a full scan.
+    /// </summary>
+    private async Task<List<uint>> GetAppsChangedSinceAsync(uint since, uint currentChangeNumber, CancellationToken ct)
+    {
+        var knownApps = _depotToAppMappings.Values.SelectMany(apps => apps)
+            .Concat(_depotOwners.Values)
+            .Distinct()
+            .Order()
+            .ToList();
+
+        var changedApps = new List<uint>();
+        foreach (var batch in knownApps.Chunk(AppBatchSize))
+        {
+            var callbacks = await RunPicsWithRecoveryAsync(async () =>
+            {
+                var requests = batch.Select(appId => new SteamApps.PICSRequest(appId));
+                var job = _steamApps!.PICSGetProductInfo(requests, Enumerable.Empty<SteamApps.PICSRequest>(), metaDataOnly: true);
+                return await WaitForProductInfoAsync(job, ct);
+            }, "PICS change number batch", ct);
+
+            foreach (var callback in callbacks)
+            {
+                changedApps.AddRange(callback.Apps.Values
+                    .Where(app => app.ChangeNumber > since)
+                    .Select(app => app.ID));
+            }
+        }
+
+        _logger.LogInformation(
+            "Steam would not list the apps changed from #{FromChange} to #{CurrentChange}; {Changed} of {Known} known apps changed in that range",
+            since, currentChangeNumber, changedApps.Count, knownApps.Count);
+        return changedApps;
+    }
+
+    /// <summary>
+    /// Enumerate all app IDs via Steam Web API V2/V1 for a full crawl
     /// Falls back from V2 (no auth) to V1 (with API key)
     /// </summary>
-    private async Task<List<uint>> GetAppIdsViaWebApiAsync()
+    private async Task<List<uint>> GetAppIdsViaWebApiAsync(CancellationToken ct)
     {
         _logger.LogInformation("Attempting to enumerate app IDs via Steam Web API (V2/V1 fallback)");
 
         // Check if Web API is operational (force refresh to ensure latest configuration)
-        var status = await _steamWebApiService.GetApiStatusAsync(forceRefresh: true);
+        var status = await _steamWebApiService.GetApiStatusAsync(forceRefresh: true, ct);
 
         if (!status.IsFullyOperational)
         {
@@ -1123,7 +1163,7 @@ public partial class SteamKit2Service
         }
 
         // Get app list from Web API (V2 or V1 with key)
-        var apps = await _steamWebApiService.GetAppListAsync();
+        var apps = await _steamWebApiService.GetAppListAsync(ct);
 
         if (apps == null || apps.Count == 0)
         {

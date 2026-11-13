@@ -275,7 +275,7 @@ fn scan_cache_directory(cache_dir: &Path) -> (HashMap<u128, u64>, usize) {
                 unreadable.fetch_add(1, Ordering::Relaxed);
                 return None;
             };
-            Some((digest, metadata.len()))
+            Some((digest, cache_utils::allocated_size(&metadata)))
         })
         .collect();
 
@@ -737,7 +737,7 @@ Cancel requested - stopping unmapped file removal after {}/{} files",
         match fs::remove_file(&path) {
             Ok(()) => {
                 outcome.removal.deleted_files += 1;
-                outcome.removal.bytes_freed += stat.len();
+                outcome.removal.bytes_freed += cache_utils::allocated_size(&stat);
                 if let Some(parent) = path.parent() {
                     outcome.removal.parent_dirs.insert(parent.to_path_buf());
                 }
@@ -1975,12 +1975,13 @@ mod tests {
         write_cache_file(&other_disk, digest, "steam/depot/1/chunk/a", "0123456789");
         std::os::unix::fs::symlink(other_disk.join("ab"), root.join("ab")).unwrap();
 
+        let on_disk = cache_utils::allocated_size(
+            &fs::metadata(cache_utils::cache_path_for_digest(&other_disk, digest)).unwrap(),
+        );
+
         let (index, _) = scan_cache_directory(&root);
 
-        assert_eq!(
-            index.get(&digest),
-            Some(&(b"KEY: steam/depot/1/chunk/a\n0123456789".len() as u64))
-        );
+        assert_eq!(index.get(&digest), Some(&on_disk));
     }
 
     #[cfg(unix)]

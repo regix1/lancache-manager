@@ -68,29 +68,55 @@ internal static class TrackedRemovalOperationRunner
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var report = await config.ExecuteAsync(
-                    operationId,
-                    cancellationToken,
-                    async update =>
-                    {
-                        var captured = update with
+                // The removal binaries report every few files for the whole run, and every browser gets
+                // each send, so the tracker takes every update while the broadcast goes out on a stage
+                // change or at most every 250 ms; an update held by the interval goes out when it ends.
+                // The finalizing send below carries the final counts.
+                var progressEmitGate = new ProgressEmitGate();
+                long progressRevision = 0;
+                TReport report;
+                try
+                {
+                    report = await config.ExecuteAsync(
+                        operationId,
+                        cancellationToken,
+                        async update =>
                         {
-                            Context = update.Context == null ? null : new(update.Context)
-                        };
-                        var accepted = false;
-                        operationTracker.UpdateProgress(operationId, captured.PercentComplete, captured.StageKey,
-                            onProgress: _ =>
+                            var captured = update with
                             {
-                                config.ApplyProgressMetrics?.Invoke(config.Metrics, captured);
-                                accepted = true;
-                            });
-                        if (accepted)
-                        {
-                            await notifications.NotifyAllAsync(
-                                config.ProgressEventName,
-                                config.BuildProgress(operationId, captured));
-                        }
-                    });
+                                Context = update.Context == null ? null : new(update.Context)
+                            };
+                            var accepted = false;
+                            operationTracker.UpdateProgress(operationId, captured.PercentComplete, captured.StageKey,
+                                onProgress: _ =>
+                                {
+                                    config.ApplyProgressMetrics?.Invoke(config.Metrics, captured);
+                                    accepted = true;
+                                });
+                            if (accepted)
+                            {
+                                await progressEmitGate.EmitAsync(captured.StageKey, ++progressRevision, async () =>
+                                {
+                                    // A held update goes out up to one interval later, and a force stop can end
+                                    // the run from outside in between.
+                                    if (operationTracker.GetOperation(operationId) is not { CompletedFlag: 0 } run
+                                        || run.Status.IsTerminal())
+                                    {
+                                        return;
+                                    }
+
+                                    await notifications.NotifyAllAsync(
+                                        config.ProgressEventName,
+                                        config.BuildProgress(operationId, captured));
+                                });
+                            }
+                        });
+                }
+                finally
+                {
+                    // The held update goes out before the finalizing, error or ending send.
+                    await progressEmitGate.FlushAsync();
+                }
 
                 cancellationToken.ThrowIfCancellationRequested();
 

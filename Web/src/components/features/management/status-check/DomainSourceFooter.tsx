@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
+import { HelpPopover } from '@components/ui/HelpPopover';
 import { formatRelativeTime } from '@utils/formatters';
 import type { StatusCheckDomainsSource } from '@services/api.service';
 import { formatRepoShortName } from './helpers';
@@ -29,23 +30,43 @@ const DomainSourceFooter: React.FC<DomainSourceFooterProps> = ({
           repo: formatRepoShortName(source.repoUrl),
           branch: source.branch
         }),
-        source.envSource === 'dockerInspect'
-          ? t(`${keys}.footerEnvDocker`)
-          : source.envSource === 'envFile' && source.envFilePath
-            ? t(`${keys}.footerEnvPath`, { path: source.envFilePath })
-            : t(`${keys}.footerEnvDefaults`),
-        source.fetchedAtUtc
-          ? t(`${keys}.footerFetched`, { time: formatRelativeTime(source.fetchedAtUtc) })
-          : null,
-        source.fromCache ? t(`${keys}.footerFromCache`) : null,
+        source.fetchedAtUtc && source.fromCache
+          ? t(`${keys}.footerCachedCopy`, { time: formatRelativeTime(source.fetchedAtUtc) })
+          : source.fetchedAtUtc
+            ? t(`${keys}.footerFetched`, { time: formatRelativeTime(source.fetchedAtUtc) })
+            : source.fromCache
+              ? t(`${keys}.footerFromCache`)
+              : null,
         source.noFetch ? t(`${keys}.footerNoFetch`) : null
       ].filter((part): part is string => part !== null)
-    : [t(`${keys}.footerNotLoaded`)];
+    : null;
+  // Built-in defaults are the usual case and go unsaid; a container or file is named behind the
+  // help icon at the end of the line.
+  const envHelp = !source
+    ? null
+    : source.envSource === 'dockerInspect'
+      ? { label: t(`${keys}.footerEnvDockerLabel`), text: t(`${keys}.footerEnvDocker`) }
+      : source.envSource === 'envFile' && source.envFilePath
+        ? {
+            label: t(`${keys}.footerEnvPathLabel`),
+            text: t(`${keys}.footerEnvPath`, { path: source.envFilePath })
+          }
+        : null;
 
   return (
     <div>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-themed-muted break-all">{parts.join(' · ')}</p>
+        {/* Breaks inside a word only for a token too long for a line. */}
+        <p className="mgmt-scanmeta min-w-0 status-check-help-line">
+          {parts
+            ? t(`${keys}.footerLine`, { parts: parts.join(t(`${keys}.footerSeparator`)) })
+            : t(`${keys}.footerNotLoaded`)}
+          {envHelp && (
+            <HelpPopover width={320} aria-label={envHelp.label}>
+              {envHelp.text}
+            </HelpPopover>
+          )}
+        </p>
         <Button
           variant="subtle"
           size="xs"

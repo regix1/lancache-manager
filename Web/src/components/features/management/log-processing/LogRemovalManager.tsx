@@ -574,7 +574,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   );
 
   const helpAccessory = (
-    <HelpPopover position="left" width={320}>
+    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
       <HelpSection title={t('management.logRemoval.help.aboutTitle')}>
         {t('management.logRemoval.summary')}
       </HelpSection>

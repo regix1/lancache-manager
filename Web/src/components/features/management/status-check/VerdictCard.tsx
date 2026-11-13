@@ -7,6 +7,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
+import { HelpPopover } from '@components/ui/HelpPopover';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import type {
   StatusCheckResult,
@@ -30,25 +31,19 @@ interface VerdictCardProps {
   ribbonInteractive: boolean;
   onRibbonSegmentClick: (service: string) => void;
   onRun: () => void;
-  /** The resolver-mode picker, rendered as a quiet toolbar at the top of the card. */
+  /** The resolver-mode picker, drawn beside Run Check with its label. */
   resolverControl?: React.ReactNode;
 }
 
-/** One labeled tile in the verdict readout grid. */
-interface VerdictStatTile {
-  id: string;
-  value: string;
+/** One row of the breakdown under the verdict: a dot, a count and the services it holds. */
+interface VerdictBreakdownRow {
+  // Every service status that needs a look, plus the domain status that names the worst case, so
+  // a new status on the wire shows up here as a type error.
+  id: Exclude<StatusCheckServiceResult['status'], 'resolved'> | 'mismatched';
+  /** The shared `.status-dot` tone class. */
+  tone: 'warning' | 'error' | 'info' | 'idle';
+  services: StatusCheckServiceResult[];
   label: string;
-  tone: 'success' | 'warning' | 'error' | 'info' | null;
-  isZero: boolean;
-}
-
-/** One labeled slot in the meta strip under the ribbon. */
-interface VerdictMetaSlot {
-  id: string;
-  value: string;
-  label: string;
-  tooltip: string | null;
 }
 
 // The non-running verdict category - drives both the headline text and the glyph so the two
@@ -70,7 +65,6 @@ const resolveVerdictKind = (
 
 // How many example service chips to show before collapsing the rest into "+N more".
 const CHIP_LIMIT = 3;
-
 const VerdictCard: React.FC<VerdictCardProps> = ({
   lastResult,
   isRunning,
@@ -95,6 +89,16 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
     : null;
   // A canceled sweep is not an error, so its sentence sits in the gray box.
   const runErrorColor = runError && 'canceled' in runError ? 'neutral' : 'red';
+
+  // The picker steers the next run, so in every state it sits beside Run Check.
+  const resolverChoice = resolverControl ? (
+    <div className="cluster min-w-0">
+      <span className="text-xs text-themed-muted whitespace-nowrap">
+        {t(`${keys}.resolverMode.label`)}
+      </span>
+      {resolverControl}
+    </div>
+  ) : null;
 
   const summary = lastResult?.summary ?? null;
   // Disabled services are intentionally not cached - excluded from verdict math entirely.
@@ -138,22 +142,28 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   if (!lastResult && !isRunning) {
     return (
       <Card>
-        {resolverControl && <div className="status-check-resolver">{resolverControl}</div>}
-        <div className="flex flex-col items-center text-center gap-3 py-6">
-          <div className="status-check-glyph status-check-glyph--neutral">
-            <Activity className="w-5 h-5" />
+        <div className="status-check-verdict-header">
+          <div className="status-check-verdict-lead">
+            <div className="status-check-glyph status-check-glyph--neutral">
+              <Activity className="w-5 h-5" />
+            </div>
+            <div className="status-check-verdict-copy">
+              <h3 className="status-check-verdict-line">{t(`${keys}.emptyTitle`)}</h3>
+              <p className="status-check-verdict-sub">{t(`${keys}.emptyBody`)}</p>
+            </div>
           </div>
-          <h3 className="font-medium text-themed-primary">{t(`${keys}.emptyTitle`)}</h3>
-          <p className="text-sm text-themed-secondary max-w-xl">{t(`${keys}.emptyBody`)}</p>
-          <Button variant="filled" color="run" size="md" onClick={onRun}>
-            {t(`${keys}.runCheck`)}
-          </Button>
-          {runErrorText && (
-            <Alert color={runErrorColor} className="w-full text-left">
-              {runErrorText}
-            </Alert>
-          )}
+          <div className="status-check-verdict-actions">
+            {resolverChoice}
+            <Button variant="filled" color="run" size="md" onClick={onRun}>
+              {t(`${keys}.runCheck`)}
+            </Button>
+          </div>
         </div>
+        {runErrorText && (
+          <Alert color={runErrorColor} className="mt-3">
+            {runErrorText}
+          </Alert>
+        )}
       </Card>
     );
   }
@@ -216,251 +226,176 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
   const totalCacheNodeIps = cacheNodes.reduce((sum, node) => sum + node.ips.length, 0);
   const avgLatencyMs = lastResult?.avgLatencyMs ?? null;
 
-  // Primary at-a-glance signal: the verdict tally plus the key live figures as one labeled
-  // readout grid. The former standalone sentences (live heartbeat answers, average DNS
-  // latency) become tiles here instead of loose paragraphs.
-  const statTiles: VerdictStatTile[] = [];
-  if (!isRunning && summary) {
-    // The verdict line above already reads "all N services" when nothing is failing, so the
-    // three-way tally is three boxes restating one sentence, two of them zeros. It earns its
-    // tiles only when there is a split to show, and then all three appear so the breakdown
-    // adds up.
-    if (summary.partialServices > 0 || summary.unresolvedServices > 0) {
-      statTiles.push(
-        {
-          id: 'resolved',
-          value: String(summary.resolvedServices),
-          label: t(`${keys}.statLabel.resolved`),
-          tone: 'success',
-          isZero: summary.resolvedServices === 0
-        },
-        {
-          id: 'partial',
-          value: String(summary.partialServices),
-          label: t(`${keys}.statLabel.partial`),
-          tone: 'warning',
-          isZero: summary.partialServices === 0
-        },
-        {
-          id: 'unresolved',
-          value: String(summary.unresolvedServices),
-          label: t(`${keys}.statLabel.unresolved`),
-          tone: 'error',
-          isZero: summary.unresolvedServices === 0
-        }
-      );
-    }
-    if (summary.unverifiedServices > 0) {
-      statTiles.push({
-        id: 'unverified',
-        value: String(summary.unverifiedServices),
-        label: t(`${keys}.statLabel.unverified`),
-        tone: 'info',
-        isZero: false
-      });
-    }
-    if (summary.disabledServices > 0) {
-      statTiles.push({
-        id: 'disabled',
-        value: String(summary.disabledServices),
-        label: t(`${keys}.statLabel.disabled`),
-        tone: null,
-        isZero: true
-      });
-    }
-    if (verifiedDomains > 0) {
-      statTiles.push({
-        id: 'liveAnswers',
-        value: String(verifiedDomains),
-        label: t(`${keys}.readoutLiveAnswers`),
-        tone: 'success',
-        isZero: false
-      });
-    }
-    if (avgLatencyMs !== null) {
-      statTiles.push({
-        id: 'avgDns',
-        value: t(`${keys}.readoutAvgDnsValue`, { ms: avgLatencyMs }),
-        label: t(`${keys}.readoutAvgDns`),
-        tone: null,
-        isZero: false
-      });
-    }
-  }
+  // The verdict sentence already gives the tally, so the breakdown names only the services that
+  // need a look, one row per kind of trouble, plus the services the check could not judge.
+  const breakdownRows: VerdictBreakdownRow[] = isRunning
+    ? []
+    : (
+        [
+          {
+            id: 'mismatched',
+            tone: 'warning',
+            services: mismatchedServices,
+            label: t(`${keys}.breakdownMismatched`, { count: mismatchedServices.length })
+          },
+          {
+            id: 'unresolved',
+            tone: 'error',
+            services: unresolvedOnlyServices,
+            label: t(`${keys}.breakdownUnresolved`, { count: unresolvedOnlyServices.length })
+          },
+          {
+            id: 'partial',
+            tone: 'warning',
+            services: partialOnlyServices,
+            label: t(`${keys}.breakdownPartial`, { count: partialOnlyServices.length })
+          },
+          {
+            id: 'unverified',
+            tone: 'info',
+            services:
+              lastResult?.services.filter((service) => service.status === 'unverified') ?? [],
+            label: t(`${keys}.breakdownUnverified`, { count: summary?.unverifiedServices ?? 0 })
+          },
+          {
+            id: 'disabled',
+            tone: 'idle',
+            services: lastResult?.services.filter((service) => service.status === 'disabled') ?? [],
+            label: t(`${keys}.breakdownDisabled`, { count: summary?.disabledServices ?? 0 })
+          }
+        ] satisfies VerdictBreakdownRow[]
+      ).filter((row) => row.services.length > 0);
 
-  // Failure breakdown: one row per failure type with a count and a few example chips, replacing
-  // the old comma-run sentences that spelled out every failing service name.
-  const failureBuckets: {
-    id: string;
-    dot: string;
-    services: StatusCheckServiceResult[];
-    label: string;
-  }[] = [
-    {
-      id: 'mismatched',
-      dot: 'mismatched',
-      services: mismatchedServices,
-      label: t(`${keys}.breakdownMismatched`, { count: mismatchedServices.length })
-    },
-    {
-      id: 'unresolved',
-      dot: 'unresolved',
-      services: unresolvedOnlyServices,
-      label: t(`${keys}.breakdownUnresolved`, { count: unresolvedOnlyServices.length })
-    },
-    {
-      id: 'partial',
-      dot: 'partial',
-      services: partialOnlyServices,
-      label: t(`${keys}.breakdownPartial`, { count: partialOnlyServices.length })
-    }
-  ].filter((bucket) => bucket.services.length > 0);
-
-  // Collapse the expected-cache-IP list to one IP + "+N more" (full list in the title tooltip).
   const expectedCacheIps = lastResult?.expectedCacheIps ?? [];
-  const { shown: expectedIpShown, moreCount: expectedIpMore } = splitExamples(expectedCacheIps, 1);
-  const expectedIpLabel =
-    expectedIpShown[0] +
-    (expectedIpMore > 0 ? ` ${t(`${keys}.ipMore`, { count: expectedIpMore })}` : '');
-
-  const showMeta = !isRunning && !!lastResult;
-
-  // The labeled meta strip: expected cache IP, answering cache nodes (or the locator
-  // heartbeat when no node evidence exists), and the resolver the sweep used. Full
-  // sentences live in each slot's tooltip; a failed heartbeat with no node evidence
-  // stays a visible warning line below the strip.
-  const metaSlots: VerdictMetaSlot[] = [];
-  if (showMeta) {
-    if (expectedCacheIps.length > 0) {
-      metaSlots.push({
-        id: 'expectedIp',
-        value: expectedIpLabel,
-        label: t(`${keys}.metaExpectedIp`),
-        tooltip: t(`${keys}.expectedIp`, {
+  const expectedIpSentence =
+    lastResult && expectedCacheIps.length > 0
+      ? t(`${keys}.expectedIp`, {
           ips: expectedCacheIps.join(', '),
           source: t(`${keys}.expectedIpSource.${lastResult.expectedIpSource}`)
         })
-      });
-    }
-    if (cacheNodes.length > 0) {
-      metaSlots.push({
-        id: 'cacheNodes',
-        value:
-          cacheNodes.length === 1
-            ? t(`${keys}.metaCacheNodesSingle`, {
-                host: cacheNodes[0].servedBy,
-                count: totalCacheNodeIps
-              })
-            : t(`${keys}.metaCacheNodesMulti`, {
-                nodes: cacheNodes.length,
-                count: totalCacheNodeIps
-              }),
-        label: t(`${keys}.metaCacheNodes`),
-        tooltip: cacheNodes.map((node) => `${node.servedBy} (${node.ips.join(', ')})`).join(' · ')
-      });
-    } else if (heartbeat?.reachable) {
-      metaSlots.push({
-        id: 'heartbeat',
-        value: heartbeat.servedBy ?? heartbeat.cacheIp ?? '',
-        label: t(`${keys}.metaHeartbeat`),
-        tooltip: heartbeat.servedBy
-          ? t(`${keys}.heartbeatOk`, { ip: heartbeat.cacheIp, host: heartbeat.servedBy })
-          : t(`${keys}.heartbeatOkNoHost`, { ip: heartbeat.cacheIp })
-      });
-    }
-    metaSlots.push({
-      id: 'resolver',
-      value:
-        lastResult.resolverSource === 'system'
-          ? t(`${keys}.metaResolverSystemValue`)
-          : (lastResult.dnsServer ?? ''),
-      label:
-        lastResult.resolverSource === 'configured'
-          ? t(`${keys}.metaResolverConfigured`)
-          : lastResult.resolverSource === 'detected'
-            ? t(`${keys}.metaResolverDetected`)
-            : t(`${keys}.metaResolverSystem`),
-      tooltip:
-        lastResult.resolverSource === 'configured'
-          ? t(`${keys}.resolverConfigured`, { server: lastResult.dnsServer })
-          : lastResult.resolverSource === 'detected'
-            ? t(`${keys}.resolverDetected`, { server: lastResult.dnsServer })
-            : t(`${keys}.resolverSystem`)
-    });
-  }
+      : null;
+
+  const showFacts = !isRunning && !!lastResult;
+
+  // How the run went, in one line under the verdict: when it ran and who answered as the cache.
+  // Node evidence first, then the locator heartbeat; with neither, the expected cache IP stays on
+  // screen beside the heartbeat failure line, so the reader still sees which address was tried.
+  const checkedSentence = !showFacts
+    ? null
+    : cacheNodes.length > 0
+      ? totalCacheNodeIps > 1
+        ? t(`${keys}.cacheAnsweredMore`, {
+            time: lastCheckedTime,
+            ip: cacheNodes[0].ips[0],
+            host: cacheNodes[0].servedBy,
+            count: totalCacheNodeIps - 1
+          })
+        : t(`${keys}.heartbeatOk`, {
+            time: lastCheckedTime,
+            ip: cacheNodes[0].ips[0],
+            host: cacheNodes[0].servedBy
+          })
+      : heartbeat?.reachable
+        ? heartbeat.servedBy
+          ? t(`${keys}.heartbeatOk`, {
+              time: lastCheckedTime,
+              ip: heartbeat.cacheIp,
+              host: heartbeat.servedBy
+            })
+          : t(`${keys}.heartbeatOkNoHost`, { time: lastCheckedTime, ip: heartbeat.cacheIp })
+        : expectedCacheIps.length > 0
+          ? t(`${keys}.checkedExpected`, {
+              time: lastCheckedTime,
+              ips: expectedCacheIps.join(', ')
+            })
+          : t(`${keys}.checkedOnly`, { time: lastCheckedTime });
+  // Which resolver the run asked. Only the detected container is called lancache-dns; a configured
+  // server can be any DNS server.
+  const resolverLine = !showFacts
+    ? null
+    : lastResult.resolverSource === 'configured'
+      ? t(`${keys}.resolverConfigured`, { server: lastResult.dnsServer })
+      : lastResult.resolverSource === 'detected'
+        ? t(`${keys}.resolverDetected`, { server: lastResult.dnsServer })
+        : t(`${keys}.resolverSystem`);
+  // The detail behind the line: the resolver, what was expected and from where, every node, and
+  // the timings.
+  const factsLines = [
+    resolverLine,
+    expectedIpSentence,
+    cacheNodes.length > 0
+      ? cacheNodes.map((node) => `${node.servedBy} (${node.ips.join(', ')})`).join(' · ')
+      : null,
+    avgLatencyMs !== null ? t(`${keys}.metaAvgLookup`, { ms: avgLatencyMs }) : null,
+    verifiedDomains > 0 ? t(`${keys}.metaLiveAnswers`, { count: verifiedDomains }) : null
+  ].filter((line): line is string => line !== null);
+  // One line each, so the node list never runs into the timing sentence after it.
+  const factsTooltip =
+    factsLines.length > 0
+      ? factsLines.map((line) => (
+          <span key={line} className="block">
+            {line}
+          </span>
+        ))
+      : null;
 
   return (
     <Card>
-      {resolverControl && <div className="status-check-resolver">{resolverControl}</div>}
       <div className="status-check-verdict-header">
         <div className="status-check-verdict-lead">
           {glyph}
           <div className="status-check-verdict-copy">
-            <h3 className="status-check-scope-title">{t(`${keys}.scopeTitle`)}</h3>
-            <p className="status-check-verdict-line">{verdictLine}</p>
+            <div className="status-check-verdict-title status-check-help-line">
+              <h3 className="status-check-verdict-line">{verdictLine}</h3>
+              <HelpPopover width={320} aria-label={t(`${keys}.scopeDescriptionLabel`)}>
+                {t(`${keys}.scopeDescription`)}
+              </HelpPopover>
+            </div>
+            {isRunning && progress?.currentService ? (
+              <p className="status-check-verdict-sub">
+                {t(`${keys}.sweepCurrentService`, {
+                  service: formatServiceLabel(progress.currentService)
+                })}
+              </p>
+            ) : (
+              checkedSentence && (
+                <Tooltip content={factsTooltip} className="block min-w-0" position="bottom">
+                  <p className="status-check-verdict-sub">{checkedSentence}</p>
+                </Tooltip>
+              )
+            )}
             {!isRunning && cantVerify && (
               <p className="status-check-verdict-hint">{t(`${keys}.verdictUnverifiedHint`)}</p>
             )}
             {!isRunning &&
               lastResult?.resolverSource === 'system' &&
               failingServices.length > 0 && (
-                <p className="status-check-verdict-warning">{t(`${keys}.systemResolverCaveat`)}</p>
+                <p className="status-check-verdict-warning status-check-help-line">
+                  {t(`${keys}.resolverSystemHint`)}
+                  <HelpPopover width={320} aria-label={t(`${keys}.systemResolverCaveatLabel`)}>
+                    {t(`${keys}.systemResolverCaveat`)}
+                  </HelpPopover>
+                </p>
               )}
-            {isRunning && progress?.currentService && (
-              <p className="status-check-verdict-hint">
-                {t(`${keys}.sweepCurrentService`, {
-                  service: formatServiceLabel(progress.currentService)
-                })}
-              </p>
-            )}
           </div>
         </div>
         <div className="status-check-verdict-actions">
+          {resolverChoice}
           <Button variant="filled" color="run" size="md" loading={isRunning} onClick={onRun}>
             {t(`${keys}.runCheck`)}
           </Button>
-          {/* No tooltip: the timestamp wraps instead of being clipped, so there is nothing
-              hidden left to reveal and the tooltip only repeated the line already on screen. */}
-          {lastResult && (
-            <span className="status-check-last-checked-text">
-              {t(`${keys}.lastChecked`, { time: lastCheckedTime })}
-            </span>
-          )}
         </div>
       </div>
 
-      {statTiles.length > 0 && (
-        <div className="mgmt-stat-grid mt-4">
-          {statTiles.map((tile) => (
-            <div key={tile.id} className="mgmt-stat">
-              <p className="mgmt-stat__label caps-label caps-label--sm">{tile.label}</p>
-              <p
-                className={`mgmt-stat__value tabular-nums${
-                  tile.isZero
-                    ? ' status-check-value--zero'
-                    : tile.tone
-                      ? ` status-check-value--${tile.tone}`
-                      : ''
-                }`}
-              >
-                {tile.value}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {!isRunning && failureBuckets.length > 0 && (
-        <div className="status-check-breakdown mt-3">
-          {failureBuckets.map((bucket) => {
-            const labels = bucket.services.map((service) => formatServiceLabel(service.service));
+      {breakdownRows.length > 0 && (
+        <div className="status-check-breakdown">
+          {breakdownRows.map((row) => {
+            const labels = row.services.map((service) => formatServiceLabel(service.service));
             const { shown, moreCount } = splitExamples(labels, CHIP_LIMIT);
             return (
-              <div key={bucket.id} className="status-check-breakdown-row cluster">
-                <span
-                  className={`status-check-breakdown-dot status-check-breakdown-dot--${bucket.dot}`}
-                />
-                <span className="status-check-breakdown-count tabular-nums">{bucket.label}</span>
+              <div key={row.id} className="status-check-breakdown-row cluster">
+                <span className={`status-dot ${row.tone}`} aria-hidden="true" />
+                <span className="status-check-breakdown-count tabular-nums">{row.label}</span>
                 <span className="status-check-chips">
                   {shown.map((label) => (
                     <span key={label} className="status-check-chip">
@@ -487,7 +422,7 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
         />
       )}
 
-      {showMeta && heartbeat && !heartbeat.reachable && cacheNodes.length === 0 && (
+      {showFacts && heartbeat && !heartbeat.reachable && cacheNodes.length === 0 && (
         <p className="text-xs text-themed-warning mt-2">
           {t(`${keys}.heartbeatFailed`, {
             error: translateStageKeyMessage(heartbeat.error, undefined, `${keys}.unknownError`)
@@ -496,31 +431,6 @@ const VerdictCard: React.FC<VerdictCardProps> = ({
       )}
 
       <ContentPathSummary report={lastResult?.contentReport} isRunning={isRunning} />
-
-      {/* How the check was run, as the card's ONE closing strip. It sat above the content
-          section before, which left the card ending twice: this band and then the content
-          scan's own footer of sentences. */}
-      {metaSlots.length > 0 && (
-        <div className="status-check-meta">
-          {metaSlots.map((slot) =>
-            slot.tooltip ? (
-              <Tooltip key={slot.id} content={slot.tooltip} className="status-check-meta-item">
-                <span className="status-check-meta-value">{slot.value}</span>
-                <span className="status-check-meta-label caps-label caps-label--sm">
-                  {slot.label}
-                </span>
-              </Tooltip>
-            ) : (
-              <div key={slot.id} className="status-check-meta-item">
-                <span className="status-check-meta-value">{slot.value}</span>
-                <span className="status-check-meta-label caps-label caps-label--sm">
-                  {slot.label}
-                </span>
-              </div>
-            )
-          )}
-        </div>
-      )}
 
       {runErrorText && (
         <Alert color={runErrorColor} className="mt-3">

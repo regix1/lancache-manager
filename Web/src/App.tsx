@@ -419,18 +419,37 @@ const AppContent: React.FC = () => {
   const handleRunFullScan = async () => {
     cancelFullScanCheck();
     // Close the modal and let the scan run in the background. Not marked as dismissed,
-    // so a failure can put it back on screen for a retry.
+    // so a failure can put it back on screen for a retry. The flag covers only the start
+    // request: the server registers the run before it answers, and from then on the schedule's
+    // isRunning keeps the prompt closed until the run ends, even when its end event is missed.
     fullScanActionRunningRef.current = true;
     setShowFullScanRequiredModal(false);
 
     // Trigger full scan via API
     try {
-      await ApiService.triggerSteamKitRebuild(false); // false = full scan
+      const response = await ApiService.triggerSteamKitRebuild(false); // false = full scan
+      fullScanActionRunningRef.current = false;
+      // Nothing started, so nothing will report back: say so, since the modal is already
+      // closed and the click would otherwise end in silence.
+      if (!response.started) {
+        notifyError(
+          t('management.schedules.runNowFailed', {
+            service: t('management.schedules.services.depotMapping.displayName')
+          })
+        );
+      }
     } catch (error) {
-      // A rebuild was already under way. That is the state the user wanted, so leave the
-      // modal closed rather than asking them to start something that is already going.
+      // Another depot run holds the lock, which may be a stopped run that is still ending and
+      // shows no card. The popup carries the server's reason; the modal stays closed, since a
+      // second click now would be refused the same way.
       if (error instanceof ApiError && error.kind === 'conflict') {
-        console.warn('Depot rebuild already in progress:', error.message);
+        fullScanActionRunningRef.current = false;
+        notifyError(
+          t('management.schedules.runNowFailed', {
+            service: t('management.schedules.services.depotMapping.displayName')
+          }),
+          error
+        );
         return;
       }
 
@@ -443,18 +462,27 @@ const AppContent: React.FC = () => {
   const handleDownloadFromGitHub = async () => {
     cancelFullScanCheck();
     // Close the modal and let the download run in the background. Not marked as
-    // dismissed, so a failure can put it back on screen for a retry.
+    // dismissed, so a failure can put it back on screen for a retry. The request answers only
+    // once the import has ended, so its answer frees the flag even when the end event is missed.
     fullScanActionRunningRef.current = true;
     setShowFullScanRequiredModal(false);
 
     // Trigger download from GitHub
     try {
       await ApiService.downloadPrecreatedDepotData();
+      fullScanActionRunningRef.current = false;
     } catch (error) {
-      // A run was already under way. That is the state the user wanted, so leave the
-      // modal closed rather than asking them to start something that is already going.
+      // Another depot run holds the lock, which may be a stopped run that is still ending and
+      // shows no card. The popup carries the server's reason; the modal stays closed, since a
+      // second click now would be refused the same way.
       if (error instanceof ApiError && error.kind === 'conflict') {
-        console.warn('Depot download already in progress:', error.message);
+        fullScanActionRunningRef.current = false;
+        notifyError(
+          t('management.schedules.runNowFailed', {
+            service: t('management.schedules.services.depotMapping.displayName')
+          }),
+          error
+        );
         return;
       }
 
@@ -668,7 +696,6 @@ const AppContent: React.FC = () => {
         onDownloadFromGitHub={handleDownloadFromGitHub}
         showDownloadOption={true}
         isSteamWebApiAvailable={steamApiStatus?.isFullyOperational ?? false}
-        title={t('app.fullScanRequired.title')}
         changeGap={fullScanModalChangeGap}
         estimatedApps={fullScanModalEstimatedApps}
       />

@@ -555,7 +555,14 @@ public partial class SteamKit2Service
                     {
                         _depotRunFailures[operationId.Value] = errorMessage;
                     }
-                    _currentRebuildCts?.Cancel();
+                    try
+                    {
+                        _currentRebuildCts?.Cancel();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // A run that ended between the read and the cancel has nothing left to stop.
+                    }
                 }
             }
         }

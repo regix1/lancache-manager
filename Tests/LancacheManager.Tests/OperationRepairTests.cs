@@ -466,7 +466,9 @@ public sealed class OperationRepairTests : IDisposable
             harness.Capabilities,
             CacheScanGateHarness.Idle(),
             nginxLogRotationService: null!,
-            stateService: null!);
+            stateService: null!,
+            conflictChecker: new OperationConflictChecker(
+                harness.Repairs.Tracker, harness.Owner, NullLogger<OperationConflictChecker>.Instance));
         Assert.Null(await detection.StartDetectionAsync());
         Assert.Empty(harness.Repairs.Tracker.GetActiveOperations(OperationType.CorruptionDetection));
 
@@ -512,7 +514,9 @@ public sealed class OperationRepairTests : IDisposable
             harness.Capabilities,
             CacheScanGateHarness.Idle(),
             nginxLogRotationService: null!,
-            stateService: null!);
+            stateService: null!,
+            conflictChecker: new OperationConflictChecker(
+                harness.Repairs.Tracker, harness.Owner, NullLogger<OperationConflictChecker>.Instance));
         var queue = new OperationWaitlistService(
             harness.Repairs.Tracker,
             new OperationConflictChecker(
@@ -4489,7 +4493,8 @@ public sealed class OperationRepairTests : IDisposable
                 Capabilities,
                 operationTracker: null!,
                 CacheScanGateHarness.Idle(),
-                State);
+                State,
+                conflictChecker: null!);
             _management = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(typeof(CacheManagementService));
             CachedScanFile = Path.Combine(root, "cached_cache_scan.json");
             File.WriteAllText(CachedScanFile, "{}");
@@ -4686,7 +4691,8 @@ public sealed class OperationRepairTests : IDisposable
                 capabilityService: null!,
                 CacheScanGateHarness.Idle(),
                 nginxLogRotationService: null!,
-                stateService: null!));
+                stateService: null!,
+                conflictChecker: null!));
             services.AddSingleton<CacheReconciliationService>(resolver => new CountingReconciliation(this, resolver));
         }
 

@@ -41,6 +41,67 @@ label.clients-unnamed-row {
   column-gap: 1rem;
 }
 
+/* The services picker shares the row with two compact segmented controls, so it takes their
+   32px height and 12px label instead of the picker's default 40px trigger. The min-height undoes
+   the phone touch floor dropdowns.css gives every picker, which the h-8 segmented controls beside
+   it do not get either. */
+.clients-exclusion-row .msd-trigger {
+  height: 2rem;
+  min-height: 0;
+  font-size: var(--font-size-sm);
+}
+
+/* Below the desktop breakpoint the title and the controls stop fitting one line, so the title keeps
+   line 1 and the controls, remove button included, move together to line 2. The row rule is
+   compounded with .mgmt-row so it outranks the shared row layout in the built bundle, which drops
+   the layer that would order them. */
+@media (max-width: 1023.98px) {
+  .mgmt-row.clients-exclusion-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .clients-exclusion-row .mgmt-row__actions {
+    align-self: flex-start;
+  }
+}
+
+/* Below a tablet's width the controls no longer fit one line either, so they form a compact grid:
+   the services picker and the traffic control span both columns, and the mode control shares the
+   last line with the remove button, so the button always sits beside a control of its own rule.
+   The cap keeps the segments from stretching across a wide phone held sideways. */
+@media (max-width: 767.98px) {
+  .clients-exclusion-row .mgmt-row__actions {
+    align-self: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem 0.75rem;
+    max-width: 24rem;
+    flex-shrink: 1;
+  }
+
+  .clients-exclusion-row .mgmt-row__actions > * {
+    width: auto;
+    min-width: 0;
+  }
+
+  .clients-exclusion-row .mgmt-row__actions > :nth-last-child(n + 3) {
+    grid-column: 1 / -1;
+  }
+
+  /* Equal segments across the full control; a segment with a tooltip sits in a trigger wrapper,
+     so the split goes on the wrapper and the button fills it. */
+  .clients-exclusion-row .segmented-control-container {
+    width: 100%;
+  }
+
+  .clients-exclusion-row .segmented-control-container > *,
+  .clients-exclusion-row .segmented-control-slot > .segmented-control-button {
+    flex: 1 1 0%;
+  }
+}
+
 /* The neutral square keeps destructive weight out of the list and only its hover reads red.
    The shared .delete-hover rule and the button's own hover utility carry equal weight, and
    the built bundle drops the layer that would break that tie, so the destructive hover is

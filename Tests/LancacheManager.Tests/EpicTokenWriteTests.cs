@@ -304,7 +304,7 @@ public sealed class EpicTokenWriteTests
                 NullLogger<UnifiedOperationTracker>.Instance);
             var state = DispatchProxy.Create<IStateService, RecordingState>();
             State = (RecordingState)(object)state;
-            Services = new ServiceCollection().BuildServiceProvider();
+            Services = new ServiceCollection().AddSingleton<IOperationConflictChecker>(OperationConflictTestServices.Create(Tracker, NullLogger<OperationConflictChecker>.Instance)).BuildServiceProvider();
             Service = new EpicMappingService(
                 NullLogger<EpicMappingService>.Instance,
                 new EpicApiDirectClient(_http, NullLogger<EpicApiDirectClient>.Instance),

@@ -1397,6 +1397,42 @@ public sealed class DepotImportTests
     }
 
     /// <summary>
+    /// A local-file import or an apply-mappings run after a crawl that ended completed answers the progress
+    /// poll with a phase of its own while it works: the browser reads a polled "completed" as a finished run
+    /// whatever the busy flag says, so the earlier crawl's phase would show the running import as idle.
+    /// </summary>
+    [Theory]
+    [InlineData("local", DepotScanPhase.Importing)]
+    [InlineData("apply", DepotScanPhase.ApplyingMappings)]
+    public async Task AnImportAfterACompletedCrawlAnswersItsOwnPhaseWhileItRunsAsync(string run, DepotScanPhase expected)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        await fixture.SeedAsync();
+        fixture.Source = Snapshot(200);
+        Set(fixture.Service, "_currentStatus", DepotScanPhase.Completed);
+        SteamPicsProgress? whileRunning = null;
+        fixture.Events.BeforeSend = (name, _) =>
+        {
+            if (name == "DepotMappingStarted") whileRunning = fixture.Service.GetProgress();
+        };
+
+        if (run == "local")
+        {
+            fixture.Queue = new RecordingQueue();
+            Assert.IsType<OkObjectResult>(
+                (await NewController(fixture).ImportDepotMappingsAsync("local", CancellationToken.None)).Result);
+        }
+        else
+        {
+            await fixture.Service.ManuallyApplyDepotMappingsAsync();
+        }
+
+        Assert.NotNull(whileRunning);
+        Assert.True(whileRunning.IsProcessing, $"The {run} run answered the poll as not processing while it ran");
+        Assert.Equal(expected, whileRunning.Status);
+    }
+
+    /// <summary>
     /// A depot run's events name each step by stage key, and the browser builds the sentence from it, so
     /// no event carries an English sentence of its own beside the key.
     /// </summary>
@@ -2320,9 +2356,10 @@ public sealed class DepotImportTests
             _processes = new ProcessManager(NullLogger<ProcessManager>.Instance);
             var tracker = new UnifiedOperationTracker(_processes, NullLogger<UnifiedOperationTracker>.Instance);
             Tracker = tracker;
+            var checker = OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance);
             Queue = new OperationWaitlistService(
                 tracker,
-                OperationConflictTestServices.Create(tracker, NullLogger<OperationConflictChecker>.Instance),
+                checker,
                 NullLogger<OperationWaitlistService>.Instance);
             var registrations = new ServiceCollection();
             var options = new DbContextOptionsBuilder<AppDbContext>(Database.Options)
@@ -2331,6 +2368,7 @@ public sealed class DepotImportTests
             registrations.AddScoped(_ => new AppDbContext(options));
             registrations.AddSingleton<GameImageFetchService>(_ => _images);
             registrations.AddTransient<IOperationWaitlist>(_ => Queue);
+            registrations.AddSingleton<IOperationConflictChecker>(checker);
             _services = registrations.BuildServiceProvider();
             var scopes = _services.GetRequiredService<IServiceScopeFactory>();
             Pics = new PicsDataService(

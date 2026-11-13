@@ -21,6 +21,7 @@ public class CacheClearingService : ScheduledBackgroundService
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly DatasourceCapabilityService _capabilityService;
     private readonly OperationStateService _operationStateService;
+    private readonly IOperationConflictChecker _conflictChecker;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private string _cachePath = null!;
     private CacheDeleteMode _deleteMode;
@@ -42,7 +43,8 @@ public class CacheClearingService : ScheduledBackgroundService
         DatasourceService datasourceService,
         IUnifiedOperationTracker operationTracker,
         DatasourceCapabilityService capabilityService,
-        OperationStateService operationStateService)
+        OperationStateService operationStateService,
+        IOperationConflictChecker conflictChecker)
         : base(logger, configuration)
     {
         _notifications = notifications;
@@ -53,6 +55,7 @@ public class CacheClearingService : ScheduledBackgroundService
         _operationTracker = operationTracker;
         _capabilityService = capabilityService;
         _operationStateService = operationStateService;
+        _conflictChecker = conflictChecker;
 
         _deleteMode = CacheDeleteMode.Preserve;
 
@@ -155,9 +158,23 @@ public class CacheClearingService : ScheduledBackgroundService
             _logger.LogInformation($"Starting cache clear operation {operationId}" +
                 (datasourceName != null ? $" for datasource: {datasourceName}" : " for all datasources"));
 
+            // The start gate above reads only the tracker, which a force stop clears at once while the clear may
+            // still be running. The hold keeps every conflict check seeing it until its code ends; a clear is
+            // global, so every job asked for meanwhile waits on a card.
+            var hold = _conflictChecker.HoldRun(OperationType.CacheClearing, [ConflictScope.Bulk()], () => operationId);
+
             // Start the clear operation on a background thread
-            _ = Task.Run(async () => await RunCacheClearAsync(operationId, datasourceName,
-                value => completion = value), CancellationToken.None);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await RunCacheClearAsync(operationId, datasourceName, value => completion = value);
+                }
+                finally
+                {
+                    hold.Dispose();
+                }
+            }, CancellationToken.None);
 
             return operationId;
         }

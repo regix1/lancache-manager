@@ -271,6 +271,18 @@ public sealed class DockerPrefillContainerGatewayTests : IAsyncLifetime
         Assert.True(DateTime.UtcNow - started > TimeSpan.FromSeconds(60));
     }
 
+    // A registry lookup that gets no answer ends at the gateway's limit as a Docker timeout, the same error a pull
+    // that reports nothing ends with, instead of waiting out HttpClient's 100-second default.
+    [Fact]
+    public async Task DistributionLookup_DockerNeverAnswers_ThrowsTimeoutAtTheLimit()
+    {
+        var lookup = _gateway.GetDistributionDigestAsync("held-image:latest", CancellationToken.None);
+
+        Assert.True(await Task.WhenAny(lookup, Task.Delay(TimeSpan.FromSeconds(90))) == lookup,
+            "The registry lookup was still waiting after 90 seconds.");
+        await Assert.ThrowsAsync<DockerTimeoutException>(() => lookup);
+    }
+
     public Task DisposeAsync()
     {
         _gateway.Dispose();

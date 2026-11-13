@@ -125,7 +125,11 @@ const StatCard: React.FC<StatCardProps> = ({
               their value/sparkline up in shared grids like .stat-cards-3col. */}
           <div className="flex items-center gap-1 min-h-6">
             <p className="dash-card-title inline-block transition-colors">{title}</p>
-            {tooltip && <HelpPopover width={260}>{tooltip}</HelpPopover>}
+            {tooltip && (
+              <HelpPopover width={260} aria-label={t('common.help')}>
+                {tooltip}
+              </HelpPopover>
+            )}
           </div>
 
           {/* Main value with optional animation */}

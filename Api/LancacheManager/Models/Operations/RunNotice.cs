@@ -17,8 +17,9 @@ public sealed class RunNotice(
     public Guid? OperationId { get; private set; }
     public Guid? PendingId { get; internal set; }
     /// <summary>
-    /// The detection scan type this run's waiting card named when a download held it. The run performs that
-    /// scan, so a hybrid schedule whose week runs out while the card waits does not start another one.
+    /// The detection scan type this run's waiting card named when a download held it or it waited behind a busy
+    /// run. The run performs that scan, so a hybrid schedule whose week runs out while the card waits does not
+    /// start another one.
     /// </summary>
     public DetectionScanType? HeldScanType { get; internal set; }
     /// <summary>

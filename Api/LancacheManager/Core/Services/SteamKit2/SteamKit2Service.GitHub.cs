@@ -19,7 +19,7 @@ public partial class SteamKit2Service
         RunNotice? notice = null,
         TaskCompletionSource<Guid?>? started = null)
     {
-        if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
+        if (!TryTakeDepotLock())
         {
             started?.TrySetResult(null);
             throw new ConflictException("A depot mapping operation is already running.")
@@ -27,6 +27,9 @@ public partial class SteamKit2Service
                 StageKey = "errors.depot.mappingInProgress"
             };
         }
+        // The progress answer must not carry the phase an earlier run ended on: a polled "completed"
+        // reads as this run having finished.
+        _currentStatus = DepotScanPhase.Importing;
 
         lock (_baselineLock) _baselineCommitted = false;
 
@@ -50,6 +53,8 @@ public partial class SteamKit2Service
         _currentRebuildCts = runCts;
         await using var reporter = CreateTrackedRebuildReporter(runCts, runNotice);
         var committed = false;
+        // Set while the table can hold rows the maps do not: from the table write until the reload after it.
+        var mapsBehindTable = false;
         var runToken = reporter.Token;
 
         // The stage key rides as the error too, so the run row, another browser and Schedule History keep
@@ -127,10 +132,11 @@ public partial class SteamKit2Service
 
             PicsDataService.ValidateSnapshot(downloadedData, reporter.Token);
             var baseline = await GetDepotBaselineAsync();
+            reporter.Token.ThrowIfCancellationRequested();
             if (downloadedData.Metadata!.LastChangeNumber < baseline.LastChangeNumber)
                 return await FailAsync("signalr.depotMapping.github.olderSnapshot");
             reporter.Token.ThrowIfCancellationRequested();
-            await PinBaselineAsync();
+            await PinBaselineAsync(runToken);
 
             async Task ImportProgressCallback(int importPercent)
             {
@@ -141,8 +147,9 @@ public partial class SteamKit2Service
             // The restore runs inside the import's transaction, so no detection sees the import
             // without the prefill-only depots. Assigned per attempt, since a retried attempt reruns it.
             var restoreFailed = false;
+            mapsBehindTable = true;
             await _picsDataService.ImportToDatabaseAsync(downloadedData, reporter.Token, ImportProgressCallback,
-                async (AppDbContext db) => restoreFailed = await _prefillCache.RestoreDepotMappingsAsync(db) > 0);
+                async (AppDbContext db) => restoreFailed = await _prefillCache.RestoreDepotMappingsAsync(db, runToken) > 0);
             if (restoreFailed)
             {
                 // The PICS rows are committed; names for prefill-only depots return with the next GitHub import.
@@ -150,6 +157,7 @@ public partial class SteamKit2Service
             }
             await reporter.ReportAsync(90, "signalr.depotMapping.applyingToDownloads", CreateDepotContext());
             await ManuallyApplyDepotMappingsCoreAsync(reporter, reporter.Token, replace: true);
+            mapsBehindTable = false;
             await NotifyGitHubProgressAsync(reporter, 98);
 
             _picsDataService.WritePicsJsonFile(jsonContent);
@@ -220,16 +228,12 @@ public partial class SteamKit2Service
         }
         finally
         {
+            // Canceled or failed after its table write began: the rows it may have committed reach the maps.
+            if (mapsBehindTable) await ReadMappingsBackAsync("a GitHub import that ended before its reload");
             started?.TrySetResult(null);
+            // Unpublished before it is disposed, so a sign-out never finds a disposed source to cancel.
+            ReleaseDepotLock();
             runCts.Dispose();
-            if (ReferenceEquals(_currentRebuildCts, runCts))
-            {
-                _currentRebuildCts = null;
-                _currentMappingReporter = null;
-                _currentPicsOperationId = null;
-                Interlocked.Exchange(ref _rebuildActive, 0);
-                RaiseExecutionStateChanged();
-            }
         }
     }
 
@@ -244,7 +248,7 @@ public partial class SteamKit2Service
         RunNotice notice,
         TaskCompletionSource<Guid?> started)
     {
-        if (Interlocked.CompareExchange(ref _rebuildActive, 1, 0) != 0)
+        if (!TryTakeDepotLock())
         {
             started.TrySetResult(null);
             throw new ConflictException("A depot mapping operation is already running.")
@@ -252,6 +256,9 @@ public partial class SteamKit2Service
                 StageKey = "errors.depot.mappingInProgress"
             };
         }
+        // The progress answer must not carry the phase an earlier run ended on: a polled "completed"
+        // reads as this run having finished.
+        _currentStatus = DepotScanPhase.Importing;
 
         // An earlier crawl's committed baseline would refuse this run's cancel.
         lock (_baselineLock) _baselineCommitted = false;
@@ -272,6 +279,8 @@ public partial class SteamKit2Service
 
         _currentRebuildCts = runCts;
         await using var reporter = CreateTrackedRebuildReporter(runCts, notice);
+        // Set while the table can hold rows the maps do not: from the table write until the reload after it.
+        var mapsBehindTable = false;
 
         try
         {
@@ -281,7 +290,11 @@ public partial class SteamKit2Service
             started.TrySetResult(reporter.OperationId);
             RaiseExecutionStateChanged();
 
+            mapsBehindTable = true;
             await _picsDataService.ImportToDatabaseAsync(reporter.Token);
+            // The depot card and readiness count the maps, which hold none of the rows just added.
+            await LoadDepotMappingsAsync(replace: true, reporter.Token);
+            mapsBehindTable = false;
             await reporter.CompleteAsync(
                 success: true,
                 stageKey: "signalr.depotMapping.completed",
@@ -309,16 +322,12 @@ public partial class SteamKit2Service
         }
         finally
         {
+            // Canceled or failed after its table write began: the rows it may have committed reach the maps.
+            if (mapsBehindTable) await ReadMappingsBackAsync("a local import that ended before its reload");
             started.TrySetResult(null);
+            // Unpublished before it is disposed, so a sign-out never finds a disposed source to cancel.
+            ReleaseDepotLock();
             runCts.Dispose();
-            if (ReferenceEquals(_currentRebuildCts, runCts))
-            {
-                _currentRebuildCts = null;
-                _currentMappingReporter = null;
-                _currentPicsOperationId = null;
-                Interlocked.Exchange(ref _rebuildActive, 0);
-                RaiseExecutionStateChanged();
-            }
         }
     }
 

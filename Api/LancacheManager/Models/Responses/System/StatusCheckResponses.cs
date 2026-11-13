@@ -45,6 +45,12 @@ public class DomainCheckResult
     /// ad hoc tested domain via the content lane's shared pipeline. Null on results persisted
     /// before v1.5 and when the probe crashed unexpectedly.</summary>
     public HostProtocolProbeResult? EdgeProbe { get; set; }
+
+    /// <summary>When the commit that added this name to the domain list was made, set only on a
+    /// failing name of a sweep that was added after the newest list change whose names the DNS
+    /// server sends to the cache: the DNS server's list then looks older than this name. Null when
+    /// no such date is proven, on ad hoc tests and on results saved before this field.</summary>
+    public DateTime? AddedToListAtUtc { get; set; }
 }
 
 /// <summary>Aggregated verdict for one cache-domains service (e.g. "steam").</summary>
