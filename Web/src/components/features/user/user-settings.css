@@ -92,18 +92,20 @@
   gap: 0.75rem;
 }
 
-/* Inside a padded pane body the bar reaches the pane's edges, like the Guest access bar. */
-.users-pane-body > .users-save-bar {
-  margin-inline: -1rem;
-}
-
 @media (min-width: 1024px) {
   .users-save-bar {
     padding-inline: 1.5rem;
   }
 
+  /* Inside a padded pane body the sticky bar reaches the pane's edges, like the Guest access bar,
+     and as the body's last child it covers the body's bottom padding, so the pane does not end
+     below Save. Below 1024px the bar is fixed to the screen, where these margins would move it. */
   .users-pane-body > .users-save-bar {
     margin-inline: -1.5rem;
+  }
+
+  .users-pane-body > .users-save-bar:last-child {
+    margin-bottom: -1.5rem;
   }
 }
 
