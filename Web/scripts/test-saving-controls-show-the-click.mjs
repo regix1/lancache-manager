@@ -231,7 +231,6 @@ test("a guest's prefill access rows send nothing until Save, and a failed Save k
   const EnhancedDropdown = stub('EnhancedDropdown');
   const toggles = [];
   const puts = [];
-  const notified = [];
   let stored = { ...DEFAULT_PREFERENCES, steamMaxThreadCount: 8 };
   let failNextPut = true;
   const held = () => new Promise(() => undefined);
@@ -268,7 +267,7 @@ test("a guest's prefill access rows send nothing until Save, and a failed Save k
     }),
     useSignalR: () => ({ on: () => undefined, off: () => undefined, isConnected: true }),
     useReconnectRefetch: () => undefined,
-    useErrorHandler: () => ({ notifyError: (title) => notified.push(title) }),
+    useErrorHandler: () => ({ notifyError: () => undefined }),
     useDefaultGuestPreferences: () => ({ prefs: { allowedTimeFormats: [] } }),
     getErrorMessage: (error) => error.message,
     DEFAULT_PREFERENCES,
@@ -322,7 +321,11 @@ test("a guest's prefill access rows send nothing until Save, and a failed Save k
         (element) => element.type === Button && textOf(element) === 'actions.useDefault'
       )?.props,
       save: elements.find((element) => element.type === Button && textOf(element) === 'common.save')
-        ?.props
+        ?.props,
+      // The save failures the pane shows, by the title each one carries.
+      errors: elements.filter(
+        (element) => element.props?.title === 'activeSessions.errors.savePreferences'
+      ).length
     };
   };
   const settle = async () => {
@@ -386,7 +389,7 @@ test("a guest's prefill access rows send nothing until Save, and a failed Save k
       putSteamThreads: firstPut?.steamMaxThreadCount,
       saveBusy: saving.save.loading,
       switchesBusy: saving.switches.map((props) => props.loading === true),
-      notified: notified.length,
+      errors: failed.errors,
       switches: failed.switches.map((props) => props.value),
       steamThreads: failed.steamThreads.value,
       saveBusyAfter: failed.save.loading,
@@ -401,7 +404,7 @@ test("a guest's prefill access rows send nothing until Save, and a failed Save k
       putSteamThreads: null,
       saveBusy: true,
       switchesBusy: PREFILL_SERVICES.map(() => false),
-      notified: 1,
+      errors: 1,
       switches: PREFILL_SERVICES.map(() => 'on'),
       steamThreads: '',
       saveBusyAfter: false,

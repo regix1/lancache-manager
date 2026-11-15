@@ -71,9 +71,9 @@
   margin-left: auto;
 }
 
-/* The Guest access pane's Save bar. It stays in view while the pane scrolls, so a change is never
-   left unsaved below the fold; the opaque card color lets the rows scroll under it. */
-.guest-access-footer {
+/* The Users panes' Save bar. It stays in view while the pane scrolls, so a change is never left
+   unsaved below the fold; the opaque card color lets the rows scroll under it. */
+.users-save-bar {
   position: sticky;
   bottom: 0;
   z-index: 1;
@@ -85,16 +85,25 @@
   background-color: var(--theme-card-bg);
 }
 
-.guest-access-footer__row {
+.users-save-bar__row {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 0.75rem;
 }
 
+/* Inside a padded pane body the bar reaches the pane's edges, like the Guest access bar. */
+.users-pane-body > .users-save-bar {
+  margin-inline: -1rem;
+}
+
 @media (min-width: 1024px) {
-  .guest-access-footer {
+  .users-save-bar {
     padding-inline: 1.5rem;
+  }
+
+  .users-pane-body > .users-save-bar {
+    margin-inline: -1.5rem;
   }
 }
 
@@ -102,25 +111,25 @@
    the bar is pinned to the screen and the page ends with room for it, which keeps the page's last
    line clear of the bar. 7rem holds the bar with its note above a full-width Save. */
 @media (max-width: 1023.98px) {
-  .guest-access-footer {
+  .users-save-bar {
     position: fixed;
     inset-inline: 0;
     z-index: 20;
   }
 
-  body:has(.users-split[data-phone-view='detail'] .guest-access-footer) {
+  body:has(.users-split[data-phone-view='detail'] .users-save-bar) {
     padding-bottom: 7rem;
   }
 }
 
 @media (max-width: 639.98px) {
-  .guest-access-footer__row {
+  .users-save-bar__row {
     flex-direction: column;
     align-items: stretch;
     gap: 0.5rem;
   }
 
-  .guest-access-footer__row .users-pane-btn {
+  .users-save-bar__row .users-pane-btn {
     width: 100%;
   }
 }

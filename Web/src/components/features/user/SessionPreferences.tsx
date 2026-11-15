@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -77,20 +78,21 @@ const SessionPreferences: React.FC<SessionPreferencesProps> = ({
   const [prefs, setPrefs] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // The preference rows save together with their Save button: each row the admin changed waits here
-  // until Save sends it. A Use default is a null entry.
+  // The pane saves together with its one Save button: each preference row the admin changed waits
+  // here until Save sends it. A Use default is a null entry.
   const [draftPrefs, setDraftPrefs] = useState<Partial<UserPreferences>>({});
-  const [savingPrefs, setSavingPrefs] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // The first failure of the newest Save, shown above Save until the next Save ends.
+  const [saveFailure, setSaveFailure] = useState<unknown>(null);
   // A Retry's read can be held behind a save or replaced by a pushed reload, so the Retry stays
   // busy until the newest read settles.
   const [prefsRetrying, setPrefsRetrying] = useState(false);
-  // The prefill access rows save together with their Save button: each switch and thread limit the
-  // admin changed waits here, per service, until Save sends it.
+  // Each prefill switch and thread limit the admin changed waits here, per service, until Save
+  // sends it.
   const [draftAccess, setDraftAccess] = useState<Partial<Record<GameServiceId, boolean>>>({});
   const [draftThreads, setDraftThreads] = useState<Partial<Record<GameServiceId, number | null>>>(
     {}
   );
-  const [savingPrefill, setSavingPrefill] = useState(false);
   // The access a Save sent, per service, drawn until the session shows it: the call can answer
   // before the permission push redraws the session, and the switch must not fall back meanwhile.
   const [requestedAccess, setRequestedAccess] = useState<Partial<Record<GameServiceId, boolean>>>(
@@ -295,12 +297,10 @@ const SessionPreferences: React.FC<SessionPreferencesProps> = ({
     });
   };
 
-  // One Save sends the edit of every drawn row, each through the write chain, and drops the edit of a
-  // row no longer drawn. A row edited again while Save runs stays a change; a row whose save failed
+  // Sends the edit of every drawn preference row, each through the write chain, and drops the edit of
+  // a row no longer drawn. A row edited again while Save runs stays a change; a row whose save failed
   // keeps its edit.
-  const savePreferences = async (): Promise<void> => {
-    if (savingPrefs) return;
-    setSavingPrefs(true);
+  const savePreferences = (): Promise<void>[] => {
     const sent = draftPrefs;
     const keys = Object.keys(sent) as (keyof UserPreferences)[];
     const hidden = keys.filter((key: keyof UserPreferences) => !rowDrawn(key));
@@ -311,22 +311,11 @@ const SessionPreferences: React.FC<SessionPreferencesProps> = ({
         return rest;
       });
     }
-    const writes = keys.filter(rowDrawn).map(async (key: keyof UserPreferences): Promise<void> => {
+    return keys.filter(rowDrawn).map(async (key: keyof UserPreferences): Promise<void> => {
       const value = sent[key];
       await writePreference(key, value);
       setDraftPrefs((previous: Partial<UserPreferences>) => withoutSent(previous, key, value));
     });
-    const results = await Promise.allSettled(writes);
-    setSavingPrefs(false);
-    const failed = results.find(
-      (result: PromiseSettledResult<void>): result is PromiseRejectedResult =>
-        result.status === 'rejected'
-    );
-    if (failed !== undefined) {
-      notifyError(t('activeSessions.errors.savePreferences'), failed.reason, {
-        logLabel: 'Failed to save session preference'
-      });
-    }
   };
 
   // The pane is keyed by its session, so reloadPrefs only ever reads this session; the handlers are
@@ -399,14 +388,12 @@ const SessionPreferences: React.FC<SessionPreferencesProps> = ({
     });
   };
 
-  // One Save sends every row of the section that changed. Thread limits go through the preferences
-  // write chain; grants and revokes write the session row, so they run beside it. Their reply carries
-  // nothing; the permission push updates the session shown, and it can arrive before the reply, so
-  // the sent access is held from the moment it is sent. A row edited again while Save runs stays a
-  // change; a row whose save failed keeps its edit.
-  const savePrefillAccess = async (): Promise<void> => {
-    if (savingPrefill) return;
-    setSavingPrefill(true);
+  // Sends every prefill row that changed. Thread limits go through the preferences write chain;
+  // grants and revokes write the session row, so they run beside it. Their reply carries nothing; the
+  // permission push updates the session shown, and it can arrive before the reply, so the sent access
+  // is held from the moment it is sent. A row edited again while Save runs stays a change; a row
+  // whose save failed keeps its edit.
+  const savePrefillAccess = (): Promise<void>[] => {
     const sentAccess = draftAccess;
     const sentThreads = draftThreads;
     const threadWrites = PREFILL_SERVICES.filter(
@@ -441,17 +428,20 @@ const SessionPreferences: React.FC<SessionPreferencesProps> = ({
         withoutSent(previous, service.id, enabled)
       );
     });
-    const results = await Promise.allSettled([...threadWrites, ...accessWrites]);
-    setSavingPrefill(false);
+    return [...threadWrites, ...accessWrites];
+  };
+
+  // The pane's one Save sends the prefill rows and the preference rows together.
+  const saveAll = async (): Promise<void> => {
+    if (saving) return;
+    setSaving(true);
+    const results = await Promise.allSettled([...savePrefillAccess(), ...savePreferences()]);
+    setSaving(false);
     const failed = results.find(
       (result: PromiseSettledResult<void>): result is PromiseRejectedResult =>
         result.status === 'rejected'
     );
-    if (failed !== undefined) {
-      notifyError(t('activeSessions.errors.savePreferences'), failed.reason, {
-        logLabel: 'Failed to save prefill access'
-      });
-    }
+    setSaveFailure(failed === undefined ? null : failed.reason);
   };
 
   if (!prefsLoaded) {
@@ -496,7 +486,10 @@ const SessionPreferences: React.FC<SessionPreferencesProps> = ({
       drawnFormats.length === defaultFormats.length &&
       drawnFormats.every((format: string) => defaultFormats.includes(format))
     );
-  const unsavedEdits = (Object.keys(draftPrefs) as (keyof UserPreferences)[]).filter(rowDrawn);
+  const hasChanges =
+    Object.keys(draftAccess).length > 0 ||
+    Object.keys(draftThreads).length > 0 ||
+    (Object.keys(draftPrefs) as (keyof UserPreferences)[]).some(rowDrawn);
 
   return (
     <>
@@ -591,19 +584,6 @@ const SessionPreferences: React.FC<SessionPreferencesProps> = ({
               </div>
             );
           })}
-          <div className="flex justify-end">
-            <Button
-              variant="filled"
-              color="primary"
-              loading={savingPrefill}
-              disabled={
-                Object.keys(draftAccess).length === 0 && Object.keys(draftThreads).length === 0
-              }
-              onClick={() => void savePrefillAccess()}
-            >
-              {t('common.save')}
-            </Button>
-          </div>
         </UserPaneSection>
       )}
 
@@ -773,19 +753,30 @@ const SessionPreferences: React.FC<SessionPreferencesProps> = ({
             </span>
           </UserSettingRow>
         )}
+      </UserPaneSection>
 
-        <div className="flex justify-end">
+      <div className="users-save-bar">
+        {saveFailure !== null && (
+          <Alert color="error" title={t('activeSessions.errors.savePreferences')}>
+            <p className="text-sm">{getErrorMessage(saveFailure)}</p>
+          </Alert>
+        )}
+        <div className="users-save-bar__row">
+          {hasChanges && (
+            <span className="text-sm text-themed-secondary">{t('user.panes.unsavedChanges')}</span>
+          )}
           <Button
             variant="filled"
             color="primary"
-            loading={savingPrefs}
-            disabled={unsavedEdits.length === 0}
-            onClick={() => void savePreferences()}
+            className="users-pane-btn"
+            loading={saving}
+            disabled={!hasChanges}
+            onClick={() => void saveAll()}
           >
             {t('common.save')}
           </Button>
         </div>
-      </UserPaneSection>
+      </div>
     </>
   );
 };

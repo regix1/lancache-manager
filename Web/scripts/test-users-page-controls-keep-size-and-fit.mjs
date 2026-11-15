@@ -382,7 +382,7 @@ const labelOf = async (locator) => (await locator.innerText()).replace(/\s+/g, '
 const menuDialogs = async (page, pane, headerButtons = false) => {
   const measured = [];
   if (headerButtons) {
-    const buttons = page.locator('.users-detail-pane .users-pane-btn');
+    const buttons = page.locator('.users-detail-pane .users-pane-head .users-pane-btn');
     const count = await buttons.count();
     for (let index = 0; index < count; index += 1) {
       const trigger = await labelOf(buttons.nth(index));

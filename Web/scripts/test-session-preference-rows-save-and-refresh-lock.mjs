@@ -213,11 +213,10 @@ const mountPane = async (session, row) => {
     assert.ok(row, `the pane draws no ${label} row`);
     return elementsIn(row, (element) => element.type === ToggleSwitch)[0].props;
   };
+  /** The pane's one Save, in the save bar under its sections. */
   const saveButton = (tree) =>
-    elementsIn(
-      section(tree, PREFERENCES_SECTION),
-      (element) => element.type === Button && textOf(element) === 'common.save'
-    )[0]?.props;
+    elementsIn(tree, (element) => element.type === Button && textOf(element) === 'common.save')[0]
+      ?.props;
   /** Whether any control of the preferences section other than its Save button shows busy. */
   const rowsBusy = (tree) => {
     const prefs = section(tree, PREFERENCES_SECTION);
@@ -306,9 +305,9 @@ test("a session's preference rows wait for one Save, keep a pushed change, and o
     assert.equal(
       cleanSave?.disabled,
       true,
-      'before any change the preferences section must offer a Save with nothing to save'
+      'before any change the pane must offer a Save with nothing to save'
     );
-    assert.ok(pane.saveButton(unsaved), 'the preferences section has no Save button');
+    assert.ok(pane.saveButton(unsaved), 'the pane has no Save button');
     assert.notEqual(
       pane.saveButton(unsaved).disabled,
       true,

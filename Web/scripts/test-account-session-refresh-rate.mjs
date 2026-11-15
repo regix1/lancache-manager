@@ -97,7 +97,6 @@ const mountPane = async ({ session, row, viewer, failWrites = false }) => {
   const hub = eventHub();
   const server = { stored: { ...DEFAULT_PREFERENCES, ...row } };
   const writes = [];
-  const notified = [];
   const write = (name, args, store) => {
     writes.push({ name, args });
     if (failWrites) return Promise.reject(new Error('refused'));
@@ -129,7 +128,7 @@ const mountPane = async ({ session, row, viewer, failWrites = false }) => {
     useTranslation: () => ({ t: (key) => key }),
     useSignalR: () => hub,
     useReconnectRefetch: () => undefined,
-    useErrorHandler: () => ({ notifyError: (title) => notified.push(title) }),
+    useErrorHandler: () => ({ notifyError: () => undefined }),
     useDefaultGuestPreferences: () => ({ prefs: { allowedTimeFormats: [] } }),
     useAuth: () => ({ sessionType: viewer }),
     useRefreshRate: () => ({ systemRate: 'STANDARD' }),
@@ -185,11 +184,15 @@ const mountPane = async ({ session, row, viewer, failWrites = false }) => {
     assert.ok(row, `the pane draws no ${label} row`);
     return elementsIn(row, (element) => element.type === type)[0].props;
   };
+  /** The pane's one Save, in the save bar under its sections. */
   const saveButton = (tree) =>
-    elementsIn(
-      section(tree),
-      (element) => element.type === Button && textOf(element) === 'common.save'
-    )[0]?.props;
+    elementsIn(tree, (element) => element.type === Button && textOf(element) === 'common.save')[0]
+      ?.props;
+  /** The save failures the pane shows, by the title each one carries. */
+  const saveFailures = (tree) =>
+    elementsIn(tree, (element) => element.props?.title === SAVE_FAILED).map(
+      (element) => element.props.title
+    );
   const push = (changes) => {
     server.stored = { ...server.stored, ...changes };
     hub.deliver('UserPreferencesUpdated', {
@@ -199,12 +202,12 @@ const mountPane = async ({ session, row, viewer, failWrites = false }) => {
   };
   return {
     writes,
-    notified,
     view,
     settle,
     rowLabels,
     rowControl,
     saveButton,
+    saveFailures,
     push,
     ToggleSwitch,
     EnhancedDropdown
@@ -242,9 +245,9 @@ test('a Save whose writes fail keeps every edit drawn and reports the failure on
   const after = pane.view();
   assert.equal(pane.writes.length > 0, true, 'Save sent nothing');
   assert.deepEqual(
-    pane.notified.filter((title) => title === SAVE_FAILED),
+    pane.saveFailures(after),
     [SAVE_FAILED],
-    'a Save with two failed rows must report the failure once'
+    'a Save with two failed rows must show the failure once, inside the pane'
   );
   assert.deepEqual(
     {

@@ -1067,13 +1067,13 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         </UserPaneSection>
       </div>
 
-      <div className="guest-access-footer">
+      <div className="users-save-bar">
         {saveFailure !== null && (
           <Alert color="error" title={saveFailure.title}>
             <p className="text-sm">{getErrorMessage(saveFailure.reason)}</p>
           </Alert>
         )}
-        <div className="guest-access-footer__row">
+        <div className="users-save-bar__row">
           {hasChanges && (
             <span className="text-sm text-themed-secondary">{t('user.panes.unsavedChanges')}</span>
           )}
