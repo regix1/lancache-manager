@@ -5,9 +5,10 @@ ROOT="$(git rev-parse --show-toplevel)"
 
 cd "$ROOT/Web"
 
-# Runs before the slow gates so a one-word typo fails in a second rather than after a
-# full backend build. Covers every tracked file, not just the push, so text that predates
-# the rule is caught too.
+# Only the fast checks run here. The frontend tests and the backend build and tests run in CI
+# (lint.yml, called by docker-build-dev.yml on every push to main), so repeating them here only
+# delayed the push. The spelling check covers every tracked file, not just the push, so text that
+# predates the rule is caught too.
 echo "pre-push: checking the LANCache spelling..."
 node scripts/validate-lancache-spelling.mjs
 
@@ -20,21 +21,7 @@ npm run validate:contracts
 echo "pre-push: running knip..."
 npm run knip
 
-echo "pre-push: running the frontend tests..."
-npm test
-
-# Backend analyzer gate. This is the same build CI runs, so a CA/xUnit/nullable
-# violation fails here instead of arriving on GitHub as a warning annotation.
-# --no-incremental is required: an incremental build re-emits zero analyzer
-# warnings and would pass while the rules are still broken.
-# --artifacts-path keeps this rebuild out of bin/Debug. A running API locks
-# LancacheManager.exe there, and a default output path then fails the push
-# with MSB3027 even when the code is fine.
 cd "$ROOT"
-if ! command -v dotnet >/dev/null 2>&1; then
-  echo "pre-push: dotnet not found on PATH - cannot run the backend analyzer gate." >&2
-  exit 1
-fi
 
 # Keep passive top-level declarations in model files so implementation files retain one concern.
 MODEL_SCRIPT="$ROOT/scripts/csharp-model-placement.ps1"
@@ -50,17 +37,3 @@ else
   echo "pre-push: PowerShell 7 not found - cannot check C# model placement." >&2
   exit 1
 fi
-
-echo "pre-push: building backend with analyzer warnings as errors..."
-dotnet build lancache-manager.sln \
-  --no-incremental \
-  --artifacts-path .git/pre-push-build \
-  -m:1 \
-  -p:SkipRustBuild=true \
-  -warnaserror:CS8600,CS8601,CS8602,CS8603,CS8604
-echo "pre-push: running backend tests..."
-dotnet test lancache-manager.sln \
-  --no-build \
-  --artifacts-path .git/pre-push-build \
-  -m:1 \
-  -p:SkipRustBuild=true
