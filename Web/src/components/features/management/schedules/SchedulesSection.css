@@ -1328,8 +1328,8 @@
 
 /* Same idea for the SECOND control (Disable all, Save settings): "Save settings" is the longer
    label, so a shared floor keeps "Disable all" from rendering narrower and its right edge falling
-   short. Save settings no longer grows while saving (it uses Button's `stableWidth`, which overlays
-   the spinner instead of inserting it), so this floor only needs to cover the resting labels. */
+   short. Save settings does not grow while saving (Button overlays the spinner instead of
+   inserting it), so this floor only needs to cover the resting labels. */
 .scheduled-prefill-config-modal__setting-actions > :nth-child(2) {
   min-width: 8.5rem;
 }

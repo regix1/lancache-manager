@@ -540,7 +540,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         title={t('dashboard.downloadsPanel.loadFailed')}
         message={loadError}
         retryLabel={t('common.retry')}
-        onRetry={() => void refreshDownloads()}
+        onRetry={() => refreshDownloads()}
       />
     );
 
@@ -774,9 +774,14 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                       variant="panel"
                       icon={Clock}
                       title={t('dashboard.downloadsPanel.emptyStates.noDownloads')}
-                      subtitle={t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
-                        period: getTimeRangeLabel.toLowerCase()
-                      })}
+                      // "All Time" and "Custom" do not read as a period inside a sentence.
+                      subtitle={
+                        timeRange === 'live' || timeRange === 'custom'
+                          ? t('dashboard.downloadsPanel.emptyStates.noDownloadsToShow')
+                          : t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
+                              period: getTimeRangeLabel.toLowerCase()
+                            })
+                      }
                     />
                   )
                 ) : null}

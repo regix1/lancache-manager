@@ -44,7 +44,8 @@ public sealed class OidcOptionsSetup : IConfigureNamedOptions<OpenIdConnectOptio
         // Apple does not advertise PKCE in its discovery document. It uses a confidential client,
         // nonce, state, and a short-lived server-generated client assertion instead.
         options.UsePkce = kind != LoginKind.Apple;
-        options.RequireHttpsMetadata = true;
+        // A provider on the LAN can serve plain HTTP; an HTTPS provider still refuses HTTP metadata.
+        options.RequireHttpsMetadata = options.Authority.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
         // The handler validates state itself through its state format and correlation cookie and never
         // fills the validator's State, so the validator's own state check always fails.
         options.ProtocolValidator.RequireStateValidation = false;
@@ -64,6 +65,13 @@ public sealed class OidcOptionsSetup : IConfigureNamedOptions<OpenIdConnectOptio
         if (kind != LoginKind.Apple)
         {
             options.Scope.Add("profile");
+            // The callback is a top-level GET, which carries Lax cookies, and an HTTP page cannot set a
+            // Secure one. SameAsRequest keeps them Secure on HTTPS and behind Security:ForceSecureCookies.
+            // Apple keeps the None + Secure default, because its callback is a cross-site form post.
+            options.CorrelationCookie.SameSite = SameSiteMode.Lax;
+            options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+            options.NonceCookie.SameSite = SameSiteMode.Lax;
+            options.NonceCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         }
     }
 }

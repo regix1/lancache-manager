@@ -46,7 +46,7 @@ The setup and recovery calls keep the key because they must work before any acco
 - The key is one shared secret for the whole install, and it appears in the container log when it is created or rotated.
 - A request that carried only the key left no session, so the app had no record of who made it.
 - A leaked key could not be taken back from one caller. The only fix was to regenerate it, which affects every user.
-- A signed-in session is listed under **Users → Sessions** and can be ended there on its own.
+- A signed-in session is listed on the **Users** page and can be ended there on its own with **Revoke**.
 
 ### Signing in from a script
 
@@ -56,7 +56,7 @@ What the sign-in call needs depends on the access mode (see [Access and sign-in]
 |---|---|
 | Username and password | `username`, `password` |
 | API key, username and password | `apiKey`, `username`, `password` |
-| Unauthenticated | `username`, `password` of the primary administrator only |
+| Unauthenticated | Nothing. No sign-in is needed, and no account exists while sign-in is off. |
 | API key and single sign-on | `apiKey`, `username`, `password` of the primary administrator only |
 | Single sign-on | `username`, `password` of the primary administrator only |
 

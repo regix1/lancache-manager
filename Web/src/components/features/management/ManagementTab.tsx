@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useDeferredValue } from 'react';
+import React, { useState, useEffect, useCallback, useDeferredValue, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useMockMode } from '@contexts/useMockMode';
@@ -32,7 +32,7 @@ const ManagementTab: React.FC = () => {
   const { notifyError } = useErrorHandler();
   const { notifySuccess } = useNotifySuccess();
   const { mockMode } = useMockMode();
-  const { isAdmin, authMode } = useAuth();
+  const { isAdmin, authMode, sessionType } = useAuth();
   const scheduleSteamApiHighlightClear = useTimeoutCallback(2000);
   const scheduleBattleNetHighlightClear = useTimeoutCallback(2000);
   const scheduleEvictionHighlightClear = useTimeoutCallback(3000);
@@ -83,36 +83,73 @@ const ManagementTab: React.FC = () => {
     scheduleScanJumpClear(() => setScanJump(null));
   }, [scanJump, scheduleScanJumpClear]);
 
-  // Handle section change
-  const handleSectionChange = useCallback((section: ManagementSection) => {
-    setActiveSection(section);
+  // The tab's least height: what keeps the page's scroll where it is. A shorter section would
+  // otherwise cut the page short, and the browser would pull the scroll, the header and the nav up
+  // the screen. Taken while the old section is still drawn; scrolling up hands the room back.
+  const tabRef = useRef<HTMLDivElement>(null);
+  const heldHeightRef = useRef(0);
+
+  const holdTabHeight = useCallback((limit: number) => {
+    const tab = tabRef.current;
+    if (tab === null) return;
+    const scrolled = globalThis.scrollY;
+    // At the page's top there is no scroll to pull, so nothing is held.
+    const needed =
+      scrolled > 0
+        ? tab.offsetHeight -
+          (document.documentElement.scrollHeight - scrolled - globalThis.innerHeight)
+        : 0;
+    heldHeightRef.current = Math.max(0, Math.min(limit, needed));
+    tab.style.setProperty('--management-tab-held-height', `${heldHeightRef.current}px`);
   }, []);
+
+  // Listens only while a hold is up, and lets go once scrolling has handed all of it back.
+  const handleScroll = useCallback((): void => {
+    holdTabHeight(heldHeightRef.current);
+    if (heldHeightRef.current === 0) globalThis.removeEventListener('scroll', handleScroll);
+  }, [holdTabHeight]);
+
+  useEffect(() => () => globalThis.removeEventListener('scroll', handleScroll), [handleScroll]);
+
+  // Handle section change
+  const handleSectionChange = useCallback(
+    (section: ManagementSection) => {
+      holdTabHeight(Number.POSITIVE_INFINITY);
+      if (heldHeightRef.current > 0) {
+        globalThis.addEventListener('scroll', handleScroll, { passive: true });
+      } else {
+        globalThis.removeEventListener('scroll', handleScroll);
+      }
+      setActiveSection(section);
+    },
+    [handleScroll, holdTabHeight]
+  );
 
   // Handle navigation to Steam API section with highlight
   const handleNavigateToSteamApi = useCallback(() => {
-    setActiveSection('integrations');
+    handleSectionChange('integrations');
     setHighlightSteamApi(true);
     // Reset so a later click can re-trigger; the glow itself runs to completion on its own
     scheduleSteamApiHighlightClear(() => setHighlightSteamApi(false));
-  }, [scheduleSteamApiHighlightClear]);
+  }, [handleSectionChange, scheduleSteamApiHighlightClear]);
 
   // Handle navigation to Battle.net daemon status in Integrations section.
   // Battle.net is anonymous (no login), so this only highlights the daemon card.
   const handleNavigateToBattleNetLogin = useCallback(() => {
-    setActiveSection('integrations');
+    handleSectionChange('integrations');
     setHighlightBattleNet(true);
     // Reset so a later click can re-trigger; the glow itself runs to completion on its own
     scheduleBattleNetHighlightClear(() => setHighlightBattleNet(false));
-  }, [scheduleBattleNetHighlightClear]);
+  }, [handleSectionChange, scheduleBattleNetHighlightClear]);
 
   // Jump from the Eviction Scan schedule card to the Eviction Detection and Removal card
   // in the Storage section and glow it into view.
   const handleNavigateToEvictionSettings = useCallback(() => {
-    setActiveSection('storage');
+    handleSectionChange('storage');
     setHighlightEviction(true);
     // Reset so a later click can re-trigger; the glow itself runs to completion on its own
     scheduleEvictionHighlightClear(() => setHighlightEviction(false));
-  }, [scheduleEvictionHighlightClear]);
+  }, [handleSectionChange, scheduleEvictionHighlightClear]);
 
   // Defer the section used for rendering content. Switching to a heavy section
   // (e.g. Storage, which mounts the GameCacheDetector card list + several managers)
@@ -139,6 +176,21 @@ const ManagementTab: React.FC = () => {
               {t('management.sections.authRequired')}
             </p>
             <p className="text-themed-muted text-sm">{t('management.sections.authRequiredDesc')}</p>
+          </div>
+        </Card>
+      );
+    }
+
+    // Every section past here changes the whole installation, which a user-role account may not;
+    // the prefill sessions list stays, read-only for it.
+    if (sessionType === 'user' && renderedSection !== 'prefill-sessions') {
+      return (
+        <Card>
+          <div className="text-center py-12">
+            <p className="text-themed-secondary text-lg mb-2">
+              {t('management.sections.adminOnly')}
+            </p>
+            <p className="text-themed-muted text-sm">{t('management.sections.adminOnlyDesc')}</p>
           </div>
         </Card>
       );
@@ -186,7 +238,7 @@ const ManagementTab: React.FC = () => {
             onSuccess={setSuccess}
             onDataRefresh={refreshStatsAndGameCache}
             onNavigateToBattleNetLogin={handleNavigateToBattleNetLogin}
-            onNavigateToSection={setActiveSection}
+            onNavigateToSection={handleSectionChange}
           />
         );
 
@@ -215,7 +267,12 @@ const ManagementTab: React.FC = () => {
 
       case 'prefill-sessions':
         return (
-          <PrefillSessionsSection isAdmin={isAdmin} onError={notifyError} onSuccess={setSuccess} />
+          // Terminate, ban and lift change other people's prefill, which a user-role account may not do.
+          <PrefillSessionsSection
+            isAdmin={isAdmin && sessionType !== 'user'}
+            onError={notifyError}
+            onSuccess={setSuccess}
+          />
         );
 
       case 'status-check':
@@ -227,7 +284,7 @@ const ManagementTab: React.FC = () => {
   };
 
   return (
-    <div className="management-tab-container animate-fadeIn">
+    <div ref={tabRef} className="management-tab-container animate-fadeIn">
       {/* Navigation Tabs */}
       <ManagementNav
         activeSection={activeSection}

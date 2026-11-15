@@ -1,6 +1,7 @@
 using System.Reflection;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using static LancacheManager.Tests.StateTestMethods;
@@ -358,6 +360,7 @@ public sealed class AccountLoginTests : IDisposable
         Assert.NotNull(guest);
         sign.Request.Request.Headers.Cookie =
             $"LancacheManager.Session={guest!.Value.RawToken}";
+        sign.Request.RequestServices = new ServiceCollection().BuildServiceProvider();
 
         var result = await sign.Controller.LoginAsync(
             NewLogin("operator", Password, _apiKeyService.GetApiKey()));
@@ -654,7 +657,7 @@ public sealed class AccountLoginTests : IDisposable
         var signedIn = await SignInAsync(sign, "operator");
         var other = await SignInAsync(NewSignIn(database), "colleague");
 
-        Assert.Equal(1, await sign.Sessions.RevokeAccountSessionsAsync(account.Id));
+        Assert.Equal(1, await sign.Sessions.RevokeAccountSessionsAsync(account.Id, new ServiceCollection().BuildServiceProvider()));
         Assert.Null(await sign.Sessions.ValidateSessionAsync(signedIn.RawToken));
         Assert.NotNull(await sign.Sessions.ValidateSessionAsync(other.RawToken));
 
@@ -691,6 +694,42 @@ public sealed class AccountLoginTests : IDisposable
         Assert.NotNull(replacement);
         Assert.NotEqual(signedIn.RawToken, replacement);
         Assert.NotNull(await sign.Sessions.ValidateSessionAsync(replacement!));
+    }
+
+    /// <summary>
+    /// Changing the password ends the account's sessions on other devices, so an open Users page has to
+    /// be told: it reads its lists again only on an event, and without one it keeps listing them as live.
+    /// </summary>
+    [Fact]
+    public async Task ChangingThePasswordTellsAnOpenUsersPageTheOtherSessionsEnded()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await NewAccountAsync(database, "operator");
+        var otherDevice = await SignInAsync(NewSignIn(database), "operator");
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, CacheScanDetectionPhaseTests.RecordingNotifications>();
+        var sent = (CacheScanDetectionPhaseTests.RecordingNotifications)(object)notifications;
+        var sign = NewSignIn(database, notifications: notifications);
+        await SignInAsync(sign, "operator");
+
+        // Whether the other device's session still reads as live at each event that makes an open Users
+        // page read its lists again (useUserSessions.ts RELOAD_EVENTS, useUserAccounts.ts).
+        var otherListedAsLive = new List<bool>();
+        sent.OnSent = (eventName, _) =>
+        {
+            if (eventName is not (SignalREvents.AccountsChanged or SignalREvents.UserSessionRevoked or SignalREvents.UserSessionsCleared))
+                return;
+            using var context = database.Factory.CreateDbContext();
+            otherListedAsLive.Add(context.UserSessions.AsNoTracking().Any(s => s.Id == otherDevice.Session.Id && !s.IsRevoked));
+        };
+
+        var result = await sign.Controller.ChangePasswordAsync(
+            new ChangePasswordRequest { CurrentPassword = Password, NewPassword = OtherPassword });
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        Assert.Null(await sign.Sessions.ValidateSessionAsync(otherDevice.RawToken));
+        Assert.True(
+            otherListedAsLive.Any(live => !live),
+            "changing the password ended the session on the other device but sent no list event after it, so an open Users page keeps listing it as live");
     }
 
     /// <summary>
@@ -883,7 +922,8 @@ public sealed class AccountLoginTests : IDisposable
         StateService? stateService = null,
         AccountLockout? lockout = null,
         bool authenticationEnabled = true,
-        bool useAccessSettings = false)
+        bool useAccessSettings = false,
+        ISignalRNotificationService? notifications = null)
     {
         var sessionConfiguration = authenticationEnabled ? _configuration : AuthenticationDisabled();
         var sessions = new SessionService(
@@ -894,7 +934,7 @@ public sealed class AccountLoginTests : IDisposable
             NewNotifications(),
             sessionConfiguration);
 
-        var request = new DefaultHttpContext();
+        var request = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
         var sharedLockout = lockout ?? new AccountLockout(NullLogger<AccountLockout>.Instance);
 
         var accessService = useAccessSettings
@@ -908,7 +948,7 @@ public sealed class AccountLoginTests : IDisposable
             NullLogger<AuthController>.Instance,
             database.Factory,
             stateService!,
-            NewNotifications(),
+            notifications ?? NewNotifications(),
             _apiKeyService,
             _passwordHasher,
             sharedLockout,

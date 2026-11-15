@@ -48,8 +48,8 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    // A failure already on screen stays until this read answers, so its Retry keeps the box.
     setIsLoading(true);
-    setError(null);
     setDenialReason(null);
 
     try {
@@ -60,6 +60,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
       // authoritative result is still delivered by CacheScanComplete (and the reconnect resync),
       // which call fetchCacheSize directly and do not consult hasFetched. Keep the last size.
       setHasFetched(true);
+      setError(null);
       if ('scanning' in size || 'status' in size) {
         return;
       }
@@ -82,6 +83,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
       // still free to run on the next mount.
       if (isRefusal(err)) {
         setHasFetched(true);
+        setError(null);
         setDenialReason(err.message);
         return;
       }

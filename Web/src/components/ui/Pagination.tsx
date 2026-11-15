@@ -245,7 +245,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
               onPointerCancel={resolvedHoldEnd}
               onLostPointerCapture={resolvedLostCapture}
               disabled={prevDisabled}
-              className="pagination-group__btn focus-ring--inset"
+              className="pagination-group__btn pointer-target-44 focus-ring--inset"
               aria-label={prevTitle}
             >
               <ChevronLeft size={16} />
@@ -270,7 +270,7 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
               onPointerCancel={resolvedHoldEnd}
               onLostPointerCapture={resolvedLostCapture}
               disabled={nextDisabled}
-              className="pagination-group__btn focus-ring--inset"
+              className="pagination-group__btn pointer-target-44 focus-ring--inset"
               aria-label={nextTitle}
             >
               <ChevronRight size={16} />

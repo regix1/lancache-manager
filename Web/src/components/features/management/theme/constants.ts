@@ -640,21 +640,7 @@ export const colorGroups: ColorGroup[] = [
     ]
   },
 
-  // 10. USER SESSIONS - Session management colors
-  {
-    name: 'sessions',
-    icon: Users,
-    colors: [
-      { key: 'userSessionColor', supportsAlpha: true, pages: ['users'] },
-      { key: 'userSessionBg', supportsAlpha: true, pages: ['users'] },
-      { key: 'guestSessionColor', supportsAlpha: true, pages: ['users'] },
-      { key: 'guestSessionBg', supportsAlpha: true, pages: ['users'] },
-      { key: 'activeSessionColor', supportsAlpha: true, pages: ['users'] },
-      { key: 'activeSessionBg', supportsAlpha: true, pages: ['users'] }
-    ]
-  },
-
-  // 11. EVENT COLORS - Calendar event colors
+  // 10. EVENT COLORS - Calendar event colors
   {
     name: 'events',
     icon: CalendarDays,
@@ -670,7 +656,7 @@ export const colorGroups: ColorGroup[] = [
     ]
   },
 
-  // 12. PLATFORM SERVICES - Brand-specific colors
+  // 11. PLATFORM SERVICES - Brand-specific colors
   {
     name: 'platforms',
     icon: Gamepad2,
@@ -819,7 +805,7 @@ export const colorGroups: ColorGroup[] = [
     ]
   },
 
-  // 13. PERFORMANCE INDICATORS - Hit rate colors
+  // 12. PERFORMANCE INDICATORS - Hit rate colors
   {
     name: 'performance',
     icon: Activity,
@@ -867,7 +853,7 @@ export const colorGroups: ColorGroup[] = [
     ]
   },
 
-  // 14. ACTION BUTTONS - Specialized action colors
+  // 13. ACTION BUTTONS - Specialized action colors
   {
     name: 'actions',
     icon: Sparkles,
@@ -883,7 +869,7 @@ export const colorGroups: ColorGroup[] = [
     ]
   },
 
-  // 15. UTILITIES - Misc UI elements
+  // 14. UTILITIES - Misc UI elements
   {
     name: 'utilities',
     icon: Brush,

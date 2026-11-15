@@ -102,6 +102,8 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
     // Mock mode labels the generated addresses with the groups the generated client totals were
     // folded under, rather than a real network's nicknames.
     if (mockMode) {
+      // A real load still out, or the failure of one, must not land on the generated groups.
+      reset();
       setClientGroups(MockDataService.generateMockClientGroups());
       markLoaded();
       return;

@@ -35,6 +35,7 @@ namespace LancacheManager.Tests;
 /// <c>PersistentLoginValidityClockTests</c>) by proving the whole <see cref="PrefillDaemonServiceBase.StartAsync"/>
 /// path wires those decisions to the right container operations and DB row transitions.
 /// </summary>
+[Collection(nameof(DatabaseResetCollection))]
 public sealed partial class PrefillContainerOrchestrationTests : IDisposable
 {
     private const string SteamPersistentContainerName = "steam-daemon-persistent";

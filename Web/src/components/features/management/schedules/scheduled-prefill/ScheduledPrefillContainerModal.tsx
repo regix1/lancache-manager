@@ -56,7 +56,7 @@ export function ScheduledPrefillContainerModal({
                   title={t(`${baseKey}.serviceStatus.loadFailed`)}
                   message={containers.persistentError}
                   retryLabel={t('common.retry')}
-                  onRetry={() => void containers.loadPersistentContainers()}
+                  onRetry={() => containers.loadPersistentContainers()}
                 />
               )}
               {containers.persistentContainers === null && containers.persistentError !== null && (

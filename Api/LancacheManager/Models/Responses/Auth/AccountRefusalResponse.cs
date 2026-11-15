@@ -33,6 +33,12 @@ public class AccountRefusalResponse
     public const string SelfProtected = "errors.accounts.selfProtected";
 
     /// <summary>
+    /// A user-role account changes only its own account: editing, disabling or deleting another
+    /// account is left to an administrator.
+    /// </summary>
+    public const string OwnAccountOnly = "errors.accounts.ownAccountOnly";
+
+    /// <summary>
     /// A <c>Security__*</c> environment variable allows this account (its owner subject or subject
     /// allow list), so deleting it would only let its next sign-in create it again. It is removed
     /// from the variable first.
@@ -48,7 +54,22 @@ public class AccountRefusalResponse
     /// </summary>
     public const string CredentialsRejected = "errors.accounts.credentialsRejected";
 
+    /// <summary>
+    /// Sign-in is turned off, and that mode keeps no accounts, so none is created. An account made
+    /// then could never be signed in to, and it would stop the shared session changing access.
+    /// </summary>
+    public const string SignInOff = "errors.accounts.signInOff";
+
+    /// <summary>
+    /// The switch to unauthenticated access deletes every account and waits for the person to confirm
+    /// it. <see cref="Context"/> carries the account count under <c>count</c>.
+    /// </summary>
+    public const string WipeConfirmRequired = "accessSetup.wipeConfirm.required";
+
     public string StageKey { get; set; } = string.Empty;
 
     public string Error { get; set; } = string.Empty;
+
+    /// <summary>Values the stage key's text is filled with; null for a refusal whose text has none.</summary>
+    public Dictionary<string, object?>? Context { get; set; }
 }

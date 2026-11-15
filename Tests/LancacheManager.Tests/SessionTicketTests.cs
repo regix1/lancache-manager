@@ -321,7 +321,12 @@ public sealed class SessionTicketTests : IDisposable
         typeof(SessionService).GetField(name, BindingFlags.NonPublic | BindingFlags.Static)
         ?? throw new InvalidOperationException($"SessionService no longer has a static {name}.");
 
-    public void Dispose() => Directory.Delete(_root, recursive: true);
+    // The unreachable-database test leaves the key session's hold-off set for the next class in this collection.
+    public void Dispose()
+    {
+        ResetSharedApiKeySession();
+        Directory.Delete(_root, recursive: true);
+    }
 
     /// <summary>
     /// Stands in for a database that cannot be reached, which is the only way the key path resolves no

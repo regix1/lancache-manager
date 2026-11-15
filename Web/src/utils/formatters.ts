@@ -1,6 +1,7 @@
 import i18n from '@/i18n';
 import { FILE_SIZE_UNITS } from './constants';
 import { formatTimestamp, type ReaderClock } from './dateTimeFormat';
+import { parseUtcDate } from './timezone';
 
 /**
  * Check if a date is from a different year than the current year
@@ -130,7 +131,7 @@ export function formatRelativeTime(dateString: string | Date | null | undefined)
   if (!dateString) return i18n.t('common.notAvailable');
 
   try {
-    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+    const date = typeof dateString === 'string' ? parseUtcDate(dateString) : dateString;
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffSecs = Math.floor(diffMs / 1000);

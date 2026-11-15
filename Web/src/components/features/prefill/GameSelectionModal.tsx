@@ -490,7 +490,7 @@ export function GameSelectionModal({
               title={t('prefill.log.failedLoadLibrary')}
               message={error}
               retryLabel={t('common.retry')}
-              onRetry={() => void onRescan()}
+              onRetry={() => onRescan()}
             />
           )}
           {error && !onRescan && (

@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import test from 'node:test';
-import { pathToFileURL } from 'node:url';
 import { readStatusCheckText } from './status-check-page.mjs';
-import { builtAppOrigin, server, settle, translator } from './transpile-module.mjs';
+import { builtAppOrigin, server, settle, translator, withBrowser } from './transpile-module.mjs';
 
 // The Status Check page says what happened in a short line, keeps what to do on screen, and puts
 // the reason behind a help icon set inline right after the line it explains, with the icon's focus
@@ -407,14 +405,8 @@ test(
   'the Status Check page shows short lines, keeps each instruction, and sets each reason behind a help icon right after its line, clear of the text',
   { skip: !process.env.PLAYWRIGHT_PATH },
   async () => {
-    assert.ok(
-      existsSync(new URL('../dist/index.html', import.meta.url)),
-      'run npm run build before this test'
-    );
-    const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
-    const browser = await chromium.launch({ headless: true });
     const problems = [];
-    try {
+    await withBrowser(async (browser) => {
       const { context, page } = await openMixedStatusCheck(browser);
       try {
         const words = await page.evaluate(
@@ -525,9 +517,7 @@ test(
       } finally {
         await context.close();
       }
-    } finally {
-      await browser.close();
-    }
+    });
     assert.deepEqual(problems, [], problems.join('\n'));
   }
 );

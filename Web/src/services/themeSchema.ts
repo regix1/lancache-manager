@@ -266,14 +266,6 @@ const themeColorDefaults: Record<string, string> = {
   securedAccessText: '#fbbf24',
   securedAccessBorder: 'rgba(245, 158, 11, 0.3)',
 
-  // ── Sessions ─────────────────────────────────────────────────────────
-  // userSessionColor and userSessionBg are left out on purpose: the signed-in marker is the
-  // accent, and its fill is that same color at 15%.
-  guestSessionColor: '#06b6d4',
-  guestSessionBg: 'rgba(6, 182, 212, 0.15)',
-  activeSessionColor: '#f97316',
-  activeSessionBg: 'rgba(249, 115, 22, 0.15)',
-
   // ── Events ───────────────────────────────────────────────────────────
   // eventColor1 is left out on purpose so it follows primaryColor, like chartColor1.
   eventColor2: '#10b981',
@@ -660,11 +652,6 @@ function normalizeThemeColors(colors: Record<string, string>): Record<string, st
   if (!result.eventColor1) result.eventColor1 = result.primaryColor;
   if (!result.fireworkColor1) result.fireworkColor1 = result.primaryColor;
   if (!result.fireworkRocketColor) result.fireworkRocketColor = result.primaryColor;
-  if (!result.userSessionColor) result.userSessionColor = result.primaryColor;
-
-  // The signed-in marker's fill is that same color at 15%, derived from userSessionColor
-  // rather than the primary so an overridden marker keeps its fill in step
-  if (!result.userSessionBg) result.userSessionBg = hexToRgba(result.userSessionColor, 0.15);
 
   // A button's hover is a step down from the button itself, so it comes off buttonBg rather
   // than the primary and stays in step with a theme that recolors only the button

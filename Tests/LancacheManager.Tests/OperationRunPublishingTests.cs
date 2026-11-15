@@ -322,6 +322,24 @@ public sealed class OperationRunPublishingTests
         Assert.False(Run(tracker, plain).Retained);
     }
 
+    [Fact]
+    public void AScanWhoseDetectionEndedOnItsOwnKeyWarnsWithThatKey()
+    {
+        var tracker = CreateTracker();
+        var scan = tracker.RegisterOperation(OperationType.EvictionScan, "Eviction Scan", new CancellationTokenSource(),
+            new Dictionary<string, object?>());
+        var context = new Dictionary<string, object?> { ["detectionStageKey"] = "signalr.gameDetect.error.timedOut" };
+        tracker.UpdateProgress(scan, 90, "signalr.evictionScan.detectingGames", operation =>
+        {
+            if (operation.Metadata is Dictionary<string, object?> values) values["context"] = context;
+        });
+        tracker.CompleteOperation(scan, success: true);
+
+        var warning = Assert.Single(Run(tracker, scan).Warnings);
+        Assert.Equal("signalr.gameDetect.error.timedOut", warning.StageKey);
+        Assert.Empty(warning.Context);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

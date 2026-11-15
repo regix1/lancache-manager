@@ -75,6 +75,8 @@ interface RetroDownloadsHookResult {
   pageSize: number;
   isLoading: boolean;
   isFetching: boolean;
+  /** True while a request, or the follow-up a reload folded into, is out; a background one too. */
+  isRequesting: boolean;
   /** True once a request has answered. The totals above are placeholders until then. */
   hasResponse: boolean;
   error: Error | null;
@@ -211,6 +213,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
   const [data, setData] = useState<RetroDownloadResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isFetching, setIsFetching] = useState<boolean>(false);
+  const [isRequesting, setIsRequesting] = useState<boolean>(false);
   const [error, setError] = useState<Error | null>(null);
   // Bumped to ask the fetch below for the same page again, the way DownloadAssociationsContext
   // re-asks for its rows. The previous response stays on screen while it runs.
@@ -313,6 +316,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       // set, the busy indicator the page draws from isFetching stays on for the rest of the visit.
       setIsFetching(false);
       setIsLoading(false);
+      setIsRequesting(false);
       requestInFlightRef.current = false;
       reloadPendingRef.current = false;
       followUpWantedRef.current = false;
@@ -355,6 +359,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       setError(null);
       setIsFetching(false);
       setIsLoading(false);
+      setIsRequesting(false);
       requestInFlightRef.current = false;
       reloadPendingRef.current = false;
       followUpWantedRef.current = false;
@@ -364,6 +369,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     const controller = new AbortController();
     requestInFlightRef.current = true;
     followUpWantedRef.current = false;
+    setIsRequesting(true);
 
     // Written on every run rather than only on user-initiated ones. The settle below returns early
     // on an aborted request, so a user fetch that a version bump cancels partway leaves the flag
@@ -414,6 +420,8 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
           return;
         }
         requestInFlightRef.current = false;
+        // A folded reload starts its follow-up next, so the view stays busy across the two.
+        setIsRequesting(reloadPendingRef.current);
         if (reloadPendingRef.current) {
           reloadPendingRef.current = false;
           followUpWantedRef.current = true;
@@ -466,6 +474,7 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     pageSize: response.pageSize,
     isLoading,
     isFetching,
+    isRequesting,
     hasResponse: data !== null,
     error,
     reload

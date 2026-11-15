@@ -4,6 +4,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.StatusCheck;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Filters;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -85,6 +86,7 @@ public class SessionsController : ControllerBase
                 .ToDictionaryAsync(account => account.Id, account => account.Username);
         }
 
+        var sharedSessionInUse = !_sessionService.IsAuthenticationEnabled();
         var activeRecords = activeSessions
             .Select(session => ToRecord(
                 session,
@@ -92,7 +94,8 @@ public class SessionsController : ControllerBase
                 now,
                 session.AccountId is { } accountId && usernames.TryGetValue(accountId, out var username)
                     ? username
-                    : null))
+                    : null,
+                sharedSessionInUse && _sessionService.IsSharedAdminSession(session.Id)))
             .ToList();
         var historyRecords = historySessions
             .Select(session => ToRecord(
@@ -101,7 +104,8 @@ public class SessionsController : ControllerBase
                 now,
                 session.AccountId is { } accountId && usernames.TryGetValue(accountId, out var username)
                     ? username
-                    : null))
+                    : null,
+                sharedSessionInUse && _sessionService.IsSharedAdminSession(session.Id)))
             .ToList();
 
         return Ok(new SessionListResponse
@@ -122,7 +126,7 @@ public class SessionsController : ControllerBase
         });
     }
 
-    private static SessionRecord ToRecord(UserSession s, Guid? currentSessionId, DateTime now, string? username)
+    private static SessionRecord ToRecord(UserSession s, Guid? currentSessionId, DateTime now, string? username, bool shared)
     {
         var isAccountHolder = s.SessionType.IsAccountHolder();
         var steamPrefillEnabled = isAccountHolder || (s.SteamPrefillExpiresAtUtc != null && s.SteamPrefillExpiresAtUtc > now);
@@ -144,8 +148,11 @@ public class SessionsController : ControllerBase
             ExpiresAt = DateTime.SpecifyKind(s.ExpiresAtUtc, DateTimeKind.Utc),
             IsRevoked = s.IsRevoked,
             IsCurrentSession = s.Id == currentSessionId,
+            IsSharedSession = shared,
             IsExpired = !s.IsRevoked && s.ExpiresAtUtc <= now,
             RevokedAt = s.RevokedAtUtc.HasValue ? DateTime.SpecifyKind(s.RevokedAtUtc.Value, DateTimeKind.Utc) : (DateTime?)null,
+            SignedOut = s.SignedOut,
+            AccountId = s.AccountId,
             PrefillEnabled = steamPrefillEnabled || epicPrefillEnabled || battlenetPrefillEnabled || riotPrefillEnabled || xboxPrefillEnabled,
             SteamPrefillEnabled = steamPrefillEnabled,
             SteamPrefillExpiresAt = !isAccountHolder && s.SteamPrefillExpiresAtUtc > now
@@ -175,7 +182,8 @@ public class SessionsController : ControllerBase
     }
 
     /// <summary>
-    /// Revokes a session. A session belonging to the owner answers as one that does not exist.
+    /// Revokes a session. A session belonging to the owner answers as one that does not exist, and a
+    /// user-role account is refused any session its account does not hold.
     /// </summary>
     /// <remarks>
     /// It can no longer authenticate, but its row (and history) is kept, unlike
@@ -183,15 +191,22 @@ public class SessionsController : ControllerBase
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpPatch("{id:guid}/revoke")]
+    [HandlerChecksCaller]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> RevokeAsync(Guid id)
     {
         var currentSession = HttpContext.GetUserSession();
         if (!await _sessionService.CallerMaySeeSessionAsync(currentSession, id))
             return NotFound(ApiResponse.NotFound("Session"));
+        if (!await _sessionService.CallerMayChangeSessionAsync(currentSession, id))
+            return Forbid();
         var target = await _sessionService.GetSessionByIdAsync(id);
         if (target == null)
             return NotFound(ApiResponse.NotFound("Session"));
+        // Every browser runs on the shared session while sign-in is off, and the next request makes it
+        // again, so ending it changes nothing anyone sees except that every browser drops its live connections.
+        if (!_sessionService.IsAuthenticationEnabled() && _sessionService.IsSharedAdminSession(id))
+            return Conflict(ApiResponse.Error("The shared session is used by every browser while sign-in is off and cannot be revoked or deleted"));
 
         using var scope = _scopeFactory.CreateScope();
         var guest = target.SessionType == SessionType.Guest;
@@ -206,6 +221,11 @@ public class SessionsController : ControllerBase
         {
             if (!await _sessionService.RevokeSessionAsync(id))
                 return NotFound(ApiResponse.NotFound("Session"));
+            // Any other session's prefill stops after the revoke, so a start still finishing for it finds the
+            // session revoked and ends itself.
+            if (!guest)
+                cleanup = PrefillDaemonServiceBase.TerminateGuestSessionsAsync(PrefillDaemonServiceBase.ResolveAllDaemons(scope.ServiceProvider),
+                    id, "Session access revoked", PrefillDaemonServiceBase.AccessEndedReasonKey, currentSession?.Id.ToString());
             if (!target.IsRevoked)
                 await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
                 {
@@ -230,22 +250,28 @@ public class SessionsController : ControllerBase
 
     /// <summary>
     /// Permanently deletes a session's row and history. A session belonging to the owner answers
-    /// as one that does not exist.
+    /// as one that does not exist, and a user-role account is refused any session its account does not hold.
     /// </summary>
     /// <remarks>
     /// Unlike <see cref="RevokeAsync"/> which only blocks it from authenticating again.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("{id:guid}")]
+    [HandlerChecksCaller]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> DeleteAsync(Guid id)
     {
         var currentSession = HttpContext.GetUserSession();
         if (!await _sessionService.CallerMaySeeSessionAsync(currentSession, id))
             return NotFound(ApiResponse.NotFound("Session"));
+        if (!await _sessionService.CallerMayChangeSessionAsync(currentSession, id))
+            return Forbid();
         var target = await _sessionService.GetSessionByIdAsync(id);
         if (target == null)
             return NotFound(ApiResponse.NotFound("Session"));
+        // Refused for the same reason as a revoke of it.
+        if (!_sessionService.IsAuthenticationEnabled() && _sessionService.IsSharedAdminSession(id))
+            return Conflict(ApiResponse.Error("The shared session is used by every browser while sign-in is off and cannot be revoked or deleted"));
         var guest = target.SessionType == SessionType.Guest;
         using var scope = _scopeFactory.CreateScope();
         if (guest)
@@ -256,20 +282,25 @@ public class SessionsController : ControllerBase
             : Task.FromResult(new GuestPrefillStopResult(0, 0));
         try
         {
-            if (guest)
-            {
-                if (!await _sessionService.RevokeSessionAsync(id))
-                    return NotFound(ApiResponse.NotFound("Session"));
-                if (!target.IsRevoked)
-                    await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new { sessionId = id.ToString(), sessionType = "guest" });
-                var stopped = await cleanup;
-                if (!stopped.Success)
+            if (!await _sessionService.RevokeSessionAsync(id))
+                return NotFound(ApiResponse.NotFound("Session"));
+            // After the revoke, so a start still finishing for the session finds it revoked and ends itself.
+            if (!guest)
+                cleanup = PrefillDaemonServiceBase.TerminateGuestSessionsAsync(PrefillDaemonServiceBase.ResolveAllDaemons(scope.ServiceProvider),
+                    id, "Session deleted", PrefillDaemonServiceBase.AccessEndedReasonKey, currentSession?.Id.ToString());
+            if (!target.IsRevoked)
+                await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
                 {
-                    var error = ApiResponse.Error("Session access was revoked, but deletion is waiting for prefill cleanup. Retry this action.",
-                        $"{stopped.FailedSessions} sessions and {stopped.PendingStarts} starts still require cleanup.");
-                    error.StatusCode = StatusCodes.Status503ServiceUnavailable;
-                    return StatusCode(StatusCodes.Status503ServiceUnavailable, error);
-                }
+                    sessionId = id.ToString(),
+                    sessionType = target.SessionType.ToString().ToLowerInvariant()
+                });
+            var stopped = await cleanup;
+            if (!stopped.Success)
+            {
+                var error = ApiResponse.Error("Session access was revoked, but deletion is waiting for prefill cleanup. Retry this action.",
+                    $"{stopped.FailedSessions} sessions and {stopped.PendingStarts} starts still require cleanup.");
+                error.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, error);
             }
             if (!await _sessionService.DeleteSessionAsync(id))
                 return NotFound(ApiResponse.NotFound("Session"));
@@ -291,8 +322,10 @@ public class SessionsController : ControllerBase
     /// Updates the caller's own dashboard refresh rate preference.
     /// </summary>
     /// <remarks>
-    /// The owning session may always change its own rate; an account holder may change anyone's.
-    /// Guests are blocked while the admin has locked the global guest refresh rate.
+    /// The owning session may always change its own rate; an admin may change anyone's, and a user-role
+    /// account only the sessions its own account holds.
+    /// A caller that is not an admin is blocked while the session is locked: by its own lock, else for a
+    /// guest by the lock for every guest. A user-role account's unset lock leaves its rate free.
     /// </remarks>
     [HttpPatch("{id:guid}/refresh-rate")]
     [ProducesResponseType(typeof(StateUpdateResponse), StatusCodes.Status200OK)]
@@ -308,12 +341,18 @@ public class SessionsController : ControllerBase
         if (callerSession?.Id != id && !await _sessionService.CallerMaySeeSessionAsync(callerSession, id))
             return NotFound(ApiResponse.NotFound("Session"));
 
-        // Guests cannot change their refresh rate when the global lock is active
-        if (!isAccountHolder && _stateService.GetGuestRefreshRateLocked())
-            throw new ForbiddenException("Refresh rate changes are locked by the administrator");
+        if (callerSession?.Id != id && !await _sessionService.CallerMayChangeSessionAsync(callerSession, id))
+            return Forbid();
 
         using var scope = _scopeFactory.CreateScope();
         var prefsService = scope.ServiceProvider.GetRequiredService<UserPreferencesService>();
+
+        // A guest or a user-role account cannot change a rate while it is locked for that session. Such a
+        // caller reaches only its own session or its own account's, so its type is the session's type.
+        if (callerSession!.SessionType != SessionType.Admin
+            && prefsService.IsRefreshRateLocked(
+                id, callerSession.SessionType == SessionType.Guest && _stateService.GetGuestRefreshRateLocked()))
+            throw new ForbiddenException("Refresh rate changes are locked by the administrator");
 
         var refreshRateJson = JsonSerializer.SerializeToElement(request.RefreshRate ?? "");
         var result = await prefsService.UpdatePreferenceAsync(id, PreferenceKey.RefreshRate, refreshRateJson);
@@ -322,10 +361,12 @@ public class SessionsController : ControllerBase
             return NotFound(ApiResponse.Error("Session not found or update failed"));
         }
 
+        // The stored rate, not the request text: the store reads the text case-insensitively and keeps
+        // null for an empty or unknown one, and the session's window applies exactly what is stored.
         await _signalR.NotifyAllAsync(SignalREvents.GuestRefreshRateUpdated, new
         {
             sessionId = id.ToString(),
-            refreshRate = request.RefreshRate
+            refreshRate = result.RefreshRate
         });
 
         return Ok(new StateUpdateResponse { Success = true });
@@ -335,7 +376,7 @@ public class SessionsController : ControllerBase
     /// Deletes every guest session's stored preferences, resetting them to defaults.
     /// </summary>
     /// <remarks>
-    /// Admin sessions are untouched.
+    /// Admin sessions are untouched. A user-role account is refused: it changes no session but its own.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("bulk/reset-to-defaults")]
@@ -378,7 +419,7 @@ public class SessionsController : ControllerBase
     /// </summary>
     /// <remarks>
     /// Frees up their slots and forces a fresh session on next visit. Admin sessions are
-    /// untouched.
+    /// untouched. A user-role account is refused: it changes no session but its own.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpDelete("bulk/clear-guests")]
@@ -400,7 +441,7 @@ public class SessionsController : ControllerBase
             PrefillDaemonServiceBase.GuestGate.EnterStop(id);
         var cleanups = targets.Keys.Select(id => PrefillDaemonServiceBase.TerminateGuestSessionsAsync(
             daemons, id, "Guest sessions cleared", PrefillDaemonServiceBase.AccessEndedReasonKey, HttpContext.GetUserSession()?.Id.ToString())).ToArray();
-        var count = 0;
+        var ended = new List<string>();
         var failures = new List<Exception>();
         GuestPrefillStopResult[] stopped;
         try
@@ -410,12 +451,13 @@ public class SessionsController : ControllerBase
                 try
                 {
                     if (await _sessionService.RevokeSessionAsync(target.Id) && !target.IsRevoked)
-                        count++;
+                        ended.Add(target.Id.ToString());
                 }
                 catch (Exception ex) { failures.Add(ex); }
             }
-            if (count != 0)
-                await _signalR.NotifyAllAsync(SignalREvents.UserSessionsCleared, new { clearedCount = count, sessionType = "guest" });
+            // A guest can sign in while this runs; naming the ended sessions keeps that window signed in.
+            if (ended.Count != 0)
+                await _signalR.NotifyAllAsync(SignalREvents.UserSessionsCleared, new { clearedCount = ended.Count, sessionType = "guest", sessionIds = ended });
         }
         finally
         {
@@ -431,11 +473,11 @@ public class SessionsController : ControllerBase
         if (stopped.Any(result => !result.Success))
         {
             var error = ApiResponse.Error("Guest access was revoked, but prefill cleanup is incomplete. Retry this action.",
-                $"{count} sessions revoked; {stopped.Sum(result => result.FailedSessions)} sessions and {stopped.Sum(result => result.PendingStarts)} starts still require cleanup.");
+                $"{ended.Count} sessions revoked; {stopped.Sum(result => result.FailedSessions)} sessions and {stopped.Sum(result => result.PendingStarts)} starts still require cleanup.");
             error.StatusCode = StatusCodes.Status503ServiceUnavailable;
             return StatusCode(StatusCodes.Status503ServiceUnavailable, error);
         }
-        return Ok(new SessionClearGuestsResponse { Success = true, ClearedCount = count });
+        return Ok(new SessionClearGuestsResponse { Success = true, ClearedCount = ended.Count });
     }
 
     /// <summary>

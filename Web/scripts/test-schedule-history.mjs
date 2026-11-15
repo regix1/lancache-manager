@@ -116,7 +116,7 @@ const start = () => {
     pageRef: { current: initialQuery },
     requestRef: {
       current: {
-        running: false,
+        loop: null,
         pending: false,
         owner: 0,
         controller: null
@@ -422,12 +422,12 @@ test('ignored stale error and finalizer cannot publish or stop the replacement q
   state.requests[0].reject(new Error('stale failure'));
   await settle();
   assert.equal(state.error, null);
-  assert.equal(state.requestRef.current.running, true);
+  assert.notEqual(state.requestRef.current.loop, null);
   assert.equal(state.requests.length, 2);
   state.requests[1].resolve(page(1, 'filtered'));
   await held;
   assert.equal(state.confirmed.items[0].operationId, 'filtered');
-  assert.equal(state.requestRef.current.running, false);
+  assert.equal(state.requestRef.current.loop, null);
   assert.equal(state.requestRef.current.controller, null);
 });
 
@@ -435,8 +435,10 @@ test('push and reconnect bursts keep one pending refresh and publish only the la
   const { state, fetchHistory } = start();
   const held = fetchHistory();
   state.requests[0].ignoreAbort = true;
-  await fetchHistory();
-  await fetchHistory();
+  const firstBurst = fetchHistory();
+  const secondBurst = fetchHistory();
+  assert.equal(firstBurst, held, 'a call during the running read joins it');
+  assert.equal(secondBurst, held, 'a call during the running read joins it');
   assert.equal(state.requestRef.current.pending, true);
   assert.equal(state.requests.length, 1);
   state.requests[0].resolve(page(1, 'stale'));

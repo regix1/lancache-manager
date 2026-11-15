@@ -215,9 +215,14 @@ test('a failed or overtaken settings read never shows values nobody saved', asyn
   const shownOS = [];
   const errors = [];
   const replies = [];
+  const urls = [];
   const load = bindLifted(liftHookCallback(panelPath, 'useCallback', 'setMaxThreadLimit'), {
     API_BASE: '/api',
-    fetch: () => new Promise((resolve) => replies.push(resolve)),
+    serviceId: 'steam',
+    fetch: (url) => {
+      urls.push(url);
+      return new Promise((resolve) => replies.push(resolve));
+    },
     assertOk: async (response) => {
       if (!response.ok) throw new Error('HTTP 502');
       return response;
@@ -243,6 +248,8 @@ test('a failed or overtaken settings read never shows values nobody saved', asyn
   replies[2]({ ok: false, status: 502 });
   await failed;
   assert.deepEqual(errors, [null, 'HTTP 502']);
+  // Each panel reads the settings of its own service.
+  assert.deepEqual(urls, Array(3).fill('/api/system/prefill-defaults?service=steam'));
 });
 
 test('a reconnect reload clears a failed settings read and brings the controls back', async () => {
@@ -262,6 +269,7 @@ test('a reconnect reload clears a failed settings read and brings the controls b
   let shownError;
   const load = bindLifted(liftHookCallback(panelPath, 'useCallback', 'setMaxThreadLimit'), {
     API_BASE: '/api',
+    serviceId: 'steam',
     fetch: async () => replies.shift(),
     assertOk: async (response) => {
       if (!response.ok) throw new Error('HTTP 502');
@@ -292,9 +300,10 @@ test('a failed settings save raises one popup, and a guest sends no save', async
   const failure = new Error('Server refused');
   const sent = [];
   const notified = [];
-  const save = (isAdmin) =>
+  const save = (isAdmin, sessionType = isAdmin ? 'admin' : 'guest') =>
     bindLifted(liftHookCallback(panelPath, 'useCallback', 'body.operatingSystems'), {
       isAdmin,
+      sessionType,
       API_BASE: '/api',
       fetch: async (...request) => {
         sent.push(request);
@@ -312,6 +321,9 @@ test('a failed settings save raises one popup, and a guest sends no save', async
     });
 
   await save(false)(['linux']);
+  assert.equal(sent.length, 0);
+  // A user-role account passes isAdmin, but the stored defaults are everyone's, so it keeps its choice local.
+  await save(true, 'user')(['linux']);
   assert.equal(sent.length, 0);
   await save(true)(['linux']);
   assert.deepEqual(notified, [['prefill.errors.saveSettingsFailed', failure]]);
@@ -505,6 +517,7 @@ test('a session with no time left logs no "expires in" line, and one with time l
       setIsInitializing: noop,
       connectToHub: async () => connection(current),
       sessionRef: { current: null },
+      acceptedConnectionRef: { current: null },
       supportsConcurrentPrefill: () => false,
       updateRuns: noop,
       rehydratePrefillProgress: async () => undefined,
@@ -519,6 +532,7 @@ test('a session with no time left logs no "expires in" line, and one with time l
       ...shared(logged),
       setIsCreating: noop,
       setCreateSessionError: noop,
+      acceptedConnectionRef: { current: null },
       hubConnection: { current: connection(current) },
       connectToHub: async () => null,
       notifyError: noop
@@ -560,6 +574,7 @@ test('a create the server refuses with a key shows that key translated with its 
     getErrorMessage: (error) => error.message,
     setIsCreating: noop,
     setCreateSessionError: (message) => shown.push(message),
+    acceptedConnectionRef: { current: null },
     hubConnection: {
       current: {
         state: 'Connected',
@@ -1087,6 +1102,7 @@ test('a hub connect that finishes after the page left stops its socket and is ne
     hubConnection,
     connectInFlightRef: { current: null },
     mountedRef: { current: true },
+    rebuildTimerRef: { current: null },
     cancelWatchdogRef: { current: null },
     initializeSession: () => undefined,
     HubConnectionBuilder: hubConnectionClass,

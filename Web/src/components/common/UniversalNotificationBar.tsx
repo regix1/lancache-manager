@@ -12,6 +12,7 @@ import {
   MOBILE_FULL_CARD_CAP
 } from '@contexts/notifications/constants';
 import { isTerminalNotificationStatus } from '@contexts/notifications/notificationStatus';
+import { useAuth } from '@contexts/useAuth';
 import { APP_EVENTS } from '@utils/constants';
 import i18n from '@/i18n';
 import { useMediaQuery } from '@hooks/useMediaQuery';
@@ -34,6 +35,11 @@ const UniversalNotificationBar: React.FC = () => {
   const { notifications, removeNotification, hideNotification, updateNotification } =
     useNotifications();
   const connectionLost = useConnectionLost();
+  // Cancel, retry and a close on the server change everyone's runs, which a user-role account may not.
+  const { sessionType } = useAuth();
+  const mayChangeRuns = sessionType !== 'user';
+  const mayChangeRunsRef = useRef(mayChangeRuns);
+  mayChangeRunsRef.current = mayChangeRuns;
   const [stickyDisabled, setStickyDisabled] = useState(
     themeService.getDisableStickyNotificationsSync()
   );
@@ -167,8 +173,9 @@ const UniversalNotificationBar: React.FC = () => {
       };
 
       const closeOperationIds = notification.details?.closeOperationIds;
-      if (!closeOperationIds?.length) {
-        fade();
+      // A user-role account closes the card on this screen only; the server keeps it for the others.
+      if (!closeOperationIds?.length || !mayChangeRunsRef.current) {
+        fade(closeOperationIds);
         return;
       }
       // Each close answers 204, or 404 when another screen already closed it; both resolve.
@@ -348,8 +355,12 @@ const UniversalNotificationBar: React.FC = () => {
           key={notification.id}
           notification={notification}
           onDismiss={handleDismiss}
-          onCancel={notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined}
-          onRetryRepair={handleRetryRepair}
+          onCancel={
+            mayChangeRuns && notification.type in CANCEL_CONFIG_BY_TYPE
+              ? getCancelHandler
+              : undefined
+          }
+          onRetryRepair={mayChangeRuns ? handleRetryRepair : undefined}
           isAnimatingOut={dismissingIds.has(notification.id)}
           connectionLost={connectionLost}
         />
@@ -402,8 +413,12 @@ const UniversalNotificationBar: React.FC = () => {
                 key={notification.id}
                 notification={notification}
                 onDismiss={handleDismiss}
-                onCancel={notification.type in CANCEL_CONFIG_BY_TYPE ? getCancelHandler : undefined}
-                onRetryRepair={handleRetryRepair}
+                onCancel={
+                  mayChangeRuns && notification.type in CANCEL_CONFIG_BY_TYPE
+                    ? getCancelHandler
+                    : undefined
+                }
+                onRetryRepair={mayChangeRuns ? handleRetryRepair : undefined}
                 isAnimatingOut={dismissingIds.has(notification.id)}
                 connectionLost={connectionLost}
               />

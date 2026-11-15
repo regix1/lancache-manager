@@ -56,26 +56,55 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Handlers must read current values without being recreated on every state change.
   const sessionIdRef = useRef<string | null>(sessionId);
   const sessionTypeRef = useRef<SessionType | null>(sessionType);
+  const authenticationEnabledRef = useRef(authenticationEnabled);
   const isFetchingAuthRef = useRef(false);
+  const authCheckCountRef = useRef(0);
+  const droppedAuthAnswerRef = useRef<Awaited<ReturnType<typeof authService.checkAuth>> | null>(
+    null
+  );
+  const sessionChannelRef = useRef<BroadcastChannel | null>(null);
   useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
   useEffect(() => {
     sessionTypeRef.current = sessionType;
   }, [sessionType]);
+  useEffect(() => {
+    authenticationEnabledRef.current = authenticationEnabled;
+  }, [authenticationEnabled]);
   const notifyAuthSessionUpdated = useCallback(() => {
     window.dispatchEvent(new Event(APP_EVENTS.AUTH_SESSION_UPDATED));
   }, []);
 
   const fetchAuth = useCallback(async () => {
+    const call = ++authCheckCountRef.current;
     // Timeout is handled by AbortController in auth.service.ts (10s)
     try {
-      const data = await authService.checkAuth();
+      let data = await authService.checkAuth();
+      // Status reads answer in the order they start, so a newer read is still out. A read a 401
+      // started can carry the cookie a sign-in is replacing, and showing its "signed out" until the
+      // newer answer lands would put the sign-in screen in front of the new session. It is kept in
+      // case the newer read gets no answer, since it is then the last word from the server.
+      if (call !== authCheckCountRef.current) {
+        if (data.reachable !== false) droppedAuthAnswerRef.current = data;
+        return;
+      }
       if (data.reachable === false) {
         // The status call never landed, and the stub checkAuth returns for that is
         // isAuthenticated: false, which would sign a live session out over a blip.
-        return;
+        if (droppedAuthAnswerRef.current === null) return;
+        data = droppedAuthAnswerRef.current;
       }
+      droppedAuthAnswerRef.current = null;
+      // Compared before any state write, since a render can move the ref to the new id. A read that
+      // answers signed out is not sent: a database fault or a 401 read with a replaced cookie answers
+      // that too, and sign-out sends its own message.
+      if (data.sessionId !== null && data.sessionId !== sessionIdRef.current) {
+        sessionChannelRef.current?.postMessage(data.sessionId);
+      }
+      // Moved here as well as in the effect, so a server event that lands before this answer is drawn
+      // is compared with the session the window is about to show.
+      sessionIdRef.current = data.sessionId;
 
       setAuthenticationEnabled(data.authenticationEnabled);
       setAccountMode(data.accountMode ?? 'apiKeyPassword');
@@ -114,8 +143,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setAuthMode('unauthenticated');
       }
     } finally {
-      setIsLoading(false);
-      notifyAuthSessionUpdated();
+      if (call === authCheckCountRef.current) {
+        setIsLoading(false);
+        notifyAuthSessionUpdated();
+      }
     }
   }, [notifyAuthSessionUpdated]);
 
@@ -143,7 +174,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, [fetchAuth]);
 
   const logout = useCallback(async () => {
-    await authService.logout();
+    const outcome = await authService.logout();
+    const ended = outcome === 'ended';
+    // A sign-out that left the cookie set can leave its session live, and with authentication off the
+    // server keeps the shared session every browser uses and hands it to the next request, so the
+    // caller's status read decides what shows. A cookie the server cleared signs this browser out even
+    // when the session could not be ended, so the other windows are told as for an ended one.
+    if (outcome === 'unchanged' || !authenticationEnabled) return ended;
+    if (sessionIdRef.current !== null) {
+      sessionChannelRef.current?.postMessage(null);
+    }
     setAuthMode('unauthenticated');
     setSessionType(null);
     setSessionId(null);
@@ -160,8 +200,33 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setRiotPrefillExpiresAt(null);
     setXboxPrefillEnabled(false);
     setXboxPrefillExpiresAt(null);
+    // Cleared here, not in the service, because only this decides the window signs out, and the
+    // live connection stops when the service reads signed out.
+    authService.isAuthenticated = false;
+    authService.authMode = 'unauthenticated';
+    authService.sessionType = null;
+    authService.sessionId = null;
     notifyAuthSessionUpdated();
-  }, [notifyAuthSessionUpdated]);
+    return ended;
+  }, [authenticationEnabled, notifyAuthSessionUpdated]);
+
+  // Every tab of this browser sends the same session cookie, and the server ends the old session's
+  // live connections before the tab that signed in, out, or as a guest has its answer and new cookie.
+  // So the tab that read the new session tells the others, which then read their own status: it is
+  // sent after the cookie landed, and their own connections start again from it.
+  useEffect(() => {
+    const channel = new BroadcastChannel('lancache-session');
+    sessionChannelRef.current = channel;
+    channel.onmessage = (event: MessageEvent<string | null>) => {
+      if (event.data !== sessionIdRef.current) {
+        void fetchAuth();
+      }
+    };
+    return () => {
+      channel.close();
+      sessionChannelRef.current = null;
+    };
+  }, [fetchAuth]);
 
   // Initial fetch
   useEffect(() => {
@@ -209,7 +274,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setXboxPrefillExpiresAt(null);
       // The service holds the copy the rest of the app reads, so a revoked session that only cleared
       // this component would still report itself signed in and keep its live download feed until the
-      // page was reloaded. These are the four fields logout already resets (auth.service.ts:237-240).
+      // page was reloaded. These are the four fields logout above resets.
       // guestAccessEnabled and guestDurationHours stay as they are: they describe the installation
       // rather than the session, and the sign-in screen this lands on shows them.
       authService.isAuthenticated = false;
@@ -231,8 +296,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     };
 
-    const handleSessionsCleared = () => {
-      if (sessionTypeRef.current === 'guest') {
+    // A guests-only clear and a User sessions reset both name the sessions they ended: each tells
+    // the windows only after its work, so a window may have signed in again by then and keeps that
+    // session. With authentication off the server makes the shared session again on the next
+    // request, so that window stays signed in.
+    const handleSessionsCleared = (cleared: { sessionIds: string[] }) => {
+      const ended =
+        sessionIdRef.current !== null &&
+        cleared.sessionIds.includes(sessionIdRef.current) &&
+        (sessionTypeRef.current === 'guest' || authenticationEnabledRef.current);
+      if (ended) {
         clearAuthState();
       }
     };

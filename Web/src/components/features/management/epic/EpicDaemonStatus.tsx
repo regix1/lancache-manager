@@ -141,7 +141,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ mockMode, onError, 
         loadingMessage={t('management.sections.integrations.epicDaemonStatus.loadingStatus')}
         loadError={loadError}
         loadErrorTitle={t('management.sections.integrations.epicDaemonStatus.loadError')}
-        onRetry={() => void loadStatus()}
+        onRetry={() => loadStatus()}
         connected={isAuthenticated}
         connectedLabel={t('management.sections.integrations.epicDaemonStatus.connected')}
         notConnectedLabel={t('management.sections.integrations.epicDaemonStatus.notConnected')}

@@ -113,7 +113,9 @@ const AuthenticateTab: React.FC = () => {
   };
 
   return (
-    <div className="auth-upgrade">
+    <div
+      className={requiresApiKey(accountMode) ? 'auth-upgrade auth-upgrade--help' : 'auth-upgrade'}
+    >
       <Card padding="none" className="auth-upgrade-card">
         <div className="auth-upgrade-header">
           <div className="icon-box icon-box--md auth-upgrade-icon">

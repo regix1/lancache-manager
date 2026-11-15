@@ -216,22 +216,29 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
     // Runs on the schedule's run queue, which passes whether the run is kept for later: a run held
     // or parked again keeps its waiting card for the run still to come.
-    private void OnRunCompleted(RunNotice notice, string serviceKey, string? error, bool canceled, bool kept)
+    private void OnRunCompleted(RunNotice notice, string serviceKey, string? error, RunWarning? reason, bool canceled, bool kept)
     {
         if (_tracker is null) return;
         if (_configurableServiceNames.TryGetValue(serviceKey, out var key)) serviceKey = key;
+        // The loop's error is exception text: a failed run ends on the generic failed key and keeps the text as its
+        // detail; a stopped one ends on the tracker's canceled key. A refusal that named its reason ends on that key
+        // with its values instead, so every reader words it in its own language and no server text is sent on.
+        var failureKey = reason is { } keyed ? keyed.StageKey : "signalr.generic.failed";
+        void RecordFailure(OperationInfo run)
+        {
+            if (reason is not null) run.FailureReason = reason;
+            else run.ErrorDetail = error;
+        }
         if (notice.OperationId is { } operationId)
         {
             var operation = _tracker.GetOperation(operationId);
-            // The loop's error is exception text: a failed run ends on the generic failed key and keeps the text as its
-            // detail; a stopped one ends on the tracker's canceled key.
             var failed = error is not null && !canceled;
             if (!kept && operation?.Status == OperationStatus.Waiting && operationId == notice.PendingId)
                 _tracker.CompleteOperation(operationId, error is null && !canceled,
-                    failed ? "signalr.generic.failed" : null, canceled, error is null && !canceled,
+                    failed ? failureKey : null, canceled, error is null && !canceled,
                     onCompleting: run =>
                     {
-                        if (failed) run.ErrorDetail = error;
+                        if (failed) RecordFailure(run);
                     });
             return;
         }
@@ -240,12 +247,12 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         Guid failedId = default;
         failedId = _tracker.RegisterOperation(type, serviceKey, new CancellationTokenSource(),
             onTerminalEmit: outcome => _notifications.NotifyOperationFailedAsync(completeEvent,
-                new ScheduledRunCompleteEvent(serviceKey, failedId, false, "", 0, outcome.Error, null,
+                new ScheduledRunCompleteEvent(serviceKey, failedId, false, reason is { } named ? named.StageKey : "", 0,
+                    outcome.Error, reason is { } valued ? new Dictionary<string, object?>(valued.Context) : null,
                     false, OperationStatus.Failed)),
             notice: notice);
         notice.Attach(_tracker, failedId);
-        _tracker.CompleteOperation(failedId, success: false, error: "signalr.generic.failed",
-            onCompleting: run => run.ErrorDetail = error);
+        _tracker.CompleteOperation(failedId, success: false, error: failureKey, onCompleting: RecordFailure);
     }
 
     private void OnTrackedOperationTerminal(OperationInfo operation)

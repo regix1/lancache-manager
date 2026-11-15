@@ -31,6 +31,7 @@ import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 import type { ServiceScheduleInfo } from '@components/features/management/schedules/types';
 import { useErrorHandler } from '@hooks/useErrorHandler';
+import { MODAL_EXIT_MS, useExitPresence } from '@hooks/useExitPresence';
 
 const Dashboard = lazy(() => import('@components/features/dashboard/Dashboard'));
 const DownloadsTab = lazy(() => import('@components/features/downloads/DownloadsTab'));
@@ -71,6 +72,8 @@ const AppContent: React.FC = () => {
   const [editingAccess, setEditingAccess] = useState(
     () => new URLSearchParams(window.location.search).get('accessSetup') === '1'
   );
+  const [accessSetupShown, setAccessSetupShown] = useState(false);
+  const [depotSetupShown, setDepotSetupShown] = useState(false);
 
   const handleTabChange = useCallback((tab: string) => {
     setActiveTab(tab);
@@ -89,7 +92,8 @@ const AppContent: React.FC = () => {
     prefillEnabled,
     isBanned,
     authenticationEnabled,
-    accountMode
+    accountMode,
+    sessionType
   } = useAuth();
   const { status: steamApiStatus, refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const { refreshSteamAuth } = useSteamAuth();
@@ -541,7 +545,7 @@ const AppContent: React.FC = () => {
               title={t('app.prefill.dockerCheckFailed')}
               message={dockerLoadError}
               retryLabel={t('common.retry')}
-              onRetry={() => void refreshDockerStatus()}
+              onRetry={() => refreshDockerStatus()}
             />
           </div>
         ) : activeTab === 'prefill' && !isDockerAvailable ? (
@@ -615,69 +619,117 @@ const AppContent: React.FC = () => {
     );
   };
 
-  if (!checkingAuth && !checkingSetupStatus && editingAccess && !adminAccountRequired) {
-    return (
-      <AccessSetup
-        onClose={() => {
-          const url = new URL(window.location.href);
-          url.searchParams.delete('accessSetup');
-          url.searchParams.delete('oidcError');
-          window.history.replaceState(null, '', url);
-          setEditingAccess(false);
-        }}
-      />
-    );
-  }
+  // The sign-in and setup checks only hold back the wizard's first opening. Once open, only closing
+  // it (or the installation needing its first account) takes it away, never a later check, and it
+  // stays drawn with the pages below so its fade-out plays over the page it closes onto.
+  const accessSetupOpen =
+    editingAccess &&
+    !adminAccountRequired &&
+    (accessSetupShown || (!checkingAuth && !checkingSetupStatus));
+  if (accessSetupOpen && !accessSetupShown) setAccessSetupShown(true);
+  const accessSetup = (accessSetupOpen || accessSetupShown) && (
+    <AccessSetup
+      key="access-setup"
+      opened={accessSetupOpen}
+      onClose={() => {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('accessSetup');
+        url.searchParams.delete('oidcError');
+        window.history.replaceState(null, '', url);
+        setEditingAccess(false);
+      }}
+    />
+  );
 
   // Show login page if not authenticated. An installation that still needs its first account is the
   // one case where this screen cannot be passed - there is nothing to sign in with - so it goes to
   // the wizard below instead. The setup status has to be in hand before that can be told apart:
   // while it is still loading the account state reads as unknown and this screen would flash in
   // front of the wizard.
-  if (
+  const signInOpen =
     !checkingAuth &&
     !checkingSetupStatus &&
     authMode === 'unauthenticated' &&
     authenticationEnabled &&
     !(usesOidc(accountMode) && !setupCompleted) &&
-    !adminAccountRequired
-  ) {
-    // The config fetched for this screen came back without the cache, logs and data paths, because
-    // it was requested with no session. ConfigProvider sits above AuthProvider and signing in does
-    // not remount it, so the paths only arrive if the response is asked for again here.
-    return (
-      <AuthenticationModal
-        onAuthComplete={() => {
-          void refreshAuth();
-          void refreshConfig();
-        }}
-      />
-    );
+    !adminAccountRequired;
+  const signInPresence = useExitPresence(signInOpen, MODAL_EXIT_MS);
+  // The config fetched for this screen came back without the cache, logs and data paths, because
+  // it was requested with no session. ConfigProvider sits above AuthProvider and signing in does
+  // not remount it, so the paths only arrive if the response is asked for again here.
+  // Kept drawn through its fade-out after sign-in, over the screen that follows.
+  const signIn = signInPresence.present && (
+    <AuthenticationModal
+      opened={signInOpen}
+      onAuthComplete={() => {
+        void refreshAuth();
+        void refreshConfig();
+      }}
+    />
+  );
+
+  // Status checks hold back only the wizard's first opening. Log processing marks logs processed
+  // before setup is complete, and that reruns the depot check while the wizard is open, so a later
+  // check never closes it; finishing setup does, with its fade-out over the screen that follows.
+  const checkingStatus = checkingAuth || checkingSetupStatus || checkingDepotStatus;
+  const depotOpen =
+    shouldShowInitializationFlow && !signInOpen && (depotSetupShown || !checkingStatus);
+  if (depotOpen && !depotSetupShown) setDepotSetupShown(true);
+  const depotPresence = useExitPresence(depotOpen, MODAL_EXIT_MS);
+  const depotSetup = depotPresence.present && (
+    <DepotInitializationModal opened={depotOpen} onInitialized={handleDepotInitialized} />
+  );
+
+  if (accessSetupOpen) {
+    return <>{accessSetup}</>;
   }
 
-  // Show loading while checking initial status
-  if (checkingAuth || checkingSetupStatus || checkingDepotStatus) {
+  if (signInOpen) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-themed-primary">
-        <LoadingSpinner
-          fullScreen={false}
-          message={
-            checkingSetupStatus ? t('app.loading.checkingSetup') : t('app.loading.checkingDepot')
-          }
-        />
-      </div>
+      <>
+        {accessSetup}
+        {signIn}
+      </>
     );
   }
 
   // Show initialization modal if user is authenticated and in the middle of setup
-  if (shouldShowInitializationFlow) {
-    return <DepotInitializationModal onInitialized={handleDepotInitialized} />;
+  if (depotOpen) {
+    return (
+      <>
+        {accessSetup}
+        {signIn}
+        {depotSetup}
+      </>
+    );
+  }
+
+  // Show loading while checking initial status
+  if (checkingStatus) {
+    return (
+      <>
+        {accessSetup}
+        {signIn}
+        {depotSetup}
+        <div className="min-h-screen flex items-center justify-center bg-themed-primary">
+          <LoadingSpinner
+            fullScreen={false}
+            message={
+              checkingSetupStatus ? t('app.loading.checkingSetup') : t('app.loading.checkingDepot')
+            }
+          />
+        </div>
+      </>
+    );
   }
 
   // Handle special routes like /memory
   if (isMemoryRoute) {
     return (
       <>
+        {accessSetup}
+        {signIn}
+        {depotSetup}
         <ConnectionLostBanner />
         <Suspense fallback={<LoadingState shape="cards" rows={3} />}>
           <MemoryDiagnostics />
@@ -688,9 +740,13 @@ const AppContent: React.FC = () => {
 
   return (
     <>
+      {accessSetup}
+      {signIn}
+      {depotSetup}
       {/* Full Scan Required Modal - Shows globally on all pages */}
       <FullScanRequiredModal
-        opened={showFullScanRequiredModal && authMode === 'authenticated'}
+        // A rebuild changes the mappings every account reads, which a user-role account may not.
+        opened={showFullScanRequiredModal && authMode === 'authenticated' && sessionType !== 'user'}
         onCancel={handleFullScanModalDismiss}
         onConfirm={handleRunFullScan}
         onDownloadFromGitHub={handleDownloadFromGitHub}

@@ -1,3 +1,5 @@
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -20,7 +22,9 @@ public class AccountSetupController : ControllerBase
     private readonly AccountClaimWindow _claimWindow;
     private readonly IPasswordHasher<UserAccount> _passwordHasher;
     private readonly IdentityAuditService _identityAuditService;
+    private readonly ISignalRNotificationService _notifications;
     private readonly ILogger<AccountSetupController> _logger;
+    private readonly AccessService? _accessService;
 
     public AccountSetupController(
         IDbContextFactory<AppDbContext> dbContextFactory,
@@ -28,14 +32,18 @@ public class AccountSetupController : ControllerBase
         AccountClaimWindow claimWindow,
         IPasswordHasher<UserAccount> passwordHasher,
         IdentityAuditService identityAuditService,
-        ILogger<AccountSetupController> logger)
+        ISignalRNotificationService notifications,
+        ILogger<AccountSetupController> logger,
+        AccessService? accessService = null)
     {
         _dbContextFactory = dbContextFactory;
         _apiKeyService = apiKeyService;
         _claimWindow = claimWindow;
         _passwordHasher = passwordHasher;
         _identityAuditService = identityAuditService;
+        _notifications = notifications;
         _logger = logger;
+        _accessService = accessService;
     }
 
     /// <summary>
@@ -77,6 +85,18 @@ public class AccountSetupController : ControllerBase
                     StageKey = AccountSetupRefusalResponse.ApiKeyRequired,
                     Error = "A valid API key is required"
                 });
+        }
+
+        // A finished setup running with sign-in off keeps no accounts: switching to it deleted them, and the
+        // first administrator is created once sign-in is turned back on. A setup still in progress may
+        // create one, whatever the legacy setting says.
+        if (_accessService?.AllowsKeyRecovery() == true)
+        {
+            return Conflict(new AccountSetupRefusalResponse
+            {
+                StageKey = AccountSetupRefusalResponse.SignInOff,
+                Error = "Sign-in is turned off, which keeps no accounts. Turn sign-in on to create the first administrator"
+            });
         }
 
         if (!_claimWindow.IsOpen)
@@ -154,6 +174,10 @@ public class AccountSetupController : ControllerBase
         // the password they just set.
         _claimWindow.Expire();
 
+        // With authentication off the Users page is open to anyone, and its accounts table is loaded
+        // once; without this it does not list the account just created.
+        await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
+
         return Ok(MessageResponse.Ok("Account created"));
     }
 
@@ -214,6 +238,10 @@ public class AccountSetupController : ControllerBase
             performedByAccountId: account.Id,
             performedBySessionId: session.Id,
             targetAccountId: account.Id);
+
+        // The username changed, and another account holder's accounts table still shows the old one.
+        await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
+
         return Ok(MessageResponse.Ok("Local credentials set"));
     }
 
@@ -352,13 +380,32 @@ public class AccountSetupController : ControllerBase
             });
         }
 
+        // The main administrator's cookie replaces the one this browser holds, as on a password sign-in:
+        // a guest ends here, before anything changes, and an account or administrator session once the
+        // new cookie is set. The cookie is read rather than the request's session, which the session
+        // check swaps for the shared one while authentication is off.
+        var existingToken = SessionService.TokenFromCookie(HttpContext);
+        UserSession? existingSession = null;
+        if (!string.IsNullOrEmpty(existingToken))
+        {
+            existingSession = await sessionService.ValidateSessionAsync(existingToken);
+            if (existingSession is { SessionType: SessionType.Guest })
+            {
+                await sessionService.EndGuestSessionAsync(existingSession.Id, HttpContext.RequestServices);
+            }
+        }
+
         account.PasswordHash = _passwordHasher.HashPassword(account, request.Password);
         await context.SaveChangesAsync();
 
         // A password reached this endpoint because somebody lost it, which is also the shape of
         // somebody else having found it. Sessions it already opened would otherwise outlive the
         // reset and keep the intruder signed in.
-        await sessionService.RevokeAccountSessionsAsync(account.Id);
+        await sessionService.RevokeAccountSessionsAsync(account.Id, HttpContext.RequestServices);
+
+        // The revoke sends no list event of its own, so an open Users page would keep showing those
+        // sessions as current, which is what an operator checking for an intruder looks at.
+        await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
 
         // Getting the password wrong enough times to lock the account is what sends an operator here,
         // and the lock is a separate term from the password in the sign-in refusal, so a new password
@@ -368,6 +415,13 @@ public class AccountSetupController : ControllerBase
 
         var session = await sessionService.CreateAccountSessionAsync(HttpContext, account);
         sessionService.SetSessionCookie(HttpContext, session.RawToken, session.Session.ExpiresAtUtc);
+        await sessionService.EndReplacedSessionAsync(existingSession, HttpContext.RequestServices);
+
+        await _notifications.NotifyAllAsync(SignalREvents.UserSessionCreated, new
+        {
+            sessionId = session.Session.Id.ToString(),
+            sessionType = session.Session.SessionType
+        });
 
         // No actor: the caller proved the API key and has neither an account nor a session.
         await _identityAuditService.RecordAsync(

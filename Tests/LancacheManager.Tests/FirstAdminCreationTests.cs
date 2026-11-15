@@ -1,5 +1,7 @@
 using System.Reflection;
 using LancacheManager.Controllers;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -56,6 +58,35 @@ public sealed class FirstAdminCreationTests : IDisposable
         Assert.Equal(
             PasswordVerificationResult.Success,
             new PasswordHasher<UserAccount>().VerifyHashedPassword(account, account.PasswordHash, GoodPassword));
+    }
+
+    /// <summary>
+    /// With authentication off anyone can have the Users page open, and its accounts table is loaded
+    /// once. The create has to send the event that table reloads on, after the account is stored.
+    /// </summary>
+    [Fact]
+    public async Task CreateTellsAnOpenAccountsTableAboutTheNewAccount()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, CacheScanDetectionPhaseTests.RecordingNotifications>();
+        var sent = (CacheScanDetectionPhaseTests.RecordingNotifications)(object)notifications;
+        var accountsLoaded = new List<string[]>();
+        sent.OnSent = (eventName, _) =>
+        {
+            if (eventName != SignalREvents.AccountsChanged)
+                return;
+            using var context = database.Factory.CreateDbContext();
+            accountsLoaded.Add(context.UserAccounts.AsNoTracking().Select(a => a.Username).ToArray());
+        };
+
+        var result = await NewController(database.Factory, _apiKeyService, notifications: notifications)
+            .CreateFirstAdminAsync(NewRequest("operator", _apiKeyService.GetApiKey()));
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        Assert.True(
+            accountsLoaded.Any(usernames => usernames.Contains("operator")),
+            $"creating the first account sent no accounts event after it was stored ({accountsLoaded.Count} sent), " +
+            "so an open accounts table does not list it");
     }
 
     /// <summary>
@@ -362,8 +393,12 @@ public sealed class FirstAdminCreationTests : IDisposable
     private static AccountSetupController NewController(
         IDbContextFactory<AppDbContext> dbContextFactory,
         ApiKeyService apiKeyService,
-        AccountClaimWindow? claimWindow = null) =>
-        new(
+        AccountClaimWindow? claimWindow = null,
+        ISignalRNotificationService? notifications = null) =>
+        ActivatorUtilities.CreateInstance<AccountSetupController>(
+            new ServiceCollection()
+                .AddSingleton(notifications ?? DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>())
+                .BuildServiceProvider(),
             dbContextFactory,
             apiKeyService,
             claimWindow ?? NewClaimWindow(),
@@ -382,12 +417,17 @@ public sealed class FirstAdminCreationTests : IDisposable
             signalR: null!,
             configuration ?? _configuration);
 
-    private static FirstAdminSessionResetService NewSessionResetService(
+    private FirstAdminSessionResetService NewSessionResetService(
         IDbContextFactory<AppDbContext> dbContextFactory,
         SessionService sessionService)
     {
         var services = new ServiceCollection();
         services.AddSingleton(sessionService);
+        // A start with sign-in off asks AccessService whether a finished setup runs that mode.
+        services.AddSingleton(new AccessService(
+            StateTestMethods.CreateStateService(Path.Combine(_root, "state")),
+            _configuration,
+            dbContextFactory));
 
         return new FirstAdminSessionResetService(
             dbContextFactory,

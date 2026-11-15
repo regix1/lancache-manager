@@ -222,8 +222,11 @@ public sealed class AccessModeTests : IDisposable
         Assert.True(activeOptions.UsePkce);
         Assert.True(activeOptions.ProtocolValidator.RequireNonce);
         Assert.False(activeOptions.ProtocolValidator.RequireStateValidation);
-        Assert.Equal(CookieSecurePolicy.Always, activeOptions.CorrelationCookie.SecurePolicy);
-        Assert.Equal(CookieSecurePolicy.Always, activeOptions.NonceCookie.SecurePolicy);
+        Assert.True(activeOptions.RequireHttpsMetadata);
+        Assert.Equal(SameSiteMode.Lax, activeOptions.CorrelationCookie.SameSite);
+        Assert.Equal(CookieSecurePolicy.SameAsRequest, activeOptions.CorrelationCookie.SecurePolicy);
+        Assert.Equal(SameSiteMode.Lax, activeOptions.NonceCookie.SameSite);
+        Assert.Equal(CookieSecurePolicy.SameAsRequest, activeOptions.NonceCookie.SecurePolicy);
     }
 
     [Fact]
@@ -271,7 +274,7 @@ public sealed class AccessModeTests : IDisposable
     }
 
     [Fact]
-    public async Task OidcStartRequiresHttpsOutsideLoopback()
+    public async Task SignInStartFollowsEachServicesHttpsRule()
     {
         Directory.CreateDirectory(_root);
         var configuration = new ConfigurationBuilder()
@@ -283,16 +286,21 @@ public sealed class AccessModeTests : IDisposable
             .Build();
         var state = CreateStateService(_root);
         var access = new AccessService(state, configuration, dbContextFactory: null!);
-        access.Apply(
+        void Stage(LoginKind kind, string? privateKey = null) => access.Apply(
             new AccessSetupRequest
             {
                 Mode = AccountMode.Oidc,
                 ApiKey = "checked-by-controller",
-                Oidc = new OidcSetupRequest
+                Login = new LoginSetupRequest
                 {
-                    Authority = "https://login.example.test",
-                    ClientId = "lancache",
-                    ClientSecret = "secret"
+                    Kind = kind,
+                    ClientId = kind == LoginKind.Apple ? "com.example.web" : "lancache",
+                    ClientSecret = kind == LoginKind.Apple ? string.Empty : "secret",
+                    Authority = kind == LoginKind.CustomOidc ? "https://login.example.test" : null,
+                    Tenant = kind == LoginKind.Microsoft ? "consumers" : null,
+                    TeamId = kind == LoginKind.Apple ? "TEAM123456" : null,
+                    KeyId = kind == LoginKind.Apple ? "KEY1234567" : null,
+                    PrivateKey = privateKey
                 }
             },
             null);
@@ -310,14 +318,59 @@ public sealed class AccessModeTests : IDisposable
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
-        var request = new OidcStartRequest { Setup = true, ApiKey = apiKey.GetApiKey() };
+        async Task<ActionResult?> StartOverHttp(string loginId, string host)
+        {
+            controller.Request.Scheme = Uri.UriSchemeHttp;
+            controller.Request.Host = new HostString(host);
+            return (await controller.StartLoginAsync(new LoginStartRequest
+            {
+                LoginId = loginId,
+                ApiKey = apiKey.GetApiKey(),
+                Setup = true
+            })).Result;
+        }
 
-        controller.Request.Scheme = Uri.UriSchemeHttp;
-        controller.Request.Host = new HostString("192.0.2.20");
-        Assert.IsType<ConflictObjectResult>((await controller.StartOidcAsync(request)).Result);
+        // A LAN identity service and GitHub start from a plain HTTP LAN address.
+        Stage(LoginKind.CustomOidc);
+        Assert.IsType<OkObjectResult>(await StartOverHttp("customOidc", "192.0.2.20"));
+        Stage(LoginKind.GitHub);
+        Assert.IsType<OkObjectResult>(await StartOverHttp("github", "192.0.2.20"));
 
-        controller.Request.Host = new HostString("localhost");
-        Assert.IsType<OkObjectResult>((await controller.StartOidcAsync(request)).Result);
+        // Google and Microsoft accept plain HTTP callbacks only on localhost.
+        Stage(LoginKind.Google);
+        Assert.IsType<ConflictObjectResult>(await StartOverHttp("google", "192.0.2.20"));
+        Assert.IsType<OkObjectResult>(await StartOverHttp("google", "localhost"));
+        Stage(LoginKind.Microsoft);
+        Assert.IsType<ConflictObjectResult>(await StartOverHttp("microsoft", "192.0.2.20"));
+        Assert.IsType<OkObjectResult>(await StartOverHttp("microsoft", "localhost"));
+
+        // Apple needs an HTTPS domain, so a domain name over plain HTTP is still refused.
+        using var appleKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        Stage(LoginKind.Apple, appleKey.ExportPkcs8PrivateKeyPem());
+        Assert.IsType<ConflictObjectResult>(await StartOverHttp("apple", "lancache.example.test"));
+    }
+
+    [Fact]
+    public void HttpsOnlyServicesStillRequireHttpsDiscoveryAndAppleKeepsItsCrossSiteCookies()
+    {
+        Directory.CreateDirectory(_root);
+        var service = NewAccessService(CreateStateService(_root), authenticationEnabled: true);
+        var setup = new OidcOptionsSetup(service);
+
+        foreach (var scheme in new[] { AccessService.GoogleScheme, AccessService.MicrosoftScheme, AccessService.AppleScheme })
+        {
+            var options = new OpenIdConnectOptions();
+            setup.Configure(scheme, options);
+            Assert.True(options.RequireHttpsMetadata, scheme);
+        }
+
+        // Apple answers with a cross-site form post, which carries only SameSite=None cookies.
+        var apple = new OpenIdConnectOptions();
+        setup.Configure(AccessService.AppleScheme, apple);
+        Assert.Equal(SameSiteMode.None, apple.CorrelationCookie.SameSite);
+        Assert.Equal(CookieSecurePolicy.Always, apple.CorrelationCookie.SecurePolicy);
+        Assert.Equal(SameSiteMode.None, apple.NonceCookie.SameSite);
+        Assert.Equal(CookieSecurePolicy.Always, apple.NonceCookie.SecurePolicy);
     }
 
     [Fact]

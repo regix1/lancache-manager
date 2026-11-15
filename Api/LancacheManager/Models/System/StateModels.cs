@@ -85,6 +85,10 @@ public class AppState
     // never reruns it and cannot put "utc" back after an admin removes it on purpose.
     public bool UtcTimeFormatMigrated { get; set; } = false;
 
+    // Marks that the one-time copy of the Steam guest thread limit into the Battle.net and Riot limits has
+    // run. Persisted so a restart never reruns it and cannot overwrite a "no limit" an admin chose later.
+    public bool GuestThreadLimitsSeeded { get; set; } = false;
+
     // Guest prefill permissions - controls access to the Prefill tab for guests
     public bool GuestPrefillEnabledByDefault { get; set; } = false; // Whether new guests get prefill access by default
     public int GuestPrefillDurationHours { get; set; } = 2; // Default duration for prefill access (1 or 2 hours); also caps that service's guest container lifetime.
@@ -109,10 +113,12 @@ public class AppState
     // Battle.net prefill settings (anonymous service - default-grant flag only gates feature access)
     public bool BattleNetGuestPrefillEnabledByDefault { get; set; } = false;
     public int BattleNetGuestPrefillDurationHours { get; set; } = 2;
+    public int? BattleNetDefaultGuestMaxThreadCount { get; set; } = null;
 
     // Riot prefill settings (anonymous service - default-grant flag only gates feature access)
     public bool RiotGuestPrefillEnabledByDefault { get; set; } = false;
     public int RiotGuestPrefillDurationHours { get; set; } = 2;
+    public int? RiotDefaultGuestMaxThreadCount { get; set; } = null;
 
     // Xbox prefill settings (login-required service - mirrors Epic, has a thread limit)
     public bool XboxGuestPrefillEnabledByDefault { get; set; } = false;

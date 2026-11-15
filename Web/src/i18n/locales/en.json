@@ -3,14 +3,14 @@
     "header": "Access and sign-in",
     "progress": "Access setup progress",
     "headings": {
-      "choose": "How should people sign in?",
+      "choose": "How should users sign in?",
       "test": "Test {{name}}"
     },
     "descriptions": {
-      "choose": "Choose the credentials people will use to access this installation. You can change this later as the primary administrator.",
-      "configure": "Verify ownership, then configure the selected method. Existing accounts and cache settings are preserved."
+      "choose": "Choose the credentials users will use to access this installation. You can change this later on the Users page, Sign-in.",
+      "configure": "Verify ownership, then configure the selected method. Cache settings are kept. Accounts are kept unless you choose Unauthenticated."
     },
-    "upgrade": "Version 1.10.7 introduces more sign-in choices. Confirm access for this installation once; your accounts, cache, and prefill settings are kept.",
+    "upgrade": "Version 1.10.7 introduces more sign-in choices. Confirm access for this installation once; your cache and prefill settings are kept, and so are your accounts unless you choose Unauthenticated.",
     "groups": {
       "local": "Local account",
       "sso": "Single sign-on",
@@ -43,8 +43,8 @@
         "warning": "Anyone who can reach the app can use its management features. Use only on a network where every connected person and device is trusted."
       }
     },
-    "keyOwnership": "Every mode retains the installation API key for ownership and recovery; it belongs to the first account, the primary administrator.",
-    "sessions": "Existing account sessions remain active. Use Sessions on the Users page to end them. Switching to a sign-in mode removes shared unauthenticated access.",
+    "keyOwnership": "Every mode retains the installation API key for ownership and recovery; it belongs to the primary administrator, or to whoever runs the installation while sign-in is off.",
+    "sessions": "Switching between sign-in modes keeps account sessions signed in. To end one, pick it in the Users list and choose Revoke. Switching to a sign-in mode ends shared unauthenticated access.",
     "ownerHeading": "Verify installation ownership",
     "ownerDescription": "Enter the installation key to authorize this change. This one-time setup check is separate from the credentials required at sign-in.",
     "keyLocation": "Find the key on the server at",
@@ -55,14 +55,14 @@
     "ownerSso": "Use the owner's single sign-on",
     "ownerPassword": "Use an existing primary administrator password",
     "httpsWarning": "Local HTTP is supported. Credentials and sessions travel unencrypted, so use HTTPS on networks you do not trust.",
-    "serviceHeading": "Which service should people sign in with?",
+    "serviceHeading": "Which service should users sign in with?",
     "serviceHint": "Connected services stay available. Pick one to add or update.",
-    "ssoRequiresHttps": "Single sign-on is unavailable over HTTP. Connect to this app using HTTPS.",
+    "ssoRequiresHttps": "{{name}} sign-in is unavailable over this HTTP address. Connect to this app using HTTPS.",
     "httpsRequired": "HTTPS required",
     "connected": "Connected",
     "connectedList": "Connected: {{names}}",
     "connectedHeading": "{{name}} is connected",
-    "connectedDescription": "People can sign in with {{name}} as soon as you save. Enter new credentials only if you registered this app with {{name}} again.",
+    "connectedDescription": "Users can sign in with {{name}} as soon as you save. Enter new credentials only if you registered this app with {{name}} again.",
     "reconfigure": "Enter new credentials",
     "registerHeading": "Register this app with {{name}}",
     "copy": "Copy",
@@ -77,26 +77,34 @@
     "privateKey": "Sign in with Apple key (.p8 file)",
     "privateKeyHint": "Paste the entire .p8 file. It is stored protected on the server and never shown again.",
     "issuer": "Issuer URL",
-    "issuerHint": "Requires HTTPS. Include the realm or application path, if any.",
+    "issuerHint": "The issuer address your identity service lists. Include the realm or application path, if any.",
     "displayName": "Sign-in button name (optional)",
     "clientId": "Client ID",
     "clientSecret": "Client secret",
     "callback": "Sign-in callback URL",
     "setupCallback": "Test callback URL",
     "callbackOrigin": "These return URLs are built in. Open the app at its intended sign-in address before copying them.",
-    "localAddress": "This setup requires HTTPS even on localhost. Loopback addresses point to the device running your browser, not another server.",
+    "localAddress": "Loopback addresses point to the device running your browser, not another server.",
     "privateHosting": "Your app can stay private on your LAN or VPN; public hosting is not required.",
-    "addressHelp": "Local HTTPS help",
+    "addressHelp": "Local address help",
     "advanced": "Advanced settings",
     "advancedHint": "The account used to test this connection is linked to the primary administrator automatically.",
     "additionalUsers": "Allow additional SSO users",
     "allowedSubjects": "Allowed subjects (optional)",
     "oidcSafety": "Your connection is tested before activation. A failed test keeps the current sign-in settings.",
-    "acknowledge": "I understand that anyone who can reach this app will have management access without signing in.",
+    "acknowledge": "I understand that anyone who can reach this app will have management access without signing in, and that every account is deleted.",
+    "wipeConfirm": {
+      "title": "Delete every account",
+      "message_one": "Turning sign-in off deletes {{count}} account, with its sessions and sign-in links.",
+      "message_other": "Turning sign-in off deletes all {{count}} accounts, with their sessions and sign-in links.",
+      "summary": "To turn sign-in back on, a new administrator account must be created. This cannot be undone.",
+      "confirm": "Delete accounts and turn sign-in off",
+      "required": "Turning sign-in off deletes every account. Confirm to continue."
+    },
     "testHeading": "Test the connection",
     "testConnection": "Test connection",
     "testConnectionHint": "Opens {{name}} to verify the administrator's sign-in. Current settings stay active until the test succeeds.",
-    "testSucceeded": "{{name}} is connected. People can sign in with it now.",
+    "testSucceeded": "{{name}} is connected. Users can sign in with it now.",
     "testUnconfirmed": "The sign-in test finished, but this connection is not active yet. Choose the sign-in method again to retry.",
     "testExplanation": "Sign in with {{name}} to verify and activate these settings. A failed test leaves current access unchanged.",
     "testOwner": "Use the account that should belong to the primary administrator.",
@@ -121,9 +129,8 @@
     "done": "Done",
     "sso": "single sign-on",
     "signInSso": "Continue with {{name}}",
-    "change": "Change sign-in method",
+    "change": "Change",
     "signInMethod": "Sign-in method",
-    "manageDescription": "How people sign in to this installation, and the external services they can sign in with.",
     "ownerServiceHeading": "Sign in with",
     "localPasswordHeading": "Create a local password",
     "localPasswordDescription": "Your administrator account was created by single sign-on and has no password yet. Set one now so you can still sign in after the change.",
@@ -132,12 +139,12 @@
     "remove": "Remove",
     "removeService": "Remove {{name}}?",
     "removeServiceDescription": "The primary administrator will no longer be able to sign in with this service. Enter the installation key to confirm.",
-    "removeServiceActive": "People will no longer be able to sign in with this service. The last active service cannot be removed while single sign-on is selected: change the sign-in method first, or keep another connected service. Enter the installation key to confirm.",
+    "removeServiceActive": "Users will no longer be able to sign in with this service. The last active service cannot be removed while single sign-on is selected: change the sign-in method first, or keep another connected service. Enter the installation key to confirm.",
     "removeFailed": "Failed to remove the sign-in service",
     "services": {
       "google": {
         "title": "Google",
-        "note": "People sign in with a Google account.",
+        "note": "Users sign in with a Google account.",
         "register": "In Google Cloud Console, create a Web application OAuth client. Add both URLs below as authorized redirect URIs.",
         "addresses": "For LAN sign-in, Google requires HTTPS with a registered domain. HTTP and raw LAN IP addresses will not work.",
         "testing": "Google allows localhost or 127.0.0.1 callbacks. Other devices need a registered domain.",
@@ -146,16 +153,16 @@
       },
       "github": {
         "title": "GitHub",
-        "note": "People sign in with a GitHub account.",
+        "note": "Users sign in with a GitHub account.",
         "register": "In GitHub Settings → Developer settings → OAuth Apps, create an app. Add both callback URLs below with wildcard matching off, then generate a client secret.",
-        "addresses": "This app requires HTTPS for GitHub sign-in over your LAN. Plain HTTP LAN addresses will not work.",
+        "addresses": "GitHub may refuse a plain HTTP callback address other than 127.0.0.1. If it does, connect to this app using HTTPS.",
         "testing": "GitHub recommends 127.0.0.1 over localhost for loopback callbacks.",
         "credentials": "Copy the client ID and the client secret you generated. No repository or email permissions are requested.",
         "subjects": "Numeric GitHub account IDs, one per line. Do not use usernames or email addresses."
       },
       "microsoft": {
         "title": "Microsoft",
-        "note": "People sign in with a work, school, or personal Microsoft account.",
+        "note": "Users sign in with a work, school, or personal Microsoft account.",
         "register": "In Microsoft Entra, register an app with a Web platform. Add both URLs below as redirect URIs, then create a client secret.",
         "addresses": "For LAN sign-in, Microsoft requires HTTPS. Plain HTTP LAN addresses will not work.",
         "testing": "Microsoft supports localhost and 127.0.0.1 callbacks, but not IPv6 loopback (::1).",
@@ -177,8 +184,8 @@
         "nameAtStart": "Your identity service",
         "note": "Any OpenID Connect service, such as Keycloak, Authentik, Authelia, or Okta.",
         "register": "Create an OpenID Connect web client using authorization code flow. Add both URLs below as allowed redirect URIs.",
-        "addresses": "This app requires HTTPS for SSO over your LAN. Your identity service may have stricter rules.",
-        "testing": "The issuer URL must also use HTTPS; check your identity service's callback requirements.",
+        "addresses": "Plain HTTP works when your identity service accepts HTTP callback addresses. Many require HTTPS, so check its callback rules.",
+        "testing": "The issuer URL can use HTTP or HTTPS. For a self-signed or private certificate, put its CA certificate in /data/certs and restart the app.",
         "credentials": "Enter the issuer URL, client ID, and client secret from that registration.",
         "subjects": "Subject IDs from this issuer (the sub claim), one per line. Do not use email addresses or display names."
       }
@@ -193,7 +200,7 @@
     "environment": {
       "setByEnvironment": "Set by environment variable",
       "modeSetByEnvironment": "The sign-in mode is set by an environment variable and cannot be changed here.",
-      "modeBlocked": "The sign-in mode is set by an environment variable and cannot be changed here. To continue, open this app over HTTPS, or change Security__SignInMode and restart the app.",
+      "modeBlocked": "The sign-in mode is set by an environment variable and cannot be changed here. To continue, open this app at an HTTPS address this sign-in service accepts, or change Security__SignInMode and restart the app.",
       "incomplete": "Environment variables set part of this service, but the server cannot use it yet. Enter the missing settings below. If saving still fails, the startup log names the environment variable to fix."
     }
   },
@@ -619,7 +626,7 @@
           "label": "Local (12h)"
         },
         "utc": {
-          "description": "Universal time standard with 24-hour format",
+          "description": "Universal time with 24-hour format",
           "label": "UTC"
         },
         "local24": {
@@ -627,11 +634,11 @@
           "label": "Local (24h)"
         },
         "server12": {
-          "description": "Server timezone with 12-hour format (3:30 PM)",
+          "description": "Server timezone with 12-hour format",
           "label": "Server (12h)"
         },
         "server24": {
-          "description": "Server timezone with 24-hour format (15:30)",
+          "description": "Server timezone with 24-hour format",
           "label": "Server (24h)"
         }
       },
@@ -649,7 +656,7 @@
       "invalidJsonResponse": "Invalid JSON response from server"
     },
     "time": {
-      "justNow": "Just now",
+      "justNow": "just now",
       "minutesAgo": "{{count}}m ago",
       "hoursAgo": "{{count}}h ago",
       "daysAgo": "{{count}}d ago",
@@ -689,7 +696,7 @@
     "downloads": "Downloads",
     "clients": "Clients",
     "prefill": "Prefill",
-    "authenticate": "Authenticate",
+    "authenticate": "Sign in",
     "users": "Users",
     "events": "Events",
     "management": "Management",
@@ -868,6 +875,7 @@
         "noActiveDesc": "Downloads will appear here in real-time",
         "noDownloads": "No Downloads",
         "noDownloadsInPeriod": "No downloads in the {{period}}",
+        "noDownloadsToShow": "No downloads to show",
         "loading": "Loading downloads..."
       },
       "timeRanges": {
@@ -976,7 +984,7 @@
       "empty": {
         "title": "No Data Available",
         "description": "Service statistics will appear here",
-        "action": "View Logs"
+        "action": "View downloads"
       }
     },
     "errors": {
@@ -1130,7 +1138,7 @@
     },
     "form": {
       "placeholder": "lm_xxxxxxxxxxxxxxxxxxxxx",
-      "submit": "Authenticate"
+      "submit": "Sign in"
     },
     "help": {
       "title": "API key",
@@ -1149,7 +1157,9 @@
       "loginFailedStatus": "Login failed: {{status}}",
       "networkDuringLogin": "Network error during login",
       "guestSessionFailed": "Failed to start guest session",
-      "logoutIncomplete": "Signed out on this device, but the server could not be reached. Sign out again when you are back online.",
+      "logoutIncomplete": "The sign-out did not finish: the server could not end the session. If you are still signed in, sign out again.",
+      "logoutUnreachable": "The sign-out did not finish: the server could not be reached. Sign out again when you are back online.",
+      "logoutUnconfirmed": "The sign-out did not finish: the server did not accept it. Sign out again in a moment.",
       "network": "Network error"
     }
   },
@@ -1187,14 +1197,13 @@
   "user": {
     "tabs": {
       "sessions": "Sessions",
-      "guestDefaults": "Guest Defaults",
       "accounts": "Accounts"
     },
     "accounts": {
       "title": "User Accounts",
       "loading": "Loading accounts...",
       "paginationLabel": "accounts",
-      "mainAdmin": "Primary",
+      "mainAdmin": "Primary admin",
       "neverSignedIn": "Never",
       "columns": {
         "username": "Username",
@@ -1205,34 +1214,34 @@
         "actions": "Actions"
       },
       "roles": {
-        "user": "Account"
+        "user": "User"
       },
       "status": {
         "active": "Active",
         "disabled": "Disabled"
       },
       "actions": {
-        "create": "Create Account",
+        "create": "Create account",
         "enable": "Enable",
         "disable": "Disable",
-        "wipe": "Wipe All Accounts"
+        "wipe": "Wipe all accounts"
       },
       "empty": {
         "title": "No accounts yet",
         "subtitle": "Accounts you create will appear here"
       },
       "form": {
-        "createTitle": "Create Account",
+        "createTitle": "Create account",
         "editTitle": "Edit {{username}}",
         "username": "Username",
         "password": "Password",
-        "newPassword": "New Password",
+        "newPassword": "New password",
         "passwordHint": "Leave this blank to keep the current password."
       },
       "confirm": {
-        "deleteTitle": "Delete Account",
+        "deleteTitle": "Delete account",
         "deleteBody": "Delete {{username}}? Their sessions end straight away and this cannot be undone.",
-        "wipeTitle": "Wipe All Accounts",
+        "wipeTitle": "Wipe all accounts",
         "wipeBody": "This deletes every account, including yours, and signs everyone out. The next screen is create the first administrator. This cannot be undone."
       },
       "errors": {
@@ -1242,9 +1251,6 @@
         "wipe": "Failed to wipe accounts"
       }
     },
-    "locked": "Guest mode locked. New guests cannot log in.",
-    "unlocked": "Guest mode unlocked. Guests can now log in.",
-    "refreshRateUpdated": "Default guest refresh rate updated",
     "errors": {
       "updateGuestDuration": "Failed to update guest session duration",
       "updateGuestLock": "Failed to update guest mode lock",
@@ -1256,7 +1262,6 @@
     "guest": {
       "sections": {
         "help": {
-          "accessSecurityTitle": "About",
           "appearanceDisplayTitle": "About"
         },
         "accessSecurity": "Access & Security",
@@ -1265,7 +1270,7 @@
         "appearanceDisplayShort": "Appearance",
         "appearanceDisplaySubtitle": "Default visual settings for new guest sessions",
         "sessionDuration": "Session Duration",
-        "defaultTheme": "Default Theme",
+        "defaultTheme": "Default theme",
         "refreshRate": "Refresh Rate",
         "dateTime": "Date & Time",
         "display": "Display",
@@ -1327,20 +1332,12 @@
       },
       "preferences": {
         "sharpCorners": {
-          "label": "Sharp Corners",
+          "label": "Sharp corners",
           "description": "Square instead of rounded"
         },
-        "disableTooltips": {
-          "label": "Disable Tooltips",
-          "description": "Hide tooltip hints"
-        },
         "datasourceLabels": {
-          "label": "Datasource Labels",
+          "label": "Datasource labels",
           "description": "Show in multi-source mode"
-        },
-        "lockRefreshRate": {
-          "label": "Lock Refresh Rate",
-          "description": "Prevent guests from changing their refresh rate"
         }
       },
       "prefillDurationOptions": {
@@ -1354,8 +1351,7 @@
         },
         "sectionTitle": "Prefill Services",
         "sectionSubtitle": "Control guest prefill permissions per service",
-        "updated": "Prefill configuration updated",
-        "existingGuestsNote": "Turning a service on also grants access to guests who are already logged in and have no unexpired grant for it; turning it off, or changing the duration or thread limit, affects new guest sessions only. Use Active Sessions to revoke or change access for guests who are already logged in.",
+        "existingGuestsNote": "Turning a service on also grants access to guests who are already logged in and have no unexpired grant for it; turning it off, or changing the duration or thread limit, affects new guest sessions only. To revoke or change access for a guest who is already logged in, pick that guest in the list.",
         "warning": "Security risk: every guest, including those already logged in, will be able to trigger prefills. Consider keeping this off and granting access per-session instead.",
         "services": {
           "help": {
@@ -1381,7 +1377,7 @@
         },
         "maxThreads": {
           "label": "Max Download Threads",
-          "noLimit": "No Limit",
+          "noLimit": "No limit",
           "usingDefault": "Using default",
           "overridden": "Custom limit for this user",
           "threadsCount": "{{count}} thread",
@@ -1399,8 +1395,8 @@
     },
     "bulkActions": {
       "buttons": {
-        "reset": "Reset to Defaults",
-        "clear": "Clear All Guests"
+        "reset": "Reset all guests to defaults",
+        "clear": "Clear all guests"
       },
       "resetSuccess": "Reset {{count}} guest sessions to defaults",
       "clearSuccess": "Cleared {{count}} guest sessions",
@@ -1409,26 +1405,157 @@
         "clearFailed": "Failed to clear guest sessions"
       },
       "resetModal": {
-        "title": "Reset All Guests to Defaults",
+        "title": "Reset all guests to defaults",
         "message": "Are you sure you want to reset all guest session preferences to the default values?",
         "summary": "Resets theme, refresh rate and every display and timezone preference to the guest defaults. Guest sessions stay active.",
-        "confirm": "Reset All Guests"
+        "confirm": "Reset all guests"
       },
       "clearModal": {
-        "title": "Clear All Guest Sessions",
+        "title": "Clear all guest sessions",
         "message": "Are you sure you want to remove all guest sessions? This action cannot be undone.",
         "summary": "Deletes every guest session and logs connected guests out immediately. Their preferences and session data are lost.",
-        "confirm": "Clear All Guests"
+        "confirm": "Clear all guests"
       }
     },
     "groups": {
       "sessions": "Sessions",
       "guestDefaults": "Guest defaults"
+    },
+    "panes": {
+      "separator": ", ",
+      "unsavedChanges": "Unsaved changes",
+      "list": {
+        "aria": "Users and settings",
+        "back": "Back to list",
+        "filters": {
+          "signedIn": "Signed in",
+          "guests": "Guests",
+          "ended": "Ended"
+        },
+        "signIn": "Sign-in",
+        "guestAccessOpen": "Open, {{count}} hour sessions",
+        "guestAccessLocked": "Locked, {{count}} hour sessions",
+        "sessionLine": "{{device}} in {{place}}, {{when}}",
+        "sessionLineNoPlace": "{{device}}, {{when}}",
+        "endedRevoked": "revoked {{when}}",
+        "endedExpired": "expired {{when}}",
+        "endedSignedOut": "signed out {{when}}",
+        "disabled": "disabled",
+        "signedInOn_one": "signed in on {{count}} device",
+        "signedInOn_other": "signed in on {{count}} devices",
+        "neverSignedIn": "never signed in",
+        "lastSignedIn": "last signed in {{when}}",
+        "created": "created {{when}}",
+        "empty": {
+          "signedIn": "No one is signed in",
+          "signedInHint": "Sessions show here when users connect",
+          "accountsHint": "Accounts you create show here",
+          "guests": "No guests are signed in",
+          "guestsHint": "Guests show here when they connect",
+          "ended": "No ended sessions",
+          "endedHint": "Sessions that end show here"
+        },
+        "noMatch": "Nothing matches this search",
+        "noMatchHint": "Try a name, device or IP",
+        "pickPrompt": "Pick a row to see its details"
+      },
+      "header": {
+        "guestSession": "{{device}}, {{remaining}}",
+        "accountLine": "{{role}}, {{state}}",
+        "created": "Created {{when}}",
+        "lastSignIn": "last sign-in {{when}}",
+        "endedLine": "{{kind}} session, {{reason}}",
+        "kindGuest": "Guest",
+        "kindAccount": "Account"
+      },
+      "time": {
+        "justNow": "just now",
+        "minutesAgo": "{{count}} min ago",
+        "hoursAgo": "{{count}} h ago",
+        "daysAgo": "{{count}} d ago",
+        "hoursMinutesLeft": "{{hours}} h {{minutes}} min left",
+        "minutesLeft": "{{minutes}} min left"
+      },
+      "menu": {
+        "editAccount": "Edit account",
+        "disableAccount": "Disable account",
+        "enableAccount": "Enable account",
+        "deleteAccount": "Delete account",
+        "deleteSession": "Delete session",
+        "label": "More actions for {{name}}"
+      },
+      "sections": {
+        "thisDevice": "This device",
+        "device": "Device",
+        "otherDevices": "Other devices",
+        "prefs": "Preferences for this session",
+        "guestSignIn": "Sign-in",
+        "guestPrefill": "Prefill for new guests",
+        "guestSees": "What guests see",
+        "howUsersSignIn": "How users sign in"
+      },
+      "facts": {
+        "deviceAt": "{{device}} in {{place}}",
+        "signedIn": "Signed in",
+        "lastSeen": "last seen {{when}}",
+        "placeSeen": "{{place}}, {{when}}",
+        "never": "Never",
+        "clockServer": "Server time clock",
+        "clockLocal": "Local time clock",
+        "clockUtc": "UTC clock",
+        "labels": {
+          "device": "Device",
+          "address": "Address",
+          "lastSeen": "Last seen",
+          "expires": "Expires",
+          "ended": "Ended",
+          "publicAddress": "Public address",
+          "provider": "Provider",
+          "language": "Language",
+          "timezone": "Time zone",
+          "screen": "Screen",
+          "clock": "Clock",
+          "session": "Session"
+        },
+        "copied": "Copied",
+        "copyAria": "Copy the session id"
+      },
+      "prefs": {
+        "refreshRate": "Refresh rate",
+        "mayChangeRate": "Guest may change the refresh rate",
+        "accountMayChangeRate": "May change the refresh rate",
+        "keepVisible": "Keep notifications visible",
+        "timeFormats": "Time formats",
+        "threads": "Threads",
+        "threadsFor": "{{service}} threads",
+        "accessLasts": "Access lasts",
+        "accessLastsFor": "{{service}} access lasts",
+        "newGuestsCanSignIn": "New guests can sign in",
+        "sessionLength": "Session length",
+        "everyGuestCan": "Every guest can start {{service}} prefills.",
+        "loadFailed": "Could not load this session's preferences"
+      },
+      "help": {
+        "lock": "Locked stops new guest sign-ins. Guests already signed in keep their session until it ends.",
+        "lengthUi": "Set on this page. Reset goes back to the length from the config file or an environment variable, or to the default length when neither sets one.",
+        "lengthConfig": "Comes from the config file or an environment variable. Changing it here overrides it.",
+        "lengthDefault": "Uses the built-in default. Changing it here overrides it.",
+        "prefill": "On gives every new guest prefill access to that service when they sign in. Access lasts sets how long that access stays open. Threads caps how many downloads one prefill runs at once.",
+        "everyGuest": "Each new guest gets {{service}} prefill access for {{duration}} without asking. A prefill downloads whole games into the cache and uses the shared internet line.",
+        "lockAria": "About the guest sign-in lock",
+        "lengthAria": "About the guest session length",
+        "prefillAria": "About prefill for new guests",
+        "everyGuestAria": "Why {{service}} prefill for every guest matters",
+        "serviceAria": "About the {{name}} login service",
+        "primaryAdmin": "The primary admin account cannot be edited, disabled or deleted here.",
+        "metrics": "Public lets anyone who can reach this server read /metrics, including each client's IP address, without signing in. Secured asks for the API key.",
+        "metricsAria": "About who can read the Prometheus metrics"
+      }
     }
   },
   "actions": {
     "cancel": "Cancel",
-    "useDefault": "Use Default",
+    "useDefault": "Use default",
     "usingDefault": "Using Default",
     "edit": "Edit"
   },
@@ -1446,7 +1573,7 @@
     "loading": "Loading sessions...",
     "paginationLabel": "sessions",
     "device": {
-      "unknownDevice": "Unknown Device",
+      "unknownDevice": "Unknown device",
       "unknownBrowser": "Unknown",
       "browserOnOs": "{{browser}} on {{os}}"
     },
@@ -1457,7 +1584,6 @@
       "revoked": "Revoked"
     },
     "history": {
-      "title": "Session History",
       "summary": "Sessions that signed out or expired.",
       "help": {
         "aboutTitle": "About"
@@ -1502,17 +1628,11 @@
       "guest": "Guest"
     },
     "relative": {
-      "never": "Never",
-      "justNow": "Just now",
-      "minutesAgo": "{{count}}m ago",
-      "hoursAgo": "{{count}}h ago",
-      "daysAgo": "{{count}}d ago"
+      "never": "Never"
     },
     "sessionTypes": {
-      "authenticatedUser": "authenticated user",
-      "guestUser": "guest",
-      "authenticatedDevice": "authenticated device",
-      "guestDevice": "guest device"
+      "accountSession": "account session",
+      "guestSession": "guest session"
     },
     "help": {
       "aboutTitle": "About",
@@ -1555,22 +1675,22 @@
       "deleting": "Deleting...",
       "revoke": "Revoke",
       "delete": "Delete",
-      "logout": "Log Out"
+      "logout": "Log out"
     },
     "revokeModal": {
-      "title": "Revoke Device",
+      "title": "Revoke session",
       "message": "Are you sure you want to revoke this {{type}}?",
-      "summary": "The user is logged out immediately. The device is marked revoked rather than deleted, so it stays in history.",
-      "confirm": "Revoke Device"
+      "summary": "The session is signed out immediately. It is marked revoked rather than deleted, so it stays in the Ended list.",
+      "confirm": "Revoke session"
     },
     "deleteModal": {
-      "title": "Delete Device",
+      "title": "Delete session",
       "message": "Are you sure you want to permanently delete this {{type}}?",
-      "summary": "The user is logged out immediately and the device is removed from history for good. This cannot be undone.",
-      "confirm": "Delete Permanently"
+      "summary": "The session is signed out immediately and deleted for good. This cannot be undone.",
+      "endedSummary": "The session is removed from the Ended list for good. This cannot be undone.",
+      "confirm": "Delete session"
     },
     "preferencesModal": {
-      "title": "Edit User Preferences",
       "loading": "Loading preferences...",
       "selectedTheme": "Selected Theme",
       "customTheme": "Custom theme for this user",
@@ -1583,7 +1703,7 @@
       "tooltips": "Tooltips",
       "datasourceLabels": "Show datasource indicators on downloads (multi-datasource mode)",
       "stickyNotifications": {
-        "title": "Sticky Notifications",
+        "title": "Sticky notifications",
         "description": "Keep notification bar fixed at top when scrolling"
       },
       "staticNotifications": {
@@ -1602,14 +1722,12 @@
       }
     },
     "prefill": {
-      "title": "Prefill Access",
+      "title": "Prefill access",
       "subtitle": "Grant this guest access to the Prefill tab. Access is time-limited and will expire automatically.",
       "status": {
         "enabled": "Enabled",
         "expired": "Expired",
-        "disabled": "Disabled",
-        "hoursMinutesRemaining": "{{hours}}h {{minutes}}m remaining",
-        "minutesRemaining": "{{minutes}}m remaining"
+        "disabled": "Disabled"
       },
       "actions": {
         "grant": "Grant Access",
@@ -1628,7 +1746,7 @@
       "savePreferences": "Failed to save preferences",
       "logout": "Failed to log out"
     },
-    "searchPlaceholder": "Search by device, IP, or browser",
+    "searchPlaceholder": "Search name, device or IP",
     "summary": "Devices signed in right now and their preferences."
   },
   "downloads": {
@@ -2280,6 +2398,8 @@
       },
       "authRequired": "Authentication Required",
       "authRequiredDesc": "Please authenticate to access this section.",
+      "adminOnly": "Only an administrator changes these settings",
+      "adminOnlyDesc": "These settings apply to every user of this installation, so your account can change only its own settings.",
       "guestModeActive": "Guest Mode Active",
       "guestModeDesc": "Management features are disabled in guest mode. Please authenticate to access full functionality.",
       "data": {
@@ -2534,11 +2654,9 @@
         "visual": "Visual",
         "sharpCorners": "Sharp Corners",
         "sharpCornersDesc": "Use square corners instead of rounded",
-        "disableTooltips": "Disable Tooltips",
-        "disableTooltipsDesc": "Hide tooltip hints throughout the UI",
+        "disableTooltipsDesc": "Show tooltip hints throughout the UI",
         "notifications": "Notifications",
-        "disableStickyNotifications": "Disable Sticky Notifications",
-        "disableStickyNotificationsDesc": "Notification bar scrolls with page instead of staying fixed at top",
+        "disableStickyNotificationsDesc": "The notification bar stays at the top while the page scrolls",
         "keepNotificationsVisible": "Keep Notifications Visible",
         "keepNotificationsVisibleDesc": "Disable auto-dismiss for all notifications until manually closed",
         "downloads": "Downloads",
@@ -2794,6 +2912,7 @@
         "hostnames": {
           "loadFailed": "Failed to load hostnames",
           "saveFailed": "Failed to save hostname settings",
+          "switchNotSaved": "The lookup settings were saved, but Show client hostnames was not changed. Save again to change it.",
           "help": {
             "aboutTitle": "About"
           },
@@ -4565,7 +4684,7 @@
       },
       "description": {
         "authenticated": "Management features enabled",
-        "disabled": "Unauthenticated access is selected. Management features are available without signing in; changing sign-in settings still requires the primary administrator.",
+        "disabled": "Unauthenticated access is selected. Management features are available without signing in; changing sign-in settings still asks for the installation API key.",
         "guest": "View-only access active",
         "requiresKeyOrGuest": "Management features require API key or guest access",
         "requiresKey": "Management features require API key"
@@ -4574,13 +4693,13 @@
       "regenerate": "Regenerate",
       "guestMode": "Guest Mode",
       "guest": "Guest",
-      "authenticate": "Authenticate",
+      "authenticate": "Sign in",
       "checkingStatus": "Checking authentication status...",
       "auth": "Auth",
       "fullAccess": "Full Access",
       "modal": {
         "fullAccessRequired": "Full Access Required",
-        "authenticationRequired": "Authentication Required",
+        "authenticationRequired": "Sign in required",
         "guestMessage": "For full management features, please authenticate with your API key.",
         "unauthenticatedMessage": "Management operations require authentication. Please enter your API key or continue as guest.",
         "apiKeyOnlyMessage": "Management operations require authentication. Please enter your API key.",
@@ -4600,7 +4719,8 @@
         "title": "Your New API Key",
         "message": "This is the only time the app shows this key (it is also printed once to the server logs). Copy it now, because everyone has been signed out and signing back in needs it.",
         "copied": "Copied!",
-        "copyFailed": "This browser would not let the page copy for you. Select the key above and copy it by hand before closing."
+        "copyFailed": "This browser would not let the page copy for you. Select the key above and copy it by hand before closing.",
+        "accountsKept": "The other user accounts could not be removed, so they can still sign in. Delete them on the Users page, or regenerate the key again."
       },
       "notifications": {
         "sessionRevoked": "Your session has expired or been revoked. Please authenticate again.",
@@ -5565,10 +5685,10 @@
       }
     },
     "auth": {
-      "defaultTitle": "Authentication Required",
+      "defaultTitle": "Sign in required",
       "defaultSubtitle": "Please sign in with your API key, username and password",
       "labels": {
-        "apiKey": "API Key",
+        "apiKey": "API key",
         "or": "OR",
         "username": "Username",
         "password": "Password"
@@ -5581,8 +5701,8 @@
       },
       "actions": {
         "pleaseWait": "Please Wait...",
-        "authenticating": "Authenticating...",
-        "authenticate": "Authenticate"
+        "authenticating": "Signing in...",
+        "authenticate": "Sign in"
       },
       "guestMode": {
         "disabled": "Guest mode is currently disabled by the administrator.",
@@ -5888,7 +6008,7 @@
           "description": "The client statistics table and its hit rate bars"
         },
         "authenticate": {
-          "label": "Authenticate",
+          "label": "Sign in",
           "description": "The guest sign-in screen and its API key form"
         },
         "users": {
@@ -5948,10 +6068,6 @@
         "gameCharts": {
           "title": "Game Charts",
           "description": "Game distribution chart - 20 customizable colors for the Games on Disk doughnut chart on the dashboard"
-        },
-        "sessions": {
-          "title": "Sessions",
-          "description": "Authenticated users and guests - Colors for session badges and icons in the Users tab"
         },
         "events": {
           "title": "Events",
@@ -6594,36 +6710,6 @@
           "description": "Remaining games grouped together",
           "affects": ["Games on Disk chart"]
         },
-        "userSessionColor": {
-          "label": "Authenticated User Color",
-          "description": "Icon and text color for authenticated users",
-          "affects": ["USER badge text", "Authenticated user icon", "Authenticated stat card"]
-        },
-        "userSessionBg": {
-          "label": "Authenticated User Background",
-          "description": "Background color for authenticated user badges",
-          "affects": ["USER badge background", "Authenticated icon background"]
-        },
-        "guestSessionColor": {
-          "label": "Guest User Color",
-          "description": "Icon and text color for guest users",
-          "affects": ["GUEST badge text", "Guest user icon", "Guest stat card"]
-        },
-        "guestSessionBg": {
-          "label": "Guest User Background",
-          "description": "Background color for guest user badges",
-          "affects": ["GUEST badge background", "Guest icon background"]
-        },
-        "activeSessionColor": {
-          "label": "Active Session Color",
-          "description": "Icon and text color for sessions that are currently active",
-          "affects": ["Active session badge text", "Active session icon"]
-        },
-        "activeSessionBg": {
-          "label": "Active Session Background",
-          "description": "Background for active session badges",
-          "affects": ["Active session badge", "Active session row"]
-        },
         "eventColor1": {
           "label": "Event Color 1",
           "description": "First event color option",
@@ -6956,7 +7042,7 @@
         },
         "iconBgYellow": {
           "label": "Users Icon (Active Clients)",
-          "description": "Background for users/people icons",
+          "description": "Background for user icons",
           "affects": ["Active Clients card icon", "Client indicators"]
         },
         "iconBgCyan": {
@@ -7351,7 +7437,7 @@
       "recoverSubmit": "Save password",
       "recovering": "Saving password...",
       "recoveredHeading": "Password saved",
-      "recoveredDescription": "Your password is saved and this device is signed in as the primary administrator. You can change the sign-in method under Users → Accounts → Access and sign-in.",
+      "recoveredDescription": "Your password is saved and this device is signed in as the primary administrator. You can change the sign-in method under Users → Sign-in → Change.",
       "insecureConnection": {
         "title": "This connection is not encrypted",
         "description": "The password you set here travels across the network in the clear, and so does every sign-in after it. Put this site behind HTTPS before anyone connects from another machine."
@@ -7978,7 +8064,8 @@
       "rescanningWithMappings": "Scanning again with {{count}} new mapping(s)...",
       "staleCleanedUp": "Ended: this detection was left over from an earlier start",
       "error": {
-        "fatal": "Game cache detection failed: {{errorDetail}}"
+        "fatal": "Game cache detection failed: {{errorDetail}}",
+        "timedOut": "Game cache detection stopped because a step did not finish in time. Try again; the server log has the details."
       }
     },
     "gameRemove": {
@@ -8226,7 +8313,8 @@
       "claimWindowClosed": "The window for creating the first account has closed. Restart the application to reopen it.",
       "recoveryWindowClosed": "The window for recovering the main administrator password has closed. Restart the application to reopen it.",
       "accountExists": "An account already exists on this installation.",
-      "mainAdminNotFound": "No main administrator account is registered under that name."
+      "mainAdminNotFound": "No main administrator account is registered under that name.",
+      "signInOff": "Sign-in is turned off, which keeps no accounts. Turn sign-in on to create the first administrator."
     },
     "antiforgery": {
       "tokenMismatch": "This page's security token is missing or does not match your session. Refresh the page and try again."
@@ -8247,9 +8335,11 @@
       "mainAdminProtected": "The account that owns this installation cannot be changed here.",
       "wipeRequiresMainAdmin": "Only the account that owns this installation can delete every account.",
       "selfProtected": "You cannot delete or disable the account you are signed in as.",
+      "ownAccountOnly": "You can change only your own account.",
       "usernameTaken": "That username is already taken.",
       "credentialsRejected": "The username or password does not meet the requirements.",
-      "environmentManaged": "An environment variable allows this account. Remove it from that variable and restart the app before deleting the account."
+      "environmentManaged": "An environment variable allows this account. Remove it from that variable and restart the app before deleting the account.",
+      "signInOff": "Sign-in is turned off, which keeps no accounts. Turn sign-in on before creating an account."
     },
     "cache": {
       "readOnly": "Cannot clear cache: cache directory is read-only. This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. The LANCache container is configured to run as UID/GID {{uidGid}} (configured via PUID/PGID environment variables).",

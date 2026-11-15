@@ -306,7 +306,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
             title={t('widgets.peakUsageHours.loadFailed')}
             message={loadError}
             retryLabel={t('common.retry')}
-            onRetry={() => void refetch()}
+            onRetry={() => refetch()}
           />
         )}
         {badge ? <div className="dash-range-footer">{badge}</div> : null}
@@ -505,7 +505,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({ glassmorphism = fa
           title={t('widgets.peakUsageHours.loadFailed')}
           message={loadError}
           retryLabel={t('common.retry')}
-          onRetry={() => void refetch()}
+          onRetry={() => refetch()}
         />
       )}
 

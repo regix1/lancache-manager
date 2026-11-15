@@ -644,8 +644,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         ? "signalr.evictionScan.progress"
                         : progress.StageKey;
                     var context = BuildScanProgressContext(progress);
-                    if (_evictionScanTerminalStates.TryGetValue(operationId, out var terminalState) && terminalState.DetectionError != null)
-                        context["detectionError"] = terminalState.DetectionError;
+                    if (_evictionScanTerminalStates.TryGetValue(operationId, out var terminalState))
+                    {
+                        if (terminalState.DetectionError != null) context["detectionError"] = terminalState.DetectionError;
+                        if (terminalState.DetectionStageKey != null) context["detectionStageKey"] = terminalState.DetectionStageKey;
+                    }
 
                     // The Rust disk scan owns 0-85% of the bar. The C# post-processing that
                     // follows (detection-row updates, post-scan recovery, and the disk-summary
@@ -813,6 +816,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _logger.LogWarning("[EvictionScan] Skipping eviction scan: {Reason}", refusal.Message);
             operationError = CapabilityRefusedStageKey;
         }
+        catch (ValidationException refusal) when (refusal.StageKey == "errors.corruption.keySchemeUnavailable")
+        {
+            // The Remove-mode cleanup re-checks the key evidence after the scan, which can change it meanwhile;
+            // its refusal ends the run on that key rather than as a failure with server text.
+            _logger.LogWarning("[EvictionScan] Evicted record cleanup refused: {Reason}", refusal.Message);
+            operationError = refusal.StageKey;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error during eviction scan");
@@ -852,6 +862,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             DetectionError = _evictionScanTerminalStates.TryGetValue(operationId, out var terminal)
                                 ? terminal.DetectionError
                                 : null,
+                            DetectionStageKey = terminal?.DetectionStageKey,
                             UncheckedFolders = repair.EvictionScan?.UncheckedFolders
                         };
                     },
@@ -928,7 +939,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             Processed = metrics.Processed,
             Evicted = metrics.Evicted,
             UnEvicted = metrics.UnEvicted,
-            DetectionError = metrics.DetectionError
+            DetectionError = metrics.DetectionError,
+            DetectionStageKey = metrics.DetectionStageKey
         };
         var cts = new CancellationTokenSource();
         Func<OperationTerminalInfo, Task> emit = terminal =>
@@ -942,6 +954,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             if (state.DetectionError is not null)
             {
                 context["detectionError"] = state.DetectionError;
+            }
+            if (state.DetectionStageKey is not null)
+            {
+                context["detectionStageKey"] = state.DetectionStageKey;
             }
 
             var stageKey = terminal.Canceled
@@ -1000,6 +1016,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _operationTracker.SetWarning(repair.Id, new RunWarning(
                 "signalr.gameDetect.error.fatal",
                 new Dictionary<string, object?> { ["errorDetail"] = detectionError }));
+        }
+        if (metrics.DetectionStageKey is { } detectionStageKey)
+        {
+            _operationTracker.SetWarning(repair.Id, new RunWarning(detectionStageKey, new Dictionary<string, object?>()));
         }
 
         _evictionScanTerminalStates[repair.Id] = state;
@@ -1312,6 +1332,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     Evicted = checkpoint.Evicted,
                     UnEvicted = checkpoint.UnEvicted,
                     DetectionError = current.EvictionScan?.DetectionError,
+                    DetectionStageKey = current.EvictionScan?.DetectionStageKey,
                     UncheckedFolders = current.EvictionScan?.UncheckedFolders
                 };
             },
@@ -1573,6 +1594,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     ["totalUnEvicted"] = terminalState.UnEvicted
                 };
                 if (terminalState.DetectionError != null) context["detectionError"] = terminalState.DetectionError;
+                if (terminalState.DetectionStageKey != null) context["detectionStageKey"] = terminalState.DetectionStageKey;
 
                 if (terminal.Canceled)
                 {
@@ -1758,14 +1780,38 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             terminal ??= finished.Task.IsCompletedSuccessfully ? finished.Task.Result : _operationTracker.GetOperation(detectionId.Value);
             if (terminal?.Status == OperationStatus.Failed)
             {
+                // A detection that failed on the generic key keeps its error text, which the scan words inside
+                // the fatal key. Any other ending key names the reason itself, so readers translate that key
+                // and never print it as text; a detection another actor ended first has only its run's key.
                 var metrics = terminal.Metadata as GameDetectionMetrics;
-                var detectionError = metrics?.CompletionContext?.GetValueOrDefault("errorDetail")?.ToString()
-                    ?? metrics?.Error ?? terminal.Message ?? "signalr.generic.failed";
+                string? detectionError = null;
+                string? detectionStageKey = null;
+                if (metrics?.CompletionStageKey == "signalr.generic.failed"
+                    && metrics.CompletionContext?.GetValueOrDefault("errorDetail") is string { Length: > 0 } errorText)
+                {
+                    detectionError = errorText;
+                }
+                else
+                {
+                    detectionStageKey = metrics?.CompletionStageKey ?? terminal.Message;
+                }
                 _operationTracker.UpdateMetadata(operationId, values =>
                 {
                     if (_evictionScanTerminalStates.TryGetValue(operationId, out var terminalState))
+                    {
                         terminalState.DetectionError = detectionError;
+                        terminalState.DetectionStageKey = detectionStageKey;
+                    }
                 });
+                // Kept on the repair record at once, so a restart before the run ends restores the failure.
+                await _serviceProvider.GetRequiredService<OperationStateService>().SaveRepairAsync(
+                    operationId,
+                    repair =>
+                    {
+                        repair.EvictionScan!.DetectionError = detectionError;
+                        repair.EvictionScan.DetectionStageKey = detectionStageKey;
+                    },
+                    stoppingToken);
                 await ReportScanProgressAsync(operationId, terminal.PercentComplete,
                     "signalr.evictionScan.detectingGames", new EvictionScanResult());
             }
@@ -1790,8 +1836,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             ["totalEvicted"] = scanResult.Evicted,
             ["totalUnEvicted"] = scanResult.UnEvicted
         };
-        if (_evictionScanTerminalStates.TryGetValue(operationId, out var terminalState) && terminalState.DetectionError != null)
-            context["detectionError"] = terminalState.DetectionError;
+        if (_evictionScanTerminalStates.TryGetValue(operationId, out var terminalState))
+        {
+            if (terminalState.DetectionError != null) context["detectionError"] = terminalState.DetectionError;
+            if (terminalState.DetectionStageKey != null) context["detectionStageKey"] = terminalState.DetectionStageKey;
+        }
 
         var accepted = false;
         _operationTracker.UpdateProgress(operationId, percentComplete, stageKey, onProgress: operation =>
@@ -1850,6 +1899,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     {
         null => "signalr.evictionScan.complete",
         ScanStoppedStageKey or NoFolderCheckedStageKey or CapabilityRefusedStageKey
+            or "errors.corruption.keySchemeUnavailable"
             or OperationStateService.InterruptedByRestartError => error,
         _ => ScanFailedStageKey
     };
@@ -1891,6 +1941,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private sealed class EvictionScanTerminalState
     {
         public string? DetectionError;
+        public string? DetectionStageKey;
         public int Processed;
         public int Evicted;
         public int UnEvicted;
@@ -1976,11 +2027,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[EvictionRemoval] Unhandled error before removal started");
+                // A refusal names its reason by key, so the card shows that reason in the reader's language.
                 await CompleteRemovalAsync(
                     operationId,
                     success: false,
-                    stageKey: "signalr.evictionRemove.failedToStart",
-                    error: ex.Message);
+                    stageKey: ex is ApiException { StageKey: { } reason } ? reason : "signalr.evictionRemove.failedToStart",
+                    error: ex is ApiException { StageKey: not null } ? null : ex.Message);
             }
             finally
             {
@@ -2064,11 +2116,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[EvictedRemoval] Unhandled error before entity removal started ({Scope} '{Key}')", scope, key);
+                // A refusal names its reason by key, so the card shows that reason in the reader's language.
                 await CompleteRemovalAsync(
                     operationId,
                     success: false,
-                    stageKey: "signalr.evictionRemove.failedToStart",
-                    error: ex.Message);
+                    stageKey: ex is ApiException { StageKey: { } reason } ? reason : "signalr.evictionRemove.failedToStart",
+                    error: ex is ApiException { StageKey: not null } ? null : ex.Message);
             }
             finally
             {
@@ -2711,7 +2764,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
         if (capabilityDenial != null)
         {
-            throw new InvalidOperationException(capabilityDenial);
+            throw new ValidationException(capabilityDenial) { StageKey = "errors.corruption.keySchemeUnavailable" };
         }
 
         CancellationTokenSource? cts = null;
@@ -3388,7 +3441,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
         if (capabilityDenial != null)
         {
-            throw new InvalidOperationException(capabilityDenial);
+            throw new ValidationException(capabilityDenial) { StageKey = "errors.corruption.keySchemeUnavailable" };
         }
 
         // Npgsql cannot translate string.Equals(..., StringComparison.OrdinalIgnoreCase);

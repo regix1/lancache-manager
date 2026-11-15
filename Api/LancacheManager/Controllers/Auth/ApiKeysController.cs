@@ -2,6 +2,7 @@ using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Filters;
 using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -128,6 +129,7 @@ public class ApiKeysController : ControllerBase
     /// key. The owner signs those platforms back in after they sign back into the app.
     /// </remarks>
     [HttpPost("regenerate")]
+    [HandlerChecksCaller]
     [EnableRateLimiting("auth")]
     [ProducesResponseType(typeof(ApiKeyRegenerateResponse), StatusCodes.Status200OK)]
     public async Task<IActionResult> RegenerateApiKeyAsync()
@@ -182,41 +184,48 @@ public class ApiKeysController : ControllerBase
         try { await _xboxCatalogMappingService.LogoutAsync(); }
         catch (Exception ex) { _logger.LogWarning(ex, "Xbox process logout failed during API key rotation"); }
 
-        await using var steamRelease = await _steamAuthStorage.BeginIntegrationReleaseAsync();
-        await using var epicRelease = await _epicAuthStorage.BeginIntegrationReleaseAsync();
-        await using var xboxRelease = await _xboxAuthStorage.BeginIntegrationReleaseAsync();
-        _steamAuthStorage.CompleteIntegrationRelease(steamRelease);
-        _epicAuthStorage.CompleteIntegrationRelease(epicRelease);
-        _xboxAuthStorage.CompleteIntegrationRelease(xboxRelease);
-
-        var (oldKey, newKey) = _apiKeyService.RegenerateApiKey();
-        _apiKeyService.DisplayApiKey(revealKey: true);
-
-        // Built before anything is revoked. The caller signs in with the key, so the session making
-        // this request is one of the ones about to end, and a rotation that only confirms itself
-        // leaves that admin outside the screen that was going to show them the key they now need.
-        var response = new ApiKeyRegenerateResponse
+        ApiKeyRegenerateResponse response;
+        UserSession? session;
+        int endedSessions;
+        // The three release leases hold the login gates until every session opened against the old key
+        // is gone. They end before the saved-login clear below, which waits on the same gates.
+        await using (var steamRelease = await _steamAuthStorage.BeginIntegrationReleaseAsync())
+        await using (var epicRelease = await _epicAuthStorage.BeginIntegrationReleaseAsync())
+        await using (var xboxRelease = await _xboxAuthStorage.BeginIntegrationReleaseAsync())
         {
-            Success = true,
-            Message = "API key regenerated successfully.",
-            ApiKey = newKey,
-            Warning = "Every signed-in session was ended. Sign in again with this key."
-        };
+            _steamAuthStorage.CompleteIntegrationRelease(steamRelease);
+            _epicAuthStorage.CompleteIntegrationRelease(epicRelease);
+            _xboxAuthStorage.CompleteIntegrationRelease(xboxRelease);
 
-        // Read while the rows still exist. An X-Api-Key caller and a caller running with
-        // authentication disabled both run as a shared session that belongs to no account, so the
-        // account half of the actor is null for them.
-        var session = HttpContext.GetUserSession();
-        await _identityAuditService.RecordAsync(
-            IdentityAuditEvent.ApiKeyRotated,
-            session?.AccountId,
-            session?.Id,
-            targetAccountId: null);
+            var (oldKey, newKey) = _apiKeyService.RegenerateApiKey();
+            _apiKeyService.DisplayApiKey(revealKey: true);
 
-        // Guests included: every one of these sessions was opened against the key that has just
-        // stopped being valid. Only the session rows go, so every account can sign in again with the
-        // new key.
-        var endedSessions = await _sessionService.ClearAllSessionsAsync();
+            // Built before anything is revoked. The caller signs in with the key, so the session making
+            // this request is one of the ones about to end, and a rotation that only confirms itself
+            // leaves that admin outside the screen that was going to show them the key they now need.
+            response = new ApiKeyRegenerateResponse
+            {
+                Success = true,
+                Message = "API key regenerated successfully.",
+                ApiKey = newKey,
+                Warning = "Every signed-in session was ended. Sign in again with this key."
+            };
+
+            // Read while the rows still exist. An X-Api-Key caller and a caller running with
+            // authentication disabled both run as a shared session that belongs to no account, so the
+            // account half of the actor is null for them.
+            session = HttpContext.GetUserSession();
+            await _identityAuditService.RecordAsync(
+                IdentityAuditEvent.ApiKeyRotated,
+                session?.AccountId,
+                session?.Id,
+                targetAccountId: null);
+
+            // Guests included: every one of these sessions was opened against the key that has just
+            // stopped being valid. Only the session rows go, so every account can sign in again with the
+            // new key.
+            endedSessions = await _sessionService.ClearAllSessionsAsync(HttpContext.RequestServices);
+        }
 
         // The sessions are already gone, so these rows take nothing live with them. Only the branch
         // above that identified the caller as the owning account does this: on the other branch the
@@ -225,27 +234,48 @@ public class ApiKeysController : ControllerBase
         var removedAccounts = 0;
         if (authenticationEnabled)
         {
-            await using var accounts = await _dbContextFactory.CreateDbContextAsync();
-            // Accounts an environment variable allows stay: deleting them would only let their next
-            // sign-in create them again.
-            var otherAccounts = (await accounts.UserAccounts.Where(a => !a.IsMainAdmin).ToListAsync())
-                .Where(account => _accessService?.IsAllowedByEnvironment(account.Id) != true)
-                .ToList();
-            accounts.UserAccounts.RemoveRange(otherAccounts);
-            await accounts.SaveChangesAsync();
-            // After the delete is saved, so a failed save leaves every account its sign-in links.
-            _accessService?.ForgetAccounts(otherAccounts.Select(account => account.Id));
-
-            foreach (var removed in otherAccounts)
+            // The key has already changed and every session has ended, so a failure here must not
+            // keep the new key from the caller. The answer tells the caller the accounts were kept;
+            // they can be deleted on the Users page or removed by the next rotation.
+            try
             {
-                await _identityAuditService.RecordAsync(
-                    IdentityAuditEvent.AccountDeleted,
-                    session?.AccountId,
-                    session?.Id,
-                    removed.Id);
-            }
+                await using var accounts = await _dbContextFactory.CreateDbContextAsync();
+                // Accounts an environment variable allows stay: deleting them would only let their next
+                // sign-in create them again.
+                var otherAccounts = (await accounts.UserAccounts.Where(a => !a.IsMainAdmin).ToListAsync())
+                    .Where(account => _accessService?.IsAllowedByEnvironment(account.Id) != true)
+                    .ToList();
+                // The release above cleared only the active logins. Each removed account's saved game logins
+                // go before its row, as the account reset does, so a clear that fails deletes no account.
+                var removedIds = otherAccounts.Select(account => account.Id).ToHashSet();
+                await _steamAuthStorage.ClearAccountLoginsAsync(removedIds, CancellationToken.None);
+                await _epicAuthStorage.ClearAccountLoginsAsync(removedIds, CancellationToken.None);
+                await _xboxAuthStorage.ClearAccountLoginsAsync(removedIds, CancellationToken.None);
+                accounts.UserAccounts.RemoveRange(otherAccounts);
+                await accounts.SaveChangesAsync();
+                removedAccounts = otherAccounts.Count;
+                // After the delete is saved, so a failed save leaves every account its sign-in links.
+                _accessService?.ForgetAccounts(otherAccounts.Select(account => account.Id));
 
-            removedAccounts = otherAccounts.Count;
+                foreach (var removed in otherAccounts)
+                {
+                    await _identityAuditService.RecordAsync(
+                        IdentityAuditEvent.AccountDeleted,
+                        session?.AccountId,
+                        session?.Id,
+                        removed.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Could not finish removing the other accounts during API key rotation");
+                // Set only once the delete is saved: a later failure leaves no account behind.
+                if (removedAccounts == 0)
+                {
+                    response.StageKey = "management.auth.rotatedModal.accountsKept";
+                    response.Message = "API key regenerated, but the other user accounts could not be removed and can still sign in. Delete them on the Users page, or regenerate the key again.";
+                }
+            }
         }
 
         _logger.LogWarning(

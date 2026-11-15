@@ -142,7 +142,7 @@ public partial class GameCacheDetectionService : IDisposable
         var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
         if (capabilityDenial != null)
         {
-            throw new ValidationException(capabilityDenial);
+            throw new ValidationException(capabilityDenial) { StageKey = "errors.corruption.keySchemeUnavailable" };
         }
 
         await _startLock.WaitAsync();
@@ -475,7 +475,7 @@ public partial class GameCacheDetectionService : IDisposable
             var executionDenial = _capabilityService.CheckAllCanMapLogicalObjects();
             if (executionDenial != null)
             {
-                throw new InvalidOperationException(executionDenial);
+                throw new ValidationException(executionDenial) { StageKey = "errors.corruption.keySchemeUnavailable" };
             }
 
             // Started before the first write: the mapping pre-check deletes the cached detections
@@ -1072,18 +1072,24 @@ public partial class GameCacheDetectionService : IDisposable
             {
                 _logger.LogError(oce, "[GameDetection] Operation {OperationId} failed due to timeout or internal cancellation", operationId);
 
+                // The reason rides as a key, as a refusal's does below, so the card words it in the reader's
+                // language instead of showing the framework's cancellation text.
                 await FinalizeDetectionAsync(operationId, success: false,
-                    status: OperationStatus.Failed, stageKey: "signalr.generic.failed", canceled: false,
-                    context: new Dictionary<string, object?> { ["errorDetail"] = oce.Message });
+                    status: OperationStatus.Failed, stageKey: "signalr.gameDetect.error.timedOut", canceled: false,
+                    context: new Dictionary<string, object?> { ["errorDetail"] = "signalr.gameDetect.error.timedOut" });
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[GameDetection] Operation {OperationId} failed", operationId);
 
+            // A refusal names its reason by key, which every reader shows in its own language and which
+            // carries no server text to guest connections; any other error keeps its text as the detail.
+            var keyed = ex is ApiException { StageKey: not null };
+            var failure = ex is ApiException { StageKey: { } refusalKey } ? refusalKey : ex.Message;
             await FinalizeDetectionAsync(operationId, success: false,
-                status: OperationStatus.Failed, stageKey: "signalr.generic.failed", canceled: false,
-                context: new Dictionary<string, object?> { ["errorDetail"] = ex.Message });
+                status: OperationStatus.Failed, stageKey: keyed ? failure : "signalr.generic.failed", canceled: false,
+                context: new Dictionary<string, object?> { ["errorDetail"] = failure });
         }
         finally
         {

@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -12,6 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -392,6 +394,40 @@ public sealed class MainAdminRecoveryTests : IDisposable
     }
 
     /// <summary>
+    /// Recovery sets the main administrator's cookie over whatever this browser held. A guest session
+    /// it held would otherwise stay live with no browser holding it, so it ends with the recovery.
+    /// </summary>
+    [Fact]
+    public async Task RecoveryFromAGuestBrowserEndsTheGuestSession()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await SeedAccountAsync(database.Factory, "owner", mainAdmin: true);
+        var guestSessionId = await SeedSessionAsync(database.Factory, accountId: null);
+        await using var seeded = database.Factory.CreateDbContext();
+        var guest = await seeded.UserSessions.SingleAsync(s => s.Id == guestSessionId);
+        // The session check found the guest through this browser's cookie, which recovery reads too.
+        const string guestToken = "guest-before-recovery";
+        guest.SessionTokenHash = Convert.ToBase64String(
+            System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(guestToken)));
+        await seeded.SaveChangesAsync();
+
+        var controller = NewController(database.Factory, _apiKeyService);
+        controller.HttpContext.Request.Headers.Cookie = $"LancacheManager.Session={guestToken}";
+        controller.HttpContext.Items["Session"] = guest;
+        controller.HttpContext.RequestServices = new ServiceCollection().BuildServiceProvider();
+        var result = await controller.RecoverMainAdminPasswordAsync(
+            NewRequest("owner", _apiKeyService.GetApiKey()),
+            NewSessionService(database.Factory),
+            new AccountLockout(NullLogger<AccountLockout>.Instance));
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        await using var context = database.Factory.CreateDbContext();
+        Assert.True(
+            (await context.UserSessions.SingleAsync(s => s.Id == guestSessionId)).IsRevoked,
+            "the guest session this browser held is still live after it recovered the main administrator");
+    }
+
+    /// <summary>
     /// Resetting the owner's password with nothing but the installation key is the event an operator
     /// most needs to find afterwards, whether they did it or somebody else did.
     /// </summary>
@@ -525,6 +561,50 @@ public sealed class MainAdminRecoveryTests : IDisposable
             Assert.IsAssignableFrom<ObjectResult>(signedIn.Result).StatusCode);
     }
 
+    /// <summary>
+    /// A main administrator created by an external sign-in sets a local username and password here.
+    /// Another account holder's accounts table is loaded once, so it has to be told, after the new
+    /// name is stored, or it keeps showing the old one.
+    /// </summary>
+    [Fact]
+    public async Task SettingTheFirstLocalPasswordTellsAnOpenAccountsTableTheNewName()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var owner = await SeedAccountAsync(database.Factory, "oidc-owner", mainAdmin: true);
+        await using (var context = database.Factory.CreateDbContext())
+        {
+            // An account an external sign-in created has no local password.
+            (await context.UserAccounts.SingleAsync(a => a.Id == owner.Id)).PasswordHash = string.Empty;
+            await context.SaveChangesAsync();
+        }
+        var sessionId = await SeedSessionAsync(database.Factory, owner.Id);
+        await using var seeded = database.Factory.CreateDbContext();
+        var session = await seeded.UserSessions.SingleAsync(s => s.Id == sessionId);
+
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, CacheScanDetectionPhaseTests.RecordingNotifications>();
+        var sent = (CacheScanDetectionPhaseTests.RecordingNotifications)(object)notifications;
+        var accountsLoaded = new List<string[]>();
+        sent.OnSent = (eventName, _) =>
+        {
+            if (eventName != SignalREvents.AccountsChanged)
+                return;
+            using var context = database.Factory.CreateDbContext();
+            accountsLoaded.Add(context.UserAccounts.AsNoTracking().Select(a => a.Username).ToArray());
+        };
+
+        var controller = NewController(database.Factory, _apiKeyService, notifications: notifications);
+        controller.HttpContext.Items["Session"] = session;
+        var result = await controller.SetMainAdminPasswordAsync(
+            NewRequest("owner", _apiKeyService.GetApiKey()),
+            new AccountLockout(NullLogger<AccountLockout>.Instance));
+
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(result));
+        Assert.True(
+            accountsLoaded.Any(usernames => usernames.Contains("owner") && !usernames.Contains("oidc-owner")),
+            $"setting the main administrator's local name sent no accounts event after it was stored ({accountsLoaded.Count} sent), " +
+            "so an open accounts table keeps the old name");
+    }
+
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
     private Task<ActionResult<MessageResponse>> RecoverAsync(TestDatabase database, AccountCredentialsRequest request) =>
@@ -550,16 +630,24 @@ public sealed class MainAdminRecoveryTests : IDisposable
         IDbContextFactory<AppDbContext> dbContextFactory,
         ApiKeyService apiKeyService,
         IdentityAuditService? auditService = null,
-        AccountClaimWindow? claimWindow = null)
+        AccountClaimWindow? claimWindow = null,
+        ISignalRNotificationService? notifications = null)
     {
-        var controller = new AccountSetupController(
+        var services = new ServiceCollection()
+            .AddSingleton(notifications ?? DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>())
+            .BuildServiceProvider();
+        var controller = ActivatorUtilities.CreateInstance<AccountSetupController>(
+            services,
             dbContextFactory,
             apiKeyService,
             claimWindow ?? NewRecoveryWindow(),
             new PasswordHasher<UserAccount>(),
             auditService ?? new IdentityAuditService(dbContextFactory, NullLogger<IdentityAuditService>.Instance),
             NullLogger<AccountSetupController>.Instance);
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        controller.ControllerContext = new ControllerContext
+        {
+            HttpContext = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() }
+        };
         return controller;
     }
 
@@ -579,7 +667,7 @@ public sealed class MainAdminRecoveryTests : IDisposable
             apiKeyService ?? _apiKeyService,
             NullLogger<SessionService>.Instance,
             stateService: null!,
-            signalR: null!,
+            signalR: DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
             configuration ?? _configuration);
 
     private static AccountCredentialsRequest NewRequest(string username, string apiKey) =>

@@ -431,7 +431,8 @@ public sealed class MainAdminSessionProtectionTests
             NullLogger<UserPreferencesController>.Instance,
             new UserPreferencesService(NullLogger<UserPreferencesService>.Instance, database.Factory),
             DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
-            NewSessionService(database));
+            NewSessionService(database),
+            stateService: null!);
 
         var httpContext = new DefaultHttpContext();
         httpContext.Items["Session"] = caller;

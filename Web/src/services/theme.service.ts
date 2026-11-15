@@ -614,14 +614,6 @@ class ThemeService {
           securedAccessText: '#b45309',
           securedAccessBorder: '#a68520', // 3.14:1 on the wash; the old #fcd34d was neon gold
 
-          // Session colors
-          userSessionColor: '#2563eb',
-          userSessionBg: '#dbeafe',
-          guestSessionColor: '#0891b2',
-          guestSessionBg: '#cffafe',
-          activeSessionColor: '#ea580c',
-          activeSessionBg: '#ffedd5',
-
           // Event colors (for calendar events)
           eventColor1: '#2563eb', // Blue
           eventColor2: '#059669', // Green
@@ -781,8 +773,6 @@ class ThemeService {
           chartCacheHitColor: '#69b585',
           errorText: '#d89797',
           checkboxHoverShadow: '0 0 0 3px rgba(91, 157, 245, 0.1)',
-          userSessionColor: '#5b9df5',
-          userSessionBg: 'rgba(91, 157, 245, 0.15)',
           chartColor1: '#5b9df5',
           gameColor1: '#5b9df5',
           eventColor1: '#5b9df5',
@@ -1494,14 +1484,6 @@ class ThemeService {
       --theme-secured-access-bg: ${colors.securedAccessBg};
       --theme-secured-access-text: ${colors.securedAccessText};
       --theme-secured-access-border: ${colors.securedAccessBorder};
-
-      /* Session Colors */
-      --theme-user-session: ${colors.userSessionColor};
-      --theme-user-session-bg: ${colors.userSessionBg};
-      --theme-guest-session: ${colors.guestSessionColor};
-      --theme-guest-session-bg: ${colors.guestSessionBg};
-      --theme-active-session: ${colors.activeSessionColor};
-      --theme-active-session-bg: ${colors.activeSessionBg};
 
       /* Event Colors */
       --theme-event-1: ${colors.eventColor1};

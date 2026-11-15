@@ -32,11 +32,7 @@ public partial class CacheManagementService
     {
         // Same fail-closed key-scheme gate every removal uses: an ambiguous scheme would count
         // files under a recipe the removal would refuse to run.
-        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
-        if (capabilityDenial != null)
-        {
-            throw new InvalidOperationException(capabilityDenial);
-        }
+        RequireUnambiguousKeyScheme();
 
         PublishCount(new CacheFileCountState(operationId, null, null, null, null));
 

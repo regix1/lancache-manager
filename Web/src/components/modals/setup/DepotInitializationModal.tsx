@@ -25,10 +25,15 @@ import {
 } from '../../initialization/steps';
 
 interface DepotInitializationModalProps {
+  /** False fades the wizard out; the host keeps it drawn until the fade has run. */
+  opened: boolean;
   onInitialized: () => void;
 }
 
-const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onInitialized }) => {
+const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
+  opened,
+  onInitialized
+}) => {
   const { t } = useTranslation();
 
   const {
@@ -177,6 +182,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
   return (
     <SetupGate
       maxWidth="4xl"
+      opened={opened}
       icon={<Rocket className="w-5 h-5 text-primary" aria-hidden="true" />}
       title={t('initialization.modal.setupWizard')}
       leading={

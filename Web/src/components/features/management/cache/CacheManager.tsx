@@ -371,7 +371,8 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   title={t('management.cache.cacheSizeError')}
                   message={cacheSizeError}
                   retryLabel={t('common.retry')}
-                  onRetry={() => void fetchCacheSize()}
+                  onRetry={() => fetchCacheSize()}
+                  retrying={cacheSizeLoading}
                 />
               )}
 

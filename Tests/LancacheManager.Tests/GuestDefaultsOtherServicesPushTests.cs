@@ -60,6 +60,8 @@ public sealed class GuestDefaultsOtherServicesPushTests : IDisposable
         _stateService.SetBattleNetGuestPrefillDurationHours(2);
         _stateService.SetRiotGuestPrefillEnabledByDefault(false);
         _stateService.SetRiotGuestPrefillDurationHours(2);
+        _stateService.SetBattleNetDefaultGuestMaxThreadCount(4);
+        _stateService.SetRiotDefaultGuestMaxThreadCount(6);
 
         var notifier = new ScheduledRunReporterTests.CapturingNotificationService();
         var controller = NewController(database, notifier);
@@ -82,10 +84,10 @@ public sealed class GuestDefaultsOtherServicesPushTests : IDisposable
         Assert.Equal(1, _stateService.GetRiotGuestPrefillDurationHours());
 
         var stale = new List<string>();
-        foreach (var (eventName, panel, enabled, hours) in new[]
+        foreach (var (eventName, panel, enabled, hours, threadField, threads) in new[]
                  {
-                     (SignalREvents.BattleNetGuestPrefillConfigChanged, "Battle.net", true, 3),
-                     (SignalREvents.RiotGuestPrefillConfigChanged, "Riot", true, 1)
+                     (SignalREvents.BattleNetGuestPrefillConfigChanged, "Battle.net", true, 3, "battleNetMaxThreadCount", 4),
+                     (SignalREvents.RiotGuestPrefillConfigChanged, "Riot", true, 1, "riotMaxThreadCount", 6)
                  })
         {
             var last = notifier.Events.LastOrDefault(push => push.EventName == eventName);
@@ -102,9 +104,50 @@ public sealed class GuestDefaultsOtherServicesPushTests : IDisposable
             {
                 stale.Add($"{panel}: {eventName} carried {pushedEnabled} / {pushedHours} h, the server holds {enabled} / {hours} h");
             }
+            if (!sent.TryGetProperty(threadField, out var pushedThreads) || pushedThreads.GetInt32() != threads)
+            {
+                stale.Add($"{panel}: {eventName} did not carry {threadField} = {threads}");
+            }
         }
 
         Assert.True(stale.Count == 0, string.Join("; ", stale));
+    }
+
+    /// <summary>
+    /// Battle.net and Riot have their own guest thread limit: each save stores the value sent, answers it,
+    /// and puts it on that service's event so an open Guest Configuration screen shows it.
+    /// </summary>
+    [Fact]
+    public async Task BattleNetAndRiotSavesStoreAnswerAndAnnounceTheirThreadLimitAsync()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var notifier = new ScheduledRunReporterTests.CapturingNotificationService();
+        var controller = NewController(database, notifier);
+
+        var battleNet = await controller.SetBattleNetPrefillConfigAsync(new BattleNetGuestPrefillConfigRequest
+        {
+            EnabledByDefault = false,
+            DurationHours = 2,
+            MaxThreadCount = 8
+        });
+        var riot = await controller.SetRiotPrefillConfigAsync(new RiotGuestPrefillConfigRequest
+        {
+            EnabledByDefault = false,
+            DurationHours = 2,
+            MaxThreadCount = 3
+        });
+
+        Assert.Equal(8, Assert.IsType<SetGuestPrefillConfigResponse>(Assert.IsType<OkObjectResult>(battleNet.Result).Value).MaxThreadCount);
+        Assert.Equal(3, Assert.IsType<SetGuestPrefillConfigResponse>(Assert.IsType<OkObjectResult>(riot.Result).Value).MaxThreadCount);
+        Assert.Equal(8, Assert.IsType<EpicGuestPrefillConfigResponse>(Assert.IsType<OkObjectResult>(controller.GetBattleNetPrefillConfig().Result).Value).MaxThreadCount);
+        Assert.Equal(3, Assert.IsType<EpicGuestPrefillConfigResponse>(Assert.IsType<OkObjectResult>(controller.GetRiotPrefillConfig().Result).Value).MaxThreadCount);
+
+        var battleNetEvent = JsonSerializer.SerializeToElement(
+            notifier.Events.Last(push => push.EventName == SignalREvents.BattleNetGuestPrefillConfigChanged).Payload, JsonSerializerOptions.Web);
+        var riotEvent = JsonSerializer.SerializeToElement(
+            notifier.Events.Last(push => push.EventName == SignalREvents.RiotGuestPrefillConfigChanged).Payload, JsonSerializerOptions.Web);
+        Assert.Equal(8, battleNetEvent.GetProperty("battleNetMaxThreadCount").GetInt32());
+        Assert.Equal(3, riotEvent.GetProperty("riotMaxThreadCount").GetInt32());
     }
 
     private AuthController NewController(TestDatabase database, ScheduledRunReporterTests.CapturingNotificationService notifier)

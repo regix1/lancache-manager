@@ -89,6 +89,29 @@ public sealed class MetricsAuthenticationTests : IDisposable
         }
     }
 
+    // A container template can hand the variable over empty; that reads as unset, so metrics
+    // stay public unless the UI chose otherwise.
+    [Theory]
+    [InlineData("", null, false)]
+    [InlineData("true", null, true)]
+    [InlineData("", true, true)]
+    public async Task EmptyConfiguredRequirementLeavesMetricsPublic(string configured, bool? choice, bool required)
+    {
+        _state.GetState().RequireAuthForMetrics = choice;
+        _configuration["Security:RequireAuthForMetrics"] = configured;
+        var context = await InvokeAsync("/metrics", null);
+        if (required)
+        {
+            await AssertErrorAsync(context, 401, "API key required");
+            Assert.Equal(0, _calls);
+        }
+        else
+        {
+            Assert.Equal(1, _calls);
+            Assert.Equal(0, context.Response.Body.Length);
+        }
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]

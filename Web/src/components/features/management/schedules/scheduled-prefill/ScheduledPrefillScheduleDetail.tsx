@@ -1085,7 +1085,7 @@ export function ScheduledPrefillScheduleDetail({
             title={t(`${baseKey}.loadFailed`)}
             message={error}
             retryLabel={t('common.retry')}
-            onRetry={() => void refreshSchedule()}
+            onRetry={() => refreshSchedule()}
           />
         )}
         {backendUpdateRequired && (
@@ -1098,7 +1098,7 @@ export function ScheduledPrefillScheduleDetail({
             title={t(`${baseKey}.serviceStatus.loadFailed`)}
             message={containers.persistentError}
             retryLabel={t('common.retry')}
-            onRetry={() => void containers.loadPersistentContainers()}
+            onRetry={() => containers.loadPersistentContainers()}
           />
         )}
         {/* After an earlier good read the rows keep their last known state, so the line applies

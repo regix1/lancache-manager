@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services.Scheduling;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services.Base;
@@ -149,10 +150,11 @@ public abstract class ScheduledServiceBase : BackgroundService
         => AskAsync<Admission>(reply => new RequestRun(notice, admitted, reply));
 
     /// <summary>
-    /// Reports a run's end: the error it failed with, whether it was canceled, and whether the run is
-    /// still kept for later (held or parked again), in which case its waiting card stays.
+    /// Reports a run's end: the error it failed with, the key and values that word it when the error was a
+    /// refusal that named its reason, whether it was canceled, and whether the run is still kept for later
+    /// (held or parked again), in which case its waiting card stays.
     /// </summary>
-    internal Action<RunNotice, string, string?, bool, bool>? RunCompleted { get; set; }
+    internal Action<RunNotice, string, string?, RunWarning?, bool, bool>? RunCompleted { get; set; }
 
     /// <summary>
     /// Holds <paramref name="notice"/> for a client download. The schedule keeps one held run: a later
@@ -285,8 +287,8 @@ public abstract class ScheduledServiceBase : BackgroundService
     /// The run ended or its gate turned it away. <paramref name="report"/> is false for a run that
     /// never reached a terminal state (declined, or stopped by shutdown).
     /// </summary>
-    protected Task EndRunAsync(RunNotice run, string serviceKey, string? error, bool canceled, bool report)
-        => AskAsync<bool>(reply => new RunEnded(run, serviceKey, error, canceled, report, reply));
+    protected Task EndRunAsync(RunNotice run, string serviceKey, string? error, RunWarning? reason, bool canceled, bool report)
+        => AskAsync<bool>(reply => new RunEnded(run, serviceKey, error, reason, canceled, report, reply));
 
     /// <summary>
     /// The run queue's answer to a request: whether it was admitted, the request that will run (a waiting
@@ -312,7 +314,7 @@ public abstract class ScheduledServiceBase : BackgroundService
     private sealed record StartPass(RunTrigger Trigger, RunNotice? Notice, TaskCompletionSource<RunNotice> Reply)
         : RunMessage<RunNotice>(Reply);
     private sealed record EnterWork(RunNotice Run, TaskCompletionSource<bool> Reply) : RunMessage<bool>(Reply);
-    private sealed record RunEnded(RunNotice Run, string ServiceKey, string? Error, bool Canceled, bool Report,
+    private sealed record RunEnded(RunNotice Run, string ServiceKey, string? Error, RunWarning? Reason, bool Canceled, bool Report,
         TaskCompletionSource<bool> Reply) : RunMessage<bool>(Reply);
     private sealed record HoldForDownload(RunNotice Notice, Action<RunNotice> RaiseCard, TaskCompletionSource<RunNotice> Reply)
         : RunMessage<RunNotice>(Reply);
@@ -411,7 +413,7 @@ public abstract class ScheduledServiceBase : BackgroundService
                 // Decided against the state this message sees: a run held or parked again keeps its
                 // card for the run still to come, whichever order its end and its release arrived in.
                 if (ended.Report)
-                    RunCompleted?.Invoke(ended.Run, ended.ServiceKey, ended.Error, ended.Canceled, Keeps(ended.Run));
+                    RunCompleted?.Invoke(ended.Run, ended.ServiceKey, ended.Error, ended.Reason, ended.Canceled, Keeps(ended.Run));
                 ended.Reply.TrySetResult(true);
                 break;
             case HoldForDownload hold:
@@ -1044,6 +1046,7 @@ public abstract class ScheduledServiceBase : BackgroundService
         var runFailed = false;
         var shuttingDown = false;
         string? error = null;
+        RunWarning? reason = null;
         CancellationTokenSource? runCts = null;
         try
         {
@@ -1080,6 +1083,11 @@ public abstract class ScheduledServiceBase : BackgroundService
         catch (Exception ex)
         {
             error = ex.Message;
+            // A refusal that names its reason by key ends the run on that key, so the card reads it in the
+            // reader's language; the text above stays for the log.
+            reason = ex is ApiException { StageKey: { } key } refusal
+                ? new RunWarning(key, refusal.Context is { } context ? context : new Dictionary<string, object?>())
+                : null;
             _logger.LogError(ex, errorLogMessage, ServiceName);
             runFailed = retryFailure;
             // The next attempt is the retry below, not the elapsed schedule - point the
@@ -1102,7 +1110,7 @@ public abstract class ScheduledServiceBase : BackgroundService
             }
             try
             {
-                await EndRunAsync(runNotice, serviceKey, error, runNotice.Canceled || runCts?.IsCancellationRequested == true,
+                await EndRunAsync(runNotice, serviceKey, error, reason, runNotice.Canceled || runCts?.IsCancellationRequested == true,
                     report: !shuttingDown && !declined);
                 if (executionEntered) broadcastEnd();
             }

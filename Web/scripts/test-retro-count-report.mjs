@@ -183,7 +183,8 @@ test('switching the fetch off clears the busy flags it left behind', () => {
       reloadPendingRef,
       followUpWantedRef,
       setIsFetching: (value) => calls.setIsFetching.push(value),
-      setIsLoading: (value) => calls.setIsLoading.push(value)
+      setIsLoading: (value) => calls.setIsLoading.push(value),
+      setIsRequesting: () => undefined
     }
   )();
 
@@ -275,7 +276,8 @@ test('the hook stores the empty answer it was given rather than dropping it', as
     setData: (value) => calls.setData.push(value),
     setError: (value) => calls.setError.push(value),
     setIsFetching: (value) => calls.setIsFetching.push(value),
-    setIsLoading: (value) => calls.setIsLoading.push(value)
+    setIsLoading: (value) => calls.setIsLoading.push(value),
+    setIsRequesting: () => undefined
   })();
 
   await Promise.resolve();

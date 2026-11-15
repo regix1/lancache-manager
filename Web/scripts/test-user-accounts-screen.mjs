@@ -1,46 +1,23 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import ts from 'typescript';
+import { collectNodes, declaredValue, make, parseSource } from './transpile-module.mjs';
 
 /**
- * The account screen is meant to be assembled entirely out of components that already exist, and to
- * show the installation's own account with its row actions disabled rather than missing. Both are
- * claims about the source rather than about runtime behavior, and there is no component renderer in
- * this repo, so they are checked by reading the file's syntax tree.
- *
- * The main-admin check resolves the local name bound to `account.isMainAdmin` and then requires
- * every reference to it to sit inside a `disabled=` attribute. That is what separates the two
- * possible readings: a screen that hides the actions would reference the same flag from a JSX
- * conditional instead, and this would go red.
+ * Accounts are one filter of the Users list, and a picked account opens its detail pane. The pane
+ * is assembled out of components that already exist. It leaves out the actions the server refuses:
+ * the primary admin gets no Disable button and no menu, and your own account keeps Edit but loses
+ * Disable and Delete.
  */
 
-const readWebSource = (relativePath) =>
-  readFileSync(new URL(`../${relativePath}`, import.meta.url), 'utf8');
+const USER_FOLDER = 'src/components/features/user/';
 
-const parse = (fileName, relativePath) =>
-  ts.createSourceFile(
-    fileName,
-    readWebSource(relativePath),
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TSX
-  );
-
-const accountsFile = parse('UserAccounts.tsx', 'src/components/features/user/UserAccounts.tsx');
-const userTabFile = parse('UserTab.tsx', 'src/components/features/user/UserTab.tsx');
-
-const collect = (node, predicate, found = []) => {
-  if (predicate(node)) {
-    found.push(node);
-  }
-  // forEachChild stops as soon as its callback returns anything truthy, so the callback must
-  // return nothing or the walk ends at the first child.
-  node.forEachChild((child) => {
-    collect(child, predicate, found);
-  });
-  return found;
-};
+const detailFile = parseSource(`${USER_FOLDER}AccountDetail.tsx`);
+const dialogsFile = parseSource(`${USER_FOLDER}AccountDialogs.tsx`);
+const userTabFile = parseSource(`${USER_FOLDER}UserTab.tsx`);
+const accountsHookFile = parseSource(`${USER_FOLDER}useUserAccounts.ts`);
 
 const importedNamesByModule = (sourceFile) => {
   const byModule = new Map();
@@ -68,272 +45,162 @@ const jsxTagName = (node) => {
   return opening.tagName.getText();
 };
 
-const jsxAttribute = (node, attributeName) => {
-  const opening = ts.isJsxElement(node) ? node.openingElement : node;
-  return opening.attributes.properties.find(
-    (property) =>
-      ts.isJsxAttribute(property) &&
-      ts.isIdentifier(property.name) &&
-      property.name.text === attributeName
+const renderedTags = (sourceFile) =>
+  new Set(
+    collectNodes(
+      sourceFile,
+      (node) => ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)
+    ).map(jsxTagName)
+  );
+
+/** The shipped account pane, rendered for the viewer signed in as `viewerId`. */
+const renderAccountDetail = (account, viewerId) => {
+  const UserPaneHeader = make(`${USER_FOLDER}UserPaneHeader.tsx`, 'UserPaneHeader', { React });
+  const AccountDetail = make(`${USER_FOLDER}AccountDetail.tsx`, 'AccountDetail', {
+    React,
+    useState: React.useState,
+    useMemo: React.useMemo,
+    useTranslation: () => ({ t: (key) => key }),
+    useAuth: () => ({ accountId: viewerId }),
+    useReaderClock: () => ({}),
+    formatTimestamp: () => 'created',
+    formatLastSeen: () => 'last seen',
+    UserPaneHeader,
+    Button: ({ children }) => React.createElement('button', { 'data-action': 'button' }, children),
+    // The menu's items render in place, so the markup lists every item the menu would hold.
+    RowActionsMenu: ({ children }) =>
+      React.createElement(
+        'menu',
+        null,
+        children(() => undefined)
+      ),
+    ActionMenuItem: ({ children }) => React.createElement('li', null, children),
+    ActionMenuDivider: () => null
+  });
+  return renderToStaticMarkup(
+    React.createElement(AccountDetail, {
+      account: {
+        id: 'account-a',
+        username: 'alice',
+        isMainAdmin: false,
+        isDisabled: false,
+        createdAtUtc: '2026-01-01T00:00:00Z',
+        lastLoginAtUtc: null,
+        ...account
+      },
+      accountActions: {
+        onEdit: () => undefined,
+        onSetDisabled: () => undefined,
+        onDelete: () => undefined,
+        disablingAccountId: null
+      }
+    })
   );
 };
 
-/** The `render` arrow function of the column whose `key` is the given literal. */
-const columnRender = (sourceFile, key) => {
-  const literal = collect(
-    sourceFile,
-    (node) =>
-      ts.isObjectLiteralExpression(node) &&
-      node.properties.some(
-        (property) =>
-          ts.isPropertyAssignment(property) &&
-          property.name.getText() === 'key' &&
-          ts.isStringLiteral(property.initializer) &&
-          property.initializer.text === key
-      )
-  )[0];
-  assert.ok(literal, `no column with key '${key}'`);
+test('the account pane is built from the shared components, not new ones', () => {
+  const required = [
+    [detailFile, '@components/ui/RowActionsMenu', ['RowActionsMenu']],
+    [detailFile, '@components/ui/ActionMenu', ['ActionMenuItem']],
+    [detailFile, '@components/ui/Button', ['Button']],
+    [dialogsFile, '@components/common/ConfirmationModal', ['ConfirmationModal']],
+    [dialogsFile, '@components/ui/Modal', ['Modal']],
+    [userTabFile, '@components/ui/ManagerCard', ['EmptyState', 'LoadingState']],
+    [userTabFile, '@components/ui/Badge', ['Badge']]
+  ];
 
-  const render = literal.properties.find(
-    (property) => ts.isPropertyAssignment(property) && property.name.getText() === 'render'
-  );
-  assert.ok(render, `the '${key}' column has no render`);
-  return render.initializer;
-};
-
-test('the account screen is built from the shared list components, not new ones', () => {
-  const imports = importedNamesByModule(accountsFile);
-
-  const required = {
-    '@components/ui/DataTable': ['DataTable', 'DataTableColumn'],
-    '@components/ui/Pagination': ['Pagination'],
-    '@components/ui/ActionMenu': ['ActionMenuItem', 'ActionMenuDangerItem'],
-    '@components/ui/RowActionsMenu': ['RowActionsMenu'],
-    '@components/ui/ManagerCard': ['EmptyState', 'LoadingState'],
-    '@components/common/ConfirmationModal': ['ConfirmationModal'],
-    '@components/ui/Badge': ['Badge']
-  };
-
-  for (const [module, names] of Object.entries(required)) {
-    const imported = imports.get(module);
-    assert.ok(imported, `UserAccounts.tsx does not import from ${module}`);
+  for (const [sourceFile, module, names] of required) {
+    const imported = importedNamesByModule(sourceFile).get(module);
+    assert.ok(imported, `${sourceFile.fileName} does not import from ${module}`);
     for (const name of names) {
       assert.ok(imported.includes(name), `${name} is not imported from ${module}`);
     }
   }
 
-  // A second table, pager, empty state or row menu declared here would defeat the point of the
-  // imports above, so nothing in the file may declare one.
-  const declaredNames = collect(
-    accountsFile,
-    (node) => ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)
-  ).map((node) => node.name.text);
-
-  for (const name of declaredNames) {
-    assert.ok(
-      !/^(DataTable|Pagination|ActionMenu|RowActionsMenu|EmptyState|LoadingState|ConfirmationModal|Badge)/.test(
-        name
-      ),
-      `UserAccounts.tsx declares its own ${name}`
-    );
+  // A second menu, dialog or empty state declared here would defeat the point of the imports
+  // above, so nothing in these files may declare one.
+  for (const sourceFile of [detailFile, dialogsFile]) {
+    const declaredNames = collectNodes(
+      sourceFile,
+      (node) => ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)
+    ).map((node) => node.name.text);
+    for (const name of declaredNames) {
+      assert.ok(
+        !/^(ActionMenu|RowActionsMenu|EmptyState|LoadingState|ConfirmationModal|Modal|Badge)/.test(
+          name
+        ),
+        `${sourceFile.fileName} declares its own ${name}`
+      );
+    }
   }
 });
 
-test('the screen defines an empty, a loading and an error state', () => {
-  const rendered = new Set(
-    collect(accountsFile, (node) => ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)).map(
-      jsxTagName
-    )
-  );
-
+test('the accounts list defines an empty, a loading and an error state', () => {
+  const rendered = renderedTags(userTabFile);
   for (const tag of ['LoadingState', 'EmptyState', 'ErrorBlock']) {
-    assert.ok(rendered.has(tag), `the screen never renders ${tag}`);
+    assert.ok(rendered.has(tag), `the Users list never renders ${tag}`);
   }
 
-  const calls = collect(accountsFile, (node) => ts.isCallExpression(node)).map((node) =>
+  const calls = collectNodes(accountsHookFile, (node) => ts.isCallExpression(node)).map((node) =>
     node.expression.getText()
   );
-  assert.ok(calls.includes('useErrorHandler'), 'the screen does not use useErrorHandler');
-  assert.ok(calls.includes('notifyError'), 'the screen never calls notifyError');
+  assert.ok(calls.includes('useErrorHandler'), 'the accounts hook does not use useErrorHandler');
+  assert.ok(calls.includes('notifyError'), 'the accounts hook never calls notifyError');
 });
 
-test('the error box sits straight in the section body, so a hidden box leaves the body empty', () => {
-  // The box hides itself under the outage banner; a wrapper element around it would still be a
-  // child and keep the section body open as an empty strip.
-  const [box] = collect(
-    accountsFile,
-    (node) =>
-      (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) &&
-      jsxTagName(node) === 'ErrorBlock'
-  );
-  assert.ok(box, 'the screen renders no ErrorBlock');
-
-  let parent = box.parent;
-  while (parent && !ts.isJsxElement(parent)) {
-    parent = parent.parent;
-  }
-  assert.equal(jsxTagName(parent), 'AccordionSection', 'a wrapper element still holds the box');
+test('the primary admin account shows no account actions, and says why', () => {
+  const markup = renderAccountDetail({ isMainAdmin: true }, 'someone-else');
+  assert.doesNotMatch(markup, /<button/, 'the primary admin has a Disable button');
+  assert.doesNotMatch(markup, /<menu/, 'the primary admin has an actions menu');
+  assert.match(markup, /user\.panes\.help\.primaryAdmin/);
 });
 
-test("the installation's own account keeps its row actions, disabled", () => {
-  const render = columnRender(accountsFile, 'actions');
+test('your own account keeps Edit and cannot be disabled or deleted', () => {
+  const markup = renderAccountDetail({}, 'account-a');
+  assert.doesNotMatch(markup, /<button/, 'your own account has a Disable button');
+  assert.match(markup, /<li>user\.panes\.menu\.editAccount<\/li>/);
+  assert.doesNotMatch(markup, /user\.panes\.menu\.deleteAccount/);
+});
 
-  const ownerDeclaration = collect(
-    render,
-    (node) =>
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer !== undefined &&
-      node.initializer.getText() === 'account.isMainAdmin'
-  )[0];
-  assert.ok(ownerDeclaration, 'the actions column never reads account.isMainAdmin');
-  const ownerName = ownerDeclaration.name.text;
+test("another user's account offers Disable, Edit and Delete", () => {
+  const markup = renderAccountDetail({}, 'someone-else');
+  assert.match(markup, /<button[^>]*>user\.accounts\.actions\.disable<\/button>/);
+  assert.match(markup, /<li>user\.panes\.menu\.editAccount<\/li>/);
+  assert.match(markup, /<li>user\.panes\.menu\.deleteAccount<\/li>/);
+});
 
-  const items = collect(
-    render,
-    (node) =>
-      (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) &&
-      ['ActionMenuItem', 'ActionMenuDangerItem'].includes(jsxTagName(node))
-  );
-  assert.equal(items.length, 3, `expected edit, enable/disable and delete, found ${items.length}`);
-
-  for (const item of items) {
-    const disabled = jsxAttribute(item, 'disabled');
-    assert.ok(disabled, `${jsxTagName(item)} has no disabled prop`);
-    assert.ok(
-      disabled.initializer.getText().includes(ownerName),
-      `${jsxTagName(item)} is not disabled for the main administrator`
-    );
-  }
-
-  // Every other reference to the flag would be a way of removing an action instead of disabling it.
-  const references = collect(
-    render,
-    (node) => ts.isIdentifier(node) && node.text === ownerName && node !== ownerDeclaration.name
-  );
-
-  for (const reference of references) {
-    let ancestor = reference.parent;
-    let insideDisabled = false;
-    while (ancestor && ancestor !== render) {
-      if (ts.isJsxAttribute(ancestor) && ancestor.name.getText() === 'disabled') {
-        insideDisabled = true;
-        break;
-      }
-      ancestor = ancestor.parent;
+test('account creation and account actions contain no assignable role surface', () => {
+  for (const sourceFile of [detailFile, dialogsFile, accountsHookFile, userTabFile]) {
+    const source = sourceFile.getText();
+    for (const removed of [
+      '/role',
+      'editor.role',
+      'open.role',
+      'actions.promote',
+      'actions.demote',
+      'confirm.role',
+      'errors.role',
+      'adminRoleReserved',
+      'user.accounts.roles.admin'
+    ]) {
+      assert.equal(source.includes(removed), false, `${sourceFile.fileName} contains ${removed}`);
     }
-    assert.ok(
-      insideDisabled,
-      `${ownerName} is read outside a disabled prop, which hides an action instead of disabling it`
-    );
-  }
-});
-
-test('the row you are signed in as cannot delete or disable itself', () => {
-  // Deleting or disabling your own account cannot be undone from the browser. Renaming yourself and
-  // setting your own password are ordinary, so Edit is the one item that must stay live on your row.
-  const render = columnRender(accountsFile, 'actions');
-
-  const fromUseAuth = collect(
-    accountsFile,
-    (node) =>
-      ts.isVariableDeclaration(node) &&
-      node.initializer !== undefined &&
-      node.initializer.getText() === 'useAuth()'
-  )[0];
-  assert.ok(fromUseAuth, 'the screen never calls useAuth');
-  assert.ok(
-    fromUseAuth.name.getText().includes('accountId'),
-    'the screen does not read accountId from useAuth, so it cannot know which row is yours'
-  );
-
-  const selfDeclaration = collect(
-    render,
-    (node) =>
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.initializer !== undefined &&
-      node.initializer.getText() === 'account.id === accountId'
-  )[0];
-  assert.ok(
-    selfDeclaration,
-    'the actions column never compares the row against the account the caller is signed in as'
-  );
-  const selfName = selfDeclaration.name.text;
-
-  const items = collect(
-    render,
-    (node) =>
-      (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) &&
-      ['ActionMenuItem', 'ActionMenuDangerItem'].includes(jsxTagName(node))
-  );
-  assert.equal(items.length, 3, `expected three row actions, found ${items.length}`);
-
-  const guarded = items.filter((item) => {
-    const disabled = jsxAttribute(item, 'disabled');
-    return Boolean(disabled) && disabled.initializer.getText().includes(selfName);
-  });
-
-  assert.equal(
-    guarded.length,
-    2,
-    `expected two actions to be disabled on your own row, found ${guarded.length}`
-  );
-
-  const open = items.filter((item) => !guarded.includes(item));
-  assert.ok(
-    open[0].getText().includes("t('common.edit')"),
-    'the one action left live on your own row is not Edit'
-  );
-});
-
-test('account creation and row actions contain no assignable role surface', () => {
-  const source = accountsFile.getText();
-
-  for (const removed of [
-    '/role',
-    'editor.role',
-    'open.role',
-    'actions.promote',
-    'actions.demote',
-    'confirm.role',
-    'errors.role',
-    'adminRoleReserved'
-  ]) {
-    assert.equal(source.includes(removed), false, `UserAccounts.tsx still contains ${removed}`);
   }
 
   assert.match(
-    source,
+    accountsHookFile.getText(),
     /\{ username: open\.username, password: open\.password \}/,
     'new accounts must post only username and password'
   );
-
-  const roleRender = columnRender(accountsFile, 'role').getText(accountsFile);
-  assert.match(roleRender, /account\.isMainAdmin/);
-  assert.match(roleRender, /user\.accounts\.mainAdmin/);
-  assert.match(roleRender, /user\.accounts\.roles\.user/);
-  assert.doesNotMatch(roleRender, /user\.accounts\.roles\.admin/);
+  assert.match(
+    detailFile.getText(),
+    /primaryAdmin \? t\('user\.accounts\.mainAdmin'\) : t\('user\.accounts\.roles\.user'\)/
+  );
 });
 
-test('the account screen is a third segment of the user tab', () => {
-  const options = collect(
-    userTabFile,
-    (node) =>
-      ts.isObjectLiteralExpression(node) &&
-      node.properties.some(
-        (property) =>
-          ts.isPropertyAssignment(property) &&
-          property.name.getText() === 'value' &&
-          ts.isStringLiteral(property.initializer) &&
-          property.initializer.text === 'accounts'
-      )
-  );
-  assert.equal(options.length, 1, 'the segmented control has no accounts segment');
-
-  const rendered = collect(
-    userTabFile,
-    (node) => ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)
-  ).map(jsxTagName);
-  assert.ok(rendered.includes('UserAccounts'), 'the accounts segment renders nothing');
+test('accounts are a filter of the Users list and open the account pane', () => {
+  assert.ok(declaredValue(`${USER_FOLDER}UserTab.tsx`, 'LIST_FILTERS').includes('accounts'));
+  const rendered = renderedTags(userTabFile);
+  assert.ok(rendered.has('AccountDetail'), 'a picked account opens nothing');
+  assert.ok(rendered.has('AccountDialogs'), 'the account dialogs are not mounted');
 });

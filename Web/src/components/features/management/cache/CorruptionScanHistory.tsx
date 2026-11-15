@@ -121,7 +121,6 @@ const HistoryRow: React.FC<HistoryRowProps> = ({
           variant="filled"
           color="destructive"
           size="xs"
-          stableWidth
           loading={deleting}
           disabled={deleteDisabled}
           onClick={onDelete}
@@ -195,8 +194,8 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
       return;
     }
     const seq = ++listRequestSeqRef.current;
+    // A failure on screen stays until this read answers, so its Retry keeps the box.
     setListLoading(true);
-    setListError(null);
     try {
       const response = await ApiService.getCorruptionScanHistory();
       if (seq !== listRequestSeqRef.current) return;
@@ -210,6 +209,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
         return;
       }
       setEntries(validated);
+      setListError(null);
     } catch (error: unknown) {
       if (seq !== listRequestSeqRef.current) return;
       setListError(getErrorMessage(error));
@@ -258,11 +258,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
   const loadHistoryDetails = useCallback(
     async (entry: CorruptionScanHistoryEntry, service: string) => {
       const seq = ++detailRequestSeqRef.current;
-      setDetailErrorServices((current) => {
-        const next = { ...current };
-        delete next[service];
-        return next;
-      });
+      // A failure on screen stays until this read answers, so its Retry keeps the box.
       setDetailLoadingService(service);
       try {
         const details = await ApiService.getCorruptionHistoryDetails(entry.scanId, service);
@@ -280,6 +276,11 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
           return;
         }
         setDetailChunks((current) => ({ ...current, [service]: validated }));
+        setDetailErrorServices((current) => {
+          const next = { ...current };
+          delete next[service];
+          return next;
+        });
       } catch (error: unknown) {
         if (seq !== detailRequestSeqRef.current) return;
         setDetailErrorServices((current) => ({ ...current, [service]: getErrorMessage(error) }));
@@ -386,7 +387,7 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
               title={t('management.corruption.history.loadError')}
               message={listError}
               retryLabel={t('common.retry')}
-              onRetry={() => void loadHistory()}
+              onRetry={() => loadHistory()}
               className={entries !== null && entries.length > 0 ? 'mb-3' : undefined}
             />
           )}
@@ -491,17 +492,18 @@ const CorruptionScanHistory: React.FC<CorruptionScanHistoryProps> = ({
                         </div>
                       </div>
                       <CollapsibleRegion open={isDetailExpanded} contentClassName="mgmt-row-detail">
-                        {detailLoadingService === service ? (
-                          <LoadingState message={t('management.corruption.loadingDetails')} />
-                        ) : detailErrorServices[service] !== undefined ? (
+                        {detailErrorServices[service] !== undefined ? (
                           <ErrorBlock
                             title={t('management.corruption.errors.loadDetails', {
                               service: getServiceDisplayName(service)
                             })}
                             message={detailErrorServices[service]}
                             retryLabel={t('common.retry')}
-                            onRetry={() => void loadHistoryDetails(viewEntry, service)}
+                            onRetry={() => loadHistoryDetails(viewEntry, service)}
+                            retrying={detailLoadingService === service}
                           />
+                        ) : detailLoadingService === service ? (
+                          <LoadingState message={t('management.corruption.loadingDetails')} />
                         ) : detailChunks[service]?.length > 0 ? (
                           <CorruptionChunkList chunks={detailChunks[service]} />
                         ) : (

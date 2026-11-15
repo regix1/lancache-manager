@@ -258,9 +258,9 @@ public sealed class AntiforgeryTokenTests
     /// A guest holding the token this origin issued it, at both setup repair routes. That is three
     /// requests a visitor can make on a finished install without signing in, and /api/setup/credentials
     /// runs ALTER USER against a role created WITH SUPERUSER with the role name taken from the request,
-    /// so the token must not be the last thing standing between a guest and that statement. The account
-    /// holder in the same shape still reaches the handler, which is what makes this a narrowing rather
-    /// than a closure.
+    /// so the token must not be the last thing standing between a guest and that statement. An admin
+    /// account holder in the same shape still reaches the handler, which is what makes this a narrowing
+    /// rather than a closure.
     /// </summary>
     [Fact]
     public async Task TheRepairEndpointsRefuseAGuestHoldingTheTokenAndStillAnswerAnAccountHolder()

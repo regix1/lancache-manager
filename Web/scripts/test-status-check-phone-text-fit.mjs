@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import test from 'node:test';
-import { pathToFileURL } from 'node:url';
 import { openStatusCheck, readStatusCheckText } from './status-check-page.mjs';
-import { settle, translator } from './transpile-module.mjs';
+import { settle, translator, withBrowser } from './transpile-module.mjs';
 
 // At 390px and 320px wide, in English and in Chinese, with the failing service open, no text on the
 // Status Check page is cut off (by a box that hides its overflow, an ellipsis or a line clamp
@@ -41,14 +39,8 @@ test(
   'at 320 and 390 px no Status Check text is cut off or splits a word, and the server heading stays on one line',
   { skip: !process.env.PLAYWRIGHT_PATH },
   async () => {
-    assert.ok(
-      existsSync(new URL('../dist/index.html', import.meta.url)),
-      'run npm run build before this test'
-    );
-    const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
-    const browser = await chromium.launch({ headless: true });
     const problems = [];
-    try {
+    await withBrowser(async (browser) => {
       for (const language of ['en', 'zh']) {
         const { context, page } = await openStatusCheck(browser, {
           language,
@@ -83,9 +75,7 @@ test(
           await context.close();
         }
       }
-    } finally {
-      await browser.close();
-    }
+    });
     assert.deepEqual(problems, [], problems.join('\n'));
   }
 );

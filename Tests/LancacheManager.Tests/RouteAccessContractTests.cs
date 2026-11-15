@@ -26,6 +26,16 @@ public sealed class RouteAccessContractTests
         "Validate"
     ];
 
+    /// <summary>
+    /// GET actions that change state on purpose, each with its route.
+    /// </summary>
+    private static readonly HashSet<string> StateChangingGets = new(StringComparer.Ordinal)
+    {
+        // Apple's callback is a cross-site form post without the Lax session cookie; only a top-level GET
+        // after it carries that cookie, so the sign-in completes on this GET.
+        "CompleteAppleSignIn (GET /api/auth/login/apple/complete)"
+    };
+
     [Fact]
     public async Task NoGetRouteChangesState()
     {
@@ -41,6 +51,7 @@ public sealed class RouteAccessContractTests
                     action.StartsWith(prefix, StringComparison.Ordinal)
                     && (action.Length == prefix.Length || char.IsUpper(action[prefix.Length]))))
             .Select(route => $"{route.Action} (GET /{route.Route})")
+            .Where(entry => !StateChangingGets.Contains(entry))
             .OrderBy(entry => entry, StringComparer.Ordinal)
             .ToArray();
 

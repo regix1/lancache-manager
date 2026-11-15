@@ -1,5 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -13,15 +16,18 @@ public sealed class ExternalSignInService
     private readonly AccessService _accessService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly SessionService _sessionService;
+    private readonly ISignalRNotificationService _notifications;
 
     public ExternalSignInService(
         AccessService accessService,
         IDbContextFactory<AppDbContext> dbContextFactory,
-        SessionService sessionService)
+        SessionService sessionService,
+        ISignalRNotificationService notifications)
     {
         _accessService = accessService;
         _dbContextFactory = dbContextFactory;
         _sessionService = sessionService;
+        _notifications = notifications;
     }
 
     public async Task<ExternalSignInResult?> TryCreateSessionAsync(
@@ -29,7 +35,8 @@ public sealed class ExternalSignInService
         bool owner,
         string issuer,
         string subject,
-        HttpContext httpContext)
+        HttpContext httpContext,
+        bool setupStartedWithSignInOff = false)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         UserAccount? account = null;
@@ -50,6 +57,13 @@ public sealed class ExternalSignInService
         }
         else
         {
+            // Asked right before the link is stored: with sign-in off a returning sign-in stores no
+            // link to an account that is never created.
+            if (!setupStartedWithSignInOff && !_accessService.IsAuthenticationEnabled())
+            {
+                return null;
+            }
+
             try
             {
                 accountId = _accessService.GetOrCreateAccountId(
@@ -83,6 +97,11 @@ public sealed class ExternalSignInService
                         subject))
                 {
                     throw;
+                }
+
+                if (!setupStartedWithSignInOff && !_accessService.IsAuthenticationEnabled())
+                {
+                    return null;
                 }
 
                 accountId = _accessService.GetOrCreateAccountId(
@@ -119,6 +138,14 @@ public sealed class ExternalSignInService
             return null;
         }
 
+        // With sign-in off no account exists. A sign-in that started while sign-in was on and returns after
+        // the switch saves nothing; only a setup that started with sign-in off goes on, since it turns sign-in on.
+        // Asked again here because the switch can land during the reads above.
+        if (!setupStartedWithSignInOff && !_accessService.IsAuthenticationEnabled())
+        {
+            return null;
+        }
+
         account.LastLoginAtUtc = DateTime.UtcNow;
         try
         {
@@ -145,6 +172,19 @@ public sealed class ExternalSignInService
         }
 
         var session = await _sessionService.CreateAccountSessionAsync(httpContext, account);
+
+        // An open Users page loads its accounts and sessions once, as the password sign-in's
+        // broadcast assumes.
+        if (accountCreated)
+        {
+            await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
+        }
+        await _notifications.NotifyAllAsync(SignalREvents.UserSessionCreated, new
+        {
+            sessionId = session.Session.Id.ToString(),
+            sessionType = session.Session.SessionType
+        });
+
         return new ExternalSignInResult(
             account.Id,
             session.Session.Id,
@@ -153,31 +193,81 @@ public sealed class ExternalSignInService
             accountCreated);
     }
 
+    /// <summary>
+    /// The session this browser holds as the sign-in lands. A sign-in in another tab can replace the
+    /// cookie while the person is at the provider, so the request's own cookie names the session this
+    /// sign-in replaces. Apple's cross-site post carries no Lax session cookie, so an Apple sign-in
+    /// lands on the same-site GET its post redirects to, which does carry it.
+    /// </summary>
+    public async Task<UserSession?> ReadHeldSessionAsync(HttpContext httpContext)
+    {
+        var rawToken = SessionService.TokenFromCookie(httpContext);
+        if (string.IsNullOrEmpty(rawToken))
+        {
+            return null;
+        }
+
+        return await _sessionService.ValidateSessionAsync(rawToken);
+    }
+
     public void SetSessionCookie(HttpContext httpContext, ExternalSignInResult signIn)
         => _sessionService.SetSessionCookie(httpContext, signIn.RawToken, signIn.ExpiresAtUtc);
 
-    public async Task CancelAsync(ExternalSignInResult signIn)
+    /// <summary>
+    /// Ends the browser's held session before the new cookie is set when it is a guest's, so its
+    /// prefill stops with it.
+    /// </summary>
+    public async Task EndGuestSessionAsync(UserSession? held, HttpContext httpContext, ExternalSignInResult signIn)
     {
-        await _sessionService.RevokeSessionAsync(signIn.SessionId);
-        if (!signIn.AccountCreated)
+        if (held is not { SessionType: SessionType.Guest })
         {
             return;
         }
 
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
-        var accountInUse = _accessService.HasOwnerAccount(signIn.AccountId)
-            || await context.UserSessions.AnyAsync(session =>
-                session.AccountId == signIn.AccountId
-                && session.Id != signIn.SessionId
-                && !session.IsRevoked);
-        var account = accountInUse
-            ? null
-            : await context.UserAccounts.SingleOrDefaultAsync(candidate => candidate.Id == signIn.AccountId);
-        if (account is not null)
+        try
         {
-            context.UserAccounts.Remove(account);
-            await context.SaveChangesAsync();
+            await _sessionService.EndGuestSessionAsync(held.Id, httpContext.RequestServices);
         }
+        catch
+        {
+            // The account session already exists; without its cookie no browser could ever use or end it.
+            await CancelAsync(signIn);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Ends the browser's held account or administrator session once the new cookie is set.
+    /// </summary>
+    public async Task EndReplacedSessionAsync(UserSession? held, HttpContext httpContext)
+    {
+        await _sessionService.EndReplacedSessionAsync(held, httpContext.RequestServices);
+    }
+
+    public async Task CancelAsync(ExternalSignInResult signIn)
+    {
+        await _sessionService.RevokeSessionAsync(signIn.SessionId);
+        if (signIn.AccountCreated)
+        {
+            await using var context = await _dbContextFactory.CreateDbContextAsync();
+            var accountInUse = _accessService.HasOwnerAccount(signIn.AccountId)
+                || await context.UserSessions.AnyAsync(session =>
+                    session.AccountId == signIn.AccountId
+                    && session.Id != signIn.SessionId
+                    && !session.IsRevoked);
+            var account = accountInUse
+                ? null
+                : await context.UserAccounts.SingleOrDefaultAsync(candidate => candidate.Id == signIn.AccountId);
+            if (account is not null)
+            {
+                context.UserAccounts.Remove(account);
+                await context.SaveChangesAsync();
+            }
+        }
+
+        // The sign-in already told open Users pages about this session, and about the account when
+        // it was new. The revoke sends no list event, and this one reloads both lists.
+        await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
     }
 
     public async Task<IDisposable> EnterSetupAsync(CancellationToken cancellationToken)
@@ -211,11 +301,21 @@ public sealed class ExternalSignInService
             return false;
         }
 
-        if (_accessService.IsAuthenticationEnabled())
-        {
-            await _sessionService.RetireSharedAdminSessionAsync();
-        }
         return true;
+    }
+
+    /// <summary>
+    /// Retires the shared session once a completed setup has saved a secure mode, and stops the prefill it
+    /// started: every browser now has to sign in under a session of its own, so no page can reach it. A
+    /// stop that fails is logged by the stop and stays listed for an admin.
+    /// </summary>
+    public async Task RetireSharedSessionAsync(HttpContext httpContext)
+    {
+        if (!_accessService.IsAuthenticationEnabled())
+            return;
+        if (await _sessionService.RetireSharedAdminSessionAsync() is { } retired)
+            await PrefillDaemonServiceBase.TerminateGuestSessionsAsync(PrefillDaemonServiceBase.ResolveAllDaemons(httpContext.RequestServices),
+                retired, "Shared session retired", PrefillDaemonServiceBase.AccessEndedReasonKey, retired.ToString());
     }
 
     private static string Username(string issuer, string subject)

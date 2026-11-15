@@ -87,6 +87,26 @@ else
     echo "WARNING: Could not install the password recovery script in /data/scripts."
 fi
 
+# Trust the certificate authorities placed in /data/certs, such as the one that signed a LAN sign-in
+# service's self-signed certificate. update-ca-certificates adds them to the system bundle the app
+# reads, so public roots stay trusted. The folder is rebuilt on every start, so a removed file is
+# no longer trusted after the next restart.
+CA_DIR=/usr/local/share/ca-certificates/lancache-manager
+if [ "$IS_ROOT" -eq 1 ]; then
+    if [ -d "$CA_DIR" ] || compgen -G "/data/certs/*.crt" > /dev/null; then
+        rm -rf "$CA_DIR"
+        mkdir -p "$CA_DIR"
+        cp /data/certs/*.crt "$CA_DIR"/ 2>/dev/null || true
+        if update-ca-certificates > /dev/null 2>&1; then
+            echo "Trusted certificate authorities in /data/certs: $(find "$CA_DIR" -name '*.crt' | wc -l)"
+        else
+            echo "WARNING: Could not add the certificate authorities in /data/certs to the system trust store."
+        fi
+    fi
+elif compgen -G "/data/certs/*.crt" > /dev/null; then
+    echo "WARNING: Not running as root (uid=$(id -u)). The certificate authorities in /data/certs were not added."
+fi
+
 # Fix ownership of /logs and /cache if they are writable (not mounted read-only)
 # Only chown the directory itself (not -R) to avoid slow recursive operations on large caches
 for dir in /logs /cache; do

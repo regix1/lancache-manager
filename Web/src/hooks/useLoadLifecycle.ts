@@ -31,7 +31,7 @@ interface LoadLifecycleOptions<T> {
 interface LoadLifecycle {
   /** `force` means the result is known to have changed, so freshness and coalescing are bypassed. */
   load: (force: boolean) => Promise<void>;
-  /** The failure of the newest owning load, cleared when the next one starts or succeeds. */
+  /** The failure of the newest owning load, cleared when a later load succeeds. */
   error: string | null;
   /** Drops anything in flight and the freshness stamp, so the next load always fetches. */
   reset: () => void;
@@ -50,6 +50,8 @@ export function useLoadLifecycle<T>(options: LoadLifecycleOptions<T>): LoadLifec
   const mountedRef = useRef(true);
   // Doubles as the in-flight flag and as the token deciding which response may publish.
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Settles when the owning load ends, so a caller folded into it can wait for that load.
+  const runningLoadRef = useRef<Promise<void> | null>(null);
   const loadedAtRef = useRef(0);
   // Held in a ref so a new callback identity each render never re-creates `load`.
   const optionsRef = useRef(options);
@@ -68,6 +70,16 @@ export function useLoadLifecycle<T>(options: LoadLifecycleOptions<T>): LoadLifec
   }, []);
 
   const load = useCallback(async (force: boolean): Promise<void> => {
+    // Waits for the running load and for each load that replaces it, so a caller such as Retry
+    // stays busy until the newest load ends. It stops when the slot is empty or no longer moves,
+    // which is what a reset or an unmount leaves.
+    const waitForNewestLoad = async (): Promise<void> => {
+      let awaited = runningLoadRef.current;
+      while (awaited !== null) {
+        await awaited;
+        awaited = runningLoadRef.current === awaited ? null : runningLoadRef.current;
+      }
+    };
     if (!mountedRef.current) return;
     const settings = optionsRef.current;
     if (!settings.canLoad()) return;
@@ -75,7 +87,11 @@ export function useLoadLifecycle<T>(options: LoadLifecycleOptions<T>): LoadLifec
     if (abortControllerRef.current) {
       // Restarting a load already fetching these rows would only delay them, and repeated
       // triggers could starve it. A forced load supersedes: that answer predates the change.
-      if (!force) return;
+      // A caller that folds in waits for the running load, so a Retry stays busy until it ends.
+      if (!force) {
+        await waitForNewestLoad();
+        return;
+      }
       abortControllerRef.current.abort();
     } else if (!force && Date.now() - loadedAtRef.current < STALE_AFTER_MS) {
       return;
@@ -93,11 +109,16 @@ export function useLoadLifecycle<T>(options: LoadLifecycleOptions<T>): LoadLifec
       controller.abort(loadTimeout.reason);
     };
     let loaded = false;
+    let settle!: () => void;
+    const running = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
     try {
       // Claimed inside the try so the finally below always releases it.
       abortControllerRef.current = controller;
+      runningLoadRef.current = running;
       loadTimeout.addEventListener('abort', abortOnTimeout, { once: true });
-      setError(null);
+      // The last failure stays drawn until a result replaces it, so its Retry keeps the box.
       settings.onStarted?.();
       const value = await settings.request(controller.signal);
       // An abort after the response arrived cannot reject, so ownership is re-checked here.
@@ -128,16 +149,23 @@ export function useLoadLifecycle<T>(options: LoadLifecycleOptions<T>): LoadLifec
       // spinner or release the slot its replacement holds.
       if (abortControllerRef.current === controller) {
         abortControllerRef.current = null;
+        runningLoadRef.current = null;
         if (mountedRef.current) settings.onSettled?.(loaded);
       }
+      settle();
+      // A load that replaced this one decides what the caller sees, so the caller waits for it.
+      await waitForNewestLoad();
     }
   }, []);
 
   const reset = useCallback((): void => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
+    runningLoadRef.current = null;
     // Loading again must fetch rather than trust the timestamp of discarded rows.
     loadedAtRef.current = 0;
+    // The failure described the discarded rows, so it goes with them.
+    setError(null);
   }, []);
 
   return { load, error, reset };

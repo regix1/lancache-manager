@@ -17,6 +17,25 @@
   font-size: var(--font-size-xs);
 }
 
+/* The 36px square still takes taps across the 44px touch floor: the hit area grows up and down
+   only, because the controls stand 2px apart and a wider one would reach over a neighbor's box.
+   overflow is released because the GitHub trigger clips its own content, which would clip the
+   hit area too; an icon-only trigger has nothing else to clip. */
+.header-mobile-controls button.ed-trigger {
+  position: relative;
+  overflow: visible;
+}
+
+.header-mobile-controls button.ed-trigger::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 44px;
+  transform: translateY(-50%);
+}
+
 /* The shared mobile rules drop dropdown glyphs to 14px, which reads undersized once the control is
    a 36px square with nothing else in it. */
 .header-mobile-controls .ed-trigger svg {

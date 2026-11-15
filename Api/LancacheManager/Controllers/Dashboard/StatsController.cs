@@ -440,10 +440,10 @@ public class StatsController : ControllerBase
         // reject it up front when any datasource's cache keys cannot be computed.
         if (request.EvictedDataMode == EvictedDataMode.Remove.ToWireString())
         {
-            var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+            var capabilityDenial = CacheRouteGuards.DenyIfKeyDependentUnavailable(_capabilityService);
             if (capabilityDenial != null)
             {
-                return BadRequest(ApiResponse.Error(capabilityDenial));
+                return capabilityDenial;
             }
         }
 
@@ -497,10 +497,10 @@ public class StatsController : ControllerBase
     {
         // The eviction scan requires one unambiguous key scheme across every datasource;
         // reject mixed or unknown evidence before the scan, which also revalidates.
-        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
+        var capabilityDenial = CacheRouteGuards.DenyIfKeyDependentUnavailable(_capabilityService);
         if (capabilityDenial != null)
         {
-            return BadRequest(ApiResponse.Error(capabilityDenial));
+            return capabilityDenial;
         }
 
         // A download writing to the cache is not refused here: the scan starts, meets the download

@@ -301,7 +301,7 @@ test('a guest still sees fewer top navigation tabs', () => {
   assert.notDeepEqual(guest, visibleTabIds('admin'));
 });
 
-test('every management section is as usable for a user as for an admin, in both rows', () => {
+test('the management nav offers every section to a user as to an admin, in both rows', () => {
   assert.equal(managementSectionIds.length, 9);
   assert.equal(
     isDisabledExpressions.length,

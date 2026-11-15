@@ -99,7 +99,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   useAccordionGroupItem('theme-community-importer', sectionExpanded, () =>
     setSectionExpanded((prev) => !prev)
   );
-  const loadingInProgressRef = useRef(false);
+  const loadingInProgressRef = useRef<Promise<void> | null>(null);
   const importingThemeRef = useRef<string | null>(null);
   const rateLimitRemaining = useRef<number | null>(null);
 
@@ -123,11 +123,14 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   };
 
   const loadCommunityThemes = async () => {
-    // Prevent double-clicks
+    // A second call joins the load already running, so a Retry stays busy until it settles.
     if (loadingInProgressRef.current) {
-      return;
+      return loadingInProgressRef.current;
     }
-    loadingInProgressRef.current = true;
+    let settle!: () => void;
+    loadingInProgressRef.current = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
 
     setLoading(true);
 
@@ -222,7 +225,8 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       );
     } finally {
       setLoading(false);
-      loadingInProgressRef.current = false;
+      loadingInProgressRef.current = null;
+      settle();
     }
   };
 
@@ -522,7 +526,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
           title={t('management.themes.errors.failedToLoadCommunity')}
           message={loadError}
           retryLabel={t('common.retry')}
-          onRetry={() => void loadCommunityThemes()}
+          onRetry={() => loadCommunityThemes()}
           className="mb-4 last:mb-0"
         />
       )}

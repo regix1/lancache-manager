@@ -1168,11 +1168,16 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
     internal static List<RunWarning> ReadWarnings(OperationInfo operation)
     {
         var warnings = new List<RunWarning>();
-        if (ReadContext(operation.Metadata)?.GetValueOrDefault("detectionError") is string { Length: > 0 } detectionError)
+        var context = ReadContext(operation.Metadata);
+        if (context?.GetValueOrDefault("detectionError") is string { Length: > 0 } detectionError)
         {
             warnings.Add(new RunWarning(
                 "signalr.gameDetect.error.fatal",
                 new Dictionary<string, object?> { ["errorDetail"] = detectionError }));
+        }
+        if (context?.GetValueOrDefault("detectionStageKey") is string { Length: > 0 } detectionStageKey)
+        {
+            warnings.Add(new RunWarning(detectionStageKey, new Dictionary<string, object?>()));
         }
         warnings.AddRange(operation.Warnings);
         return warnings;

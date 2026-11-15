@@ -398,7 +398,7 @@ const StatusCheckSection: React.FC = () => {
         title={t(`${keys}.loadFailed`)}
         message={statusError}
         retryLabel={t('common.retry')}
-        onRetry={() => void loadAll()}
+        onRetry={() => loadAll()}
       />
     );
   }
@@ -425,7 +425,7 @@ const StatusCheckSection: React.FC = () => {
           title={t(`${keys}.loadFailed`)}
           message={statusError}
           retryLabel={t('common.retry')}
-          onRetry={() => void loadAll()}
+          onRetry={() => loadAll()}
           className="mb-4"
         />
       )}

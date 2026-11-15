@@ -2,12 +2,17 @@ using System.Reflection;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -28,6 +33,9 @@ public sealed class AccountChangeBroadcastTests : IDisposable
     private const string NewPassword = "Chosen-Badger-3";
 
     private readonly string _root;
+
+    /// <summary>The Steam, Epic and Xbox login stores a delete clears an account's game logins from.</summary>
+    private readonly IntegrationFixture _logins = new();
 
     public AccountChangeBroadcastTests()
     {
@@ -118,7 +126,11 @@ public sealed class AccountChangeBroadcastTests : IDisposable
         Assert.DoesNotContain(SignalREvents.AccountsChanged, sent);
     }
 
-    public void Dispose() => Directory.Delete(_root, recursive: true);
+    public void Dispose()
+    {
+        _logins.Dispose();
+        Directory.Delete(_root, recursive: true);
+    }
 
     private async Task<(AccountsController Controller, List<string> Sent)> NewControllerAsync(TestDatabase database)
     {
@@ -135,23 +147,31 @@ public sealed class AccountChangeBroadcastTests : IDisposable
             })
             .Build();
 
-        var controller = new AccountsController(
-            database.Factory,
-            new PasswordHasher<UserAccount>(),
-            new SessionService(
+        // One service list for the controller and the request: the wipe deletes through AccessService,
+        // which sends its broadcast through the request's notification service and clears the login stores.
+        var services = new ServiceCollection()
+            .AddSingleton<IDbContextFactory<AppDbContext>>(database.Factory)
+            .AddSingleton<IPasswordHasher<UserAccount>>(new PasswordHasher<UserAccount>())
+            .AddSingleton(new SessionService(
                 database.Factory,
                 new ApiKeyService(NullLogger<ApiKeyService>.Instance, configuration, pathResolver: null!),
                 NullLogger<SessionService>.Instance,
                 stateService: null!,
                 signalR: null!,
-                configuration),
-            new IdentityAuditService(database.Factory, NullLogger<IdentityAuditService>.Instance),
-            new AccountLockout(NullLogger<AccountLockout>.Instance),
-            new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
-            notifications,
-            NullLogger<AccountsController>.Instance);
+                configuration))
+            .AddSingleton(new IdentityAuditService(database.Factory, NullLogger<IdentityAuditService>.Instance))
+            .AddSingleton(new AccountLockout(NullLogger<AccountLockout>.Instance))
+            .AddSingleton(new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance))
+            .AddSingleton(notifications)
+            .AddSingleton<ILogger<AccountsController>>(NullLogger<AccountsController>.Instance)
+            .AddSingleton(new AccessService(_logins.State, configuration, database.Factory))
+            .AddSingleton<SteamAuthStorageService>(_logins.Storage)
+            .AddSingleton(_logins.Epic)
+            .AddSingleton(_logins.Xbox)
+            .BuildServiceProvider();
+        var controller = ActivatorUtilities.CreateInstance<AccountsController>(services);
 
-        var httpContext = new DefaultHttpContext();
+        var httpContext = new DefaultHttpContext { RequestServices = services };
         httpContext.Items["Session"] = session;
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
         return (controller, sent);

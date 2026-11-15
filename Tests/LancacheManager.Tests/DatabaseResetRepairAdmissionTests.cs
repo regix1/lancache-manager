@@ -15,12 +15,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
-[CollectionDefinition(nameof(DatabaseResetRepairAdmissionCollection), DisableParallelization = true)]
-public sealed class DatabaseResetRepairAdmissionCollection
-{
-}
-
-[Collection(nameof(DatabaseResetRepairAdmissionCollection))]
+[Collection(nameof(DatabaseResetCollection))]
 public sealed class DatabaseResetRepairAdmissionTests
 {
     [Theory]

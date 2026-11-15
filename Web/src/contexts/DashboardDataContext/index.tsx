@@ -151,6 +151,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // Refs for tracking state
   const isInitialLoad = useRef(true);
   const fetchInProgress = useRef(false);
+  // Callers waiting for the newest request to end; the request that clears fetchInProgress
+  // releases them.
+  const fetchIdleWaiters = useRef<(() => void)[]>([]);
   const liveRefetchPendingRef = useRef(false);
   const liveFollowUpWantedRef = useRef(false);
   const [liveFollowUps, setLiveFollowUps] = useState(0);
@@ -496,6 +499,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         // always reaches this finally (it ends, fails or times out), so the flag cannot stick.
         if (!wasSuperseded) {
           fetchInProgress.current = false;
+          fetchIdleWaiters.current.splice(0).forEach((release: () => void) => release());
           if (liveRefetchPendingRef.current) {
             liveRefetchPendingRef.current = false;
             liveFollowUpWantedRef.current = true;
@@ -520,6 +524,11 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const refreshData = useCallback(
     async (forceRefresh = false) => {
       await fetchAllData({ showLoading: true, forceRefresh });
+      // A forced fetch that replaced this one is the batch that settles the dashboard, so a Retry
+      // stays busy until the newest request ends.
+      if (fetchInProgress.current) {
+        await new Promise<void>((resolve) => fetchIdleWaiters.current.push(resolve));
+      }
     },
     [fetchAllData]
   );

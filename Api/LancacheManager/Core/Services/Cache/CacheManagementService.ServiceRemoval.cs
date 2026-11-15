@@ -24,11 +24,7 @@ public partial class CacheManagementService
         // across every datasource rather than partially deleting a mixed or unknown fleet. The
         // shared launch helper revalidates again after the lock wait, immediately before
         // each native mutation.
-        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
-        if (capabilityDenial != null)
-        {
-            throw new InvalidOperationException(capabilityDenial);
-        }
+        RequireUnambiguousKeyScheme();
 
         await _cacheLock.WaitAsync(cancellationToken);
         try

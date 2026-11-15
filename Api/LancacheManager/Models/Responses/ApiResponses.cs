@@ -81,12 +81,20 @@ public class ErrorResponse
     /// </summary>
     public const string DownloadInProgressCode = "downloadInProgress";
 
+    /// <summary>
+    /// The value <see cref="Code"/> carries on a sign-out that cleared the browser's session cookie
+    /// but could not end the session on the server. The error handler's 500, from a failure before
+    /// the sign-out ran, leaves the cookie in place and carries no code, so the browser tells its
+    /// other windows it signed out only on this one.
+    /// </summary>
+    public const string SessionCookieClearedCode = "sessionCookieCleared";
+
     public string Error { get; set; } = string.Empty;
     public string? Details { get; set; }
     public int? StatusCode { get; set; }
 
     /// <summary>
-    /// A stable token naming this refusal, for a caller that has to tell one 400 apart from
+    /// A stable token naming this refusal, for a caller that has to tell one refusal apart from
     /// another. Null wherever the sentence is the whole answer, which is nearly everywhere.
     /// </summary>
     public string? Code { get; set; }

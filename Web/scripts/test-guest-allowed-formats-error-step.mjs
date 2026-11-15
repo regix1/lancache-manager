@@ -20,10 +20,7 @@ const formats = ['server-24h'];
 
 const saveAllowedFormats = async (outcome) => {
   const requests = [];
-  const errors = [];
-  const errorKeys = [];
   const applied = [];
-  const busyStates = [];
   const answers = {
     [listPath]: () => (outcome === ListFails ? { ok: false, status: 500 } : { ok: true }),
     [clockPath]: (body) =>
@@ -54,47 +51,37 @@ const saveAllowedFormats = async (outcome) => {
     liftConstArrow(componentPath, 'handleAllowedFormatsChange'),
     {
       ...shared,
-      authMode: 'authenticated',
-      setUpdatingAllowedFormats: (busy) => busyStates.push(busy),
+      attempt: bindLifted(liftConstArrow(componentPath, 'attempt'), {}),
       getCurrentDefaultFormat: () => (outcome === NothingFails ? 'server-24h' : 'local-12h'),
       updateDefaultTimeFormat,
-      notifyError: (message) => errors.push(message),
-      // The handler translates only the error it shows, so the keys it asks for are the popups' keys.
-      t: (key, vars) => {
-        errorKeys.push(key);
-        return translate(key, vars);
-      }
+      t: translate
     }
   );
 
-  await handleAllowedFormatsChange(formats);
-  assert.deepEqual(busyStates, [true, false], 'the save must end with its busy flag cleared');
+  // The failure Save shows above its button, or null when both steps were stored.
+  const failure = await handleAllowedFormatsChange(formats);
   const listReplies = applied.filter((reply) => 'allowedTimeFormats' in reply);
-  return { requests, errors, errorKeys, listReplies };
+  return { requests, failure, listReplies };
 };
 
 const listError = translate('user.guest.errors.updateAllowedTimeFormats');
+const clockError = translate('user.guest.errors.updateDefaultTimeFormat');
 
 test(`when ${ListFails}, the page says the allowed formats failed`, async () => {
-  const { requests, errors, listReplies } = await saveAllowedFormats(ListFails);
+  const { requests, failure, listReplies } = await saveAllowedFormats(ListFails);
   assert.deepEqual(requests, [listPath]);
-  assert.deepEqual(errors, [listError]);
+  assert.equal(failure?.title, listError);
   assert.deepEqual(listReplies, [], 'a list the server refused must not show as saved');
 });
 
 test(`when ${ClockFails}, the error names the default clock and the page shows the saved list`, async () => {
-  const { requests, errors, errorKeys, listReplies } = await saveAllowedFormats(ClockFails);
+  const { requests, failure, listReplies } = await saveAllowedFormats(ClockFails);
   assert.deepEqual(requests, [listPath, clockPath]);
-  assert.equal(errors.length, 1, `one error is shown, not ${JSON.stringify(errors)}`);
   assert.ok(
-    errors[0] !== listError && /default/i.test(errors[0]),
-    `the page said "${errors[0]}" though the server saved the allowed formats; the error must name the default clock it could not move`
+    failure?.title === clockError && /default/i.test(failure.title),
+    `the page said "${failure?.title}" though the server saved the allowed formats; the error must name the default clock it could not move`
   );
-  assert.deepEqual(
-    errorKeys,
-    ['user.guest.errors.updateDefaultTimeFormat'],
-    'the popup does not name the default clock save, which is the one that failed'
-  );
+  assert.match(String(failure.reason), /HTTP 500/);
   assert.deepEqual(
     listReplies,
     [{ allowedTimeFormats: ['server-24h'] }],
@@ -103,8 +90,8 @@ test(`when ${ClockFails}, the error names the default clock and the page shows t
 });
 
 test(`when ${NothingFails}, nothing is moved and no error is shown`, async () => {
-  const { requests, errors, listReplies } = await saveAllowedFormats(NothingFails);
+  const { requests, failure, listReplies } = await saveAllowedFormats(NothingFails);
   assert.deepEqual(requests, [listPath]);
-  assert.deepEqual(errors, []);
+  assert.equal(failure, null);
   assert.deepEqual(listReplies, [{ allowedTimeFormats: ['server-24h'] }]);
 });

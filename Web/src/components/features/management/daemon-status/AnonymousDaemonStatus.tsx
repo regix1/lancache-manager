@@ -132,7 +132,7 @@ const AnonymousDaemonStatus: React.FC<AnonymousDaemonStatusProps> = ({ service, 
       loadingMessage={copy.loadingStatus}
       loadError={loadError}
       loadErrorTitle={copy.loadError}
-      onRetry={() => void loadStatus()}
+      onRetry={() => loadStatus()}
       connected={connected}
       connectedLabel={copy.connected}
       notConnectedLabel={copy.notConnected}

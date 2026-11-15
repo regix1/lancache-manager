@@ -1,27 +1,16 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  Link,
-  Lock,
-  Unlock,
-  Lightbulb,
-  RefreshCw,
-  Clock,
-  Settings,
-  ListOrdered
-} from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef, type SetStateAction } from 'react';
+import { Link, Lightbulb, RefreshCw, Clock, Settings, ListOrdered } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { SectionErrorChip, SectionHeaderChip } from '@components/ui/SectionHeaderActions';
 import { Button } from '@components/ui/Button';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
-import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { assertOk } from '@services/apiError';
-import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
 import { useErrorHandler } from '@/hooks/useErrorHandler';
@@ -29,6 +18,8 @@ import { useCopyFeedback } from '@/hooks/useCopyFeedback';
 import { getErrorMessage, isAbortError } from '@utils/error';
 import { copyText } from '@utils/clipboard';
 import type { MetricsSecurityResponse } from './GrafanaEndpoints.types';
+import MetricsAccessSwitch from './MetricsAccessSwitch';
+import { METRICS_SOURCE_KEYS } from './metricsSourceKeys';
 
 /**
  * One choice in the exported-game-count dropdown. The cap drives every label on the
@@ -58,7 +49,6 @@ const POLLING_DROPDOWN_WIDTH = 'min-w-[150px]';
 
 const GrafanaEndpoints: React.FC = () => {
   const { t } = useTranslation();
-  const { isAdmin } = useAuth();
   const { notifyError } = useErrorHandler();
   const { on, off, isConnected } = useSignalR();
 
@@ -119,7 +109,9 @@ const GrafanaEndpoints: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   // Mount, reconnect and Retry can overlap; only the newest read writes the card.
   const statusRequestRef = useRef(0);
-  const [isToggling, setIsToggling] = useState(false);
+  // A save, its answer and a pushed update each set the access state after a read already out
+  // left, so that read's access answer is older than the card and only its other two settings land.
+  const securityChangeRef = useRef(0);
   const [isConfigExpanded, setIsConfigExpanded] = useState(false);
   const [areRatesExpanded, setAreRatesExpanded] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -135,6 +127,7 @@ const GrafanaEndpoints: React.FC = () => {
   // loaded only part of its settings could show a default as if it were saved.
   const loadStatus = useCallback(async (signal?: AbortSignal) => {
     const request = ++statusRequestRef.current;
+    const securityChange = securityChangeRef.current;
     try {
       const [security, intervalRes, gameLimitRes] = await Promise.all([
         ApiService.getMetricsSecurity(signal),
@@ -146,7 +139,7 @@ const GrafanaEndpoints: React.FC = () => {
       const { interval } = (await intervalRes.json()) as { interval: number };
       const { gameLimit } = (await gameLimitRes.json()) as { gameLimit: number };
       if (request !== statusRequestRef.current) return;
-      setMetricsSecurity(security);
+      if (securityChange === securityChangeRef.current) setMetricsSecurity(security);
       setDataRefreshRate(String(interval));
       setTopGames(String(gameLimit));
       setLoadError(null);
@@ -164,14 +157,19 @@ const GrafanaEndpoints: React.FC = () => {
     return () => controller.abort();
   }, [loadStatus]);
 
+  const changeSecurity = useCallback((update: SetStateAction<MetricsSecurityResponse | null>) => {
+    ++securityChangeRef.current;
+    setMetricsSecurity(update);
+  }, []);
+
   // Subscribe to real-time MetricsSecurityUpdated events via SignalR
   useEffect(() => {
     const handleMetricsSecurityUpdated = (data: MetricsSecurityResponse) => {
-      setMetricsSecurity(data);
+      changeSecurity(data);
     };
     on('MetricsSecurityUpdated', handleMetricsSecurityUpdated);
     return () => off('MetricsSecurityUpdated', handleMetricsSecurityUpdated);
-  }, [on, off]);
+  }, [on, off, changeSecurity]);
 
   // Refetch when SignalR reconnects to recover any missed updates
   useReconnectRefetch(isConnected, loadStatus);
@@ -222,47 +220,6 @@ const GrafanaEndpoints: React.FC = () => {
 
   const handleScrapeIntervalChange = (value: string) => {
     setScrapeInterval(value);
-  };
-
-  const handleToggleAuth = async (value?: string) => {
-    if (isToggling || !metricsSecurity) return;
-    setIsToggling(true);
-    const newValue = value ? value === 'secured' : !metricsSecurity.requiresAuthentication;
-    // Optimistic update
-    setMetricsSecurity((prev) => (prev ? { ...prev, requiresAuthentication: newValue } : prev));
-    try {
-      const data = await ApiService.setMetricsSecurity(newValue);
-      setMetricsSecurity(data);
-    } catch (error: unknown) {
-      // Revert optimistic update
-      setMetricsSecurity((prev) => (prev ? { ...prev, requiresAuthentication: !newValue } : prev));
-      notifyError(t('management.grafana.metricsToggle.error'), error);
-    } finally {
-      setIsToggling(false);
-    }
-  };
-
-  const handleResetToDefault = async () => {
-    if (isToggling) return;
-    setIsToggling(true);
-    try {
-      const data = await ApiService.setMetricsSecurity(null);
-      setMetricsSecurity(data);
-    } catch (error: unknown) {
-      notifyError(t('management.grafana.metricsToggle.error'), error);
-    } finally {
-      setIsToggling(false);
-    }
-  };
-
-  const getSourceLabel = (security: MetricsSecurityResponse): string => {
-    if (security.source === 'ui') {
-      return t('management.grafana.metricsToggle.source.ui');
-    }
-    if (security.envVarValue !== security.requiresAuthentication) {
-      return t('management.grafana.metricsToggle.source.config');
-    }
-    return t('management.grafana.metricsToggle.source.default');
   };
 
   const copyToClipboard = async (text: string, endpoint: string) => {
@@ -341,49 +298,11 @@ const GrafanaEndpoints: React.FC = () => {
               <span className="text-sm font-medium text-themed-primary">
                 {t('management.grafana.accessMode')}
               </span>
-              <p className="metrics-source-label">{getSourceLabel(metricsSecurity)}</p>
+              <p className="metrics-source-label">
+                {t(METRICS_SOURCE_KEYS[metricsSecurity.source])}
+              </p>
             </div>
-            <div className="metrics-toggle-row cluster">
-              <ToggleSwitch
-                options={[
-                  {
-                    value: 'public',
-                    label: t('management.grafana.publicOption'),
-                    icon: <Unlock />,
-                    activeColor: 'default'
-                  },
-                  {
-                    value: 'secured',
-                    label: t('management.grafana.securedOption'),
-                    icon: <Lock />,
-                    activeColor: 'success'
-                  }
-                ]}
-                value={metricsSecurity.requiresAuthentication ? 'secured' : 'public'}
-                onChange={handleToggleAuth}
-                disabled={isToggling || !isAdmin}
-                loading={isToggling}
-                title={
-                  !isAdmin
-                    ? t('management.grafana.metricsToggle.adminRequired')
-                    : metricsSecurity.requiresAuthentication
-                      ? t('management.grafana.securedTooltip')
-                      : t('management.grafana.publicTooltip')
-                }
-              />
-              {isAdmin && (
-                <Button
-                  variant="filled"
-                  color="secondary"
-                  size="sm"
-                  disabled={metricsSecurity.source !== 'ui' || isToggling}
-                  onClick={handleResetToDefault}
-                  className="metrics-reset-button"
-                >
-                  {t('management.grafana.metricsToggle.resetToDefault')}
-                </Button>
-              )}
-            </div>
+            <MetricsAccessSwitch security={metricsSecurity} setSecurity={changeSecurity} />
           </div>
         )}
       </div>
@@ -399,7 +318,14 @@ const GrafanaEndpoints: React.FC = () => {
             color={copiedEndpoint === 'prometheus' ? 'green' : undefined}
             onClick={() => copyToClipboard(`${apiBaseUrl}/metrics`, 'prometheus')}
           >
-            {copiedEndpoint === 'prometheus' ? t('management.grafana.copied') : t('common.copy')}
+            <span className="copy-button-label">
+              <span>
+                {copiedEndpoint === 'prometheus'
+                  ? t('management.grafana.copied')
+                  : t('common.copy')}
+              </span>
+              <span aria-hidden="true">{t('management.grafana.copied')}</span>
+            </span>
           </Button>
         </div>
         <code className="text-xs block break-all px-3 py-2 rounded-md mb-2 font-mono bg-themed-secondary text-themed-secondary">
@@ -665,7 +591,7 @@ const GrafanaEndpoints: React.FC = () => {
           title={t('management.grafana.errors.loadMetricsStatus')}
           message={loadError}
           retryLabel={t('common.retry')}
-          onRetry={() => void loadStatus()}
+          onRetry={() => loadStatus()}
         />
       ) : (
         controls

@@ -36,9 +36,6 @@ public class RiotDaemonController : DaemonControllerBase<RiotDaemonService>
     [ProducesResponseType(typeof(DaemonStatusResponse), StatusCodes.Status200OK)]
     public new ActionResult GetStatus() => base.GetStatus();
 
-    protected override int? ResolveThreadLimit(UserSession session)
-    {
-        if (session.SessionType.IsAccountHolder()) return null;
-        return _stateService.GetDefaultGuestMaxThreadCount();
-    }
+    protected override int? ResolveThreadLimit(UserSession session) =>
+        GuestThreadLimit.Resolve(PrefillPlatform.Riot, session, _userPreferencesService, _stateService);
 }

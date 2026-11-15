@@ -345,13 +345,7 @@ test('a scan history refresh that fails keeps the rows it already showed', async
   await loadHistory();
 
   assert.deepEqual(entryWrites, [[{ scanId: 'scan-1' }]], 'neither failure clears the rows');
-  assert.deepEqual(listErrors, [
-    null,
-    null,
-    'history read failed',
-    null,
-    'common.errors.invalidJsonResponse'
-  ]);
+  assert.deepEqual(listErrors, [null, 'history read failed', 'common.errors.invalidJsonResponse']);
 });
 
 test('a hidden load box leaves no wrapper behind in its section body', () => {
@@ -416,6 +410,7 @@ test('an evicted items load that failed during an outage leaves the section body
       },
       t: (key) => key,
       evictedItemsError: 'reason: server down',
+      evictedItemsRetrying: false,
       evictedGames: [],
       evictedServices: [],
       fetchEvictedItems: async () => undefined
@@ -457,7 +452,8 @@ test('a game detection load that failed during an outage leaves the section body
       React,
       ErrorBlock: OUTAGE_ERROR_BLOCK,
       t: (key) => key,
-      setInitialLoadRetry: () => undefined
+      setInitialLoadRetry: () => undefined,
+      isLoadingInitialCache: false
     },
     { jsx: ts.JsxEmit.React }
   );

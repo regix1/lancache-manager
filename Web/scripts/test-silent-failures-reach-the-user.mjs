@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import typescript from 'typescript';
-import { collectNodes, compileToUrl, moduleUrl, parseSource } from './transpile-module.mjs';
+import {
+  bindLifted,
+  collectNodes,
+  compileToUrl,
+  liftConstArrow,
+  moduleUrl,
+  parseSource
+} from './transpile-module.mjs';
 
 /**
  * Three failures used to end at a console line nobody reads: a logout the LANCache server never
@@ -47,9 +54,11 @@ const loadAuthService = () =>
     )
   }).then(async (url) => (await import(url)).default);
 
-test('a logout the server never received says so, and still signs this device out', async () => {
+test('a logout the server never received says so, and leaves this device signed in', async () => {
   const toasts = captureToasts();
   const authService = await loadAuthService();
+  authService.isAuthenticated = true;
+  authService.authMode = 'authenticated';
   globalThis.fetch = async () => {
     throw new TypeError('fetch failed');
   };
@@ -58,11 +67,11 @@ test('a logout the server never received says so, and still signs this device ou
 
   assert.deepEqual(
     toasts,
-    [{ type: 'error', message: 'auth.errors.logoutIncomplete' }],
+    [{ type: 'error', message: 'auth.errors.logoutUnreachable' }],
     'a logout the server never received passed without a word to the user'
   );
-  assert.equal(authService.isAuthenticated, false, 'this device was left signed in');
-  assert.equal(authService.authMode, 'unauthenticated', 'authMode survived the logout');
+  assert.equal(authService.isAuthenticated, true, 'an unreached logout signed this device out');
+  assert.equal(authService.authMode, 'authenticated', 'an unreached logout cleared authMode');
   releaseWindow();
 });
 
@@ -75,6 +84,57 @@ test('a logout the server accepted stays quiet', async () => {
 
   assert.deepEqual(toasts, [], 'a logout that worked still bothered the user');
   releaseWindow();
+});
+
+test('a logout the server refused says so and reports the session was not ended', async () => {
+  const toasts = captureToasts();
+  const authService = await loadAuthService();
+  authService.authMode = 'authenticated';
+  globalThis.fetch = async () => ({ ok: false, status: 500 });
+  const originalError = console.error;
+  console.error = () => undefined;
+
+  let ended;
+  try {
+    ended = await authService.logout();
+  } finally {
+    console.error = originalError;
+  }
+
+  assert.equal(ended, 'unchanged', 'a refused logout was reported as ended');
+  assert.deepEqual(
+    toasts,
+    [{ type: 'error', message: 'auth.errors.logoutIncomplete' }],
+    'a logout the server refused passed without a word to the user'
+  );
+  assert.equal(authService.authMode, 'authenticated', 'a refused logout cleared authMode');
+  releaseWindow();
+});
+
+test('the settings logout shows success only when the server ended the session', async () => {
+  for (const ended of [false, true]) {
+    const successes = [];
+    const handler = bindLifted(
+      liftConstArrow(
+        'src/components/features/management/steam/AuthenticationManager.tsx',
+        'handleLogout'
+      ),
+      {
+        setAuthLoading: () => undefined,
+        logout: async () => ended,
+        refreshAuth: async () => undefined,
+        onSuccess: (message) => successes.push(message),
+        onError: () => undefined,
+        t: (key) => key
+      }
+    );
+    await handler();
+    assert.deepEqual(
+      successes,
+      ended ? ['management.auth.notifications.loggedOut'] : [],
+      ended ? 'an ended logout showed no success' : 'a refused logout also showed a success'
+    );
+  }
 });
 
 test('LANCache logout stays scoped to the LANCache session', () => {
@@ -265,25 +325,26 @@ test('the theme list a management tab could not load reaches the user', () => {
 
 test('session load failures distinguish initial retry from a preserved refresh snapshot', () => {
   const source = readFileSync(
-    new URL('../src/components/features/user/ActiveSessions.tsx', import.meta.url),
+    new URL('../src/components/features/user/UserTab.tsx', import.meta.url),
     'utf8'
   );
 
   assert.match(
     source,
-    /<ErrorBlock\s+title=\{t\('activeSessions\.initialLoadFailed'\)\}\s+message=\{loadError\}\s+retryLabel=\{t\('common\.retry'\)\}/
+    /<ErrorBlock\s+title=\{[\s\S]*?t\('activeSessions\.initialLoadFailed'\)\s*\}\s+message=\{loadError\}\s+retryLabel=\{t\('common\.retry'\)\}/
   );
-  assert.match(
-    source,
-    /const loadFailedWithoutSnapshot =\s*loadError !== null && sessions\.length === 0 && historySessions\.length === 0;/
-  );
-  assert.match(source, /!loading && !loadFailedWithoutSnapshot && activeSessions\.length === 0 &&/);
+  // A failed first load shows only the box with Retry, never the empty list; a failed refresh
+  // keeps the rows it had and puts the box above them.
+  assert.match(source, /if \(total === 0\) \{\s*if \(errorBlock !== null\) return errorBlock;/);
+  assert.match(source, /\{errorBlock\}\s*\{rows\}/);
   assert.doesNotMatch(source, /setRefreshFailed|activeSessions\.refreshFailed/);
 });
 
 test('every message these failures show is written in both languages', () => {
   const keys = [
     ['auth', 'errors', 'logoutIncomplete'],
+    ['auth', 'errors', 'logoutUnreachable'],
+    ['auth', 'errors', 'logoutUnconfirmed'],
     ['management', 'logRemoval', 'errors', 'loadFailed'],
     ['management', 'themes', 'notifications', 'loadFailed'],
     ['management', 'themes', 'notifications', 'preferenceChangeFailed'],

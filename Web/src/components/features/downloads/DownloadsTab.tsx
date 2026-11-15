@@ -386,7 +386,7 @@ const DownloadsTab: React.FC = () => {
     useTimeFilter();
   const { getGroupForIp, clientGroups } = useClientGroups();
   const { getHostnameForIp } = useClientHostnames();
-  const { authMode } = useAuth();
+  const { authMode, sessionType } = useAuth();
   const isGuest = authMode === 'guest';
   // The view labels are added and removed from the DOM rather than hidden with a class: a hidden
   // label still counts as the trigger's text, and the shared Tooltip suppresses a box that repeats
@@ -1318,6 +1318,7 @@ const DownloadsTab: React.FC = () => {
             message={getErrorMessage(serverPage.error)}
             retryLabel={t('common.retry')}
             onRetry={serverPage.reload}
+            retrying={serverPage.isRequesting}
           />
         ) : (
           <Alert color="blue" icon={<Database className="w-5 h-5" />}>
@@ -1366,7 +1367,8 @@ const DownloadsTab: React.FC = () => {
             </ActionMenuItem>
           )}
 
-          {!isGuest && (
+          {/* The image cache is everyone's, so a user-role account does not clear it. */}
+          {!isGuest && sessionType !== 'user' && (
             <ActionMenuItem
               icon={
                 <RefreshCw className={`w-3.5 h-3.5${imageCacheClearing ? ' animate-spin' : ''}`} />
@@ -1951,6 +1953,7 @@ const DownloadsTab: React.FC = () => {
               message={getErrorMessage(serverPage.error)}
               retryLabel={t('common.retry')}
               onRetry={serverPage.reload}
+              retrying={serverPage.isRequesting}
             />
           )}
 

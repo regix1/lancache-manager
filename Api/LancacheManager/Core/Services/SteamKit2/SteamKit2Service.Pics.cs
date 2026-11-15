@@ -1010,7 +1010,7 @@ public partial class SteamKit2Service
                 var errorMessage = webApiEx.Message;
                 if (string.IsNullOrEmpty(errorMessage))
                 {
-                    errorMessage = "Full scan requires Steam Web API, but it is unavailable. Please download the latest depot mappings from GitHub using the 'Download Pre-created Data' button, or configure a Steam Web API key for V1 fallback.";
+                    errorMessage = "Full scan requires Steam Web API, but it is unavailable. Please download the latest depot mappings by choosing 'Download from GitHub', or configure a Steam Web API key for V1 fallback.";
                 }
 
                 throw new InvalidOperationException(errorMessage, webApiEx);
@@ -1058,7 +1058,7 @@ public partial class SteamKit2Service
                 _logger.LogWarning("PICS requesting full update - change gap is too large for incremental scan.");
                 _lastScanWasForced = true; // Mark that scan was forced to be full
 
-                throw new InvalidOperationException("Steam requires a full scan - change gap is too large for incremental update. Please download the latest depot mappings from GitHub using the 'Download Pre-created Data' button in the Management page, or run a full scan instead.");
+                throw new InvalidOperationException("Steam requires a full scan - change gap is too large for incremental update. Please download the latest depot mappings by choosing 'Download from GitHub', or run a full scan instead.");
             }
 
             foreach (var change in changes.AppChanges)
@@ -1151,14 +1151,14 @@ public partial class SteamKit2Service
                 throw new InvalidOperationException(
                     "Cannot perform full PICS scan: Steam Web API V2 is currently unavailable and no V1 API key is configured. " +
                     "To resolve this issue, either: " +
-                    "(1) Configure a Steam Web API key in the Management tab under 'Steam Web API Status', OR " +
-                    "(2) Download pre-created depot mappings from GitHub by clicking the 'Download Pre-created Data' button in the Depot Mapping section.");
+                    "(1) Configure a Steam Web API key on the Steam card in Management, Integrations, OR " +
+                    "(2) Download depot mappings by choosing 'Download from GitHub'.");
             }
             else
             {
                 throw new InvalidOperationException(
                     "Cannot perform full PICS scan: Steam Web API is currently unavailable. " +
-                    "To resolve this issue, download pre-created depot mappings from GitHub by clicking the 'Download Pre-created Data' button in the Depot Mapping section.");
+                    "To resolve this issue, download depot mappings by choosing 'Download from GitHub'.");
             }
         }
 

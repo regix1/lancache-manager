@@ -135,11 +135,12 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
       return;
     }
     try {
-      setError(null);
+      // The error stays drawn until this read answers, so a Retry keeps its box and busy state.
       const [mappingsData, statsData] = await Promise.all([loadMappings(), loadStats()]);
       if (request !== catalogRequestRef.current) return;
       setMappings(mappingsData);
       setStats(statsData);
+      setError(null);
     } catch (err) {
       if (request !== catalogRequestRef.current) return;
       setError(getErrorMessage(err));
@@ -150,6 +151,24 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
     loadData();
   }, [loadData]);
 
+  // One search read; `request` is the counter value the query took, so a newer read wins.
+  const searchCatalog = async (value: string, request: number): Promise<void> => {
+    try {
+      // The header counts the whole library, and a hub or reconnect refresh during a search
+      // comes through here, so the count is read with the rows.
+      const [results, libraryStats] = await Promise.all([searchMappings(value), loadStats()]);
+      if (request !== catalogRequestRef.current) return;
+      setMappings(results);
+      setStats(libraryStats);
+      setError(null);
+    } catch (err) {
+      if (request !== catalogRequestRef.current) return;
+      // The rows on screen answered an earlier query, not this one.
+      setMappings([]);
+      setError(getErrorMessage(err));
+    }
+  };
+
   const handleSearch = (value: string) => {
     // Every keystroke retires the reads before it, so only the query in the box writes.
     const request = ++catalogRequestRef.current;
@@ -159,22 +178,7 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
     }
 
     if (value.length >= 2) {
-      searchTimeoutRef.current = setTimeout(async () => {
-        try {
-          // The header counts the whole library, and a hub or reconnect refresh during a search
-          // comes through here, so the count is read with the rows.
-          const [results, libraryStats] = await Promise.all([searchMappings(value), loadStats()]);
-          if (request !== catalogRequestRef.current) return;
-          setMappings(results);
-          setStats(libraryStats);
-          setError(null);
-        } catch (err) {
-          if (request !== catalogRequestRef.current) return;
-          // The rows on screen answered an earlier query, not this one.
-          setMappings([]);
-          setError(getErrorMessage(err));
-        }
-      }, 300);
+      searchTimeoutRef.current = setTimeout(() => void searchCatalog(value, request), 300);
     } else if (value.length < 2) {
       loadData();
     }
@@ -316,7 +320,11 @@ function GameMappingsCatalog<TMapping extends GameMappingRow>({
             title={loadErrorMessage}
             message={error}
             retryLabel={t('common.retry')}
-            onRetry={() => handleSearch(searchQuery)}
+            onRetry={() =>
+              searchQuery.length >= 2
+                ? searchCatalog(searchQuery, ++catalogRequestRef.current)
+                : loadData()
+            }
           />
         )}
 

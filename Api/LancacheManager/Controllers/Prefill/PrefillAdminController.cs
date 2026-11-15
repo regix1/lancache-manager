@@ -11,7 +11,8 @@ namespace LancacheManager.Controllers;
 
 /// <summary>
 /// Admin endpoints for managing prefill sessions and prefill user bans.
-/// Requires authentication.
+/// Requires authentication. Terminate, ban and lift change other people's prefill, so a user-role
+/// account is refused them; it ends its own prefill from the prefill panel.
 /// </summary>
 [ApiController]
 [Route("api/prefill-admin")]

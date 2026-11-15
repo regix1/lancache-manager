@@ -117,32 +117,20 @@
     height: 2rem;
   }
 
-  /* Themed edge instead of the global outline. That outline used currentColor,
-     and these glyphs are white, so the ring read as an unthemed white box. */
-  .btn-icon-square:focus-visible {
-    outline: none;
-    outline-offset: 0;
-    border-color: var(--theme-border-focus);
-  }
-
   /* Filled icon-squares (kebabs, menus): pressed surface only. */
   .btn-icon-square.is-open[data-variant='filled'] {
     background-color: var(--theme-bg-surface-active);
     color: var(--theme-text-primary);
   }
 
-  /* Accordion expand: no edge at rest. Given up by color and at a lower specificity than
-     .btn-icon-square:focus-visible above, so the square's reserved 1px can still take the
-     focus color: clearing `border` set that width to 0 and left an accordion square with
-     no keyboard focus indicator at all, and restating `outline: none` on :focus-visible
-     suppressed the fallback ring too. A non-square accordion button carries no border
-     utility, so its width stays 0 either way and it keeps the global 2px ring. */
+  /* Accordion expand: no edge at rest. Given up by color, so the square keeps its 1px
+     border box; keyboard focus is the global 2px ring, which needs no rule here. */
   button[data-variant='accordion'] {
     border-color: transparent;
   }
 
   /* Wash of the chevron's accent. Beats .bg-themed-accent-subtle (0,1,0) in the same
-     layer; carries no border or outline, which would outrank the focus edge above. */
+     layer; carries no outline, which would outrank the global focus ring. */
   .btn-icon-square.is-open[data-variant='accordion'] {
     background-color: var(--theme-accent-subtle);
     color: var(--theme-text-accent);
@@ -153,23 +141,21 @@
      button:focus-visible ring and sits after it, so clearing the outline here left every
      menu trigger with no keyboard focus indicator at all. Mouse focus is still ring-free
      through the global *:focus:not(:focus-visible) rule in reset.css.
-     The edge is given up by color, not by `border: none`: an icon-square reserves a 1px
-     border for its own focus color, and clearing the border outright set that width to 0,
-     so a square menu trigger had nothing left to paint a focus edge with. A labeled
-     trigger carries no border utility, so its width stays 0 either way. */
+     The edge is given up by color, not by `border: none`, so a square trigger keeps the
+     1px border box every icon-square has. */
   button[data-variant='menu'] {
     border-color: transparent;
   }
 
-  /* Only the wash: restating border and outline here outranked the icon-square's focus
-     edge and the global focus ring, so an open trigger reached by keyboard went bare. */
+  /* Only the wash: restating the outline here outranked the global focus ring, so an
+     open trigger reached by keyboard went bare. */
   button[data-variant='menu'].is-open {
     background-color: var(--theme-primary-subtle);
     color: var(--theme-primary);
   }
 
   /* Neutral actions share the dropdown fill, without a decorative inset ring.
-     Keyboard focus keeps its separate outline or reserved icon-square border. */
+     Keyboard focus keeps its separate outline. */
   .btn-field-surface {
     background-color: var(--theme-input-bg);
     box-shadow: none;
@@ -211,6 +197,34 @@
      beside the control rather than reaching over a neighbor. Moving the floor happens here. */
   .pointer-target-44 {
     position: relative;
+  }
+
+  /* A Copy button whose label turns into "Copied" for a moment keeps one width, so it does not
+     jump on click: both labels share one grid cell, the copied one hidden, so the button is as
+     wide as its wider label in every language and button size. */
+  .copy-button-label {
+    display: inline-grid;
+    justify-items: center;
+  }
+
+  .copy-button-label > span {
+    grid-area: 1 / 1;
+  }
+
+  .copy-button-label > span[aria-hidden='true'] {
+    visibility: hidden;
+  }
+
+  /* The content of a busy button or switch half: it keeps its place and stays the control's
+     accessible name (so not `visibility: hidden`), but does not paint under the spinner. Text
+     inherits the transparent color; each element child is faded out, and the `button` in the
+     selector outranks an opacity utility on a child icon. */
+  button .btn-busy-content {
+    color: transparent;
+  }
+
+  button .btn-busy-content > * {
+    opacity: 0;
   }
 
   .pointer-target-44::before {

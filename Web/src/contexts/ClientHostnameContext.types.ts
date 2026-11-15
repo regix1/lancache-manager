@@ -22,9 +22,10 @@ interface ClientHostnameContextType {
 
   // Operations
   refreshHostnames: () => Promise<void>;
-  setEnabled: (enabled: boolean) => Promise<void>;
+  // Both writes resolve false when mock mode refused them, so nothing reached the server.
+  setEnabled: (enabled: boolean) => Promise<boolean>;
   // Rejects an address outside the private ranges rather than storing it, so the caller can say so.
-  setSettings: (settings: ClientHostnameSettings) => Promise<void>;
+  setSettings: (settings: ClientHostnameSettings) => Promise<boolean>;
   dismissSomeUnnamed: () => void;
 }
 

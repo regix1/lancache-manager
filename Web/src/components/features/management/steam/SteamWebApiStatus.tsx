@@ -154,7 +154,7 @@ const SteamWebApiStatus: React.FC = () => {
             title={t('management.steamWebApi.loadError')}
             message={error}
             retryLabel={t('common.retry')}
-            onRetry={() => void refresh()}
+            onRetry={() => refresh()}
           />
         )}
         {/* A failed status read already shows its reason in the box above. */}
@@ -232,7 +232,6 @@ const SteamWebApiStatus: React.FC = () => {
                     variant="filled"
                     color="secondary"
                     size="sm"
-                    stableWidth
                     className="steam-integration__single"
                     onClick={async () => {
                       if (!hasAccess || loading || refreshing) return;

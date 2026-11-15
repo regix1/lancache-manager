@@ -106,7 +106,7 @@ public class CorruptionDetectionService
         var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
         if (capabilityDenial != null)
         {
-            throw new ValidationException(capabilityDenial);
+            throw new ValidationException(capabilityDenial) { StageKey = "errors.corruption.keySchemeUnavailable" };
         }
 
         await _startLock.WaitAsync(cancellationToken);

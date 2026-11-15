@@ -13,7 +13,7 @@ Steam, Epic, Battle.net, Riot, and Xbox each run in their own container, so you 
 ### Requirements
 
 - Docker socket mounted (`/var/run/docker.sock`)
-- Signed in to LANCache Manager as **Primary** or **Account** (**Guest Mode** can prefill only on platforms granted in **Guest Defaults**)
+- Signed in to LANCache Manager as **Primary** or **Account** (**Guest Mode** can prefill only on platforms granted in **Guest access** on the Users page, or on that guest's own session there)
 - Your cache server is reachable from the prefill container (see [Network setup](#prefill-network) below)
 - For Xbox specifically, a container-based lancache. Bare-metal has no Xbox Live log, so its downloads stay invisible to the manager - see [Bare-Metal LANCache](bare-metal-lancache.md#bare-metal)
 

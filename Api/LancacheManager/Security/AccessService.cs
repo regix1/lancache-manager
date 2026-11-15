@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
@@ -375,7 +377,12 @@ public sealed class AccessService
         return await MainAdminVisibility.OwnsInstallationAsync(context, accountId);
     }
 
-    public AccessSetupResponse Apply(AccessSetupRequest request, Guid? ownerAccountId)
+    /// <summary>
+    /// The refusals <see cref="Apply"/> makes from the request alone, before it saves anything. The
+    /// switch to unauthenticated access runs them before it deletes the accounts, so a request that
+    /// would be refused deletes nothing.
+    /// </summary>
+    public void ValidateSetupRequest(AccessSetupRequest request)
     {
         // With no complete login the server runs API key + password until a login completes the
         // environment mode, so only those two modes can be saved.
@@ -387,16 +394,77 @@ public sealed class AccessService
         {
             throw new ValidationException("Unauthenticated access must be explicitly acknowledged");
         }
+        if ((request.Login ?? FromLegacy(request.Oidc)) is not null
+            && request.Mode is not (AccountMode.Oidc or AccountMode.ApiKeyOidc))
+        {
+            throw new ValidationException("Login service settings are only valid for an external sign-in mode");
+        }
+    }
+
+    /// <summary>The id of every account, read for the switch to unauthenticated access.</summary>
+    public async Task<List<Guid>> AccountIdsAsync()
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        return await context.UserAccounts.Select(account => account.Id).ToListAsync();
+    }
+
+    /// <summary>
+    /// Deletes every account, with its sign-in links, its saved game logins and every session, and
+    /// opens the first-admin claim again so a new administrator can be created. Used by the switch to
+    /// unauthenticated access, by a start that finds sign-in off and by the delete-every-account action.
+    /// An account an environment login allows goes too: with sign-in off nobody can sign in to it, and
+    /// once sign-in is back on that login's next sign-in creates it again. Returns how many accounts
+    /// were deleted.
+    /// </summary>
+    /// <remarks>
+    /// The audit rows are written in the same save as the delete, so the record cannot be lost after
+    /// the rows are gone. A null performer is a start-up deletion that no person asked for.
+    /// </remarks>
+    public async Task<int> DeleteEveryAccountAsync(
+        Guid? performedByAccountId, Guid? performedBySessionId, IServiceProvider services)
+    {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var accounts = await context.UserAccounts.ToListAsync();
+
+        // Before the rows go, as the account reset does: a clear that fails deletes no account and can
+        // be retried, while a clear after the delete would leave files no later wipe reaches.
+        var ids = accounts.Select(account => account.Id).ToHashSet();
+        await services.GetRequiredService<SteamAuthStorageService>().ClearAccountLoginsAsync(ids, CancellationToken.None);
+        await services.GetRequiredService<EpicAuthStorageService>().ClearAccountLoginsAsync(ids, CancellationToken.None);
+        await services.GetRequiredService<XboxAuthStorageService>().ClearAccountLoginsAsync(ids, CancellationToken.None);
+        var now = DateTime.UtcNow;
+        context.UserAccounts.RemoveRange(accounts);
+        context.IdentityAuditEntries.AddRange(accounts.Select(account => new IdentityAuditEntry
+        {
+            Event = IdentityAuditEvent.AccountDeleted,
+            PerformedByAccountId = performedByAccountId,
+            PerformedBySessionId = performedBySessionId,
+            TargetAccountId = account.Id,
+            PerformedAtUtc = now
+        }));
+        await context.SaveChangesAsync();
+        // The accounts are already gone. Open the hour before the session clear or the sign-in link
+        // removal can throw, or first-admin stays refused until a restart.
+        services.GetRequiredService<AccountClaimWindow>().Reopen();
+        // After the delete is saved, so a failed save leaves every account its sign-in links.
+        ForgetAccounts(accounts.Select(account => account.Id));
+
+        await services.GetRequiredService<SessionService>().ClearAllSessionsAsync(services);
+
+        // One broadcast for the whole table rather than one per removed row: the list is reloaded
+        // whole, and the rows all went in a single write.
+        await services.GetRequiredService<ISignalRNotificationService>().NotifyAllAsync(SignalREvents.AccountsChanged);
+        return accounts.Count;
+    }
+
+    public AccessSetupResponse Apply(AccessSetupRequest request, Guid? ownerAccountId)
+    {
+        ValidateSetupRequest(request);
 
         var loginRequest = request.Login ?? FromLegacy(request.Oidc);
         OidcSettings? pending = null;
         if (loginRequest is not null)
         {
-            if (request.Mode is not (AccountMode.Oidc or AccountMode.ApiKeyOidc))
-            {
-                throw new ValidationException("Login service settings are only valid for an external sign-in mode");
-            }
-
             var loginId = LoginId(loginRequest.Kind);
             if (_environment.Logins.TryGetValue(loginId, out var login))
             {
@@ -865,9 +933,9 @@ public sealed class AccessService
         if (string.IsNullOrWhiteSpace(authorityValue)
             || authorityValue.Length > 2048
             || !Uri.TryCreate(authorityValue, UriKind.Absolute, out var authority)
-            || authority.Scheme != Uri.UriSchemeHttps)
+            || (authority.Scheme != Uri.UriSchemeHttps && authority.Scheme != Uri.UriSchemeHttp))
         {
-            throw new ValidationException("OIDC authority must be an absolute HTTPS URL");
+            throw new ValidationException("OIDC authority must be an absolute HTTP or HTTPS URL");
         }
         return authority.GetLeftPart(UriPartial.Path).TrimEnd('/');
     }

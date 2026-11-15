@@ -38,14 +38,6 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   leftSection?: React.ReactNode;
   rightSection?: React.ReactNode;
   fullWidth?: boolean;
-  /**
-   * When true, the loading spinner OVERLAYS the button content (centered, absolutely positioned)
-   * instead of being inserted inline, so the button's width does not change between its idle and
-   * loading states. Use it when a button that can enter a loading state must stay the same size —
-   * e.g. to stay aligned with a sibling button in the same row. Default false (spinner is inserted
-   * inline, which can change the button's width).
-   */
-  stableWidth?: boolean;
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function Button(
@@ -61,7 +53,6 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
     leftSection,
     rightSection,
     fullWidth = false,
-    stableWidth = false,
     className = '',
     disabled,
     ...props
@@ -124,6 +115,10 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
 
   const showLoading = loading || resolvedCheckingPermissions;
 
+  // A busy button keeps its box: its content stays laid out by the button's own flex (the
+  // `contents` span adds no box) and keeps naming the button, but does not paint, and the spinner
+  // is laid over it. A save does not fade the button either. A permission check keeps the disabled
+  // fade: it is a load, and a button that stays disabled after it would flash bright, then dim.
   return (
     <button
       ref={ref}
@@ -132,10 +127,10 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
         ${getVariantClasses()}
         ${sizes[size]}
         ${fullWidth ? 'w-full' : ''}
-        ${stableWidth ? 'relative' : ''}
+        ${showLoading ? 'relative' : ''}
         themed-button-radius font-medium whitespace-nowrap
         smooth-transition
-        disabled:opacity-50 disabled:cursor-not-allowed
+        ${loading ? '' : 'disabled:opacity-50'} disabled:cursor-not-allowed
         flex items-center justify-center gap-2
         button-press
         ${open ? 'is-open' : ''}
@@ -144,27 +139,15 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(function 
       disabled={disabled || showLoading}
       {...props}
     >
-      {stableWidth ? (
-        <>
-          <span
-            className={`inline-flex items-center justify-center gap-2 ${showLoading ? 'invisible' : ''}`}
-          >
-            {leftSection}
-            {children}
-            {rightSection}
-          </span>
-          {showLoading && (
-            <span className="absolute inset-0 flex items-center justify-center">
-              <LoadingSpinner inline size="sm" />
-            </span>
-          )}
-        </>
-      ) : (
-        <>
-          {showLoading ? <LoadingSpinner inline size="sm" /> : leftSection}
-          {children}
-          {rightSection}
-        </>
+      <span className={`contents ${showLoading ? 'btn-busy-content' : ''}`}>
+        {leftSection}
+        {children}
+        {rightSection}
+      </span>
+      {showLoading && (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <LoadingSpinner inline size="sm" />
+        </span>
       )}
     </button>
   );

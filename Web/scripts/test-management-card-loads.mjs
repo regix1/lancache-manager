@@ -54,11 +54,15 @@ const liftSearch = ({ searchMappings, loadMappings, loadStats = async () => null
     mockMode: false,
     loadMappings
   });
+  const searchCatalog = bindLifted(liftConstArrow(CATALOG, 'searchCatalog'), {
+    ...shared,
+    searchMappings
+  });
   const handleSearch = bindLifted(liftConstArrow(CATALOG, 'handleSearch'), {
     ...shared,
     setSearchQuery: () => undefined,
     searchTimeoutRef: { current: undefined },
-    searchMappings,
+    searchCatalog,
     loadData: loadCatalog
   });
   return { state, handleSearch };
@@ -126,7 +130,12 @@ test('the catalog box retries the query in the box and hides "No results" while 
   );
   assert.equal(
     onRetry.initializer.expression.getText(sourceFile),
-    '() => handleSearch(searchQuery)',
+    [
+      '() =>',
+      '              searchQuery.length >= 2',
+      '                ? searchCatalog(searchQuery, ++catalogRequestRef.current)',
+      '                : loadData()'
+    ].join('\n'),
     'a failed search is repeated, not replaced by the unfiltered list'
   );
 
@@ -276,6 +285,7 @@ test('an older metrics read that fails after a newer one answered shows no error
   const state = { security: [], errors: [] };
   const loadStatus = bindLifted(liftHookCallback(GRAFANA, 'useCallback', 'getMetricsSecurity'), {
     statusRequestRef: { current: 0 },
+    securityChangeRef: { current: 0 },
     ApiService: { getMetricsSecurity: security.ask, getFetchOptions: (options) => options },
     fetch: async (url) => ({
       ok: true,

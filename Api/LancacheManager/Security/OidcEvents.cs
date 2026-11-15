@@ -78,43 +78,89 @@ public sealed class OidcEvents : OpenIdConnectEvents
 
     public override async Task TicketReceived(TicketReceivedContext context)
     {
+        // Apple posts its callback cross-site, and that post carries no SameSite=Lax session cookie.
+        // Left unhandled, the handler keeps the verified identity in the Apple cookie and redirects, and
+        // the browser follows with a top-level GET that carries the session cookie it holds then. The
+        // challenge's start time is cleared so the Apple cookie's five minutes start at this post.
+        if (AccessService.TryReadScheme(context.Scheme.Name, out var kind, out _) && kind == LoginKind.Apple)
+        {
+            context.Properties!.IssuedUtc = null;
+            context.ReturnUri = "/api/auth/login/apple/complete";
+            return;
+        }
+
+        var location = await CompleteSignInAsync(context.Properties, context.HttpContext);
+        context.HandleResponse();
+        context.Response.Redirect(location);
+    }
+
+    /// <summary>
+    /// Signs in the identity the provider verified and ends the session the request's own cookie names.
+    /// Returns where the browser goes next.
+    /// </summary>
+    public async Task<string> CompleteSignInAsync(AuthenticationProperties? properties, HttpContext httpContext)
+    {
         var setup = false;
         var ownerOnly = false;
-        if (context.Properties is not { } properties
+        if (properties is null
             || !TryReadTransaction(properties, out var loginId, out var revision, out setup, out ownerOnly)
             || !properties.Items.TryGetValue("oidc_issuer", out var issuer)
             || !properties.Items.TryGetValue("oidc_subject", out var subject)
             || string.IsNullOrWhiteSpace(issuer)
             || string.IsNullOrWhiteSpace(subject))
         {
-            RedirectFailure(context, "state", setup || ownerOnly);
-            return;
+            return FailureLocation("state", setup || ownerOnly);
         }
 
         using var setupLease = setup
-            ? await _signInService.EnterSetupAsync(context.HttpContext.RequestAborted)
+            ? await _signInService.EnterSetupAsync(httpContext.RequestAborted)
             : null;
         var settings = _accessService.GetLoginSettings(loginId, setup);
         if (settings is null || settings.Revision != revision)
         {
-            RedirectFailure(context, "expired", setup || ownerOnly);
-            return;
+            return FailureLocation("expired", setup || ownerOnly);
         }
 
         var deferOwner = setup && _accessService.CanDeferOidcAccount(loginId, revision);
-        var signIn = deferOwner
-            ? null
-            : await _signInService.TryCreateSessionAsync(
-                settings,
-                setup || IsOwner(settings, issuer, subject),
-                issuer,
-                subject,
-                context.HttpContext);
+        // Only a setup that started with sign-in off may finish while sign-in is off: it is the one that
+        // turns sign-in on. A deferred owner saves no account, so its setup is refused here.
+        var setupStartedWithSignInOff = setup
+            && properties.Items.TryGetValue("access_sign_in_off", out var signInOff)
+            && string.Equals(signInOff, "true", StringComparison.Ordinal);
+        if (deferOwner && !setupStartedWithSignInOff && !_accessService.IsAuthenticationEnabled())
+        {
+            return FailureLocation("unavailable", returnToSetup: true);
+        }
+
+        // Read before the new session exists, so a failed read leaves no session without a cookie. A
+        // deferred owner has no database to read and replaces no session.
+        UserSession? held;
+        ExternalSignInResult? signIn;
+        try
+        {
+            held = deferOwner ? null : await _signInService.ReadHeldSessionAsync(httpContext);
+            signIn = deferOwner
+                ? null
+                : await _signInService.TryCreateSessionAsync(
+                    settings,
+                    setup || IsOwner(settings, issuer, subject),
+                    issuer,
+                    subject,
+                    httpContext,
+                    setupStartedWithSignInOff);
+        }
+        catch (Exception ex) when (ex is not ValidationException)
+        {
+            // This runs after the authentication handler's own error handling, so a database that cannot be
+            // reached would otherwise end on the raw error page. Nothing in the stack tells an unreachable
+            // server from another provider fault, as the session handler notes.
+            _logger.LogWarning(ex, "External sign-in could not reach the database");
+            return FailureLocation("unavailable", setup || ownerOnly);
+        }
 
         if (signIn is null && !deferOwner)
         {
-            RedirectFailure(context, "unavailable", setup || ownerOnly);
-            return;
+            return FailureLocation("unavailable", setup || ownerOnly);
         }
 
         if (setup)
@@ -129,14 +175,13 @@ public sealed class OidcEvents : OpenIdConnectEvents
             catch (ServiceUnavailableException ex)
             {
                 _logger.LogWarning(ex, "External sign-in settings could not be saved after verification");
-                RedirectFailure(context, "unavailable", returnToSetup: true);
-                return;
+                return FailureLocation("unavailable", returnToSetup: true);
             }
             if (!promoted)
             {
-                RedirectFailure(context, "expired", returnToSetup: true);
-                return;
+                return FailureLocation("expired", returnToSetup: true);
             }
+            await _signInService.RetireSharedSessionAsync(httpContext);
 
             _oidcOptions.TryRemove(AccessService.GetScheme(settings.Kind, setup: false));
             _oidcOptions.TryRemove(AccessService.GetScheme(settings.Kind, setup: true));
@@ -144,13 +189,14 @@ public sealed class OidcEvents : OpenIdConnectEvents
 
         if (signIn is not null)
         {
-            _signInService.SetSessionCookie(context.HttpContext, signIn);
+            await _signInService.EndGuestSessionAsync(held, httpContext, signIn);
+            _signInService.SetSessionCookie(httpContext, signIn);
+            await _signInService.EndReplacedSessionAsync(held, httpContext);
         }
 
-        context.HandleResponse();
-        context.Response.Redirect(setup
+        return setup
             ? $"/?accessSetup=1&loginTest=success&loginId={Uri.EscapeDataString(loginId)}"
-            : ownerOnly ? "/?accessSetup=1" : "/");
+            : ownerOnly ? "/?accessSetup=1" : "/";
     }
 
     public override Task RemoteFailure(RemoteFailureContext context)
@@ -165,9 +211,7 @@ public sealed class OidcEvents : OpenIdConnectEvents
             context.Properties,
             context.Options.RemoteAuthenticationTimeout,
             _timeProvider.GetUtcNow());
-        context.Response.Redirect(returnToSetup
-            ? $"/?accessSetup=1&oidcError={code}"
-            : $"/?oidcError={code}");
+        context.Response.Redirect(FailureLocation(code, returnToSetup));
         return Task.CompletedTask;
     }
 
@@ -223,10 +267,13 @@ public sealed class OidcEvents : OpenIdConnectEvents
     internal static void RedirectFailure(TicketReceivedContext context, string code, bool returnToSetup)
     {
         context.HandleResponse();
-        context.Response.Redirect(returnToSetup
-            ? $"/?accessSetup=1&oidcError={code}"
-            : $"/?oidcError={code}");
+        context.Response.Redirect(FailureLocation(code, returnToSetup));
     }
+
+    internal static string FailureLocation(string code, bool returnToSetup)
+        => returnToSetup
+            ? $"/?accessSetup=1&oidcError={code}"
+            : $"/?oidcError={code}";
 
     internal static string FailureCode(
         Exception? failure,

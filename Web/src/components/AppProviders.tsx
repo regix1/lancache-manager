@@ -34,6 +34,8 @@ import { DockerSocketProvider } from '@contexts/DockerSocketContext';
 import { GameServiceProvider } from '@contexts/GameServiceContext';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useReconnectRefetch } from '@hooks/useReconnectRefetch';
+import { MODAL_EXIT_MS, useExitPresence } from '@hooks/useExitPresence';
+import { useHeldValue } from '@hooks/useHeldValue';
 import ErrorBoundary from '@components/common/ErrorBoundary';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import StartupErrorCard from '@components/common/StartupErrorCard';
@@ -132,48 +134,80 @@ const AppSetup: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     refreshSetupStatus
   } = useSetupStatus();
 
-  if (checkingAuth || (checkingSetup && !isSetupStatusKnown)) {
-    return <LoadingSpinner fullScreen message={t('app.loading.checkingSetup')} />;
-  }
-
+  const loading = checkingAuth || (checkingSetup && !isSetupStatusKnown);
   // No setup read has answered, so the access-setup screen or the wizard would open on a
   // placeholder. The reason and Retry show instead; a later failure after a good read keeps the
   // last known status.
-  if (!isSetupStatusKnown && setupError !== null) {
+  const statusFailed = !isSetupStatusKnown && setupError !== null;
+  const gateOpen = !loading && !statusFailed && authenticationSetupRequired;
+  // Which gate is up: the owner-recovery wizard on its entry step, or access setup. Held once the
+  // setup is done, so the gate keeps drawing the same screen while it fades out over the app.
+  const gateKind = useHeldValue(
+    gateOpen
+      ? setupStatus?.mainAdminRecoveryAvailable
+        ? resolveInitialStep(setupStatus, true)
+        : 'access'
+      : null
+  );
+  const gatePresence = useExitPresence(gateOpen, MODAL_EXIT_MS);
+  const gate =
+    gatePresence.present &&
+    gateKind !== null &&
+    (gateKind === 'access' ? (
+      <AccessSetup opened={gateOpen} />
+    ) : (
+      <SetupGate
+        maxWidth="4xl"
+        opened={gateOpen}
+        icon={<Rocket className="w-5 h-5 text-primary" aria-hidden="true" />}
+        title={t('initialization.modal.setupWizard')}
+      >
+        {gateKind === 'external-db-form' ? (
+          <ExternalDatabaseSetupStep onSetupComplete={refreshSetupStatus} />
+        ) : gateKind === 'database-setup' ? (
+          <DatabaseSetupStep onSetupComplete={refreshSetupStatus} />
+        ) : (
+          <AdminAccountStep />
+        )}
+      </SetupGate>
+    ));
+
+  // The gate comes first in every draw, so it keeps its place and its fade when the screen under
+  // it changes.
+  if (loading) {
     return (
-      <StartupErrorCard
-        title={t('initialization.errors.statusCheckFailed')}
-        message={setupError}
-        onRetry={() => void refreshSetupStatus()}
-      />
+      <>
+        {gate}
+        <LoadingSpinner fullScreen message={t('app.loading.checkingSetup')} />
+      </>
+    );
+  }
+
+  if (statusFailed) {
+    return (
+      <>
+        {gate}
+        <StartupErrorCard
+          title={t('initialization.errors.statusCheckFailed')}
+          message={setupError}
+          onRetry={() => void refreshSetupStatus()}
+        />
+      </>
     );
   }
 
   // The setup API remains available while ordinary requests are blocked. Mounting their
   // consumers early caches failed checks, including Docker availability, beyond setup completion.
-  if (authenticationSetupRequired) {
-    if (setupStatus?.mainAdminRecoveryAvailable) {
-      const step = resolveInitialStep(setupStatus, true);
-      return (
-        <SetupGate
-          maxWidth="4xl"
-          icon={<Rocket className="w-5 h-5 text-primary" aria-hidden="true" />}
-          title={t('initialization.modal.setupWizard')}
-        >
-          {step === 'external-db-form' ? (
-            <ExternalDatabaseSetupStep onSetupComplete={refreshSetupStatus} />
-          ) : step === 'database-setup' ? (
-            <DatabaseSetupStep onSetupComplete={refreshSetupStatus} />
-          ) : (
-            <AdminAccountStep />
-          )}
-        </SetupGate>
-      );
-    }
-    return <AccessSetup />;
+  if (gateOpen) {
+    return <>{gate}</>;
   }
 
-  return children;
+  return (
+    <>
+      {gate}
+      {children}
+    </>
+  );
 };
 
 const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => {

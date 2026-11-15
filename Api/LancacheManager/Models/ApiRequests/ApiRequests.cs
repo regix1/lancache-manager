@@ -21,6 +21,11 @@ public class DataMigrationImportRequest
     public bool OverwriteExisting { get; set; } = false;
 }
 
+public class MigrationConnectionRequest
+{
+    public string ConnectionString { get; set; } = string.Empty;
+}
+
 #endregion
 
 #region Download Requests

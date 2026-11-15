@@ -1,18 +1,21 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import ts from 'typescript';
-import { transpile } from './transpile-module.mjs';
+import { bindLifted, liftConstArrow, transpile } from './transpile-module.mjs';
 
 /**
- * The sessions list sorts every row into one of two buckets: an account session, or a guest. An
- * ordinary account belongs in the account bucket next to the primary administrator while the
- * presentation leads with the safe username/deleted/shared identity.
+ * The Users list sorts every session into one of two kinds: an account session, or a guest. An
+ * ordinary account's session sits beside the primary administrator's under Signed in, the guest
+ * filter lists guests only, and every row leads with the safe username/deleted/shared identity.
+ * Sessions are tied to accounts by the account id the server sends, never by the user name.
  *
- * Each of those decisions is a separate expression in ActiveSessions.tsx, so they are lifted out of
- * the product source and run here rather than restated. A restatement would keep passing after
+ * Each of those decisions is a separate expression in UserTab.tsx, so they are lifted out of the
+ * product source and run here rather than restated. A restatement would keep passing after
  * someone narrowed one of them back to a literal comparison against 'admin'.
  */
+
+const USER_TAB = 'src/components/features/user/UserTab.tsx';
 
 const readWebSource = (relativePath) =>
   readFileSync(new URL(`../${relativePath}`, import.meta.url), 'utf8');
@@ -20,17 +23,12 @@ const readWebSource = (relativePath) =>
 const parse = (fileName, relativePath, kind) =>
   ts.createSourceFile(fileName, readWebSource(relativePath), ts.ScriptTarget.Latest, true, kind);
 
-const authServiceFile = parse('auth.service.ts', 'src/services/auth.service.ts', ts.ScriptKind.TS);
 const sessionTypesFile = parse(
   'types.ts',
   'src/components/features/user/types.ts',
   ts.ScriptKind.TS
 );
-const activeSessionsFile = parse(
-  'ActiveSessions.tsx',
-  'src/components/features/user/ActiveSessions.tsx',
-  ts.ScriptKind.TSX
-);
+const userTabFile = parse('UserTab.tsx', USER_TAB, ts.ScriptKind.TSX);
 
 const collect = (sourceFile, matches) => {
   const found = [];
@@ -71,51 +69,36 @@ const run = (expression, bindings) => {
   );
 };
 
-/**
- * `isAccountHolder` is a plain declaration with no runtime imports, so it runs here exactly as the
- * browser runs it.
- */
-const isAccountHolder = (() => {
-  const declaration = only(
-    collect(
-      authServiceFile,
-      (node) => ts.isFunctionDeclaration(node) && node.name?.text === 'isAccountHolder'
-    ),
-    'auth.service.ts should declare isAccountHolder exactly once'
-  );
-  const harness = `${declaration.getText(authServiceFile)}\nmodule.exports = { isAccountHolder };`;
-  const compiled = { exports: {} };
-  new Function('module', 'exports', transpile(harness, ts.ModuleKind.CommonJS))(
-    compiled,
-    compiled.exports
-  );
-  return compiled.exports.isAccountHolder;
-})();
-
-const isAdminSession = run(initializerOf(activeSessionsFile, 'isAdminSession'), {
-  isAccountHolder
-});
-const isGuestSession = run(initializerOf(activeSessionsFile, 'isGuestSession'), {
-  isAccountHolder
-});
+const isGuestSession = run(initializerOf(userTabFile, 'isGuestSession'), {});
 
 const sessionOf = (sessionType) => ({ id: `session-${sessionType}`, sessionType });
 const everySession = ['admin', 'user', 'guest'].map(sessionOf);
+const guestSessions = run(initializerOf(userTabFile, 'guestSessions'), {
+  sessions: everySession,
+  isGuestSession
+});
 
 const countForFilter = (filter) =>
-  run(initializerOf(activeSessionsFile, 'getCountForFilter'), {
-    activeSessions: everySession,
-    isAdminSession,
-    isGuestSession
-  })(filter);
+  run(initializerOf(userTabFile, 'counts'), {
+    sessions: everySession,
+    accounts: [],
+    guestSessions,
+    historySessions: []
+  })[filter];
 
 const listedUnderFilter = (filter) =>
-  run(initializerOf(activeSessionsFile, 'typeFilteredSessions'), {
-    activeFilterValue: filter,
-    activeSessions: everySession,
-    isAdminSession,
-    isGuestSession
-  }).map((session) => session.sessionType);
+  bindLifted(liftConstArrow(USER_TAB, 'filterRows'), {
+    filter,
+    sessions: everySession,
+    guestSessions,
+    historySessions: [],
+    accounts: [],
+    needle: '',
+    matchingSessions: (list) => list,
+    activeRow: (session) => session.sessionType,
+    endedRow: (session) => session.sessionType,
+    accountRow: (account) => account.id
+  })().rows;
 
 test('the sessions list reads the shared session type, so a user is a value it can hold', () => {
   const property = only(
@@ -146,7 +129,7 @@ test('the sessions list reads the shared session type, so a user is a value it c
   );
 });
 
-test('the safe account identity is nullable and never exposes an account id', () => {
+test('the safe account identity is nullable and the account id is optional', () => {
   const session = only(
     collect(
       sessionTypesFile,
@@ -166,47 +149,72 @@ test('the safe account identity is nullable and never exposes an account id', ()
     'username must tolerate omitted null values'
   );
   assert.equal(properties.get('accountDeleted')?.type.getText(sessionTypesFile), 'boolean');
-  assert.equal(properties.has('accountId'), false, 'the browser model must not expose account ids');
+  // Guests and shared access have no account, and the server omits null fields.
+  assert.equal(properties.get('accountId')?.type.getText(sessionTypesFile), 'string | null');
+  assert.ok(properties.get('accountId')?.questionToken, 'accountId must tolerate being omitted');
 });
 
-test('primary administrator and ordinary user sessions both count as account sessions', () => {
-  assert.equal(isAdminSession(sessionOf('admin')), true);
-  assert.equal(isAdminSession(sessionOf('user')), isAdminSession(sessionOf('admin')));
-  assert.equal(isAdminSession(sessionOf('guest')), false);
+test('a session belongs to an account by its account id, never by its user name', () => {
+  const sessions = [
+    { id: 'own', accountId: 'account-a', username: 'alice' },
+    { id: 'same-name', accountId: 'account-b', username: 'alice' },
+    { id: 'shared', username: 'alice' }
+  ];
+  const activeSessionsOf = bindLifted(liftConstArrow(USER_TAB, 'activeSessionsOf'), { sessions });
+  assert.deepEqual(
+    activeSessionsOf('account-a').map((session) => session.id),
+    ['own']
+  );
 
+  const userFolder = new URL('../src/components/features/user/', import.meta.url);
+  for (const file of readdirSync(userFolder).filter((name) => /\.tsx?$/.test(name))) {
+    assert.doesNotMatch(
+      readFileSync(new URL(file, userFolder), 'utf8'),
+      /\busername\s*[!=]==|[!=]==\s*[\w.?]*\busername\b/,
+      `${file} compares a user name`
+    );
+  }
+});
+
+test('primary administrator and ordinary user sessions are both account sessions', () => {
+  assert.equal(isGuestSession(sessionOf('admin')), false);
   assert.equal(isGuestSession(sessionOf('user')), false);
   assert.equal(isGuestSession(sessionOf('guest')), true);
 });
 
 test('the filter counts both account kinds and leaves the guest count alone', () => {
-  assert.equal(countForFilter('all'), 3);
-  assert.equal(countForFilter('admin'), 2, 'an admin and a user are both account sessions');
-  assert.equal(countForFilter('guest'), 1);
+  assert.equal(countForFilter('signedIn'), 3);
+  assert.equal(countForFilter('guests'), 1);
 });
 
 test('the filtered list shows both account kinds and never lists either under guests', () => {
-  assert.deepEqual(listedUnderFilter('all'), ['admin', 'user', 'guest']);
-  assert.deepEqual(listedUnderFilter('admin'), ['admin', 'user']);
-  assert.deepEqual(listedUnderFilter('guest'), ['guest']);
+  assert.deepEqual(listedUnderFilter('signedIn'), ['admin', 'user', 'guest']);
+  assert.deepEqual(listedUnderFilter('guests'), ['guest']);
 });
 
 test('account, deleted, guest and shared rows have distinct safe labels', () => {
-  const source = activeSessionsFile.getText();
-  for (const key of [
-    'activeSessions.account',
-    'activeSessions.deletedAccount',
-    'activeSessions.sharedAccess',
-    'activeSessions.filters.guest',
-    'activeSessions.labels.guestBadge'
-  ]) {
-    assert.ok(source.includes(key), `ActiveSessions.tsx does not render ${key}`);
-  }
+  const sessionName = bindLifted(
+    liftConstArrow('src/components/features/user/types.ts', 'sessionName'),
+    {}
+  );
+  const t = (key) => key;
+  assert.equal(sessionName({ ...sessionOf('user'), username: ' alice ' }, t), 'alice');
+  assert.equal(
+    sessionName({ ...sessionOf('user'), username: null, accountDeleted: true }, t),
+    'activeSessions.deletedAccount'
+  );
+  assert.equal(
+    sessionName({ ...sessionOf('guest'), username: null }, t),
+    'activeSessions.filters.guest'
+  );
+  assert.equal(
+    sessionName({ ...sessionOf('user'), username: null }, t),
+    'activeSessions.sharedAccess'
+  );
 
-  const search = initializerOf(activeSessionsFile, 'sessionMatchesSearch');
   assert.match(
-    search,
+    initializerOf(userTabFile, 'sessionMatchesSearch'),
     /session\.username\s*\?\?\s*''/,
     'username is missing from the search haystack'
   );
-  assert.doesNotMatch(source, /session\.accountId/, 'the UI must not consume an account id');
 });

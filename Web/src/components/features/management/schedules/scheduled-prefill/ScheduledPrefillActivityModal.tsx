@@ -103,17 +103,20 @@ function ScheduledPrefillRecentRun({ run, serviceKey }: ScheduledPrefillRecentRu
     : null;
   const canHaveFailedGames = snapshot.failedApps > 0 || snapshot.state === 'failed';
 
+  // The error box stays drawn until the new answer replaces it, and Retry shows busy meanwhile.
   const loadFailedGames = () => {
     const controller = new AbortController();
     abortRef.current = controller;
-    setFailedGamesError(null);
     setFailedGamesLoading(true);
-    ApiService.getPersistentPrefillRunFailedGames(
+    return ApiService.getPersistentPrefillRunFailedGames(
       getPersistentServiceId(serviceKey),
       run.runId,
       controller.signal
     )
-      .then((games) => setFailedGames(games))
+      .then((games) => {
+        setFailedGames(games);
+        setFailedGamesError(null);
+      })
       .catch((error: unknown) => setFailedGamesError(error))
       .finally(() => setFailedGamesLoading(false));
   };
@@ -226,7 +229,7 @@ function ScheduledPrefillRecentRun({ run, serviceKey }: ScheduledPrefillRecentRu
                 <h4 className="font-medium text-themed-primary">
                   {t(`${baseKey}.activity.failedGames`)}
                 </h4>
-                {failedGamesLoading ? (
+                {failedGamesLoading && failedGamesError === null ? (
                   <p className="flex items-center gap-2 scheduled-prefill-activity-runs__meta">
                     <LoadingSpinner inline size="xs" />
                     {t(`${baseKey}.activity.loadingFailedGames`)}
@@ -242,6 +245,7 @@ function ScheduledPrefillRecentRun({ run, serviceKey }: ScheduledPrefillRecentRu
                     message={getErrorMessage(failedGamesError)}
                     retryLabel={t('common.retry')}
                     onRetry={loadFailedGames}
+                    retrying={failedGamesLoading}
                   />
                 ) : failedGames !== null && failedGames.length === 0 ? (
                   <p className="scheduled-prefill-activity-runs__meta">
@@ -348,7 +352,7 @@ export function ScheduledPrefillActivityModal({
                     title={t(`${baseKey}.serviceStatus.loadFailed`)}
                     message={containers.persistentError}
                     retryLabel={t('common.retry')}
-                    onRetry={() => void containers.loadPersistentContainers()}
+                    onRetry={() => containers.loadPersistentContainers()}
                   />
                 ) : (
                   !connectionLost && <LoadingSpinner size="sm" />

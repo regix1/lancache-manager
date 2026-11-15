@@ -6,6 +6,7 @@ using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using static LancacheManager.Tests.StateTestMethods;
 
@@ -61,7 +62,7 @@ public sealed class AccountSessionLinkTests : IDisposable
         var accountLess = await service.CreateAdminSessionAsync(_apiKeyService.GetApiKey(), new DefaultHttpContext());
         Assert.NotNull(accountLess);
 
-        Assert.Equal(2, await service.RevokeAccountSessionsAsync(demoted.Id));
+        Assert.Equal(2, await service.RevokeAccountSessionsAsync(demoted.Id, new ServiceCollection().BuildServiceProvider()));
 
         await using var context = database.Factory.CreateDbContext();
         foreach (var revokedId in new[] { first.Session.Id, second.Session.Id })
@@ -89,7 +90,7 @@ public sealed class AccountSessionLinkTests : IDisposable
         var signedIn = await NewAccountSessionAsync(database, service, account.Id);
         Assert.NotNull(await service.ValidateSessionAsync(signedIn.RawToken));
 
-        await service.RevokeAccountSessionsAsync(account.Id);
+        await service.RevokeAccountSessionsAsync(account.Id, new ServiceCollection().BuildServiceProvider());
 
         Assert.Null(await service.ValidateSessionAsync(signedIn.RawToken));
     }

@@ -17,12 +17,19 @@ internal static class CacheRouteGuards
     /// Duplicate of the service-level capability guard for UX: key-dependent endpoints
     /// (corruption detection/removal, service and game cache removal, eviction removal) reject with
     /// a clear message instead of failing deep inside the operation. The mutating services
-    /// revalidate again at execution time — this check is presentation, not the safety net.
+    /// revalidate again at execution time — this check is presentation, not the safety net. The
+    /// refusal names its reason by key, so the page shows it in the reader's language.
     /// </summary>
     internal static BadRequestObjectResult? DenyIfKeyDependentUnavailable(DatasourceCapabilityService capabilityService)
     {
         var denial = capabilityService.CheckAllCanMapLogicalObjects();
-        return denial == null ? null : new BadRequestObjectResult(ApiResponse.Error(denial));
+        return denial == null
+            ? null
+            : new BadRequestObjectResult(new ErrorResponse
+            {
+                Error = denial,
+                StageKey = "errors.corruption.keySchemeUnavailable"
+            });
     }
 
     /// <summary>

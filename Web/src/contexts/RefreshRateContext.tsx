@@ -12,6 +12,7 @@ import type {
   GuestRefreshRateUpdatedEvent,
   DefaultGuestRefreshRateChangedEvent,
   GuestRefreshRateLockChangedEvent,
+  SystemRefreshRateChangedEvent,
   ShowToastEvent
 } from '@contexts/SignalRContext/types';
 import { RefreshRateContext } from './RefreshRateContext.types';
@@ -38,11 +39,31 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
   const [isControlledByAdmin, setIsControlledByAdmin] = useState(false);
   const [defaultGuestRate, setDefaultGuestRate] = useState<string | null>(null);
   const [globalLocked, setGlobalLocked] = useState<boolean>(true);
+  // The install-wide rate. An admin follows it; a user-role account follows it while its session has no
+  // rate of its own.
+  const [systemRate, setSystemRate] = useState<RefreshRate>('STANDARD');
   const [error, setError] = useState<string | null>(null);
+  // The rate the server last confirmed, which a failed pick puts back. Only a pick moves pickRef, so
+  // a read that left the rate alone cannot keep a failed pick on screen; revertedPickRef is the pick
+  // whose failure put the saved rate back.
+  const savedRateRef = useRef<RefreshRate>('STANDARD');
+  const pickRef = useRef(0);
+  const revertedPickRef = useRef(0);
+  // The pick whose save last wrote savedRateRef, so an older pick that answers later cannot replace a
+  // newer saved pick; and how many of this window's saves are still on the wire.
+  const savedPickRef = useRef(0);
+  const savesInFlightRef = useRef(0);
 
   const { on, off, isConnected } = useSignalR();
-  const { authMode } = useAuth();
-  const { currentPreferences } = useSessionPreferences();
+  const { authMode, sessionId, sessionType } = useAuth();
+  const {
+    currentPreferences,
+    error: preferencesError,
+    resyncPreferences
+  } = useSessionPreferences();
+  // A guest and a user-role account follow their own session's row, so a failed read of it is theirs.
+  const ownRateSession =
+    authMode === 'guest' || (authMode === 'authenticated' && sessionType === 'user');
 
   // Ref to avoid stale closures in SignalR handlers
   const authModeRef = useRef(authMode);
@@ -54,6 +75,14 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
     authModeRef.current = authMode;
     generationRef.current += 1;
   }, [authMode]);
+  const sessionIdRef = useRef(sessionId);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+  const sessionTypeRef = useRef(sessionType);
+  useEffect(() => {
+    sessionTypeRef.current = sessionType;
+  }, [sessionType]);
 
   // Fetch global default guest rate and lock state (for guests only)
   const fetchGlobalDefaults = useCallback(async () => {
@@ -91,36 +120,57 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
     }
   }, [authMode]);
 
-  // Guest users derive refresh state from their session preferences plus the
-  // global guest defaults/lock.
+  // A guest and a user-role account derive refresh state from their own session preferences: the
+  // session's rate and lock when the admin set them, else the guest default and the lock for every
+  // guest (guest), or the install-wide rate, unlocked (user-role account).
   useEffect(() => {
-    if (authMode !== 'guest') return;
+    const userRole = authMode === 'authenticated' && sessionType === 'user';
+    if (authMode !== 'guest' && !userRole) return;
 
     if (!currentPreferences) {
-      // Guest preferences not loaded yet
+      // Not read yet. The window stays locked meanwhile, so its selector never offers a change the
+      // server would refuse, also in the frame after a Retry that read the row. A failed read is drawn
+      // as the selector's failure with a Retry instead.
+      setIsControlledByAdmin(true);
+      if (preferencesError !== null) setIsLoaded(true);
       return;
     }
 
-    // Guest: use per-session refreshRate, or fall back to global default
     const perSessionRate = currentPreferences.refreshRate;
     const perSessionLocked = currentPreferences.refreshRateLocked;
+    const fallbackRate = userRole ? systemRate : defaultGuestRate;
+    // The row this window's own earlier pick announced is older than a pick still saving, so while a
+    // save is on the wire the row only moves the rate a failure goes back to.
+    const redraw = savesInFlightRef.current === 0;
 
     if (perSessionRate && perSessionRate in REFRESH_RATES) {
-      setRefreshRateState(perSessionRate as RefreshRate);
-    } else if (defaultGuestRate && defaultGuestRate in REFRESH_RATES) {
-      setRefreshRateState(defaultGuestRate as RefreshRate);
+      savedRateRef.current = perSessionRate as RefreshRate;
+      if (redraw) setRefreshRateState(perSessionRate as RefreshRate);
+    } else if (fallbackRate && fallbackRate in REFRESH_RATES) {
+      savedRateRef.current = fallbackRate as RefreshRate;
+      if (redraw) setRefreshRateState(fallbackRate as RefreshRate);
     }
 
     // Per-session override takes precedence: false means unlocked, true means locked
-    // null/undefined means use global default
+    // null/undefined means the default for the session's type
     const effectiveLocked =
-      perSessionLocked !== null && perSessionLocked !== undefined ? perSessionLocked : globalLocked;
+      perSessionLocked !== null && perSessionLocked !== undefined
+        ? perSessionLocked
+        : !userRole && globalLocked;
     setIsControlledByAdmin(effectiveLocked);
     setIsLoaded(true);
-  }, [authMode, currentPreferences, defaultGuestRate, globalLocked]);
+  }, [
+    authMode,
+    sessionType,
+    currentPreferences,
+    preferencesError,
+    defaultGuestRate,
+    globalLocked,
+    systemRate
+  ]);
 
-  // Authenticated users always use the global system refresh rate and should
-  // never inherit guest lock/default behavior.
+  // An admin follows the install-wide rate, and never inherits guest lock/default behavior. A user-role
+  // account reads it too, as the rate it follows while its session has none of its own.
   const fetchSystemRate = useCallback(async () => {
     const requestGeneration = ++generationRef.current;
     try {
@@ -131,7 +181,12 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
       const body = await response.json();
       if (generationRef.current === requestGeneration) {
         if (body.refreshRate && body.refreshRate in REFRESH_RATES) {
-          setRefreshRateState(body.refreshRate as RefreshRate);
+          setSystemRate(body.refreshRate as RefreshRate);
+          // A user-role account's rate is settled by the session effect above.
+          if (sessionTypeRef.current !== 'user') {
+            savedRateRef.current = body.refreshRate as RefreshRate;
+            setRefreshRateState(body.refreshRate as RefreshRate);
+          }
         }
         setError(null);
       }
@@ -150,9 +205,10 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
   useEffect(() => {
     if (authMode !== 'authenticated') return;
 
-    setIsControlledByAdmin(false);
+    // A user-role account's lock is its own session's, set by the session effect above.
+    if (sessionType !== 'user') setIsControlledByAdmin(false);
     void fetchSystemRate();
-  }, [authMode, fetchSystemRate]);
+  }, [authMode, sessionType, fetchSystemRate]);
 
   // Listen for SignalR events.
   // All handlers read authMode/sessionId from refs to avoid stale closures.
@@ -161,10 +217,37 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
     // SessionPreferencesContext will handle the UserPreferencesUpdated event,
     // but this event is guest-specific and immediate
     const handleGuestRefreshRateUpdated = (data: GuestRefreshRateUpdatedEvent) => {
+      // Sent to every client; only the window of the session that was changed applies it, a guest's or
+      // a user-role account's (an admin follows the install-wide rate).
+      const ownRate =
+        authModeRef.current === 'guest' ||
+        (authModeRef.current === 'authenticated' && sessionTypeRef.current === 'user');
+      if (!ownRate || data.sessionId !== sessionIdRef.current) return;
       if (data.refreshRate && data.refreshRate in REFRESH_RATES) {
         generationRef.current += 1;
+        savedRateRef.current = data.refreshRate as RefreshRate;
         setRefreshRateState(data.refreshRate as RefreshRate);
+        return;
       }
+      // "Use default" cleared the session's rate, so the window goes to the rate it falls back to.
+      const fallbackRate = sessionTypeRef.current === 'user' ? systemRate : defaultGuestRate;
+      if (fallbackRate && fallbackRate in REFRESH_RATES) {
+        generationRef.current += 1;
+        savedRateRef.current = fallbackRate as RefreshRate;
+        setRefreshRateState(fallbackRate as RefreshRate);
+      }
+    };
+
+    // An admin changed the install-wide rate, which an admin window follows and a user-role account
+    // follows while its session has no rate of its own. The generation is left alone: an admin's first
+    // read sets isLoaded only while its generation still matches.
+    const handleSystemRefreshRateChanged = (event: SystemRefreshRateChangedEvent) => {
+      setSystemRate(event.refreshRate as RefreshRate);
+      if (authModeRef.current !== 'authenticated' || sessionTypeRef.current === 'user') return;
+      // The rate a failed own save goes back to. While this window's own save is on the wire, that
+      // save's answer settles what is drawn.
+      savedRateRef.current = event.refreshRate as RefreshRate;
+      if (savesInFlightRef.current === 0) setRefreshRateState(event.refreshRate as RefreshRate);
     };
 
     // Handle default guest rate change (affects guests using default)
@@ -198,45 +281,50 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
     on('GuestRefreshRateUpdated', handleGuestRefreshRateUpdated);
     on('DefaultGuestRefreshRateChanged', handleDefaultGuestRefreshRateChanged);
     on('GuestRefreshRateLockChanged', handleGuestRefreshRateLockChanged);
+    on('SystemRefreshRateChanged', handleSystemRefreshRateChanged);
 
     return () => {
       off('GuestRefreshRateUpdated', handleGuestRefreshRateUpdated);
       off('DefaultGuestRefreshRateChanged', handleDefaultGuestRefreshRateChanged);
       off('GuestRefreshRateLockChanged', handleGuestRefreshRateLockChanged);
+      off('SystemRefreshRateChanged', handleSystemRefreshRateChanged);
     };
-  }, [on, off]);
+  }, [on, off, systemRate, defaultGuestRate]);
 
   // An unlock broadcast while the socket was down is gone for good, and it leaves the control
   // disabled with nothing on screen to say so. One callback: the fetches never both apply. The
-  // selector's failure chip repeats the same read.
+  // selector's failure chip repeats the same read. A guest's or user-role account's window also reads
+  // its own session's row again, whose failure the chip may be showing.
   const reload = () => {
     if (authModeRef.current === 'guest') {
       void fetchGlobalDefaults();
     } else if (authModeRef.current === 'authenticated') {
       void fetchSystemRate();
     }
+    if (ownRateSession) void resyncPreferences();
   };
   useReconnectRefetch(isConnected, reload);
 
   const setRefreshRate = useCallback(
     async (rate: RefreshRate) => {
-      // Block guests from changing their refresh rate when locked
+      // Block a locked guest or user-role account from changing its refresh rate
       if (isControlledByAdmin) {
-        console.warn(
-          '[RefreshRate] Guest users cannot change their refresh rate (locked by admin)'
-        );
+        console.warn('[RefreshRate] This session cannot change its refresh rate (locked by admin)');
         return;
       }
 
       // Optimistically update state
       generationRef.current += 1;
+      const pick = ++pickRef.current;
+      savesInFlightRef.current += 1;
       setRefreshRateState(rate);
 
-      // Save to API - guests save to user-preferences, admins to system refresh-rate
+      // Save to API - a guest or a user-role account saves its own session's rate, an admin the
+      // install-wide rate
+      const ownRate = authMode === 'guest' || sessionTypeRef.current === 'user';
       try {
-        const endpoint =
-          authMode === 'guest' ? '/api/user-preferences/refreshRate' : '/api/system/refresh-rate';
-        const body = authMode === 'guest' ? rate : { refreshRate: rate };
+        const endpoint = ownRate ? '/api/user-preferences/refreshRate' : '/api/system/refresh-rate';
+        const body = ownRate ? rate : { refreshRate: rate };
 
         const response = await fetch(
           endpoint,
@@ -244,15 +332,30 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
         );
 
         await assertOk(response);
+        // An older pick that answers after a newer one saved is not what the server holds.
+        if (pick > savedPickRef.current) {
+          savedPickRef.current = pick;
+          savedRateRef.current = rate;
+          // An admin's saved pick is the install-wide rate the Users page draws as a default.
+          if (!ownRate) setSystemRate(rate);
+          // A newer pick that failed already put the older saved rate back; this one is now saved.
+          if (revertedPickRef.current === pickRef.current) setRefreshRateState(rate);
+        }
       } catch (error) {
         // User-initiated action (changing the refresh rate setting). The optimistic state
-        // update above already applied, so without this the failure would be invisible and the
-        // choice would silently not persist. RefreshRateProvider is an ancestor of
+        // update above already applied, so the newest pick goes back to the saved rate, and without
+        // the toast the failure would be invisible. RefreshRateProvider is an ancestor of
         // NotificationsProvider in AppProviders.tsx, so useErrorHandler is not reachable here -
         // use the existing show-toast bridge instead (the SHOW_TOAST listener in
         // NotificationsContext.tsx).
+        if (pickRef.current === pick) {
+          revertedPickRef.current = pick;
+          setRefreshRateState(savedRateRef.current);
+        }
         console.error('Failed to save refresh rate:', error);
         notifyRefreshRateSaveFailed(error);
+      } finally {
+        savesInFlightRef.current -= 1;
       }
     },
     [isControlledByAdmin, authMode]
@@ -267,7 +370,8 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
     setRefreshRate,
     getRefreshInterval,
     isControlledByAdmin,
-    error,
+    systemRate,
+    error: error ?? (ownRateSession ? preferencesError : null),
     reload
   };
 

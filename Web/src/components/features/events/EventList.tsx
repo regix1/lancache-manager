@@ -80,7 +80,8 @@ interface EventCardProps {
   isExpanded: boolean;
   cacheEntry: EventDownloadsCache[number] | undefined;
   onExpandClick: (eventId: number) => void;
-  onEditClick: (event: Event) => void;
+  /** Unset for a caller who may not change events: the Edit item is then not drawn. */
+  onEditClick?: (event: Event) => void;
   onViewStatsClick: (event: Event) => void;
   formatDateTime: (dateStr: string) => string;
   formatDurationBetweenDates: (startStr: string, endStr: string) => string;
@@ -197,15 +198,17 @@ const EventCard = React.memo(
                     >
                       {t('events.list.tooltips.viewStats')}
                     </ActionMenuItem>
-                    <ActionMenuItem
-                      onClick={() => {
-                        close();
-                        onEditClick(event);
-                      }}
-                      icon={<Pencil className="w-4 h-4" />}
-                    >
-                      {t('events.list.tooltips.edit')}
-                    </ActionMenuItem>
+                    {onEditClick && (
+                      <ActionMenuItem
+                        onClick={() => {
+                          close();
+                          onEditClick(event);
+                        }}
+                        icon={<Pencil className="w-4 h-4" />}
+                      >
+                        {t('events.list.tooltips.edit')}
+                      </ActionMenuItem>
+                    )}
                   </>
                 )}
               </RowActionsMenu>
@@ -306,7 +309,8 @@ const SectionHeader: React.FC<{
 
 interface EventListProps {
   events: Event[];
-  onEventClick: (event: Event) => void;
+  /** Unset for a caller who may not change events. */
+  onEventClick?: (event: Event) => void;
 }
 
 const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {

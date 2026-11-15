@@ -178,7 +178,8 @@ public class StateService : IStateService
             var anchorsSeeded = SeedInitialFirstRunAnchors(loadedState, DateTime.UtcNow);
             var notificationModeMigrated = MigrateEvictionNotificationsToServiceMode(loadedState);
             var utcTimeFormatMigrated = MigrateAllowedTimeFormatsForUtc(loadedState);
-            if ((anchorsSeeded || notificationModeMigrated || utcTimeFormatMigrated) && canPersistScheduledPrefillInit && !loadedWithSectionRecovery)
+            var guestThreadLimitsSeeded = SeedGuestThreadLimitsFromSteam(loadedState);
+            if ((anchorsSeeded || notificationModeMigrated || utcTimeFormatMigrated || guestThreadLimitsSeeded) && canPersistScheduledPrefillInit && !loadedWithSectionRecovery)
             {
                 SaveLoadedState(loadedState);
             }
@@ -2064,6 +2065,25 @@ public class StateService : IStateService
     }
 
     /// <summary>
+    /// One-time migration: Battle.net and Riot guests were capped by the Steam guest thread default until
+    /// each got its own. Copy that default into both new fields once, so an install keeps the cap it had.
+    /// Gated on <see cref="AppState.GuestThreadLimitsSeeded"/> rather than on the fields being null, because
+    /// null is also the "no limit" an admin may choose later. Returns true when the state changed.
+    /// </summary>
+    private static bool SeedGuestThreadLimitsFromSteam(AppState state)
+    {
+        if (state.GuestThreadLimitsSeeded)
+        {
+            return false;
+        }
+
+        state.BattleNetDefaultGuestMaxThreadCount = state.DefaultGuestMaxThreadCount;
+        state.RiotDefaultGuestMaxThreadCount = state.DefaultGuestMaxThreadCount;
+        state.GuestThreadLimitsSeeded = true;
+        return true;
+    }
+
+    /// <summary>
     /// Anchors the initial first-run for each enabled service that has no last-run key yet and runs on
     /// either a positive interval or a custom schedule, stamping it to <paramref name="nowUtc"/> so the
     /// next poll schedules it one interval (or one occurrence) out instead of running it immediately.
@@ -3372,6 +3392,36 @@ public class StateService : IStateService
             value = Math.Min(value.Value, 256);
         }
         UpdateState(state => state.XboxDefaultGuestMaxThreadCount = value);
+    }
+
+    public int? GetBattleNetDefaultGuestMaxThreadCount()
+    {
+        return GetState().BattleNetDefaultGuestMaxThreadCount;
+    }
+
+    public void SetBattleNetDefaultGuestMaxThreadCount(int? value)
+    {
+        if (value.HasValue)
+        {
+            if (value.Value < 1) value = 1;
+            value = Math.Min(value.Value, 256);
+        }
+        UpdateState(state => state.BattleNetDefaultGuestMaxThreadCount = value);
+    }
+
+    public int? GetRiotDefaultGuestMaxThreadCount()
+    {
+        return GetState().RiotDefaultGuestMaxThreadCount;
+    }
+
+    public void SetRiotDefaultGuestMaxThreadCount(int? value)
+    {
+        if (value.HasValue)
+        {
+            if (value.Value < 1) value = 1;
+            value = Math.Min(value.Value, 256);
+        }
+        UpdateState(state => state.RiotDefaultGuestMaxThreadCount = value);
     }
 
     public int? GetEpicDefaultGuestMaxThreadCount()

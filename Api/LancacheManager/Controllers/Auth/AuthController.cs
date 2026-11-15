@@ -1,6 +1,8 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Filters;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -285,8 +287,9 @@ public class AuthController : ControllerBase
     /// whether their guessing is having an effect. That includes an account locked by too many recent
     /// failures, which is the one that would otherwise confirm a username outright.
     ///
-    /// If the browser already held a guest session, that session is revoked first so the upgrade
-    /// does not leave two live sessions for the same browser.
+    /// If the browser already held a session, it is revoked so the sign-in does not leave two live
+    /// sessions for the same browser: a guest first, an account or administrator session once the new
+    /// cookie is set.
     /// </remarks>
     [AllowAnonymous]
     [EnableRateLimiting("auth")]
@@ -352,15 +355,18 @@ public class AuthController : ControllerBase
                 });
         }
 
-        // If this browser has an existing guest session, revoke it before upgrading
+        // The new cookie replaces the one this browser holds, so no browser could sign the old session
+        // out afterwards. A guest ends here, before its prefill could outlive it; an account or
+        // administrator session ends only once the new cookie is set, so a failed sign-in leaves the
+        // person signed in.
         var existingToken = SessionService.TokenFromCookie(HttpContext);
+        UserSession? existingSession = null;
         if (!string.IsNullOrEmpty(existingToken))
         {
-            var existingSession = await _sessionService.ValidateSessionAsync(existingToken);
+            existingSession = await _sessionService.ValidateSessionAsync(existingToken);
             if (existingSession is { SessionType: SessionType.Guest })
             {
-                await _sessionService.RevokeSessionAsync(existingSession.Id);
-                _logger.LogInformation("Revoked guest session {SessionId} during upgrade to admin", existingSession.Id);
+                await _sessionService.EndGuestSessionAsync(existingSession.Id, HttpContext.RequestServices);
             }
         }
 
@@ -399,6 +405,7 @@ public class AuthController : ControllerBase
             targetAccountId: account.Id);
 
         _sessionService.SetSessionCookie(HttpContext, rawToken, session.ExpiresAtUtc);
+        await _sessionService.EndReplacedSessionAsync(existingSession, HttpContext.RequestServices);
 
         // Broadcast session created
         await _signalR.NotifyAllAsync(SignalREvents.UserSessionCreated, new
@@ -516,7 +523,8 @@ public class AuthController : ControllerBase
         // Rotating the caller's own token says nothing about the sessions the same account has open
         // elsewhere, and an account holder's session does not expire. The caller's own is spared for
         // the reason the rotation below is preferred to a revoke.
-        await _sessionService.RevokeAccountSessionsAsync(accountId, session.Id);
+        await _sessionService.RevokeAccountSessionsAsync(accountId, HttpContext.RequestServices, session.Id);
+        await _signalR.NotifyAllAsync(SignalREvents.AccountsChanged);
 
         // The session survives the change and gets a new token, rather than being revoked: signing the
         // person out of the screen they just used is not what changing a password is for. What must not
@@ -600,6 +608,22 @@ public class AuthController : ControllerBase
             }
         }
 
+        // A second tab still on the sign-in screen shares this browser's cookie, and the new guest's
+        // cookie replaces it, so no browser could sign the old session out afterwards. A guest ends
+        // here, before its prefill could outlive it; a signed-in session ends only once the guest has
+        // its cookie, so a failed start leaves the person signed in. The shared session used while
+        // authentication is off is every anonymous caller's, so it is never the one replaced.
+        var existingToken = SessionService.TokenFromCookie(HttpContext);
+        UserSession? existingSession = null;
+        if (!string.IsNullOrEmpty(existingToken))
+        {
+            existingSession = await _sessionService.ValidateSessionAsync(existingToken);
+            if (existingSession is { SessionType: SessionType.Guest })
+            {
+                await _sessionService.EndGuestSessionAsync(existingSession.Id, HttpContext.RequestServices);
+            }
+        }
+
         var result = await _sessionService.CreateGuestSessionAsync(HttpContext);
         if (result == null)
         {
@@ -639,6 +663,8 @@ public class AuthController : ControllerBase
             await _sessionService.GrantXboxPrefillAccessAsync(session.Id, _stateService.GetXboxGuestPrefillDurationHours());
         }
 
+        await _sessionService.EndReplacedSessionAsync(existingSession, HttpContext.RequestServices);
+
         // Broadcast session created
         await _signalR.NotifyAllAsync(SignalREvents.UserSessionCreated, new
         {
@@ -675,31 +701,101 @@ public class AuthController : ControllerBase
     /// Revokes the caller's session and clears the session cookie.
     /// </summary>
     /// <remarks>
-    /// Always succeeds, including when the caller had no session to begin with.
+    /// Succeeds when the caller had no session to begin with. The cookie is always cleared; when the
+    /// session cannot be marked ended, the answer is 500 with code <c>sessionCookieCleared</c> and the
+    /// session stays valid on the server until it expires, with no cookie left in this browser for it.
+    /// With authentication off, the shared session every browser uses is left as it is.
     /// </remarks>
     [AllowAnonymous]
     [HttpPost("logout")]
     [ProducesResponseType(typeof(LogoutResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponse), StatusCodes.Status500InternalServerError)]
     public async Task<ActionResult<LogoutResponse>> LogoutAsync()
     {
         var rawToken = SessionService.TokenFromCookie(HttpContext);
+        var revoked = true;
         if (!string.IsNullOrEmpty(rawToken))
         {
-            var session = await _sessionService.ValidateSessionAsync(rawToken);
-            if (session != null)
+            // A database that cannot be read cannot say whose session the cookie names, so nothing is ended,
+            // but the cookie is still cleared below for the same reason as a failed revoke.
+            UserSession? session = null;
+            try
             {
-                await _sessionService.RevokeSessionAsync(session.Id);
+                session = await _sessionService.ValidateSessionAsync(rawToken);
+            }
+            catch (Exception ex)
+            {
+                revoked = false;
+                _logger.LogError(ex, "Could not read the session on sign-out; its cookie is cleared anyway");
+            }
 
-                // Broadcast session revoked
-                await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
+            // With authentication off every browser shares one session and the next request is handed it
+            // again, so signing it out ends nothing; revoking it would only drop every browser's live
+            // connections and leave their prefill under an id no page holds. Any other session a cookie
+            // names there is ended by the authentication handler, which swaps it for the shared one.
+            if (session != null
+                && (_sessionService.IsAuthenticationEnabled()
+                    || HttpContext.GetUserSession()?.Id == session.Id && !_sessionService.IsSharedAdminSession(session.Id)))
+            {
+                // A guest who signs out loses prefill access, so their running prefill stops the same way
+                // it does when an admin revokes the guest.
+                var guest = session.SessionType == SessionType.Guest;
+                if (guest)
+                    PrefillDaemonServiceBase.GuestGate.EnterStop(session.Id);
+                var cleanup = guest
+                    ? PrefillDaemonServiceBase.TerminateGuestSessionsAsync(PrefillDaemonServiceBase.ResolveAllDaemons(HttpContext.RequestServices),
+                        session.Id, "Guest signed out", PrefillDaemonServiceBase.AccessEndedReasonKey, session.Id.ToString())
+                    : Task.FromResult(new GuestPrefillStopResult(0, 0));
+                GuestPrefillStopResult stopped;
+                try
                 {
-                    sessionId = session.Id.ToString(),
-                    sessionType = session.SessionType
-                });
+                    // The browser is told it signed out whatever happens here, so a failed save still ends
+                    // with the cookie cleared below; otherwise the next page load signs the person back in.
+                    try
+                    {
+                        await _sessionService.RevokeSessionAsync(session.Id, signedOut: true);
+                    }
+                    catch (Exception ex)
+                    {
+                        revoked = false;
+                        _logger.LogError(ex, "Could not end session {SessionId} on sign-out; its cookie is cleared anyway", session.Id);
+                    }
+
+                    // Any other session's prefill stops after the revoke, so a start still finishing for it finds
+                    // the session revoked and ends itself.
+                    if (!guest)
+                        cleanup = PrefillDaemonServiceBase.TerminateGuestSessionsAsync(PrefillDaemonServiceBase.ResolveAllDaemons(HttpContext.RequestServices),
+                            session.Id, "Signed out", PrefillDaemonServiceBase.AccessEndedReasonKey, session.Id.ToString());
+
+                    // Broadcast session revoked
+                    if (revoked)
+                        await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
+                        {
+                            sessionId = session.Id.ToString(),
+                            sessionType = session.SessionType
+                        });
+                }
+                finally
+                {
+                    try { stopped = await cleanup; }
+                    finally { if (guest) PrefillDaemonServiceBase.GuestGate.ExitStop(session.Id); }
+                }
+                // A failed cleanup does not fail the sign-out. A guest's stays pending for "Clear all guests" to
+                // retry; any other session's stays listed for an admin to stop.
+                if (!stopped.Success)
+                    _logger.LogWarning("Session {SessionId} signed out, but prefill cleanup is incomplete: {FailedSessions} sessions and {PendingStarts} starts remain",
+                        session.Id, stopped.FailedSessions, stopped.PendingStarts);
             }
         }
 
         _sessionService.ClearSessionCookie(HttpContext);
+
+        if (!revoked)
+            return StatusCode(StatusCodes.Status500InternalServerError, new ErrorResponse
+            {
+                Error = "Signed out on this device, but the session could not be ended on the server.",
+                Code = ErrorResponse.SessionCookieClearedCode
+            });
 
         return Ok(new LogoutResponse { Success = true, Message = "Logged out successfully" });
     }
@@ -747,8 +843,8 @@ public class AuthController : ControllerBase
     /// Returns the current default guest-session duration, for the admin settings screen.
     /// </summary>
     /// <remarks>
-    /// Also reports whether the value came from a UI override or the environment/appsettings
-    /// default.
+    /// Also reports where the value comes from: a UI override, the environment/appsettings, or the
+    /// built-in default when neither sets it.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpGet("guest/config/duration")]
@@ -759,7 +855,7 @@ public class AuthController : ControllerBase
         return Ok(new GuestDurationResponse
         {
             DurationHours = _sessionService.GetGuestDurationHours(),
-            Source = _sessionService.HasDurationOverride() ? "ui" : "config",
+            Source = _sessionService.GetGuestDurationSource(),
             CanEdit = true,
             EnvVarValue = _sessionService.GetGuestDurationDefault()
         });
@@ -783,6 +879,7 @@ public class AuthController : ControllerBase
         }
 
         int effectiveHours;
+        string source;
         await _guestConfigWriteLock.WaitAsync();
         try
         {
@@ -800,6 +897,7 @@ public class AuthController : ControllerBase
             // Broadcast the effective (post-merge) value, not the raw request value, so clients
             // see the env/appsettings fallback when the override is cleared.
             effectiveHours = _sessionService.GetGuestDurationHours();
+            source = _sessionService.GetGuestDurationSource();
             await _signalR.NotifyAllAsync(SignalREvents.GuestDurationUpdated, new
             {
                 durationHours = effectiveHours
@@ -813,7 +911,7 @@ public class AuthController : ControllerBase
         return Ok(new GuestDurationResponse
         {
             DurationHours = effectiveHours,
-            Source = _sessionService.HasDurationOverride() ? "ui" : "config",
+            Source = source,
             CanEdit = true,
             EnvVarValue = _sessionService.GetGuestDurationDefault()
         });
@@ -977,7 +1075,8 @@ public class AuthController : ControllerBase
                 await _signalR.NotifyAllAsync(SignalREvents.BattleNetGuestPrefillConfigChanged, new
                 {
                     enabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
-                    durationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+                    durationHours = _stateService.GetBattleNetGuestPrefillDurationHours(),
+                    battleNetMaxThreadCount = _stateService.GetBattleNetDefaultGuestMaxThreadCount()
                 });
             }
             if (request.RiotEnabledByDefault.HasValue || request.RiotDurationHours.HasValue)
@@ -985,7 +1084,8 @@ public class AuthController : ControllerBase
                 await _signalR.NotifyAllAsync(SignalREvents.RiotGuestPrefillConfigChanged, new
                 {
                     enabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
-                    durationHours = _stateService.GetRiotGuestPrefillDurationHours()
+                    durationHours = _stateService.GetRiotGuestPrefillDurationHours(),
+                    riotMaxThreadCount = _stateService.GetRiotDefaultGuestMaxThreadCount()
                 });
             }
         }
@@ -1093,7 +1193,7 @@ public class AuthController : ControllerBase
         });
     }
 
-    // --- Battle.net Guest Prefill Endpoints (anonymous - no account login, no thread limit) ---
+    // --- Battle.net Guest Prefill Endpoints (anonymous - no account login, has a thread limit) ---
 
     /// <summary>
     /// Returns the Battle.net guest-prefill defaults.
@@ -1103,13 +1203,14 @@ public class AuthController : ControllerBase
     /// defaults once the visitor has signed in rather than to anyone who can reach the port.
     /// </remarks>
     [HttpGet("guest/battlenet-prefill/config")]
-    [ProducesResponseType(typeof(BattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
-    public ActionResult<BattleNetGuestPrefillConfigResponse> GetBattleNetPrefillConfig()
+    [ProducesResponseType(typeof(EpicGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public ActionResult<EpicGuestPrefillConfigResponse> GetBattleNetPrefillConfig()
     {
-        return Ok(new BattleNetGuestPrefillConfigResponse
+        return Ok(new EpicGuestPrefillConfigResponse
         {
             EnabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
-            DurationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+            DurationHours = _stateService.GetBattleNetGuestPrefillDurationHours(),
+            MaxThreadCount = _stateService.GetBattleNetDefaultGuestMaxThreadCount()
         });
     }
 
@@ -1122,8 +1223,8 @@ public class AuthController : ControllerBase
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("guest/battlenet-prefill/config")]
-    [ProducesResponseType(typeof(SetBattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<SetBattleNetGuestPrefillConfigResponse>> SetBattleNetPrefillConfigAsync([FromBody] BattleNetGuestPrefillConfigRequest request)
+    [ProducesResponseType(typeof(SetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SetGuestPrefillConfigResponse>> SetBattleNetPrefillConfigAsync([FromBody] BattleNetGuestPrefillConfigRequest request)
     {
         if (!GuestPrefillValidation.TryValidateDurationHours(request.DurationHours, out var durationError))
         {
@@ -1137,6 +1238,8 @@ public class AuthController : ControllerBase
 
             _stateService.SetBattleNetGuestPrefillEnabledByDefault(request.EnabledByDefault);
             _stateService.SetBattleNetGuestPrefillDurationHours(request.DurationHours);
+            if (request.MaxThreadCountSent)
+                _stateService.SetBattleNetDefaultGuestMaxThreadCount(request.MaxThreadCount);
 
             var grantCount = 0;
             if (request.EnabledByDefault && !wasEnabled)
@@ -1150,20 +1253,21 @@ public class AuthController : ControllerBase
             if (grantCount > 0)
             {
                 _logger.LogInformation(
-                    "Default Battle.net guest prefill config updated: enabled={Enabled}, duration={Hours}h; granted to {GrantCount} eligible guest session(s)",
-                    request.EnabledByDefault, request.DurationHours, grantCount);
+                    "Default Battle.net guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads}; granted to {GrantCount} eligible guest session(s)",
+                    request.EnabledByDefault, request.DurationHours, _stateService.GetBattleNetDefaultGuestMaxThreadCount(), grantCount);
             }
             else
             {
                 _logger.LogInformation(
-                    "Default Battle.net guest prefill config updated: enabled={Enabled}, duration={Hours}h (existing sessions unchanged)",
-                    request.EnabledByDefault, request.DurationHours);
+                    "Default Battle.net guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads} (existing sessions unchanged)",
+                    request.EnabledByDefault, request.DurationHours, _stateService.GetBattleNetDefaultGuestMaxThreadCount());
             }
 
             await _signalR.NotifyAllAsync(SignalREvents.BattleNetGuestPrefillConfigChanged, new
             {
                 enabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
-                durationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+                durationHours = _stateService.GetBattleNetGuestPrefillDurationHours(),
+                battleNetMaxThreadCount = _stateService.GetBattleNetDefaultGuestMaxThreadCount()
             });
         }
         finally
@@ -1171,15 +1275,16 @@ public class AuthController : ControllerBase
             _guestConfigWriteLock.Release();
         }
 
-        return Ok(new SetBattleNetGuestPrefillConfigResponse
+        return Ok(new SetGuestPrefillConfigResponse
         {
             Success = true,
             EnabledByDefault = _stateService.GetBattleNetGuestPrefillEnabledByDefault(),
-            DurationHours = _stateService.GetBattleNetGuestPrefillDurationHours()
+            DurationHours = _stateService.GetBattleNetGuestPrefillDurationHours(),
+            MaxThreadCount = _stateService.GetBattleNetDefaultGuestMaxThreadCount()
         });
     }
 
-    // --- Riot Guest Prefill Endpoints (anonymous - no account login, no thread limit) ---
+    // --- Riot Guest Prefill Endpoints (anonymous - no account login, has a thread limit) ---
 
     /// <summary>
     /// Returns the Riot guest-prefill defaults.
@@ -1189,13 +1294,14 @@ public class AuthController : ControllerBase
     /// defaults once the visitor has signed in rather than to anyone who can reach the port.
     /// </remarks>
     [HttpGet("guest/riot-prefill/config")]
-    [ProducesResponseType(typeof(BattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
-    public ActionResult<BattleNetGuestPrefillConfigResponse> GetRiotPrefillConfig()
+    [ProducesResponseType(typeof(EpicGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public ActionResult<EpicGuestPrefillConfigResponse> GetRiotPrefillConfig()
     {
-        return Ok(new BattleNetGuestPrefillConfigResponse
+        return Ok(new EpicGuestPrefillConfigResponse
         {
             EnabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
-            DurationHours = _stateService.GetRiotGuestPrefillDurationHours()
+            DurationHours = _stateService.GetRiotGuestPrefillDurationHours(),
+            MaxThreadCount = _stateService.GetRiotDefaultGuestMaxThreadCount()
         });
     }
 
@@ -1208,8 +1314,8 @@ public class AuthController : ControllerBase
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("guest/riot-prefill/config")]
-    [ProducesResponseType(typeof(SetBattleNetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<SetBattleNetGuestPrefillConfigResponse>> SetRiotPrefillConfigAsync([FromBody] RiotGuestPrefillConfigRequest request)
+    [ProducesResponseType(typeof(SetGuestPrefillConfigResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<SetGuestPrefillConfigResponse>> SetRiotPrefillConfigAsync([FromBody] RiotGuestPrefillConfigRequest request)
     {
         if (!GuestPrefillValidation.TryValidateDurationHours(request.DurationHours, out var durationError))
         {
@@ -1223,6 +1329,8 @@ public class AuthController : ControllerBase
 
             _stateService.SetRiotGuestPrefillEnabledByDefault(request.EnabledByDefault);
             _stateService.SetRiotGuestPrefillDurationHours(request.DurationHours);
+            if (request.MaxThreadCountSent)
+                _stateService.SetRiotDefaultGuestMaxThreadCount(request.MaxThreadCount);
 
             var grantCount = 0;
             if (request.EnabledByDefault && !wasEnabled)
@@ -1236,20 +1344,21 @@ public class AuthController : ControllerBase
             if (grantCount > 0)
             {
                 _logger.LogInformation(
-                    "Default Riot guest prefill config updated: enabled={Enabled}, duration={Hours}h; granted to {GrantCount} eligible guest session(s)",
-                    request.EnabledByDefault, request.DurationHours, grantCount);
+                    "Default Riot guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads}; granted to {GrantCount} eligible guest session(s)",
+                    request.EnabledByDefault, request.DurationHours, _stateService.GetRiotDefaultGuestMaxThreadCount(), grantCount);
             }
             else
             {
                 _logger.LogInformation(
-                    "Default Riot guest prefill config updated: enabled={Enabled}, duration={Hours}h (existing sessions unchanged)",
-                    request.EnabledByDefault, request.DurationHours);
+                    "Default Riot guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads} (existing sessions unchanged)",
+                    request.EnabledByDefault, request.DurationHours, _stateService.GetRiotDefaultGuestMaxThreadCount());
             }
 
             await _signalR.NotifyAllAsync(SignalREvents.RiotGuestPrefillConfigChanged, new
             {
                 enabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
-                durationHours = _stateService.GetRiotGuestPrefillDurationHours()
+                durationHours = _stateService.GetRiotGuestPrefillDurationHours(),
+                riotMaxThreadCount = _stateService.GetRiotDefaultGuestMaxThreadCount()
             });
         }
         finally
@@ -1257,11 +1366,12 @@ public class AuthController : ControllerBase
             _guestConfigWriteLock.Release();
         }
 
-        return Ok(new SetBattleNetGuestPrefillConfigResponse
+        return Ok(new SetGuestPrefillConfigResponse
         {
             Success = true,
             EnabledByDefault = _stateService.GetRiotGuestPrefillEnabledByDefault(),
-            DurationHours = _stateService.GetRiotGuestPrefillDurationHours()
+            DurationHours = _stateService.GetRiotGuestPrefillDurationHours(),
+            MaxThreadCount = _stateService.GetRiotDefaultGuestMaxThreadCount()
         });
     }
 
@@ -1363,17 +1473,24 @@ public class AuthController : ControllerBase
     /// their grant to expire or changing the site-wide default.
     ///
     /// A session belonging to the owner answers as one that does not exist, the same way the
-    /// session list and every other by-id session route answer it.
+    /// session list and every other by-id session route answer it. A user-role account changes only
+    /// the sessions its own account holds, so it is refused every guest session.
     /// </remarks>
     /// <param name="service">"steam" (default) | "epic" | "battlenet" | "riot" | "xbox".</param>
     [Authorize(Policy = "AccountHolder")]
     [HttpPost("guest/prefill/toggle/{sessionId:guid}")]
+    [HandlerChecksCaller]
     [ProducesResponseType(typeof(GuestPrefillToggleResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<GuestPrefillToggleResponse>> ToggleGuestPrefillAsync(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")
     {
         if (!await _sessionService.CallerMaySeeSessionAsync(HttpContext.GetUserSession(), sessionId))
         {
             return NotFound(ApiResponse.NotFound("Session"));
+        }
+
+        if (!await _sessionService.CallerMayChangeSessionAsync(HttpContext.GetUserSession(), sessionId))
+        {
+            return Forbid();
         }
 
         var normalizedService = service.Trim().ToLowerInvariant();

@@ -36,7 +36,8 @@ interface ConfirmationModalProps {
   /**
    * Says what the dialog is waiting on while `loading` or `confirmBusy` is set. When given, the
    * spinner moves out of the confirm button to this line at the start of the actions row, and the
-   * button only goes disabled with its label kept. Unset keeps the spinner inside the button.
+   * button only goes disabled with its label kept. Unset keeps the spinner inside the button. The
+   * line holds its place, unseen, before the click, so the buttons keep their width when it shows.
    */
   busyLabel?: string;
   /**
@@ -90,10 +91,12 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
         {children}
 
         <div className="confirmation-modal__actions">
-          {busyLabel && busy && (
+          {busyLabel && (
             <span className="confirmation-modal__status" role="status">
-              <LoadingSpinner inline size="xs" />
-              {busyLabel}
+              <span aria-hidden={!busy}>
+                <LoadingSpinner inline size="xs" />
+                {busyLabel}
+              </span>
             </span>
           )}
           <Button
@@ -109,7 +112,6 @@ export const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
             color={confirmColor}
             onClick={onConfirm}
             loading={!busyLabel && busy}
-            stableWidth
             disabled={busyLabel ? confirmDisabled || busy : confirmDisabled}
             aria-busy={busy}
             className="min-h-[44px] sm:min-h-10"

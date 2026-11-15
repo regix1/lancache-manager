@@ -172,12 +172,21 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children }) =>
 
       connection.onclose((_error) => {
         // Every stop the app asks for clears or replaces connectionRef first, so a close of the
-        // current connection is an outage (the retry policy pauses while the tab is hidden), and
-        // the tab-return start picks it up.
+        // current connection is an outage that began while the tab was hidden (the retry policy
+        // pauses then, and the tab-return start picks it up) or the server ending this socket's
+        // session. That close forbids the client's own reconnect, so a visible tab starts again on
+        // the failed-start timer: a sign-in in another tab of this browser has usually not landed
+        // its new cookie yet, and AuthContext starts the socket sooner once that tab says it has.
         if (isMountedRef.current && connectionRef.current === connection) {
           setConnectionState('reconnecting');
           setIsConnected(false);
           setConnectionId(null);
+          if (isPageVisibleRef.current) {
+            if (reconnectTimeoutRef.current) {
+              clearTimeout(reconnectTimeoutRef.current);
+            }
+            reconnectTimeoutRef.current = setTimeout(() => void setupConnection(), 10000);
+          }
         }
       });
 

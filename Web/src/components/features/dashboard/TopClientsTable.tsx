@@ -185,7 +185,7 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
             title={t('dashboard.topClients.loadFailed')}
             message={loadError}
             retryLabel={t('common.retry')}
-            onRetry={() => void refreshStats(true)}
+            onRetry={() => refreshStats(true)}
           />
         )}
 

@@ -71,7 +71,8 @@ function computeExpandedDayPopoverPosition(
 interface EventCalendarProps {
   events: Event[];
   onEventClick: (event: Event) => void;
-  onDayClick: (date: Date) => void;
+  /** Unset for a caller who may not add events: the days then draw as plain, not clickable. */
+  onDayClick?: (date: Date) => void;
 }
 
 interface SpanningEvent {
@@ -608,19 +609,26 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                 const today = isToday(day);
                 const pastDay = isPastDay(day);
                 const eventCount = getEventCountForDay(day);
+                // One condition for the handlers and every hover and focus look of the day.
+                const addEvent = pastDay ? undefined : onDayClick;
+                const dayLook = pastDay
+                  ? 'calendar-day--past'
+                  : addEvent
+                    ? 'group focus-ring--inset'
+                    : 'calendar-day--static';
 
                 return (
                   <div
                     key={day}
-                    {...(pastDay
-                      ? {}
-                      : rowToggleHandlers(() =>
-                          onDayClick(
+                    {...(addEvent
+                      ? rowToggleHandlers(() =>
+                          addEvent(
                             new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
                           )
-                        ))}
+                        )
+                      : {})}
                     aria-current={today ? 'date' : undefined}
-                    className={`calendar-cell calendar-day ${pastDay ? 'calendar-day--past' : 'group focus-ring--inset'}`}
+                    className={`calendar-cell calendar-day ${dayLook}`}
                   >
                     {/* Day number */}
                     <div className="calendar-day-head">
@@ -628,9 +636,9 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                         className={`calendar-day-number ${
                           today
                             ? 'calendar-day-number--today'
-                            : pastDay
-                              ? ''
-                              : 'group-hover:bg-[var(--theme-bg-hover)]'
+                            : addEvent
+                              ? 'group-hover:bg-[var(--theme-bg-hover)]'
+                              : ''
                         }`}
                       >
                         {day}

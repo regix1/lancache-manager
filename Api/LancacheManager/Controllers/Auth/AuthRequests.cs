@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace LancacheManager.Controllers;
 
 // Request models
@@ -53,14 +55,58 @@ public class EpicGuestPrefillConfigRequest
 
 public class BattleNetGuestPrefillConfigRequest
 {
+    private int? _maxThreadCount;
+
     public bool EnabledByDefault { get; set; }
     public int DurationHours { get; set; } = 2;
+
+    /// <summary>
+    /// The guest thread limit; null clears it. A page from before Battle.net had a limit leaves the field
+    /// out, and that keeps the stored limit.
+    /// </summary>
+    public int? MaxThreadCount
+    {
+        get => _maxThreadCount;
+        set
+        {
+            _maxThreadCount = value;
+            MaxThreadCountSent = true;
+        }
+    }
+
+    /// <summary>
+    /// Whether the body carried <see cref="MaxThreadCount"/>, null included.
+    /// </summary>
+    [JsonIgnore]
+    public bool MaxThreadCountSent { get; private set; }
 }
 
 public class RiotGuestPrefillConfigRequest
 {
+    private int? _maxThreadCount;
+
     public bool EnabledByDefault { get; set; }
     public int DurationHours { get; set; } = 2;
+
+    /// <summary>
+    /// The guest thread limit; null clears it. A page from before Riot had a limit leaves the field out,
+    /// and that keeps the stored limit.
+    /// </summary>
+    public int? MaxThreadCount
+    {
+        get => _maxThreadCount;
+        set
+        {
+            _maxThreadCount = value;
+            MaxThreadCountSent = true;
+        }
+    }
+
+    /// <summary>
+    /// Whether the body carried <see cref="MaxThreadCount"/>, null included.
+    /// </summary>
+    [JsonIgnore]
+    public bool MaxThreadCountSent { get; private set; }
 }
 
 public class XboxGuestPrefillConfigRequest

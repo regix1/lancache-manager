@@ -136,12 +136,14 @@
   color: var(--theme-text-primary);
 }
 
+/* The second column holds the API-key help, so the card widens into two columns only when that
+   help is drawn; without it the form keeps the single 26rem column. */
 @media (min-width: 768px) {
-  .auth-upgrade {
+  .auth-upgrade--help {
     max-width: 48rem;
   }
 
-  .auth-upgrade-card {
+  .auth-upgrade--help .auth-upgrade-card {
     display: grid;
     grid-template-columns: minmax(0, 1.15fr) minmax(16.5rem, 0.85fr);
     grid-template-areas:
@@ -149,13 +151,13 @@
       'form help';
   }
 
-  .auth-upgrade-header {
+  .auth-upgrade--help .auth-upgrade-header {
     grid-area: header;
     padding: 1.25rem 1.5rem;
     border-bottom: 1px solid var(--theme-border-primary);
   }
 
-  .auth-upgrade-form {
+  .auth-upgrade--help .auth-upgrade-form {
     grid-area: form;
     padding: 1.5rem;
   }
@@ -176,7 +178,7 @@
 }
 
 @media (min-width: 1024px) {
-  .auth-upgrade {
+  .auth-upgrade--help {
     max-width: 52rem;
   }
 }

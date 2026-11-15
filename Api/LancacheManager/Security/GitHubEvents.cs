@@ -118,14 +118,43 @@ public sealed class GitHubEvents : OAuthEvents
         }
 
         var deferOwner = setup && _accessService.CanDeferOidcAccount(loginId, revision);
-        var signIn = deferOwner
-            ? null
-            : await _signInService.TryCreateSessionAsync(
-                settings,
-                setup || IsOwner(settings, subject),
-                Issuer,
-                subject,
-                context.HttpContext);
+        // Only a setup that started with sign-in off may finish while sign-in is off: it is the one that
+        // turns sign-in on. A deferred owner saves no account, so its setup is refused here.
+        var setupStartedWithSignInOff = setup
+            && properties.Items.TryGetValue("access_sign_in_off", out var signInOff)
+            && string.Equals(signInOff, "true", StringComparison.Ordinal);
+        if (deferOwner && !setupStartedWithSignInOff && !_accessService.IsAuthenticationEnabled())
+        {
+            OidcEvents.RedirectFailure(context, "unavailable", returnToSetup: true);
+            return;
+        }
+
+        // Read before the new session exists, so a failed read leaves no session without a cookie. A
+        // deferred owner has no database to read and replaces no session.
+        UserSession? held;
+        ExternalSignInResult? signIn;
+        try
+        {
+            held = deferOwner ? null : await _signInService.ReadHeldSessionAsync(context.HttpContext);
+            signIn = deferOwner
+                ? null
+                : await _signInService.TryCreateSessionAsync(
+                    settings,
+                    setup || IsOwner(settings, subject),
+                    Issuer,
+                    subject,
+                    context.HttpContext,
+                    setupStartedWithSignInOff);
+        }
+        catch (Exception ex) when (ex is not ValidationException)
+        {
+            // This runs after the authentication handler's own error handling, so a database that cannot be
+            // reached would otherwise end on the raw error page. Nothing in the stack tells an unreachable
+            // server from another provider fault, as the session handler notes.
+            _logger.LogWarning(ex, "GitHub sign-in could not reach the database");
+            OidcEvents.RedirectFailure(context, "unavailable", setup || ownerOnly);
+            return;
+        }
 
         if (signIn is null && !deferOwner)
         {
@@ -153,13 +182,16 @@ public sealed class GitHubEvents : OAuthEvents
                 OidcEvents.RedirectFailure(context, "expired", returnToSetup: true);
                 return;
             }
+            await _signInService.RetireSharedSessionAsync(context.HttpContext);
             _oauthOptions.TryRemove(AccessService.GitHubScheme);
             _oauthOptions.TryRemove(AccessService.GitHubSetupScheme);
         }
 
         if (signIn is not null)
         {
+            await _signInService.EndGuestSessionAsync(held, context.HttpContext, signIn);
             _signInService.SetSessionCookie(context.HttpContext, signIn);
+            await _signInService.EndReplacedSessionAsync(held, context.HttpContext);
         }
 
         context.HandleResponse();
@@ -180,9 +212,7 @@ public sealed class GitHubEvents : OAuthEvents
             context.Properties,
             context.Options.RemoteAuthenticationTimeout,
             _clock.GetUtcNow());
-        context.Response.Redirect(returnToSetup
-            ? $"/?accessSetup=1&oidcError={code}"
-            : $"/?oidcError={code}");
+        context.Response.Redirect(OidcEvents.FailureLocation(code, returnToSetup));
         return Task.CompletedTask;
     }
 

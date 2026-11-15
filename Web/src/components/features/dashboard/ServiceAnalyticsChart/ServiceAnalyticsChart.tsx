@@ -340,7 +340,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             title={t('dashboard.serviceAnalytics.loadFailed')}
             message={loadError}
             retryLabel={t('common.retry')}
-            onRetry={() => void refreshStats(true)}
+            onRetry={() => refreshStats(true)}
           />
         )}
 
@@ -438,7 +438,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                 <Button
                   variant="filled"
                   color="secondary"
-                  size="sm"
+                  size="md"
                   onClick={() =>
                     window.dispatchEvent(
                       new CustomEvent(APP_EVENTS.NAVIGATE_TO_TAB, { detail: { tab: 'downloads' } })

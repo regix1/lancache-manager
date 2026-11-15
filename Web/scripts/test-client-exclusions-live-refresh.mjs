@@ -387,6 +387,7 @@ const renderHostnamesBody = (hostnamesError, state = {}) => {
       hostnamesChanged: false,
       handleHostnamesSave: async () => undefined,
       hostnamesLoading: false,
+      mockMode: false,
       ...state
     },
     { jsx: typescript.JsxEmit.React }
@@ -776,6 +777,7 @@ test('a second click while the hostnames save runs sends nothing', async () => {
   const pending = [];
   const busy = [];
   const save = bindLifted(liftHookCallback(COMPONENT_PATH, 'useCallback', 'setHostnameSettings('), {
+    mockMode: false,
     savingHostnamesRef: { current: false },
     setSavingHostnames: (value) => busy.push(value),
     setHostnameSettings: () =>
@@ -902,16 +904,19 @@ test('the hostnames form holds still and stays usable through both writes of its
       assert.ok(!field.props.disabled, `a field is disabled after ${step}`);
   };
   const save = bindLifted(liftHookCallback(COMPONENT_PATH, 'useCallback', 'setHostnameSettings('), {
+    mockMode: false,
     savingHostnamesRef: { current: false },
     setSavingHostnames: () => undefined,
     // Each write's answer reaches the form through the stored settings, as the hook pushes them.
     setHostnameSettings: async (settings) => {
       push(false, settings);
       check('the settings write');
+      return true;
     },
     setHostnamesEnabled: async (enabled) => {
       push(enabled, { ...STORED_SETTINGS, resolver: '10.0.0.99' });
       check('the enable write');
+      return true;
     },
     hostnameForm: edited,
     hostnamesEnabled: false,

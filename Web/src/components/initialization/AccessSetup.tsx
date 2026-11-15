@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, KeyRound, LogIn, ShieldCheck, Users } from 'lucide-react';
 import { SetupGate } from '@components/modals/SetupGate';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { StepHeader } from '@components/initialization/StepHeader';
 import Badge from '@components/ui/Badge';
 import { Button } from '@components/ui/Button';
@@ -18,7 +19,9 @@ import type { EnvironmentField } from '@contexts/AuthContext.types';
 import { useAuth } from '@contexts/useAuth';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useTimeoutCallback } from '@hooks/useTimeoutCallback';
+import { useHeldValue } from '@hooks/useHeldValue';
 import authService from '@services/auth.service';
+import { ApiError } from '@services/apiError';
 import { usesOidc, type AccountMode } from '@utils/accountMode';
 import { noAutofill } from '@utils/autofill';
 import {
@@ -40,6 +43,9 @@ import '@/styles/features/access-setup.css';
 
 type AccessStep = 'choose' | 'configure' | 'test';
 type CallbackKind = 'callback' | 'setupCallback';
+
+/** The stage key the server answers a switch to unauthenticated access with until it is confirmed. */
+const ACCOUNT_WIPE_CONFIRM_KEY = 'accessSetup.wipeConfirm.required';
 
 // The five modes are alternatives, not a sequence, so they are grouped by what a person types at
 // sign-in rather than numbered. Each group renders the way the platform step groups its cards.
@@ -67,7 +73,7 @@ function readTestResult(): { testedId: string | null; errorCode: string | null }
   };
 }
 
-export function AccessSetup({ onClose }: { onClose?: () => void }) {
+export function AccessSetup({ opened, onClose }: { opened: boolean; onClose?: () => void }) {
   const { t } = useTranslation();
   const {
     accountMode,
@@ -82,6 +88,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
     loginSetupPending,
     pendingLoginKind,
     isMainAdmin,
+    authenticationEnabled,
     login,
     refreshAuth
   } = useAuth();
@@ -128,6 +135,11 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
   const [copied, setCopied] = useState<CallbackKind | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
   const [busy, setBusy] = useState(false);
+  // How many accounts the switch to unauthenticated access deletes, as the server counted them when
+  // it asked for the confirm; null while that confirm is closed.
+  const [wipeCount, setWipeCount] = useState<number | null>(null);
+  const [wipeError, setWipeError] = useState<string | null>(null);
+  const shownWipeCount = useHeldValue(wipeCount);
   const [testedId] = useState<string | null>(() => readTestResult().testedId);
   const [error, setError] = useState<string | null>(() => {
     const { errorCode } = readTestResult();
@@ -177,13 +189,30 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
       errorMessage.current?.scrollIntoView({ block: 'nearest' });
     }
   }, [error]);
-  const needsSignIn = setupStatus?.accountExists === true && !isMainAdmin;
+  // With sign-in already off every browser has full admin, so the switch to unauthenticated access
+  // (which deletes every account) needs no owner sign-in; the server skips that check the same way.
+  const needsSignIn =
+    setupStatus?.accountExists === true &&
+    !isMainAdmin &&
+    (authenticationEnabled || mode !== 'unauthenticated');
   const ownerSso =
     usesOidc(accountMode) ||
     (accountMode === 'unauthenticated' && ownerOidcEnabled && !ownerPassword);
   const oidc = usesOidc(mode);
   const https = window.location.protocol === 'https:';
-  const modeBlocked = oidc && !https;
+  // Apple needs an HTTPS domain name, so the server also refuses it on localhost and on an IP address
+  // (the browser writes an IPv4 host as digits and dots and an IPv6 host in brackets). Google and
+  // Microsoft accept plain HTTP callbacks only on localhost, which the browser counts as a secure
+  // context. Other services may run on plain HTTP.
+  const httpsBlocks = (candidate: LoginKind): boolean =>
+    candidate === 'apple'
+      ? !https ||
+        window.location.hostname === 'localhost' ||
+        /^[\d.]+$|^\[/.test(window.location.hostname)
+      : (candidate === 'google' || candidate === 'microsoft') && !window.isSecureContext;
+  const modeBlocked = oidc && httpsBlocks(kind);
+  // The test step starts the pending login, which can differ from the service picked in the form.
+  const testBlocked = pendingLoginKind !== null && httpsBlocks(pendingLoginKind);
   const connected = (candidate: LoginKind): LoginService | undefined =>
     loginServices.find((service) => service.kind === candidate);
   const selectedConnected = connected(kind);
@@ -255,7 +284,9 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
     window.location.assign(result.url);
   };
 
-  const save = async () => {
+  // confirmedCount is the account count the person confirmed, in the dialog below, that the switch to
+  // unauthenticated access deletes; undefined for a save that has not been confirmed.
+  const save = async (confirmedCount?: number) => {
     if (busy || modeBlocked) return;
     if (!apiKey.trim()) {
       setError(t('accessSetup.keyRequired'));
@@ -268,6 +299,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
     }
     setBusy(true);
     setError(null);
+    setWipeError(null);
     let sent = formValues;
     const editedSince = (): boolean =>
       JSON.stringify(formValuesRef.current) !== JSON.stringify(sent);
@@ -324,6 +356,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
         mode,
         apiKey: apiKey.trim(),
         acknowledgeUnauthenticated: acknowledged,
+        confirmedAccountCount: confirmedCount,
         ...(credentialsNeeded
           ? {
               // Environment-set fields stay out of the body; the server fills them itself.
@@ -356,6 +389,8 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
             }
           : {})
       });
+      // The switch was saved, so the confirm's task is done.
+      setWipeCount(null);
       if (editedSince()) {
         await refreshAuth();
         setError(t('accessSetup.changedWhileSaving'));
@@ -375,14 +410,30 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
       await refreshSetupStatus();
       onClose?.();
     } catch (failure: unknown) {
-      setError(getErrorMessage(failure));
+      // The server asks for the confirm, with the count it will delete, before it deletes anything.
+      const count = failure instanceof ApiError ? failure.body?.context?.count : undefined;
+      if (
+        failure instanceof ApiError &&
+        failure.body?.stageKey === ACCOUNT_WIPE_CONFIRM_KEY &&
+        typeof count === 'number'
+      ) {
+        setWipeCount(count);
+        return;
+      }
+      if (confirmedCount !== undefined) setWipeError(getErrorMessage(failure));
+      else setError(getErrorMessage(failure));
     } finally {
       setBusy(false);
     }
   };
 
+  const closeWipeConfirm = () => {
+    setWipeCount(null);
+    setWipeError(null);
+  };
+
   const testSignIn = async () => {
-    if (busy || !https) return;
+    if (busy || testBlocked) return;
     if (needsSignIn) {
       setResumeTest(true);
       changeStep('configure');
@@ -505,6 +556,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
   return (
     <SetupGate
       maxWidth="4xl"
+      opened={opened}
       onClose={!authenticationSetupRequired && !busy ? onClose : undefined}
       footer={
         <div className="setup-actions setup-actions--split">
@@ -533,10 +585,9 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
               type="button"
               color="primary"
               variant="filled"
-              disabled={busy || modeBlocked}
+              disabled={busy}
               onClick={(event) => {
                 event.preventDefault();
-                if (modeBlocked) return;
                 changeStep('configure');
               }}
             >
@@ -553,7 +604,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                 color="primary"
                 variant="filled"
                 loading={busy}
-                stableWidth
                 disabled={
                   busy ||
                   modeBlocked ||
@@ -571,8 +621,7 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
               color="primary"
               variant="filled"
               loading={busy}
-              stableWidth
-              disabled={busy || !https || !apiKey.trim()}
+              disabled={busy || testBlocked || !apiKey.trim()}
               onClick={(event) => {
                 event.preventDefault();
                 void testSignIn();
@@ -587,6 +636,25 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
       title={t('accessSetup.header')}
       steps={{ current: stepNumber, total: totalSteps, label: t('accessSetup.progress') }}
     >
+      {/* Drawn through a portal above this dialog. It opens from the save's answer when the switch to
+          unauthenticated access would delete accounts, and only its Confirm deletes them. */}
+      <ConfirmationModal
+        opened={wipeCount !== null}
+        onClose={closeWipeConfirm}
+        onConfirm={() => void save(wipeCount ?? undefined)}
+        title={t('accessSetup.wipeConfirm.title')}
+        confirmLabel={t('accessSetup.wipeConfirm.confirm')}
+        confirmColor="red"
+        loading={busy}
+      >
+        <p className="text-themed-secondary">
+          {t('accessSetup.wipeConfirm.message', { count: shownWipeCount ?? 0 })}
+        </p>
+        <Alert color="red" icon={null}>
+          <p className="text-sm">{t('accessSetup.wipeConfirm.summary')}</p>
+        </Alert>
+        {wipeError !== null && <Alert color="red">{wipeError}</Alert>}
+      </ConfirmationModal>
       <div className="space-y-5 access-setup">
         {step === 'choose' && (
           <>
@@ -644,16 +712,11 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         name="account-mode"
                         value={choice}
                         checked={mode === choice}
-                        disabled={
-                          (usesOidc(choice) && !https) ||
-                          (signInModeFromEnvironment && choice !== accountMode)
-                        }
+                        disabled={signInModeFromEnvironment && choice !== accountMode}
                         disabledReason={
                           signInModeFromEnvironment && choice !== accountMode
                             ? t('accessSetup.environment.modeSetByEnvironment')
-                            : usesOidc(choice) && !https
-                              ? t('accessSetup.ssoRequiresHttps')
-                              : undefined
+                            : undefined
                         }
                         onChange={() => {
                           setMode(choice);
@@ -662,11 +725,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         title={t(`accessSetup.modes.${choice}.title`)}
                         description={t(`accessSetup.modes.${choice}.description`)}
                         note={t(`accessSetup.modes.${choice}.warning`)}
-                        badge={
-                          usesOidc(choice) && !https ? (
-                            <Badge variant="neutral">{t('accessSetup.httpsRequired')}</Badge>
-                          ) : undefined
-                        }
                       />
                     ))}
                   </div>
@@ -695,13 +753,19 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
               title={t(`accessSetup.modes.${mode}.title`)}
               description={t('accessSetup.descriptions.configure')}
             />
-            {modeBlocked && <Alert color="warning">{t('accessSetup.ssoRequiresHttps')}</Alert>}
+            {modeBlocked && (
+              <Alert color="warning">
+                {kind === 'apple'
+                  ? t('accessSetup.services.apple.addresses')
+                  : t('accessSetup.ssoRequiresHttps', { name: serviceLabel(kind) })}
+              </Alert>
+            )}
             {setupStatus?.isCompleted && (
               <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
                 <p className="text-themed-secondary">{t('accessSetup.sessions')}</p>
               </div>
             )}
-            {!oidc && !window.isSecureContext && (
+            {!window.isSecureContext && (
               <Alert color="warning">{t('accessSetup.httpsWarning')}</Alert>
             )}
             <section className={panelClassName} aria-labelledby="access-owner-title">
@@ -874,6 +938,8 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         badge={
                           connected(candidate) ? (
                             <Badge variant="success">{t('accessSetup.connected')}</Badge>
+                          ) : httpsBlocks(candidate) ? (
+                            <Badge variant="neutral">{t('accessSetup.httpsRequired')}</Badge>
                           ) : undefined
                         }
                       />
@@ -1098,7 +1164,6 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
                         color="primary"
                         variant="filled"
                         loading={busy}
-                        stableWidth
                         disabled={busy || modeBlocked || !apiKey.trim()}
                       >
                         {t('accessSetup.testConnection')}
@@ -1130,7 +1195,13 @@ export function AccessSetup({ onClose }: { onClose?: () => void }) {
               title={t('accessSetup.headings.test', { name: pendingName })}
               description={t('accessSetup.testExplanation', { name: pendingName })}
             />
-            {!https && <Alert color="warning">{t('accessSetup.ssoRequiresHttps')}</Alert>}
+            {testBlocked && (
+              <Alert color="warning">
+                {pendingLoginKind === 'apple'
+                  ? t('accessSetup.services.apple.addresses')
+                  : t('accessSetup.ssoRequiresHttps', { name: pendingName })}
+              </Alert>
+            )}
             <section className={panelClassName} aria-labelledby="access-test-owner-title">
               <h4 id="access-test-owner-title" className="font-semibold text-themed-primary">
                 {t('accessSetup.ownerHeading')}

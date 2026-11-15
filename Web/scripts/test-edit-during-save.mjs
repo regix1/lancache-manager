@@ -2,8 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import typescript from 'typescript';
 import {
+  MemoryStorage,
   bindLifted,
   collectNodes,
+  compileToUrl,
+  declaredValue,
+  findSoleNode,
   liftConstArrow,
   liftHookCallback,
   parseSource
@@ -210,10 +214,10 @@ test('user accounts: Disable on a second account while the first one runs sends 
   const requests = [];
   const pending = deferred();
   const setDisabled = bindLifted(
-    liftConstArrow('src/components/features/user/UserAccounts.tsx', 'setDisabled'),
+    liftConstArrow('src/components/features/user/useUserAccounts.ts', 'setAccountDisabled'),
     {
       setDisabledInProgressRef: { current: new Set() },
-      setBusyAccountId: () => undefined,
+      setDisablingAccountId: () => undefined,
       fetch: (url) => {
         requests.push(url);
         return pending.promise;
@@ -238,14 +242,15 @@ test('user accounts: Disable on a second account while the first one runs sends 
 });
 
 test('user accounts: a Disable ending on another account leaves the running delete busy; a repeat confirm is ignored', async () => {
-  const accountsFile = 'src/components/features/user/UserAccounts.tsx';
   const requests = [];
   const answers = [];
   const busy = slot(null);
+  const disablingAccount = slot(null);
   const bindings = {
     setDisabledInProgressRef: { current: new Set() },
     deleteInProgressRef: { current: false },
     setBusyAccountId: busy.set,
+    setDisablingAccountId: disablingAccount.set,
     fetch: (url, options) => {
       requests.push([options.method, url]);
       const answer = deferred();
@@ -259,14 +264,24 @@ test('user accounts: a Disable ending on another account leaves the running dele
       handleResponse: async () => ({ id: 'a' })
     },
     setAccounts: () => undefined,
-    setConfirmation: () => undefined,
+    onConfirmationClose: () => undefined,
     setDeleteError: () => undefined,
     getErrorMessage: (error) => String(error),
     notifyError: () => undefined,
     t: (key) => key
   };
-  const setDisabled = bindLifted(liftConstArrow(accountsFile, 'setDisabled'), bindings);
-  const runConfirmation = bindLifted(liftConstArrow(accountsFile, 'runConfirmation'), bindings);
+  const setDisabled = bindLifted(
+    liftConstArrow('src/components/features/user/useUserAccounts.ts', 'setAccountDisabled'),
+    bindings
+  );
+  const deleteAccount = bindLifted(
+    liftConstArrow('src/components/features/user/useUserAccounts.ts', 'deleteAccount'),
+    bindings
+  );
+  const runConfirmation = bindLifted(
+    liftConstArrow('src/components/features/user/AccountDialogs.tsx', 'runConfirmation'),
+    { ...bindings, deleteAccount }
+  );
 
   const disabling = setDisabled({ id: 'a' }, true);
   const deleting = runConfirmation({ account: { id: 'b' } });
@@ -275,6 +290,7 @@ test('user accounts: a Disable ending on another account leaves the running dele
   await disabling;
 
   assert.equal(busy.value, 'b', 'the delete dialog must stay busy while its request runs');
+  assert.equal(disablingAccount.value, null);
   assert.deepEqual(requests, [
     ['PUT', '/api/accounts/a/disabled'],
     ['DELETE', '/api/accounts/b']
@@ -294,6 +310,8 @@ test('access setup: a field changed while Save runs keeps the page on the form w
     modeBlocked: false,
     apiKey: 'key',
     setError: (message) => calls.errors.push(message),
+    setWipeError: () => undefined,
+    setWipeCount: () => undefined,
     t: (key) => key,
     needsLocalPassword: false,
     validateAccountCredentials: () => ({}),
@@ -364,149 +382,145 @@ test('access setup: a field changed while Save runs keeps the page on the form w
 
 const guestConfiguration = 'src/components/features/user/GuestConfiguration.tsx';
 
-const guestHarness = ({ loading = false } = {}) => {
+/**
+ * One Steam guest prefill row: the shipped draft edit, the read and the per-service save Save sends,
+ * bound to one row's state. Every request waits until the test answers it.
+ */
+const guestHarness = () => {
   const service = {
     id: 'steam',
     shortName: 'Steam',
     supportsMaxThreads: true,
     guestConfigPath: '/api/steam/guest'
   };
-  const bodies = [];
-  const answers = [];
+  const requests = [];
   const state = {
     configs: slot({ steam: { enabledByDefault: false, durationHours: 2, maxThreadCount: 4 } }),
-    loading: slot({ steam: loading }),
-    updating: slot({ steam: null }),
-    pending: slot({ steam: null }),
-    sending: slot({ steam: null })
+    draft: slot({}),
+    loading: slot({ steam: false }),
+    errors: []
   };
-  const updateSource = liftHookCallback(
-    guestConfiguration,
-    'useCallback',
-    'setSendingPrefillEdits'
-  );
-  const bindings = () => {
-    const scope = {
-      authMode: 'authenticated',
-      loadingPrefillConfigs: state.loading.value,
-      updatingPrefillConfigs: state.updating.value,
-      pendingPrefillEdits: state.pending.value,
+  const prefillChangedRef = { current: new Set() };
+  const fetch = (path, options) => {
+    const answer = deferred();
+    requests.push({ path, method: options?.method ?? 'GET', body: options?.body, answer });
+    return answer.promise;
+  };
+  const toGuestPrefillConfig = (_service, response) => ({
+    enabledByDefault: response.enabledByDefault,
+    durationHours: response.durationHours,
+    maxThreadCount: response.maxThreadCount ?? null
+  });
+  // Rebound per call, so each sees the row values the latest render would hold.
+  const edit = (change) =>
+    bindLifted(liftConstArrow(guestConfiguration, 'editPrefill'), {
       prefillConfigs: state.configs.value,
-      setUpdatingPrefillConfigs: state.updating.set,
-      setPendingPrefillEdits: state.pending.set,
-      sendingPrefillEdits: state.sending.value,
-      setSendingPrefillEdits: state.sending.set,
-      setPrefillConfigs: state.configs.set,
-      fetch: (_path, options) => {
-        bodies.push(options.body);
-        const answer = deferred();
-        answers.push(answer);
-        return answer.promise;
-      },
-      ApiService: { getJsonFetchOptions: (body) => ({ body }) },
+      setDraftPrefill: state.draft.set
+    })(service, change);
+  const save = (change) =>
+    bindLifted(liftConstArrow(guestConfiguration, 'updatePrefillConfig'), {
+      prefillConfigs: state.configs.value,
+      fetch,
+      ApiService: { getJsonFetchOptions: (body, options) => ({ body, ...options }) },
       assertOk: async () => undefined,
-      toGuestPrefillConfig: (_service, response) => ({
-        enabledByDefault: response.enabledByDefault,
-        durationHours: response.durationHours,
-        maxThreadCount: response.maxThreadCount ?? null
-      }),
-      showToast: () => undefined,
-      notifyError: () => undefined,
-      t: (key) => key,
-      PREFILL_SERVICES: [service]
-    };
-    scope.updatePrefillConfig = bindLifted(updateSource, scope);
-    return scope;
-  };
-  const answer = (index) => {
-    const body = bodies[index];
-    answers[index].resolve({ json: async () => body });
-  };
-  return { service, bodies, answer, state, bindings };
-};
-
-test('guest prefill: a second change while a save runs is held, then sent with the first', async () => {
-  const guest = guestHarness();
-  const first = guest.bindings().updatePrefillConfig(guest.service, 'duration', {
-    durationHours: 6
-  });
-  // The duration POST is on the wire; the thread limit changes in the next render.
-  await guest.bindings().updatePrefillConfig(guest.service, 'maxThreads', { maxThreadCount: 8 });
-  assert.equal(guest.bodies.length, 1, 'no second request while one runs');
-  assert.deepEqual(guest.state.pending.value.steam?.edits, { maxThreadCount: 8 });
-
-  guest.answer(0);
-  await first;
-  const effect = bindLifted(
-    liftHookCallback(guestConfiguration, 'useEffect', 'pendingPrefillEdits[service.id]'),
-    guest.bindings()
-  );
-  effect();
-  await settle();
-  assert.equal(guest.bodies.length, 2);
-  assert.deepEqual(guest.bodies[1], {
-    enabledByDefault: false,
-    durationHours: 6,
-    maxThreadCount: 8
-  });
-});
-
-test('guest prefill: a change while the first read runs is held and sent when it ends', async () => {
-  const guest = guestHarness({ loading: true });
-  await guest.bindings().updatePrefillConfig(guest.service, 'enabled', { enabledByDefault: true });
-  assert.equal(guest.bodies.length, 0, 'no request while the read is open');
-  assert.deepEqual(guest.state.pending.value.steam?.edits, { enabledByDefault: true });
-
-  guest.state.loading.set({ steam: false });
-  const effect = bindLifted(
-    liftHookCallback(guestConfiguration, 'useEffect', 'pendingPrefillEdits[service.id]'),
-    guest.bindings()
-  );
-  effect();
-  await settle();
-  assert.deepEqual(guest.bodies, [{ enabledByDefault: true, durationHours: 2, maxThreadCount: 4 }]);
-});
-
-test('guest prefill: a change held while the first read runs is dropped when the read fails', async () => {
-  const guest = guestHarness({ loading: true });
-  await guest.bindings().updatePrefillConfig(guest.service, 'enabled', { enabledByDefault: true });
-  assert.deepEqual(guest.state.pending.value.steam?.edits, { enabledByDefault: true });
-
-  const errors = [];
-  const loadPrefillConfig = bindLifted(
+      prefillChangedRef,
+      setPrefillConfigs: state.configs.set,
+      toGuestPrefillConfig
+    })(service, change);
+  const read = bindLifted(
     liftHookCallback(
       guestConfiguration,
       'useCallback',
       'service.guestConfigPath, ApiService.getFetchOptions()'
     ),
     {
-      setLoadingPrefillConfigs: guest.state.loading.set,
-      fetch: () => Promise.reject(new Error('read failed')),
+      setLoadingPrefillConfigs: state.loading.set,
+      fetch,
       ApiService: { getFetchOptions: () => ({}) },
       assertOk: async () => undefined,
       prefillConfigRequestRef: { current: 1 },
-      setPrefillConfigs: guest.state.configs.set,
-      toGuestPrefillConfig: () => undefined,
-      setPrefillConfigError: (message) => errors.push(message),
-      getErrorMessage: (error) => error.message,
-      setPendingPrefillEdits: guest.state.pending.set
+      prefillChangedRef,
+      setPrefillConfigs: state.configs.set,
+      toGuestPrefillConfig,
+      setDraftPrefill: state.draft.set,
+      setPrefillConfigError: (message) => state.errors.push(message),
+      getErrorMessage: (error) => error.message
     }
   );
-  await loadPrefillConfig(guest.service, 1);
-  const effect = bindLifted(
-    liftHookCallback(guestConfiguration, 'useEffect', 'pendingPrefillEdits[service.id]'),
-    guest.bindings()
-  );
-  effect();
-  await settle();
+  /** Answers the oldest open request of `method` with `body`, or fails it. */
+  const answer = async (method, body) => {
+    const request = requests.find((entry) => entry.method === method && !entry.done);
+    request.done = true;
+    if (body === undefined) request.answer.reject(new Error('read failed'));
+    else request.answer.resolve({ json: async () => body });
+    await settle();
+  };
+  return { service, requests, state, edit, save, read, answer };
+};
 
-  assert.deepEqual(errors, ['read failed']);
-  assert.equal(guest.state.loading.value.steam, false);
-  assert.equal(guest.state.pending.value.steam, null);
-  assert.deepEqual(guest.bodies, [], 'no save over the panel defaults the read never replaced');
+test('guest prefill: a change sends nothing until Save, then goes out on top of the read values', async () => {
+  const guest = guestHarness();
+  const reading = guest.read(guest.service, 1);
+  guest.edit({ maxThreadCount: 8 });
+  assert.deepEqual(guest.state.draft.value, { steam: { maxThreadCount: 8 } });
+  await guest.answer('GET', { enabledByDefault: true, durationHours: 3, maxThreadCount: 4 });
+  await reading;
+  assert.deepEqual(
+    guest.requests.map((request) => request.method),
+    ['GET'],
+    'the change sent a request before Save'
+  );
+
+  const saving = guest.save(guest.state.draft.value.steam);
+  await settle();
+  assert.deepEqual(guest.requests[1].body, {
+    enabledByDefault: true,
+    durationHours: 3,
+    maxThreadCount: 8
+  });
+  await guest.answer('POST', guest.requests[1].body);
+  await saving;
+  assert.deepEqual(guest.state.configs.value.steam, {
+    enabledByDefault: true,
+    durationHours: 3,
+    maxThreadCount: 8
+  });
 });
 
-const appearanceCard = 'src/components/features/user/AppearanceDisplayCard.tsx';
+test('guest prefill: a change set back to the saved value leaves the draft', () => {
+  const guest = guestHarness();
+  guest.edit({ durationHours: 3 });
+  guest.edit({ durationHours: 2 });
+  assert.deepEqual(guest.state.draft.value, {}, 'Save would send a row nobody changed');
+});
+
+test('guest prefill: a change made while the first read runs is dropped when the read fails', async () => {
+  const guest = guestHarness();
+  const reading = guest.read(guest.service, 1);
+  guest.edit({ enabledByDefault: true });
+  await guest.answer('GET', undefined);
+  await reading;
+
+  assert.deepEqual(guest.state.errors, ['read failed']);
+  assert.equal(guest.state.loading.value.steam, false);
+  assert.deepEqual(
+    guest.state.draft.value,
+    {},
+    'Save would send the panel defaults the read never replaced'
+  );
+});
+
+test('guest prefill: a read that started before a save answered keeps the saved row', async () => {
+  const guest = guestHarness();
+  const reading = guest.read(guest.service, 1);
+  const saving = guest.save({ enabledByDefault: true });
+  await settle();
+  await guest.answer('POST', guest.requests[1].body);
+  await saving;
+  await guest.answer('GET', { enabledByDefault: false, durationHours: 2, maxThreadCount: 4 });
+  await reading;
+  assert.equal(guest.state.configs.value.steam.enabledByDefault, true, 'the older read won');
+});
 
 /** The stored guest defaults a read answers with. */
 const storedDefaults = () => ({
@@ -526,7 +540,6 @@ const storedDefaults = () => ({
 const guestDefaultsHarness = () => {
   const requests = [];
   const loadingSteps = [];
-  const toggled = [];
   const state = {
     preferences: slot({ ...storedDefaults(), allowedTimeFormats: ['server-24h', 'local-24h'] }),
     loading: slot(false),
@@ -595,16 +608,10 @@ const guestDefaultsHarness = () => {
   const savePreference = bindLifted(
     liftConstArrow(guestConfiguration, 'handleUpdateDefaultGuestPref'),
     {
-      authMode: 'authenticated',
-      setUpdatingDefaultPref: () => undefined,
       fetch,
       ApiService: { getJsonFetchOptions: (body, options) => ({ body, ...options }) },
       assertOk,
-      setDefaultGuestPreferences: state.preferences.set,
-      ...replyBindings,
-      notifyError: () => undefined,
-      t: (key) => key,
-      preferenceLabels: {}
+      ...replyBindings
     }
   );
   const saveClock = bindLifted(liftConstArrow(guestConfiguration, 'updateDefaultTimeFormat'), {
@@ -617,15 +624,13 @@ const guestDefaultsHarness = () => {
   const saveAllowedFormats = bindLifted(
     liftConstArrow(guestConfiguration, 'handleAllowedFormatsChange'),
     {
-      authMode: 'authenticated',
-      setUpdatingAllowedFormats: () => undefined,
+      attempt: bindLifted(liftConstArrow(guestConfiguration, 'attempt'), {}),
       fetch,
       ApiService: { getJsonFetchOptions: (body, options) => ({ body, ...options }) },
       assertOk,
       getCurrentDefaultFormat: () => 'server-24h',
       updateDefaultTimeFormat: saveClock,
       ...replyBindings,
-      notifyError: () => undefined,
       t: (key) => key
     }
   );
@@ -637,15 +642,9 @@ const guestDefaultsHarness = () => {
     liftHookCallback(guestConfiguration, 'useCallback', 'allowedTimeFormats: data.formats'),
     replyBindings
   );
-  /** The card's toggle handler, rendered with the current loading flag. */
-  const toggle = (key, value) =>
-    bindLifted(liftConstArrow(appearanceCard, 'handlePrefToggleChange'), {
-      loadingDefaultPrefs: state.loading.value,
-      onUpdateDefaultPref: (...args) => toggled.push(args)
-    })(key, value);
   /** Each guest-default control's own `disabled` expression, rendered with the current flags. */
   const disabledControls = () => {
-    const sourceFile = parseSource(appearanceCard, typescript.ScriptKind.TSX);
+    const sourceFile = parseSource(guestConfiguration, typescript.ScriptKind.TSX);
     return collectNodes(
       sourceFile,
       (node) =>
@@ -654,8 +653,7 @@ const guestDefaultsHarness = () => {
         node.initializer.expression.getText(sourceFile).includes('loadingDefaultPrefs')
     ).map((node) =>
       bindLifted(`() => (${node.initializer.expression.getText(sourceFile)})`, {
-        loadingDefaultPrefs: state.loading.value,
-        updatingAllowedFormats: false
+        loadingDefaultPrefs: state.loading.value
       })()
     );
   };
@@ -682,14 +680,12 @@ const guestDefaultsHarness = () => {
   return {
     state,
     loadingSteps,
-    toggled,
     load,
     savePreference,
     saveClock,
     saveAllowedFormats,
     push,
     pushAllowedFormats,
-    toggle,
     disabledControls,
     answerRead,
     answerWrite,
@@ -702,8 +698,6 @@ test('guest defaults: the controls wait for the first read only', async () => {
   void card.load();
   await settle();
   assert.deepEqual(card.disabledControls(), [true, true, true, true], 'four controls held');
-  card.toggle('sharpCorners', 'on');
-  assert.deepEqual(card.toggled, [], 'a toggle before the first answer is ignored');
   await card.answerRead(storedDefaults());
   assert.equal(card.state.loading.value, false);
   assert.deepEqual(card.disabledControls(), [false, false, false, false]);
@@ -715,8 +709,6 @@ test('guest defaults: a reconnect reload keeps the controls usable', async () =>
   void card.load();
   await settle();
   assert.deepEqual(card.disabledControls(), [false, false, false, false]);
-  card.toggle('sharpCorners', 'on');
-  assert.deepEqual(card.toggled, [['sharpCorners', true]], 'the click reaches the save');
   await card.answerRead(storedDefaults());
   assert.ok(!card.loadingSteps.includes(true), 'the reload never raises the loading flag');
   assert.equal(card.state.loading.value, false);
@@ -829,6 +821,9 @@ test('guest defaults: an allowed formats save with no push shows the saved forma
 
 const userTab = 'src/components/features/user/UserTab.tsx';
 
+/** The guest session length the Users screen holds before a duration save or push. */
+const loadedDuration = { durationHours: 6, source: 'ui', canEdit: true, envVarValue: 6 };
+
 /**
  * One guest setting on the Users screen: its shipped save, the ApiService call that save waits on,
  * the state setter both write, and the text only its push handler holds.
@@ -837,20 +832,21 @@ const userTabGuestSettings = [
   {
     save: 'handleUpdateDuration',
     call: 'setGuestSessionDuration',
-    setter: 'setGuestDurationHours',
+    setter: 'setGuestDuration',
     pushText: 'data.durationHours',
+    initial: loadedDuration,
     input: 12,
-    reply: { durationHours: 12 },
-    saved: 12,
+    reply: { ...loadedDuration, durationHours: 12 },
+    saved: { ...loadedDuration, durationHours: 12 },
     push: { durationHours: 24 },
-    pushed: 24
+    pushed: { ...loadedDuration, durationHours: 24 }
   },
   {
     save: 'handleToggleGuestLock',
     call: 'setGuestConfigLock',
     setter: 'setGuestModeLocked',
     pushText: 'data.isLocked',
-    input: 'locked',
+    input: true,
     reply: undefined,
     saved: true,
     push: { isLocked: false },
@@ -895,30 +891,25 @@ const userTabGuestSettings = [
 const userTabGuestHarness = (setting) => {
   const call = deferred();
   const values = [];
-  const errors = [];
   const guestDefaultPushesRef = {
     current: { duration: 0, guestLock: 0, theme: 0, refreshRate: 0, refreshRateLock: 0 }
   };
-  const record = (value) => values.push(value);
+  const shown = slot(setting.initial);
+  const record = (next) => {
+    shown.set(next);
+    values.push(shown.value);
+  };
   const save = bindLifted(liftConstArrow(userTab, setting.save), {
-    setUpdatingDuration: () => undefined,
-    setUpdatingGuestLock: () => undefined,
-    setUpdatingGuestTheme: () => undefined,
-    setUpdatingGuestRefreshRate: () => undefined,
-    setUpdatingGuestRefreshRateLock: () => undefined,
     ApiService: { [setting.call]: () => call.promise },
-    [setting.setter]: record,
-    guestModeLocked: false,
-    guestDefaultPushesRef,
-    showToast: () => undefined,
-    notifyError: (_message, error) => errors.push(error),
-    t: (key) => key
-  });
-  const push = bindLifted(liftHookCallback(userTab, 'useCallback', setting.pushText), {
     [setting.setter]: record,
     guestDefaultPushesRef
   });
-  return { call, values, errors, save, push };
+  const push = bindLifted(liftHookCallback(userTab, 'useCallback', setting.pushText), {
+    [setting.setter]: record,
+    guestDefaultPushesRef,
+    loadGuestDefaults: async () => undefined
+  });
+  return { call, values, save, push };
 };
 
 for (const setting of userTabGuestSettings) {
@@ -929,8 +920,7 @@ for (const setting of userTabGuestSettings) {
     screen.push(setting.push);
     screen.call.resolve(setting.reply);
     await saving;
-    assert.deepEqual(screen.errors, []);
-    assert.equal(screen.values.at(-1), setting.pushed, 'the pushed value stays');
+    assert.deepEqual(screen.values.at(-1), setting.pushed, 'the pushed value stays');
   });
 
   test(`users screen: ${setting.save} with no push shows the saved value`, async () => {
@@ -939,22 +929,29 @@ for (const setting of userTabGuestSettings) {
     await settle();
     screen.call.resolve(setting.reply);
     await saving;
-    assert.deepEqual(screen.errors, []);
-    assert.equal(screen.values.at(-1), setting.saved);
+    assert.deepEqual(screen.values.at(-1), setting.saved);
+  });
+
+  test(`users screen: ${setting.save} rejects when the server refuses, so Save can name it`, async () => {
+    const screen = userTabGuestHarness(setting);
+    const saving = screen.save(setting.input);
+    screen.call.reject(new Error('server said no'));
+    await assert.rejects(saving, /server said no/);
+    assert.deepEqual(screen.values, [], 'a refused value must not show as saved');
   });
 }
 
 test('users screen: a push received while the guest defaults load is open wins over the load', async () => {
   const answers = deferred();
-  const shown = {};
+  const shown = { duration: loadedDuration };
   const guestDefaultPushesRef = {
     current: { duration: 0, guestLock: 0, theme: 0, refreshRate: 0, refreshRateLock: 0 }
   };
   const into = (name) => (value) => {
-    shown[name] = value;
+    shown[name] = typeof value === 'function' ? value(shown[name]) : value;
   };
   const setters = {
-    setGuestDurationHours: into('duration'),
+    setGuestDuration: into('duration'),
     setGuestModeLocked: into('guestLock'),
     setDefaultGuestTheme: into('theme'),
     setDefaultGuestRefreshRate: into('refreshRate'),
@@ -966,11 +963,13 @@ test('users screen: a push received while the guest defaults load is open wins o
     guestDefaultPushesRef,
     setGuestDefaultsError: () => undefined,
     setGuestDefaultsLoaded: () => undefined,
+    setLoadingGuestDefaults: () => undefined,
     setAvailableThemes: () => undefined,
     getErrorMessage: (error) => String(error),
     themeService: { loadThemes: async () => ({ themes: [], loadError: null }) },
     ApiService: {
-      getGuestConfig: () => answers.promise.then(() => ({ durationHours: 6, isLocked: true })),
+      getGuestConfig: () => answers.promise.then(() => ({ isLocked: true })),
+      getGuestSessionDuration: () => answers.promise.then(() => loadedDuration),
       getGuestThemePreference: () => answers.promise.then(() => ({ themeId: 'light-default' })),
       getDefaultGuestRefreshRate: () =>
         answers.promise.then(() => ({ refreshRate: 'STANDARD', locked: true }))
@@ -979,7 +978,8 @@ test('users screen: a push received while the guest defaults load is open wins o
   const push = (setting) =>
     bindLifted(liftHookCallback(userTab, 'useCallback', setting.pushText), {
       [setting.setter]: setters[setting.setter],
-      guestDefaultPushesRef
+      guestDefaultPushesRef,
+      loadGuestDefaults: async () => undefined
     });
   const [duration, , theme] = userTabGuestSettings;
 
@@ -991,12 +991,281 @@ test('users screen: a push received while the guest defaults load is open wins o
   answers.resolve();
   await loading;
 
-  assert.equal(shown.duration, duration.pushed, 'the pushed duration stays');
+  assert.deepEqual(shown.duration, duration.pushed, 'the pushed duration stays');
   assert.equal(shown.theme, theme.pushed, 'the pushed theme stays');
   // Settings with no push take the values the load read.
   assert.equal(shown.guestLock, true);
   assert.equal(shown.refreshRate, 'STANDARD');
   assert.equal(shown.refreshRateLock, true);
+});
+
+const sessionPreferences = 'src/components/features/user/SessionPreferences.tsx';
+
+/**
+ * One session's preferences pane: the shipped `savePreference` and `reloadPrefs` bound to the
+ * pane's refs and a server that holds one preferences object. Every request stays open until the
+ * test answers it, oldest first.
+ */
+const preferencesPaneHarness = () => {
+  const stored = declaredValue('src/types/userPreferences.ts', 'DEFAULT_PREFERENCES');
+  const server = { current: { ...stored } };
+  const requests = [];
+  const errors = [];
+  const shown = slot({ ...stored });
+  const request = (method, body) => {
+    const answer = deferred();
+    requests.push({ method, body, answer, open: true });
+    return answer.promise;
+  };
+  let reload;
+  const bindings = {
+    session: { id: 'session-1', isCurrentSession: false },
+    writeChainRef: { current: Promise.resolve() },
+    confirmedRef: { current: { ...stored } },
+    pendingRef: { current: new Map() },
+    pendingTotalRef: { current: 0 },
+    clickCountRef: { current: 0 },
+    reloadRequestRef: { current: 0 },
+    reloadOwedRef: { current: false },
+    setPrefs: shown.set,
+    setPrefsLoaded: () => undefined,
+    setLoadError: () => undefined,
+    setPrefsRetrying: () => undefined,
+    setSavingField: () => undefined,
+    getErrorMessage: (error) => error.message,
+    ApiService: {
+      getSessionPreferences: () => request('GET'),
+      saveSessionPreferences: (_id, body) => request('PUT', body)
+    },
+    notifyError: (_message, error) => errors.push(error),
+    t: (key) => key,
+    reloadPrefs: () => reload()
+  };
+  reload = bindLifted(liftConstArrow(sessionPreferences, 'reloadPrefs'), bindings);
+  // Each row's write runs in the shipped `writePreference`, the step the pane's Save runs per row;
+  // its failure is reported the way Save reports it.
+  bindings.writePreference = bindLifted(
+    liftConstArrow(sessionPreferences, 'writePreference'),
+    bindings
+  );
+  const save = (key, value) =>
+    void bindings
+      .writePreference(key, value)
+      .catch((error) => bindings.notifyError('activeSessions.errors.savePreferences', error));
+  /** Takes the oldest open request off the wire. */
+  const nextOpen = () => {
+    const next = requests.find((entry) => entry.open);
+    next.open = false;
+    return next;
+  };
+  /** Answers the oldest open request: a read with what the server holds, a write by storing it. */
+  const respond = async () => {
+    const next = nextOpen();
+    if (next.method === 'PUT') server.current = next.body;
+    next.answer.resolve(next.method === 'GET' ? { ...server.current } : undefined);
+    await settle();
+  };
+  /** Fails the oldest open request. */
+  const fail = async () => {
+    nextOpen().answer.reject(new Error('request failed'));
+    await settle();
+  };
+  const methods = () => requests.map((entry) => entry.method);
+  return { server, errors, shown, save, reload, respond, fail, methods };
+};
+
+test('session preferences: a second row change waits for the first write to finish, and both are stored', async () => {
+  const pane = preferencesPaneHarness();
+  pane.save('sharpCorners', true);
+  pane.save('disableTooltips', true);
+  await settle();
+  assert.deepEqual(pane.methods(), ['GET'], 'one write runs at a time');
+  await pane.respond();
+  assert.deepEqual(pane.methods(), ['GET', 'PUT']);
+  await pane.respond();
+  assert.deepEqual(pane.methods(), ['GET', 'PUT', 'GET'], 'the second read follows the first PUT');
+  await pane.respond();
+  await pane.respond();
+  assert.equal(pane.server.current.sharpCorners, true);
+  assert.equal(pane.server.current.disableTooltips, true);
+  assert.equal(pane.shown.value.sharpCorners, true);
+  assert.equal(pane.shown.value.disableTooltips, true);
+});
+
+test('session preferences: a failed write leaves the write queued behind it to run', async () => {
+  const pane = preferencesPaneHarness();
+  pane.save('sharpCorners', true);
+  pane.save('disableTooltips', true);
+  await settle();
+  await pane.respond();
+  await pane.fail();
+  assert.deepEqual(pane.methods(), ['GET', 'PUT', 'GET'], 'the queued write still starts');
+  await pane.respond();
+  await pane.respond();
+  assert.equal(pane.errors.length, 1);
+  assert.equal(pane.server.current.sharpCorners, false);
+  assert.equal(pane.server.current.disableTooltips, true);
+  assert.equal(pane.shown.value.sharpCorners, false, 'the failed row shows what the server holds');
+  assert.equal(pane.shown.value.disableTooltips, true);
+});
+
+/** Theme picked twice while the tooltips row saves; the first theme write fails. */
+const changeThemeTwiceWhileAnotherRowSaves = async (pane) => {
+  pane.save('disableTooltips', true);
+  pane.save('selectedTheme', 'light-a');
+  pane.save('selectedTheme', 'light-b');
+  await settle();
+  await pane.respond();
+  await pane.respond();
+  await pane.respond();
+  await pane.fail();
+};
+
+test('session preferences: a row changed twice whose first write fails ends on the second value', async () => {
+  const pane = preferencesPaneHarness();
+  await changeThemeTwiceWhileAnotherRowSaves(pane);
+  assert.equal(pane.shown.value.selectedTheme, 'light-b', 'the queued value stays on screen');
+  await pane.respond();
+  await pane.respond();
+  assert.equal(pane.server.current.selectedTheme, 'light-b');
+  assert.equal(pane.shown.value.selectedTheme, 'light-b');
+});
+
+test('session preferences: a row changed twice whose writes both fail ends on the last stored value', async () => {
+  const pane = preferencesPaneHarness();
+  await changeThemeTwiceWhileAnotherRowSaves(pane);
+  await pane.respond();
+  await pane.fail();
+  assert.equal(pane.server.current.selectedTheme, null);
+  assert.equal(
+    pane.shown.value.selectedTheme,
+    null,
+    'the row never shows a value the server lacks'
+  );
+  assert.equal(pane.shown.value.disableTooltips, true);
+});
+
+test('session preferences: a reload read before a click never flips the clicked row back', async () => {
+  const pane = preferencesPaneHarness();
+  void pane.reload();
+  await settle();
+  pane.save('sharpCorners', true);
+  await settle();
+  assert.deepEqual(pane.methods(), ['GET', 'GET']);
+  // The reload's read was taken before the click, so it still holds the old value.
+  await pane.respond();
+  assert.equal(pane.shown.value.sharpCorners, true, 'the switch keeps the clicked value');
+  await pane.respond();
+  await pane.respond();
+  assert.equal(pane.shown.value.sharpCorners, true);
+  assert.deepEqual(pane.methods(), ['GET', 'GET', 'PUT', 'GET'], 'one more read after the write');
+  await pane.respond();
+  assert.equal(pane.shown.value.sharpCorners, true);
+});
+
+/**
+ * The Users screen's pick check, run once against the lists as one render sees them. The pick the
+ * screen holds is `pick.value`; the stored copy is in `localStorage`, as on the page.
+ */
+const pickCheckHarness = async (stored) => {
+  globalThis.localStorage = new MemoryStorage();
+  const { storage } = await import(await compileToUrl('../src/utils/storage.ts'));
+  const PICK_STORAGE_KEY = declaredValue(userTab, 'PICK_STORAGE_KEY');
+  storage.setJSON(PICK_STORAGE_KEY, stored);
+  const pick = slot(stored);
+  const sourceFile = parseSource(userTab);
+  /** A `const` of the screen whose initializer reads only `bindings`, evaluated. */
+  const derived = (name, bindings) =>
+    bindLifted(
+      `() => (${findSoleNode(
+        sourceFile,
+        `${name} declaration`,
+        (node) => typescript.isVariableDeclaration(node) && node.name.getText(sourceFile) === name
+      ).initializer.getText(sourceFile)})`,
+      bindings
+    )();
+  /**
+   * @param {{ loaded: boolean, loading: boolean, loadError: string | null }} sessionsState
+   * @param {{ loaded: boolean, loading: boolean }} accountsState
+   * @param {{ id: string, accountId: string | null }[]} sessions
+   * @param {{ id: string }[]} accounts
+   */
+  const check = (sessionsState, accountsState, sessions, accounts) => {
+    const activeSessionsOf = bindLifted(liftConstArrow(userTab, 'activeSessionsOf'), { sessions });
+    bindLifted(liftHookCallback(userTab, 'useEffect', 'fallBack'), {
+      pick: pick.value,
+      setPick: pick.set,
+      storage,
+      PICK_STORAGE_KEY,
+      setPhoneView: () => undefined,
+      signInVisible: true,
+      sessionsReady: derived('sessionsReady', { sessionsState }),
+      accountsReady: derived('accountsReady', { accountsState }),
+      sessions,
+      historySessions: [],
+      accounts,
+      activeSessionsOf,
+      sessionsState
+    })();
+    // What the detail pane draws for the pick: the session it shows, or the list it waits on.
+    return bindLifted(
+      liftConstArrow(userTab, 'detailContent'),
+      {
+        shownPick: pick.value,
+        signInVisible: true,
+        findSession: bindLifted(liftConstArrow(userTab, 'findSession'), {
+          sessions,
+          historySessions: []
+        }),
+        sessionPane: (session) => `session ${session.id}`,
+        waitingPane: (list) => `waiting for ${list}`,
+        accounts,
+        accountActions: {},
+        AccountDetail: 'AccountDetail',
+        React: { createElement: (_type, props) => `account ${props.account.id}` }
+      },
+      { jsx: typescript.JsxEmit.React }
+    )();
+  };
+  const storedPick = () => storage.getJSON(PICK_STORAGE_KEY);
+  return { pick, check, storedPick };
+};
+
+const sessionsLoading = { loaded: false, loading: true, loadError: null };
+const sessionsFailed = { loaded: false, loading: false, loadError: 'sessions unavailable' };
+const sessionsLoaded = { loaded: true, loading: false, loadError: null };
+const accountsLoaded = { loaded: true, loading: false };
+
+test('users screen: a stored session pick is kept while the session list loads or fails', async () => {
+  const stored = { kind: 'session', id: 'session-s' };
+  const screen = await pickCheckHarness(stored);
+  screen.check(sessionsLoading, accountsLoaded, [], []);
+  assert.deepEqual(screen.pick.value, stored);
+  assert.deepEqual(screen.storedPick(), stored);
+  screen.check(sessionsFailed, accountsLoaded, [], []);
+  assert.deepEqual(screen.pick.value, stored);
+  assert.deepEqual(screen.storedPick(), stored);
+  // Once a load answers without the session, the pick falls back.
+  screen.check(sessionsLoaded, accountsLoaded, [], []);
+  assert.equal(screen.pick.value, null);
+  assert.equal(screen.storedPick(), null);
+});
+
+test('users screen: an account pick keeps its session while sessions load or fail, then opens it', async () => {
+  const stored = { kind: 'account', id: 'account-a', sessionId: 'session-s' };
+  const accounts = [{ id: 'account-a', username: 'alice' }];
+  const screen = await pickCheckHarness(stored);
+  assert.equal(screen.check(sessionsLoading, accountsLoaded, [], accounts), 'waiting for sessions');
+  assert.deepEqual(screen.storedPick(), stored);
+  assert.equal(screen.check(sessionsFailed, accountsLoaded, [], accounts), 'waiting for sessions');
+  assert.deepEqual(screen.storedPick(), stored);
+  const sessions = [{ id: 'session-s', accountId: 'account-a' }];
+  assert.equal(
+    screen.check(sessionsLoaded, accountsLoaded, sessions, accounts),
+    'session session-s'
+  );
+  assert.deepEqual(screen.pick.value, stored);
+  assert.deepEqual(screen.storedPick(), stored);
 });
 
 test('scheduled prefill schedule: an edit made while Save runs keeps the dialog open and dirty', async () => {

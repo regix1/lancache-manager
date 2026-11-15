@@ -149,6 +149,10 @@ public static class SignalREvents
     public const string ActivityUpdated = "ActivityUpdated";
 
     // System / Config
+    /// <summary>
+    /// Payload: { refreshRate }, the install-wide rate an admin just saved.
+    /// </summary>
+    public const string SystemRefreshRateChanged = "SystemRefreshRateChanged";
     public const string DefaultGuestRefreshRateChanged = "DefaultGuestRefreshRateChanged";
     public const string AllowedTimeFormatsChanged = "AllowedTimeFormatsChanged";
     public const string DefaultGuestPreferencesChanged = "DefaultGuestPreferencesChanged";

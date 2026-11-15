@@ -116,6 +116,7 @@ const loadOrphanedFetch = () => {
       setOrphanedLoading: (value) => writes.push(['loading', value]),
       setOrphanedGroups: (value) => writes.push(['groups', value]),
       setOrphanedLoadError: (value) => writes.push(['error', value]),
+      setOrphanedRetrying: () => undefined,
       getErrorMessage: (error) => error.message,
       isAbortError: (error) => error instanceof Error && error.name === 'AbortError',
       ApiService: {

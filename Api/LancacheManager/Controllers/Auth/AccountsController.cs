@@ -2,6 +2,8 @@ using FluentValidation;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Filters;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -22,9 +24,10 @@ namespace LancacheManager.Controllers;
 /// account row rather than against the claims on their cookie. The row is the current answer; a claim
 /// is a copy taken when the session was minted.
 ///
-/// Every account holder that is not the owner sees and reaches every ordinary account but does not
-/// see or reach the owner. This is enforced by the query every action loads its target through, so
-/// an account a caller cannot see is also an account they cannot name by id.
+/// Every account holder that is not the owner sees every ordinary account but does not see or reach
+/// the owner. This is enforced by the query every action loads its target through, so an account a
+/// caller cannot see is also an account they cannot name by id. A user-role account changes only its
+/// own row; edit, disable and delete of anyone else's answer 403.
 ///
 /// The account that owns the installation cannot be deleted, disabled or edited, by anybody
 /// including itself. The wipe action is the exception: only that account can run it, and it
@@ -43,10 +46,9 @@ public class AccountsController : ControllerBase
     private readonly SessionService _sessionService;
     private readonly IdentityAuditService _identityAuditService;
     private readonly AccountLockout _accountLockout;
-    private readonly AccountClaimWindow _claimWindow;
     private readonly ISignalRNotificationService _notifications;
     private readonly ILogger<AccountsController> _logger;
-    private readonly AccessService? _accessService;
+    private readonly AccessService _accessService;
 
     public AccountsController(
         IDbContextFactory<AppDbContext> dbContextFactory,
@@ -54,17 +56,15 @@ public class AccountsController : ControllerBase
         SessionService sessionService,
         IdentityAuditService identityAuditService,
         AccountLockout accountLockout,
-        AccountClaimWindow claimWindow,
         ISignalRNotificationService notifications,
         ILogger<AccountsController> logger,
-        AccessService? accessService = null)
+        AccessService accessService)
     {
         _dbContextFactory = dbContextFactory;
         _passwordHasher = passwordHasher;
         _sessionService = sessionService;
         _identityAuditService = identityAuditService;
         _accountLockout = accountLockout;
-        _claimWindow = claimWindow;
         _notifications = notifications;
         _logger = logger;
         _accessService = accessService;
@@ -123,6 +123,17 @@ public class AccountsController : ControllerBase
     [ProducesResponseType(typeof(AccountResponse), StatusCodes.Status201Created)]
     public async Task<ActionResult<AccountResponse>> CreateAccountAsync([FromBody] CreateAccountRequest request)
     {
+        // With sign-in off every browser shares one session and no account can be signed in to. An
+        // account made then would also stop that session changing access, since it is not the owner.
+        if (!_accessService.IsAuthenticationEnabled())
+        {
+            return Conflict(new AccountRefusalResponse
+            {
+                StageKey = AccountRefusalResponse.SignInOff,
+                Error = "Sign-in is turned off, which keeps no accounts. Turn sign-in on before creating an account"
+            });
+        }
+
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var session = HttpContext.GetUserSession();
         var caller = await LoadCallerAccountAsync(context, session);
@@ -204,6 +215,7 @@ public class AccountsController : ControllerBase
     /// Throttled because it takes a password.
     /// </remarks>
     [HttpPut("{id:guid}")]
+    [HandlerChecksCaller]
     [EnableRateLimiting("accounts")]
     [ProducesResponseType(typeof(AccountResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<AccountResponse>> EditAccountAsync(Guid id, [FromBody] EditAccountRequest request)
@@ -221,6 +233,11 @@ public class AccountsController : ControllerBase
         if (account.IsMainAdmin)
         {
             return MainAdminRefused();
+        }
+
+        if (caller is { Role: SessionType.User } && account.Id != caller.Id)
+        {
+            return OtherAccountRefused();
         }
 
         var credentials = new AccountCredentialsRequest
@@ -268,7 +285,7 @@ public class AccountsController : ControllerBase
 
         if (request.Password != null)
         {
-            await _sessionService.RevokeAccountSessionsAsync(account.Id);
+            await _sessionService.RevokeAccountSessionsAsync(account.Id, HttpContext.RequestServices);
 
             // Somebody who locked themselves out is the reason an administrator sets a password for
             // them, and the lock is a separate term from the password in the sign-in refusal, so the
@@ -300,6 +317,7 @@ public class AccountsController : ControllerBase
     /// request either way, but leaving the row live would leave it counted and shown as signed in.
     /// </remarks>
     [HttpPut("{id:guid}/disabled")]
+    [HandlerChecksCaller]
     [ProducesResponseType(typeof(AccountResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<AccountResponse>> SetDisabledAsync(Guid id, [FromBody] SetAccountDisabledRequest request)
     {
@@ -323,12 +341,17 @@ public class AccountsController : ControllerBase
             return SelfRefused();
         }
 
+        if (caller is { Role: SessionType.User })
+        {
+            return OtherAccountRefused();
+        }
+
         account.IsDisabled = request.Disabled;
         await context.SaveChangesAsync();
 
         if (request.Disabled)
         {
-            await _sessionService.RevokeAccountSessionsAsync(account.Id);
+            await _sessionService.RevokeAccountSessionsAsync(account.Id, HttpContext.RequestServices);
         }
 
         await RecordAsync(
@@ -354,6 +377,7 @@ public class AccountsController : ControllerBase
     /// stops the rows sitting in the session list as live.
     /// </remarks>
     [HttpDelete("{id:guid}")]
+    [HandlerChecksCaller]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> DeleteAccountAsync(Guid id)
     {
@@ -377,17 +401,29 @@ public class AccountsController : ControllerBase
             return SelfRefused();
         }
 
-        if (_accessService?.IsAllowedByEnvironment(account.Id) == true)
+        if (caller is { Role: SessionType.User })
+        {
+            return OtherAccountRefused();
+        }
+
+        if (_accessService.IsAllowedByEnvironment(account.Id))
         {
             return EnvironmentRefused();
         }
 
+        // Before the row goes, as the account reset does, so a clear that fails deletes nothing and can
+        // be retried; a game login saved by a deleted account would keep signing prefill in as them.
+        var ids = new HashSet<Guid> { account.Id };
+        await HttpContext.RequestServices.GetRequiredService<SteamAuthStorageService>().ClearAccountLoginsAsync(ids, CancellationToken.None);
+        await HttpContext.RequestServices.GetRequiredService<EpicAuthStorageService>().ClearAccountLoginsAsync(ids, CancellationToken.None);
+        await HttpContext.RequestServices.GetRequiredService<XboxAuthStorageService>().ClearAccountLoginsAsync(ids, CancellationToken.None);
+
         context.UserAccounts.Remove(account);
         await context.SaveChangesAsync();
         // After the delete is saved, so a failed save leaves the account its sign-in links.
-        _accessService?.ForgetAccounts([account.Id]);
+        _accessService.ForgetAccounts([account.Id]);
 
-        await _sessionService.RevokeAccountSessionsAsync(account.Id);
+        await _sessionService.RevokeAccountSessionsAsync(account.Id, HttpContext.RequestServices);
 
         await RecordAsync(IdentityAuditEvent.AccountDeleted, caller, session, account.Id);
 
@@ -408,12 +444,15 @@ public class AccountsController : ControllerBase
     /// a refusal that talks about an ordinary account role names an action the person did not take.
     /// A missing account row - API key only, or authentication off - is not treated as ownership.
     ///
-    /// Each removed row is recorded as <see cref="IdentityAuditEvent.AccountDeleted"/> while the
-    /// caller's session still exists, then every session is deleted rather than revoked one account
-    /// at a time. The claim window is opened again so first-admin creation does not wait for a
-    /// restart on a process that has already been up longer than the hour.
+    /// The delete is <see cref="AccessService.DeleteEveryAccountAsync"/>, the one the switch to
+    /// unauthenticated access runs: each removed row is recorded as
+    /// <see cref="IdentityAuditEvent.AccountDeleted"/> in the delete's own save, the saved game logins
+    /// go with the accounts, and every session is deleted rather than revoked one account at a time.
+    /// The claim window is opened again so first-admin creation does not wait for a restart on a
+    /// process that has already been up longer than the hour.
     /// </remarks>
     [HttpPost("wipe")]
+    [HandlerChecksCaller]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> WipeAccountsAsync()
     {
@@ -432,32 +471,15 @@ public class AccountsController : ControllerBase
                 });
         }
 
-        var accounts = await context.UserAccounts.ToListAsync();
-        if (accounts.Any(account => _accessService?.IsAllowedByEnvironment(account.Id) == true))
+        var accountIds = await context.UserAccounts.Select(account => account.Id).ToListAsync();
+        if (accountIds.Any(_accessService.IsAllowedByEnvironment))
         {
             return EnvironmentRefused();
         }
 
-        context.UserAccounts.RemoveRange(accounts);
-        await context.SaveChangesAsync();
-        // The table is already empty. Open the hour before audit, session-clear or the sign-in link
-        // removal can throw, or first-admin stays refused until a restart.
-        _claimWindow.Reopen();
-        // After the delete is saved, so a failed save leaves every account its sign-in links.
-        _accessService?.ForgetAccounts(accounts.Select(account => account.Id));
-
-        foreach (var removed in accounts)
-        {
-            await RecordAsync(IdentityAuditEvent.AccountDeleted, caller, session, removed.Id);
-        }
-
-        await _sessionService.ClearAllSessionsAsync();
+        await _accessService.DeleteEveryAccountAsync(caller.Id, session?.Id, HttpContext.RequestServices);
 
         _logger.LogWarning("Every account was deleted, including the one that owns the installation");
-
-        // One broadcast for the whole table rather than one per removed row: the list is reloaded
-        // whole, and the rows all went in a single write.
-        await _notifications.NotifyAllAsync(SignalREvents.AccountsChanged);
 
         return Ok(MessageResponse.Ok("Accounts deleted"));
     }
@@ -544,6 +566,20 @@ public class AccountsController : ControllerBase
             {
                 StageKey = AccountRefusalResponse.SelfProtected,
                 Error = "You cannot delete or disable the account you are signed in as"
+            });
+    }
+
+    /// <summary>
+    /// Refuses a user-role account's edit, disable or delete of an account that is not its own.
+    /// </summary>
+    private ObjectResult OtherAccountRefused()
+    {
+        return StatusCode(
+            StatusCodes.Status403Forbidden,
+            new AccountRefusalResponse
+            {
+                StageKey = AccountRefusalResponse.OwnAccountOnly,
+                Error = "You can change only your own account"
             });
     }
 

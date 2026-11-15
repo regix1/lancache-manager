@@ -52,10 +52,13 @@ export interface UserPreferences {
   refreshRate?: string | null;
   refreshRateLocked?: boolean | null;
   allowedTimeFormats?: string[] | null;
-  // Per-session prefill thread limits. Steam and Epic are tracked separately
-  // because each service enforces its own limit. null = use the system default.
+  // Per-session prefill thread limits, one per service, because each service
+  // enforces its own limit. null = use the system default.
   steamMaxThreadCount?: number | null;
   epicMaxThreadCount?: number | null;
+  xboxMaxThreadCount?: number | null;
+  battleNetMaxThreadCount?: number | null;
+  riotMaxThreadCount?: number | null;
 }
 
 /**

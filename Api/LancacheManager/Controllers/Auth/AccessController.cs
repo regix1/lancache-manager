@@ -1,3 +1,4 @@
+using LancacheManager.Core.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -57,7 +58,12 @@ public sealed class AccessController : ControllerBase
         var recovery = request.Recovery
             && _accessService.AllowsKeyRecovery()
             && _claimWindow.IsRecoveryOpen;
+        // With sign-in already off every browser holds full admin, so the main-admin check guards nothing
+        // for the switch to unauthenticated access, and an account left from an earlier mode with no main
+        // admin would otherwise block the wipe for good. The confirm with the count still gates the delete.
+        var wipeWithSignInOff = request.Mode == AccountMode.Unauthenticated && !_accessService.IsAuthenticationEnabled();
         if (!recovery
+            && !wipeWithSignInOff
             && await _accessService.RequiresMainAdminAsync()
             && !await _accessService.IsMainAdminAsync(session))
         {
@@ -70,12 +76,53 @@ public sealed class AccessController : ControllerBase
             return Conflict(ApiResponse.Error("Set local credentials for the main administrator before selecting password sign-in"));
         }
 
+        // Unauthenticated access keeps no accounts, so the switch deletes them first, once the person has
+        // confirmed it. Done before the mode is saved: a delete that fails leaves sign-in on, and a
+        // request the save would refuse deletes nothing. A save that fails after the delete leaves sign-in
+        // on with no account, the first-admin state; the same Confirm finishes the switch, since with no
+        // account left it skips the confirm and the delete.
+        if (request.Mode == AccountMode.Unauthenticated)
+        {
+            _accessService.ValidateSetupRequest(request);
+            // An account an environment login allows is deleted with the rest: with sign-in off nobody can
+            // sign in to it, and that login's next sign-in creates it again once sign-in is back on.
+            var accountIds = await _accessService.AccountIdsAsync();
+            // The confirm names the count it showed. A request with no count, or with a different count
+            // than the table holds now, asks again with the current number, so the person never confirms
+            // a count other than the one deleted.
+            if (accountIds.Count > 0 && request.ConfirmedAccountCount != accountIds.Count)
+            {
+                return Conflict(new AccountRefusalResponse
+                {
+                    StageKey = AccountRefusalResponse.WipeConfirmRequired,
+                    Error = $"Turning sign-in off deletes all {accountIds.Count} accounts. Confirm to continue",
+                    Context = new Dictionary<string, object?> { ["count"] = accountIds.Count }
+                });
+            }
+            if (accountIds.Count > 0)
+            {
+                await _accessService.DeleteEveryAccountAsync(session?.AccountId, session?.Id, HttpContext.RequestServices);
+            }
+        }
+
         var response = _accessService.Apply(request, session?.AccountId);
         if (!response.RequiresLoginTest
             && _accessService.IsAuthenticationEnabled()
-            && _sessionService is not null)
+            && _sessionService is not null
+            && await _sessionService.RetireSharedAdminSessionAsync() is { } retired)
         {
-            await _sessionService.RetireSharedAdminSessionAsync();
+            // Every browser now has to sign in under a session of its own, so no page can reach the prefill the
+            // shared session started. A stop that fails is logged by the stop and stays listed for an admin.
+            await PrefillDaemonServiceBase.TerminateGuestSessionsAsync(PrefillDaemonServiceBase.ResolveAllDaemons(HttpContext.RequestServices),
+                retired, "Shared session retired", PrefillDaemonServiceBase.AccessEndedReasonKey, retired.ToString());
+        }
+        // Sign-in back on with no account: the first-admin wizard comes next, and the hour it may create the
+        // account in has usually passed since the start or since the accounts were deleted.
+        if (!response.RequiresLoginTest
+            && _accessService.IsAuthenticationEnabled()
+            && !await _accessService.RequiresMainAdminAsync())
+        {
+            _claimWindow.Reopen();
         }
         if (recovery && !response.RequiresOidcTest)
         {
@@ -146,7 +193,9 @@ public sealed class AccessController : ControllerBase
         else
         {
             var ownerSignIn = request.Owner && settings.OwnerSubject is not null;
-            if (_accessService.IsSetupRequired()
+            // With sign-in off every browser already has full admin and no account may exist.
+            if (!_accessService.IsAuthenticationEnabled()
+                || _accessService.IsSetupRequired()
                 || (!_accessService.UsesOidc() && !ownerSignIn))
             {
                 return Conflict(ApiResponse.Error("External sign-in is not available"));
@@ -165,7 +214,9 @@ public sealed class AccessController : ControllerBase
         var hostIsAddress = IPAddress.TryParse(host, out var address);
         var loopback = string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)
             || (hostIsAddress && IPAddress.IsLoopback(address!));
-        if ((!Request.IsHttps && !loopback)
+        // Google and Microsoft accept plain HTTP callbacks only on loopback, and Apple only an HTTPS
+        // domain. A custom OpenID Connect service and GitHub may run on plain HTTP on the LAN.
+        if ((settings.Kind is LoginKind.Google or LoginKind.Microsoft && !Request.IsHttps && !loopback)
             || (settings.Kind == LoginKind.Apple
                 && (!Request.IsHttps
                     || string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase)
@@ -216,8 +267,24 @@ public sealed class AccessController : ControllerBase
         properties.Items["access_revision"] = challenge.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture);
         properties.Items["access_setup"] = challenge.Setup ? "true" : "false";
         properties.Items["access_owner"] = challenge.Owner ? "true" : "false";
+        // A setup that started with sign-in off is the only sign-in that may finish while sign-in is off.
+        properties.Items["access_sign_in_off"] = _accessService.IsAuthenticationEnabled() ? "false" : "true";
         properties.Items["login_id"] = challenge.LoginId;
         return Challenge(properties, AccessService.GetScheme(settings.Kind, challenge.Setup));
+    }
+
+    /// <summary>
+    /// Completes an Apple sign-in. Apple's callback is a cross-site form post that carries no session
+    /// cookie, so its handler keeps the verified identity in the Apple cookie and redirects here; this
+    /// top-level GET carries the session cookie the browser holds now, and the sign-in ends that session.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("login/apple/complete")]
+    public async Task<IActionResult> CompleteAppleSignInAsync([FromServices] OidcEvents events)
+    {
+        var verified = await HttpContext.AuthenticateAsync(AccessService.AppleCookieScheme);
+        await HttpContext.SignOutAsync(AccessService.AppleCookieScheme);
+        return Redirect(await events.CompleteSignInAsync(verified.Succeeded ? verified.Properties : null, HttpContext));
     }
 
     [EnableRateLimiting("auth")]

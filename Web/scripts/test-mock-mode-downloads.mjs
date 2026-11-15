@@ -130,7 +130,8 @@ const runFetchEffect = ({ mockMode, apiService, options = {} }) => {
       setData: (value) => calls.setData.push(value),
       setError: (value) => calls.setError.push(value),
       setIsFetching: (value) => calls.setIsFetching.push(value),
-      setIsLoading: (value) => calls.setIsLoading.push(value)
+      setIsLoading: (value) => calls.setIsLoading.push(value),
+      setIsRequesting: () => undefined
     }
   );
   const cleanup = effect();

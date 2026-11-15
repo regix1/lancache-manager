@@ -32,6 +32,8 @@ interface DatabaseResetStatus {
 }
 
 interface AuthenticationModalProps {
+  /** False fades the sign-in card out; the host keeps it drawn until the fade has run. */
+  opened: boolean;
   onAuthComplete: () => void;
   title?: string;
   subtitle?: string;
@@ -39,6 +41,7 @@ interface AuthenticationModalProps {
 }
 
 const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
+  opened,
   onAuthComplete,
   title,
   subtitle,
@@ -321,6 +324,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   return (
     <SetupGate
       maxWidth="xl"
+      opened={opened}
       icon={<Shield className="w-5 h-5 text-primary" aria-hidden="true" />}
       title={title ?? t('modals.auth.defaultTitle')}
     >

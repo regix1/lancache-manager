@@ -352,6 +352,15 @@
   white-space: normal;
 }
 
+/* A confirm dialog's buttons share one width: they grow alike up to 12rem and stay on the right.
+   Larger dialogs that reuse the footer class keep their content-sized buttons. */
+@media (min-width: 640px) {
+  .confirmation-modal__content > .confirmation-modal__actions > button {
+    flex: 1 1 0;
+    max-width: 12rem;
+  }
+}
+
 /* What a footer is waiting on, with the dialog's only spinner. It takes the free space at the
    start of the row so the buttons stay against the right edge. */
 .confirmation-modal__status {
@@ -361,6 +370,17 @@
   gap: 0.5rem;
   color: var(--theme-text-muted);
   font-size: var(--font-size-base);
+}
+
+/* A confirm dialog draws its busy line from the start with the spinner and label unseen, so the
+   buttons beside it keep their width when it shows; only the content inside the status region
+   changes at the click. */
+.confirmation-modal__status > span[aria-hidden] {
+  display: contents;
+}
+
+.confirmation-modal__status > span[aria-hidden='true'] {
+  visibility: hidden;
 }
 
 /* A dialog whose footer stays put: the body passes `bodyFlexLayout` to Modal, and this column

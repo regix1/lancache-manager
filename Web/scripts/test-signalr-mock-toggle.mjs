@@ -156,6 +156,7 @@ const state = {
   mockMode: false,
   connections: [],
   windowListeners: new Map(),
+  documentListeners: new Map(),
   /** When set, the hub handshake waits on it so a test can flip mock mode part-way through. */
   startGate: null,
   /** When set, a handshake that gets past the gate rejects with it, as a start the server refuses. */
@@ -164,11 +165,11 @@ const state = {
 globalThis.signalRMockToggleTestState = state;
 
 // The provider reads page visibility on every render and subscribes to the auth event on the
-// window, neither of which node supplies.
+// window, neither of which node supplies. Its visibility listener is kept so a test can hide the tab.
 globalThis.document = {
   hidden: false,
-  addEventListener: () => undefined,
-  removeEventListener: () => undefined
+  addEventListener: (name, listener) => state.documentListeners.set(name, listener),
+  removeEventListener: (name) => state.documentListeners.delete(name)
 };
 globalThis.window = {
   addEventListener: (name, listener) => state.windowListeners.set(name, listener),
@@ -598,26 +599,44 @@ test('a start that a newer connection already replaced fails quietly and schedul
   assert.equal(harness.all().length, 2, 'the stale attempt schedules no retry');
 });
 
-test('a close of the live connection reads as reconnecting through the next start', async () => {
+test('a close of the live connection reads as reconnecting through the next start', async (t) => {
   const harness = mount();
   await settle();
   const first = harness.live();
   assert.equal(harness.published().connectionState, 'connected');
 
   // The server went away while the tab was hidden: the retry policy pauses then, so the client
-  // closes instead of reconnecting.
-  first.state = DISCONNECTED;
-  first.lifecycle.close();
+  // closes instead of reconnecting, and the page waits for the tab to return rather than arming its
+  // failed-start timer.
+  t.after(() => {
+    globalThis.document.hidden = false;
+  });
+  globalThis.document.hidden = true;
+  state.documentListeners.get('visibilitychange')();
+  const armed = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    if (delay === 10000) armed.push(delay);
+    return originalSetTimeout(callback, delay, ...args);
+  };
+  try {
+    first.state = DISCONNECTED;
+    first.lifecycle.close();
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
   assert.equal(harness.published().connectionState, 'reconnecting');
   assert.equal(harness.published().isConnected, false);
+  assert.equal(armed.length, 0, 'a hidden tab armed the failed-start timer');
 
   let openHandshake = () => undefined;
   state.startGate = new Promise((resolve) => {
     openHandshake = resolve;
   });
-  harness.setAccessSetup(false);
+  globalThis.document.hidden = false;
+  state.documentListeners.get('visibilitychange')();
   await settle();
-  assert.equal(harness.all().length, 2, 'the next start builds a fresh connection');
+  assert.equal(harness.all().length, 2, 'the tab-return start builds a fresh connection');
   assert.equal(
     harness.published().connectionState,
     'reconnecting',

@@ -65,7 +65,6 @@ const ServiceRow: React.FC<{
   onClick: () => void;
   clearLabel: string;
   entriesLabel: string;
-  removingLabel: string;
   selectable: boolean;
   selected: boolean;
   onSelectToggle: () => void;
@@ -81,7 +80,6 @@ const ServiceRow: React.FC<{
   onClick,
   clearLabel,
   entriesLabel,
-  removingLabel,
   selectable,
   selected,
   onSelectToggle,
@@ -130,7 +128,7 @@ const ServiceRow: React.FC<{
             size="sm"
             loading={isRemoving}
           >
-            {isRemoving ? removingLabel : clearLabel}
+            {clearLabel}
           </Button>
         </DisabledActionGate>
       </div>
@@ -308,12 +306,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       return;
     }
     const request = ++countsRequestRef.current;
+    // A failure on screen stays until this read answers, so its Retry keeps the box.
     beginLoad(forceRefresh);
-    setLoadError(null);
     try {
       const dsCounts = await ApiService.getServiceLogCountsByDatasource();
       if (request !== countsRequestRef.current) return;
       setDatasourceCounts(dsCounts);
+      setLoadError(null);
       markLoaded();
     } catch (err: unknown) {
       if (request !== countsRequestRef.current) return;
@@ -599,7 +598,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
               title={t('management.logRemoval.errors.loadFailed')}
               message={loadError}
               retryLabel={t('common.retry')}
-              onRetry={() => void loadData(true)}
+              onRetry={() => loadData(true)}
               className={hasAnyLogEntries ? 'mb-4' : undefined}
             />
           )}
@@ -729,9 +728,6 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                   onClick={() => handleRemoveServiceLogs(ds.datasource, service)}
                                   clearLabel={t('management.logRemoval.buttons.clear')}
                                   entriesLabel={t('management.logRemoval.labels.entries')}
-                                  removingLabel={t('management.logRemoval.labels.removing', {
-                                    service
-                                  })}
                                   selectable={ds.logsWritable}
                                   selected={selection.isSelected(selectKey)}
                                   onSelectToggle={() => selection.toggle(selectKey)}

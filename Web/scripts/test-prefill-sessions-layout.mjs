@@ -347,10 +347,7 @@ test('neutral buttons have no decorative ring and retain keyboard focus styling'
   assert.match(css, /\.btn-field-surface\s*\{[^}]*box-shadow: none;/);
   assert.doesNotMatch(css, /box-shadow:\s*inset/);
   assert.match(css, /button:focus-visible,[\s\S]*?outline: 2px solid var\(--theme-border-focus\);/);
-  assert.match(
-    css,
-    /\.btn-icon-square:focus-visible\s*\{[^}]*border-color: var\(--theme-border-focus\);/
-  );
+  assert.doesNotMatch(css, /\.btn-icon-square:focus-visible\s*\{[^}]*outline:\s*none/);
 });
 
 test('active prefill progress is the shared thin ProgressBar, not a styled native progress', () => {

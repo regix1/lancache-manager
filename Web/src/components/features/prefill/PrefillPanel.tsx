@@ -151,6 +151,7 @@ function ServicePrefillPanel({
 
   const {
     isAdmin,
+    sessionType,
     steamPrefillEnabled,
     epicPrefillEnabled,
     battlenetPrefillEnabled,
@@ -193,14 +194,14 @@ function ServicePrefillPanel({
   const [maxConcurrency, setMaxConcurrency] = useState<string>('auto');
   const [maxThreadLimit, setMaxThreadLimit] = useState<number | null>(null);
   const [defaultsError, setDefaultsError] = useState<string | null>(null);
-  // Mount, Retry and five SignalR events all start this read, so only the newest may write.
+  // Mount, Retry and three SignalR events all start this read, so only the newest may write.
   const defaultsRequestRef = useRef(0);
 
   // Load prefill defaults from server (reusable for initial load + SignalR refresh)
   const loadPrefillDefaults = useCallback(async () => {
     const request = ++defaultsRequestRef.current;
     try {
-      const response = await fetch(`${API_BASE}/system/prefill-defaults`, {
+      const response = await fetch(`${API_BASE}/system/prefill-defaults?service=${serviceId}`, {
         credentials: 'include'
       });
       await assertOk(response);
@@ -231,7 +232,7 @@ function ServicePrefillPanel({
       if (request !== defaultsRequestRef.current) return;
       setDefaultsError(getErrorMessage(err));
     }
-  }, []);
+  }, [serviceId]);
 
   // Load on mount
   useEffect(() => {
@@ -243,30 +244,27 @@ function ServicePrefillPanel({
   useReconnectRefetch(isMainHubConnected, () => void loadPrefillDefaults());
 
   // Listen for PrefillDefaultsChanged (admin changes OS/concurrency),
-  // GuestPrefillConfigChanged / Epic / Xbox (admin changes system-wide guest thread limits),
+  // this service's guest config event (admin changes this service's guest thread limit),
   // and UserPreferencesUpdated (admin changes per-session thread limit) - re-fetch
   // to get session-resolved effective maxThreadLimit
   useEffect(() => {
+    const guestConfigChangedEvent = prefillServiceConfig(serviceId).guestConfigChangedEvent;
     onSignalR('PrefillDefaultsChanged', loadPrefillDefaults);
-    onSignalR('GuestPrefillConfigChanged', loadPrefillDefaults);
-    onSignalR('EpicGuestPrefillConfigChanged', loadPrefillDefaults);
-    onSignalR('XboxGuestPrefillConfigChanged', loadPrefillDefaults);
+    onSignalR(guestConfigChangedEvent, loadPrefillDefaults);
     onSignalR('UserPreferencesUpdated', loadPrefillDefaults);
     return () => {
       offSignalR('PrefillDefaultsChanged', loadPrefillDefaults);
-      offSignalR('GuestPrefillConfigChanged', loadPrefillDefaults);
-      offSignalR('EpicGuestPrefillConfigChanged', loadPrefillDefaults);
-      offSignalR('XboxGuestPrefillConfigChanged', loadPrefillDefaults);
+      offSignalR(guestConfigChangedEvent, loadPrefillDefaults);
       offSignalR('UserPreferencesUpdated', loadPrefillDefaults);
     };
-  }, [onSignalR, offSignalR, loadPrefillDefaults]);
+  }, [serviceId, onSignalR, offSignalR, loadPrefillDefaults]);
 
-  // Save prefill defaults to API. The endpoint refuses guests, so a guest's choice stays local and
-  // still applies to this session's runs. The control keeps a value whose save failed for the
-  // same reason.
+  // Save prefill defaults to API. The endpoint refuses guests and user-role accounts, so their
+  // choice stays local and still applies to this session's runs. The control keeps a value whose
+  // save failed for the same reason.
   const savePrefillDefaults = useCallback(
     async (os?: string[], concurrency?: string) => {
-      if (!isAdmin) return;
+      if (!isAdmin || sessionType === 'user') return;
       try {
         const body: Record<string, unknown> = {};
         if (os !== undefined) body.operatingSystems = os;
@@ -277,7 +275,7 @@ function ServicePrefillPanel({
         notifyError(t('prefill.errors.saveSettingsFailed'), err);
       }
     },
-    [isAdmin, notifyError, t]
+    [isAdmin, sessionType, notifyError, t]
   );
 
   // Wrapper setters that also persist to API
@@ -799,14 +797,15 @@ function ServicePrefillPanel({
   const { retryConnection } = signalR;
   useReconnectRefetch(isMainHubConnected, () => {
     void reloadGamesOnce();
-    if (signalR.hubConnectFailed) retryConnection();
-    else if (signalR.isConnecting || signalR.isInitializing) retryAfterStartRef.current = true;
+    // A start already running folds the retry in: the connection box stays up while it runs.
+    if (signalR.isConnecting || signalR.isInitializing) retryAfterStartRef.current = true;
+    else if (signalR.hubConnectFailed) void retryConnection();
   });
 
   useEffect(() => {
     if (signalR.isConnecting || signalR.isInitializing || !retryAfterStartRef.current) return;
     retryAfterStartRef.current = false;
-    if (signalR.hubConnectFailed) retryConnection();
+    if (signalR.hubConnectFailed) void retryConnection();
   }, [signalR.isConnecting, signalR.isInitializing, signalR.hubConnectFailed, retryConnection]);
 
   const handleClearAllFromCache = useCallback(async () => {
@@ -1391,6 +1390,7 @@ function ServicePrefillPanel({
                 message={t('common.errors.requestFailed')}
                 retryLabel={t('common.retry')}
                 onRetry={retryConnection}
+                retrying={signalR.isConnecting || signalR.isInitializing}
               />
             )}
             {createSessionFailure}
@@ -1488,7 +1488,7 @@ function ServicePrefillPanel({
         error={gameLoadError}
         isUsingCache={isUsingGamesCache}
         onRescan={reloadGamesOnce}
-        onClearAllCache={isAdmin ? handleClearAllFromCache : undefined}
+        onClearAllCache={isAdmin && sessionType !== 'user' ? handleClearAllFromCache : undefined}
         isClearingAllCache={isClearingAllCache}
       />
 
@@ -1700,6 +1700,7 @@ function ServicePrefillPanel({
           message={t('common.errors.requestFailed')}
           retryLabel={t('common.retry')}
           onRetry={retryConnection}
+          retrying={signalR.isConnecting || signalR.isInitializing}
         />
       )}
       {createSessionFailure}
@@ -1783,7 +1784,7 @@ function ServicePrefillPanel({
               title={t('prefill.errors.failedLoadSettings')}
               message={defaultsError}
               retryLabel={t('common.retry')}
-              onRetry={() => void loadPrefillDefaults()}
+              onRetry={() => loadPrefillDefaults()}
             />
           ) : (
             <div className="prefill-sec-commands">
@@ -1799,7 +1800,7 @@ function ServicePrefillPanel({
                     : undefined
                 }
                 isSessionActive={isSessionActive}
-                isUserAuthenticated={isAdmin}
+                isUserAuthenticated={isAdmin && sessionType !== 'user'}
                 selectedAppIds={selectedAppIds}
                 selectedOS={selectedOS}
                 maxConcurrency={maxConcurrency}

@@ -122,7 +122,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
             title={t('widgets.cacheGrowthTrend.loadFailed')}
             message={loadError}
             retryLabel={t('common.retry')}
-            onRetry={() => void refetch()}
+            onRetry={() => refetch()}
           />
         )}
 

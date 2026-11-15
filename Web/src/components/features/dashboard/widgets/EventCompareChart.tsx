@@ -293,6 +293,7 @@ const EventCompareChart: React.FC<{ tabControl: React.ReactNode }> = memo(({ tab
         message={loadError}
         retryLabel={t('common.retry')}
         onRetry={reload}
+        retrying={loading}
       />
     );
 

@@ -112,7 +112,7 @@ const SteamIntegrationCard: React.FC<SteamIntegrationCardProps> = ({
           title={t('management.sections.integrations.steamCard.loadError')}
           message={loadError}
           retryLabel={t('common.retry')}
-          onRetry={() => void refreshSteamAuth()}
+          onRetry={() => refreshSteamAuth()}
         />
       ) : (
         <SteamLoginManager

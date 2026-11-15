@@ -48,7 +48,7 @@ interface DaemonStatusCardProps {
   /** "Failed to load {service} status", the box title. */
   loadErrorTitle: string;
   /** Reads the status again; the box's Retry. */
-  onRetry: () => void;
+  onRetry: () => Promise<unknown>;
   /** Drives the badge and selects between the connected and disconnected copy. */
   connected: boolean;
   connectedLabel: string;

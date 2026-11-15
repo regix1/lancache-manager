@@ -50,7 +50,7 @@ docker compose up -d
 
 Then open `http://<host>:8080` and get your API key with `docker exec lancache-manager cat /data/security/api_key.txt`.
 
-On first run you choose how people sign in: username and password, either of those behind the API key, single sign-on with Google, GitHub, Microsoft, Apple or OIDC, or no authentication at all on a trusted LAN. Upgrading installs confirm the choice once, and the primary administrator can change it later at **Users → Accounts → Access and sign-in**. The API key stays valid for ownership and recovery whichever mode you pick.
+On first run you choose how people sign in: username and password, either of those behind the API key, single sign-on with Google, GitHub, Microsoft, Apple or OIDC, or no authentication at all on a trusted LAN. Upgrading installs confirm the choice once, and it can be changed later at **Users → Sign-in → Change**. The API key stays valid for ownership and recovery whichever mode you pick.
 
 Setup details, provider requirements and how to recover from a locked-out SSO are in [Sign-in and Access](https://regix1.github.io/lancache-manager/sign-in/). The [Quick Start guide](https://regix1.github.io/lancache-manager/quick-start/) has the full walkthrough, including the cache path gotcha that catches most people.
 

@@ -2,6 +2,7 @@ using System.Reflection;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Http;
@@ -10,6 +11,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
@@ -30,6 +33,9 @@ public sealed class AccountManagementTests : IDisposable
     private const string NewPassword = "Chosen-Badger-3";
 
     private readonly string _root;
+
+    /// <summary>The Steam, Epic and Xbox login stores a delete clears an account's game logins from.</summary>
+    private readonly IntegrationFixture _logins = new();
 
     public AccountManagementTests()
     {
@@ -158,8 +164,9 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// Every ordinary verb reaches another ordinary account from a user account. Separate targets
-    /// keep the destructive delete from affecting the other assertions.
+    /// A user account reads another ordinary account but cannot edit, disable or delete it: each
+    /// change answers 403 with the own-account key and leaves the row as it was. Separate targets
+    /// keep one refusal from hiding another.
     /// </summary>
     [Fact]
     public async Task AUserCannotReachAnAdministratorAccountByItsId()
@@ -173,21 +180,29 @@ public sealed class AccountManagementTests : IDisposable
         var deleted = await SeedAccountAsync(database.Factory, "delete-admin", SessionType.User);
 
         Assert.Equal(StatusCodes.Status200OK, StatusOf(await controller.GetAccountAsync(read.Id)));
-        Assert.Equal(
-            StatusCodes.Status200OK,
-            StatusOf(await controller.EditAccountAsync(
-                edited.Id, new EditAccountRequest { Username = "taken-over", Password = NewPassword })));
-        Assert.Equal(
-            StatusCodes.Status200OK,
-            StatusOf(await controller.SetDisabledAsync(
-                disabled.Id, new SetAccountDisabledRequest { Disabled = true })));
 
-        Assert.Equal(StatusCodes.Status200OK, StatusOf(await controller.DeleteAccountAsync(deleted.Id)));
+        var refusals = new (string Verb, ActionResult? Result)[]
+        {
+            ("edit", (await controller.EditAccountAsync(
+                edited.Id, new EditAccountRequest { Username = "taken-over", Password = NewPassword })).Result),
+            ("disable", (await controller.SetDisabledAsync(
+                disabled.Id, new SetAccountDisabledRequest { Disabled = true })).Result),
+            ("delete", (await controller.DeleteAccountAsync(deleted.Id)).Result)
+        };
 
-        Assert.Equal("taken-over", (await ReadAccountAsync(database, edited.Id)).Username);
-        Assert.True((await ReadAccountAsync(database, disabled.Id)).IsDisabled);
+        foreach (var (verb, result) in refusals)
+        {
+            var status = StatusOf(result);
+            Assert.True(
+                status == StatusCodes.Status403Forbidden,
+                $"{verb} answered a user {status} for another account, not 403.");
+            Assert.Equal(AccountRefusalResponse.OwnAccountOnly, StageKeyOf(result));
+        }
+
+        Assert.Equal("edit-admin", (await ReadAccountAsync(database, edited.Id)).Username);
+        Assert.False((await ReadAccountAsync(database, disabled.Id)).IsDisabled);
         await using var context = database.Factory.CreateDbContext();
-        Assert.False(await context.UserAccounts.AnyAsync(account => account.Id == deleted.Id));
+        Assert.True(await context.UserAccounts.AnyAsync(account => account.Id == deleted.Id));
     }
 
     /// <summary>
@@ -265,11 +280,12 @@ public sealed class AccountManagementTests : IDisposable
     }
 
     /// <summary>
-    /// With authentication turned off the shared accountless session keeps account-management
-    /// compatibility but creates only ordinary user rows. The real owner remains protected.
+    /// With authentication turned off the shared accountless session creates no account, since that
+    /// mode keeps none and an account made then could never be signed in to. The real owner remains
+    /// protected.
     /// </summary>
     [Fact]
-    public async Task WithAuthenticationDisabledACallerWithNoAccountCreatesAdministrators()
+    public async Task WithAuthenticationDisabledACallerWithNoAccountCreatesNoAccount()
     {
         await using var database = await TestDatabase.CreateAsync();
         var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
@@ -278,20 +294,16 @@ public sealed class AccountManagementTests : IDisposable
         var controller = NewController(database.Factory, session, authenticationEnabled: false);
 
         var created = await controller.CreateAccountAsync(NewAccountRequest("minted-with-auth-off"));
-        Assert.Equal(StatusCodes.Status201Created, StatusOf(created));
-        Assert.Equal(SessionType.User, AccountOf(created).Role);
+        Assert.Equal(StatusCodes.Status409Conflict, StatusOf(created));
+        Assert.Equal(AccountRefusalResponse.SignInOff, StageKeyOf(created));
 
         Assert.Equal(StatusCodes.Status403Forbidden, StatusOf(await controller.DeleteAccountAsync(owner.Id)));
         Assert.Equal(
             StatusCodes.Status403Forbidden,
             StatusOf(await controller.SetDisabledAsync(owner.Id, new SetAccountDisabledRequest { Disabled = true })));
-        // The caller proved nothing but the configuration: it has no account, so the actor half of the
-        // row is empty rather than the write throwing.
         await using var context = database.Factory.CreateDbContext();
-        var entry = await context.IdentityAuditEntries.SingleAsync();
-        Assert.Equal(IdentityAuditEvent.AccountCreated, entry.Event);
-        Assert.Null(entry.PerformedByAccountId);
-        Assert.Equal(session.Id, entry.PerformedBySessionId);
+        Assert.Equal([owner.Id], await context.UserAccounts.Select(account => account.Id).ToListAsync());
+        Assert.Empty(context.IdentityAuditEntries);
     }
 
     /// <summary>
@@ -368,14 +380,15 @@ public sealed class AccountManagementTests : IDisposable
     /// <summary>
     /// Delete and disable, tried by an ordinary account on itself. Both remain protected.
     ///
-    /// The same two verbs on somebody else's row are attempted afterwards, because a guard that
-    /// refused everybody would pass the first half of this test on its own.
+    /// The same two verbs on somebody else's row are attempted afterwards by the owner, because a
+    /// guard that refused everybody would pass the first half of this test on its own. A user is
+    /// refused those on anyone else, so the owner is the caller that still reaches them.
     /// </summary>
     [Fact]
     public async Task AnAccountCannotBeDeletedDisabledOrDemotedByItself()
     {
         await using var database = await TestDatabase.CreateAsync();
-        await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
+        var owner = await SeedAccountAsync(database.Factory, "owner", SessionType.Admin, mainAdmin: true);
         var caller = await SeedAccountAsync(database.Factory, "second-admin", SessionType.User);
         var controller = await NewControllerAsync(database.Factory, caller);
 
@@ -408,11 +421,12 @@ public sealed class AccountManagementTests : IDisposable
 
         var disabled = await SeedAccountAsync(database.Factory, "reader", SessionType.User);
         var deleted = await SeedAccountAsync(database.Factory, "another-reader", SessionType.User);
+        var ownerController = await NewControllerAsync(database.Factory, owner);
 
         Assert.Equal(
             StatusCodes.Status200OK,
-            StatusOf(await controller.SetDisabledAsync(disabled.Id, new SetAccountDisabledRequest { Disabled = true })));
-        Assert.Equal(StatusCodes.Status200OK, StatusOf(await controller.DeleteAccountAsync(deleted.Id)));
+            StatusOf(await ownerController.SetDisabledAsync(disabled.Id, new SetAccountDisabledRequest { Disabled = true })));
+        Assert.Equal(StatusCodes.Status200OK, StatusOf(await ownerController.DeleteAccountAsync(deleted.Id)));
     }
 
     /// <summary>
@@ -649,8 +663,10 @@ public sealed class AccountManagementTests : IDisposable
         Assert.Equal(AccountRefusalResponse.UsernameTaken, StageKeyOf(hiddenName));
         Assert.Equal(StageKeyOf(visibleName), StageKeyOf(hiddenName));
 
+        // The caller renames its own account: a user editing another account is refused before the
+        // name is looked at.
         var renamed = await controller.EditAccountAsync(
-            visible.Id, new EditAccountRequest { Username = "owner" });
+            caller.Id, new EditAccountRequest { Username = "owner" });
 
         Assert.Equal(StatusCodes.Status409Conflict, StatusOf(renamed));
         Assert.Equal(AccountRefusalResponse.UsernameTaken, StageKeyOf(renamed));
@@ -681,6 +697,12 @@ public sealed class AccountManagementTests : IDisposable
         await using var context = database.Factory.CreateDbContext();
         Assert.Equal(0, await context.UserAccounts.CountAsync());
         Assert.Equal(0, await context.UserSessions.CountAsync());
+        // Each removed row is recorded against the owner who asked.
+        var deletions = await context.IdentityAuditEntries.Where(entry => entry.Event == IdentityAuditEvent.AccountDeleted).ToListAsync();
+        Assert.Equal(
+            new[] { owner.Id, administrator.Id, reader.Id }.Order(),
+            deletions.Select(entry => entry.TargetAccountId!.Value).Order());
+        Assert.All(deletions, entry => Assert.Equal((owner.Id, ownerSession.Id), (entry.PerformedByAccountId!.Value, entry.PerformedBySessionId!.Value)));
     }
 
     /// <summary>
@@ -802,10 +824,11 @@ public sealed class AccountManagementTests : IDisposable
                 }
             }
         ]);
-        var access = new AccessService(files.State, new ConfigurationBuilder().Build(), database.Factory);
         var failing = new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>(database.Options)
             .AddInterceptors(new AccountDeleteFails())
             .Options);
+        // The delete-every-account action deletes through AccessService, so its context fails too.
+        var access = new AccessService(files.State, new ConfigurationBuilder().Build(), failing);
         var controller = NewController(failing, await SeedSessionAsync(database.Factory, owner), accessService: access);
 
         await Assert.ThrowsAnyAsync<DbUpdateException>(async () =>
@@ -839,7 +862,11 @@ public sealed class AccountManagementTests : IDisposable
         }
     }
 
-    public void Dispose() => Directory.Delete(_root, recursive: true);
+    public void Dispose()
+    {
+        _logins.Dispose();
+        Directory.Delete(_root, recursive: true);
+    }
 
     private async Task<AccountsController> NewControllerAsync(TestDbContextFactory factory, UserAccount caller)
     {
@@ -857,24 +884,32 @@ public sealed class AccountManagementTests : IDisposable
         AccessService? accessService = null)
     {
         var configuration = NewConfiguration(authenticationEnabled);
-        var controller = new AccountsController(
-            factory,
-            new PasswordHasher<UserAccount>(),
-            new SessionService(
+        // One service list for the controller and the request, as the app has: the delete-every-account
+        // action runs in AccessService and resolves the session service, the claim window, the
+        // notifications and the login stores from the request.
+        var services = new ServiceCollection()
+            .AddSingleton<IDbContextFactory<AppDbContext>>(factory)
+            .AddSingleton<IPasswordHasher<UserAccount>>(new PasswordHasher<UserAccount>())
+            .AddSingleton(new SessionService(
                 factory,
                 new ApiKeyService(NullLogger<ApiKeyService>.Instance, configuration, pathResolver: null!),
                 NullLogger<SessionService>.Instance,
                 stateService: null!,
                 signalR: null!,
-                configuration),
-            auditService ?? new IdentityAuditService(factory, NullLogger<IdentityAuditService>.Instance),
-            lockout ?? new AccountLockout(NullLogger<AccountLockout>.Instance),
-            claimWindow ?? new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
-            notifications ?? DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
-            NullLogger<AccountsController>.Instance,
-            accessService);
+                configuration))
+            .AddSingleton(auditService ?? new IdentityAuditService(factory, NullLogger<IdentityAuditService>.Instance))
+            .AddSingleton(lockout ?? new AccountLockout(NullLogger<AccountLockout>.Instance))
+            .AddSingleton(claimWindow ?? new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance))
+            .AddSingleton(notifications ?? DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>())
+            .AddSingleton<ILogger<AccountsController>>(NullLogger<AccountsController>.Instance)
+            .AddSingleton(accessService ?? new AccessService(_logins.State, configuration, factory))
+            .AddSingleton<SteamAuthStorageService>(_logins.Storage)
+            .AddSingleton(_logins.Epic)
+            .AddSingleton(_logins.Xbox)
+            .BuildServiceProvider();
+        var controller = ActivatorUtilities.CreateInstance<AccountsController>(services);
 
-        var httpContext = new DefaultHttpContext();
+        var httpContext = new DefaultHttpContext { RequestServices = services };
         httpContext.Items["Session"] = caller;
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
         return controller;
@@ -910,7 +945,7 @@ public sealed class AccountManagementTests : IDisposable
             lockout,
             new IdentityAuditService(factory, NullLogger<IdentityAuditService>.Instance));
 
-        var httpContext = new DefaultHttpContext();
+        var httpContext = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
         httpContext.Items["Session"] = caller;
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
         return controller;

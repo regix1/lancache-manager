@@ -47,7 +47,7 @@ const CacheSettings: React.FC<CacheSettingsProps> = ({ authMode, mockMode, onErr
 
   const loadSliceSize = useCallback(() => {
     const request = ++sliceSizeRequestRef.current;
-    ApiService.getCacheSliceSize()
+    return ApiService.getCacheSliceSize()
       .then((bytes: number | null) => {
         if (request !== sliceSizeRequestRef.current) return;
         setSliceSize(bytes);

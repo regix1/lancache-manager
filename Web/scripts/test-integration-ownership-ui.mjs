@@ -1256,7 +1256,7 @@ test('LANCache logout never clears Steam login or the installation Web API key',
     ),
     {
       setAuthLoading: () => undefined,
-      authService: { logout: async () => calls.push('lancache') },
+      logout: async () => calls.push('lancache'),
       refreshAuth: async () => calls.push('refresh'),
       onSuccess: () => undefined,
       onError: () => undefined,
@@ -1995,24 +1995,10 @@ test(
     const device = await page.context().newCDPSession(page);
     await page.route('**/*', (route) => route.abort());
     const measurements = [];
-    const source = parseSource(
-      'src/components/features/user/ActiveSessions.tsx',
-      ts.ScriptKind.TSX
-    );
-    const row = collectNodes(
-      source,
-      (node) =>
-        ts.isJsxElement(node) &&
-        node.openingElement.attributes.properties.some(
-          (attr) =>
-            ts.isJsxAttribute(attr) &&
-            attr.name.getText(source) === 'className' &&
-            attr.initializer
-              ?.getText(source)
-              .includes('mgmt-row--interactive focus-ring--inset session-row')
-        )
-    )[0];
-    assert.ok(row);
+    const UserListRow = make('src/components/features/user/UserListRow.tsx', 'UserListRow', {
+      React,
+      ChevronRight: icon
+    });
     try {
       for (const viewport of [
         { width: 320, height: 812 },
@@ -2114,54 +2100,31 @@ test(
                   'SteamWebApiStatus',
                   bindings
                 );
-                const session = {
-                  id: 'session',
-                  isCurrentSession: true,
-                  lastSeenAt: '2026-09-13T22:00:00Z'
-                };
-                const sessionRow = bindLifted(
-                  `()=>(${row.getText(source)})`,
-                  {
-                    React,
-                    Button,
-                    Tooltip: passthrough,
-                    StatusDot: () => h('span', { className: 'w-2 h-2' }),
-                    ChevronDown: icon,
-                    RowActionsMenu: () => null,
-                    session,
-                    isExpanded: false,
-                    rowToggleHandlers: () => ({ role: 'button', tabIndex: 0 }),
-                    sessionStatus: 'active',
-                    t,
-                    name:
-                      locale === 'en'
-                        ? 'VeryLongAccountNameWithoutBreaksRepeatedForNarrowPortraitLayouts'
-                        : '用于狭窄竖屏布局验证的非常长账户名称',
-                    account: true,
-                    guest: false,
-                    deviceLabel: 'Firefox on Windows 11',
-                    location:
+                const sessionRow = h(UserListRow, {
+                  lead: h('span', { className: 'w-2 h-2' }),
+                  title:
+                    locale === 'en'
+                      ? 'VeryLongAccountNameWithoutBreaksRepeatedForNarrowPortraitLayouts'
+                      : '用于狭窄竖屏布局验证的非常长账户名称',
+                  aside: t('activeSessions.currentSessionShort'),
+                  line: t('user.panes.list.sessionLine', {
+                    device: 'Firefox on Windows 11',
+                    place:
                       locale === 'en'
                         ? 'A very long city and region description'
                         : '一个非常长的城市和地区描述',
-                    flag: '',
-                    formatRelativeTime: () => t('activeSessions.labels.lastSeenShort'),
-                    canShowRemaining: false,
-                    loggingOut: false,
-                    handleEditSession: noop,
-                    handleLogout: noop,
-                    sessionRowsRef: { current: new Map() },
-                    toggleSessionExpanded: noop
-                  },
-                  { jsx: ts.JsxEmit.React }
-                )();
+                    when: t('activeSessions.labels.lastSeenShort')
+                  }),
+                  selected: false,
+                  onSelect: noop
+                });
                 const markup = renderToStaticMarkup(
                   h(
                     'main',
                     { className: 'p-4 space-y-6' },
                     h(Manager, { mockMode: false, authMode: 'authenticated' }),
                     h(KeyStatus),
-                    h('section', { className: 'mgmt-list' }, sessionRow)
+                    h('ul', { className: 'users-rows users-rows--people' }, sessionRow)
                   )
                 );
                 await page.setContent(
@@ -2207,7 +2170,7 @@ test(
                     overflow:
                       globalThis.document.documentElement.scrollWidth >
                       globalThis.document.documentElement.clientWidth,
-                    session: rect(globalThis.document.querySelector('.session-row')),
+                    session: rect(globalThis.document.querySelector('.users-row')),
                     disabled: [...globalThis.document.querySelectorAll('button:disabled')].length,
                     coarse: globalThis.matchMedia('(pointer: coarse)').matches
                   };

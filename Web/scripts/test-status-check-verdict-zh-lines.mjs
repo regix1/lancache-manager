@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import test from 'node:test';
-import { pathToFileURL } from 'node:url';
 import { openStatusCheck } from './status-check-page.mjs';
-import { settle } from './transpile-module.mjs';
+import { settle, withBrowser } from './transpile-module.mjs';
 
 // In Chinese at phone widths, the Status Check verdict heading never ends on a line that holds
 // fewer than three characters (spaces and punctuation not counted), such as "个。" or "5 个。" left
@@ -35,14 +33,8 @@ test(
   'in Chinese at 320 to 390 px the Status Check verdict heading leaves no short last line',
   { skip: !process.env.PLAYWRIGHT_PATH },
   async () => {
-    assert.ok(
-      existsSync(new URL('../dist/index.html', import.meta.url)),
-      'run npm run build before this test'
-    );
-    const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
-    const browser = await chromium.launch({ headless: true });
     const problems = [];
-    try {
+    await withBrowser(async (browser) => {
       const { context, page } = await openStatusCheck(browser, {
         language: 'zh',
         expandFailing: false
@@ -68,9 +60,7 @@ test(
       } finally {
         await context.close();
       }
-    } finally {
-      await browser.close();
-    }
+    });
     assert.deepEqual(problems, [], problems.join('\n'));
   }
 );

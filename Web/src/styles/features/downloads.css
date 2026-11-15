@@ -492,6 +492,7 @@
   }
 
   .downloads-header .today-label {
+    white-space: nowrap;
     font-size: var(--font-size-xs);
     color: var(--theme-text-muted);
   }

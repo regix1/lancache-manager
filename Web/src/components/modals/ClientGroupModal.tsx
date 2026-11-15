@@ -906,7 +906,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             title={t('modals.clientGroup.errors.loadAddressesFailed')}
             message={groupsError}
             retryLabel={t('common.retry')}
-            onRetry={() => void refreshGroups()}
+            onRetry={() => refreshGroups()}
           />
         </div>
       );

@@ -240,7 +240,7 @@ const ClientsTab: React.FC = () => {
             title={t('clients.loadFailed')}
             message={loadError}
             retryLabel={t('common.retry')}
-            onRetry={() => void refreshStats(true)}
+            onRetry={() => refreshStats(true)}
           />
         )}
 

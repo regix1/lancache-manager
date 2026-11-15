@@ -435,6 +435,15 @@
   background-color: transparent;
 }
 
+/* A future day for a caller who cannot add events: plain, neither clickable nor grayed as past. */
+.calendar-day--static {
+  cursor: default;
+}
+
+.calendar-day--static:hover {
+  background-color: transparent;
+}
+
 /* The gap under the numeral is padding, not margin, so the head's own box ends where
    the strip ends and the first bar's top meets it exactly. */
 .calendar-day-head {

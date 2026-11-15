@@ -46,7 +46,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (apiKey: string, username: string, password: string) => Promise<SignInResult>;
   startGuestSession: () => Promise<SignInResult>;
-  logout: () => Promise<void>;
+  logout: () => Promise<boolean>;
   refreshAuth: () => Promise<void>;
   setAuthMode: (mode: AuthMode) => void;
   prefillEnabled: boolean;

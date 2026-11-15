@@ -186,22 +186,25 @@ public class SystemController : ControllerBase
         var cacheWritable = cacheExists && (defaultDatasource?.CacheWritable ?? _pathResolver.IsCacheWritable());
         var logsWritable = logsExists && (defaultDatasource?.LogsWritable ?? _pathResolver.IsLogsWritable());
         var dockerSocketAvailable = _pathResolver.IsDockerSocketAvailable();
+        // Every guest page reads this route for the Docker flag; the folders and their writability are
+        // told to an account holder only, as GetConfigAsync does.
+        var isAccountHolder = HttpContext.GetUserSession()?.SessionType.IsAccountHolder() == true;
 
         return Ok(new SystemPermissionsResponse
         {
             Cache = new DirectoryPermission
             {
-                Path = cachePath,
+                Path = isAccountHolder ? cachePath : string.Empty,
                 Exists = cacheExists,
-                Writable = cacheWritable,
-                ReadOnly = cacheExists && !cacheWritable
+                Writable = isAccountHolder && cacheWritable,
+                ReadOnly = isAccountHolder && cacheExists && !cacheWritable
             },
             Logs = new DirectoryPermission
             {
-                Path = logPath,
+                Path = isAccountHolder ? logPath : string.Empty,
                 Exists = logsExists,
-                Writable = logsWritable,
-                ReadOnly = logsExists && !logsWritable
+                Writable = isAccountHolder && logsWritable,
+                ReadOnly = isAccountHolder && logsExists && !logsWritable
             },
             DockerSocket = new DockerSocketPermission
             {
@@ -586,7 +589,7 @@ public class SystemController : ControllerBase
     [Authorize(Policy = "AccountHolder")]
     [HttpPatch("refresh-rate")]
     [ProducesResponseType(typeof(RefreshRateResponse), StatusCodes.Status200OK)]
-    public ActionResult<RefreshRateResponse> SetRefreshRate([FromBody] SetRefreshRateRequest request)
+    public async Task<ActionResult<RefreshRateResponse>> SetRefreshRateAsync([FromBody] SetRefreshRateRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.RefreshRate))
         {
@@ -601,6 +604,13 @@ public class SystemController : ControllerBase
 
         _stateService.SetRefreshRate(request.RefreshRate);
         _logger.LogInformation("Refresh rate set to: {Rate}", request.RefreshRate.ToUpperInvariant());
+
+        // A user-role account follows the install-wide rate while its session has none of its own, and
+        // the Users page draws it as that account's default.
+        await _notifications.NotifyAllAsync(SignalREvents.SystemRefreshRateChanged, new
+        {
+            refreshRate = request.RefreshRate.ToUpperInvariant()
+        });
 
         return Ok(new RefreshRateResponse
         {
@@ -898,28 +908,38 @@ public class SystemController : ControllerBase
     /// Gets the default prefill panel settings.
     /// </summary>
     /// <remarks>
-    /// Session-aware: a guest session's thread limit clamps the returned max concurrency, while an
-    /// admin session gets no clamp.
+    /// Session-aware: a guest session's thread limit for the requested service clamps the returned max
+    /// concurrency, while an admin session gets no clamp. Without <paramref name="service"/> the Steam
+    /// limit applies; a value that is not a service id answers 400.
     /// </remarks>
     [Authorize]
     [HttpGet("prefill-defaults")]
     [ProducesResponseType(typeof(PrefillDefaultsResponse), StatusCodes.Status200OK)]
-    public ActionResult<PrefillDefaultsResponse> GetPrefillDefaults()
+    public ActionResult<PrefillDefaultsResponse> GetPrefillDefaults([FromQuery] string? service)
     {
-        var steamMaxThreadLimit = SteamThreadLimit();
+        var platform = service == null ? PrefillPlatform.Steam : service.ToPrefillPlatform();
+        if (platform == null)
+        {
+            return BadRequest(ApiResponse.Invalid($"Unknown prefill service: {service}"));
+        }
+
+        var maxThreadLimit = GetSession() is { } session
+            ? GuestThreadLimit.Resolve(platform.Value, session, _userPreferencesService, _stateService)
+            : null;
         var maxConcurrency = ClampConcurrency(
-            _stateService.GetDefaultPrefillMaxConcurrency(), steamMaxThreadLimit);
+            _stateService.GetDefaultPrefillMaxConcurrency(), maxThreadLimit);
 
         return Ok(new PrefillDefaultsResponse
         {
             OperatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             MaxConcurrency = maxConcurrency,
-            MaxThreadLimit = steamMaxThreadLimit
+            MaxThreadLimit = maxThreadLimit
         });
     }
 
     /// <summary>
-    /// Updates the default prefill panel settings.
+    /// Updates the default prefill panel settings. <c>epicDefaultPrefillMaxConcurrency</c> is still accepted and
+    /// stored, but nothing reads it: every service's prefill panel, Epic included, uses <c>maxConcurrency</c>.
     /// </summary>
     /// <remarks>
     /// Broadcasts the change so open prefill panels pick up the new defaults without a reload.
@@ -942,7 +962,9 @@ public class SystemController : ControllerBase
             _stateService.SetEpicDefaultPrefillMaxConcurrency(request.EpicDefaultPrefillMaxConcurrency);
         }
 
-        var steamMaxThreadLimit = SteamThreadLimit();
+        var steamMaxThreadLimit = GetSession() is { } session
+            ? GuestThreadLimit.Resolve(PrefillPlatform.Steam, session, _userPreferencesService, _stateService)
+            : null;
 
         await _notifications.NotifyAllAsync(SignalREvents.PrefillDefaultsChanged, new
         {
@@ -960,17 +982,6 @@ public class SystemController : ControllerBase
     }
 
     private UserSession? GetSession() => HttpContext.GetUserSession();
-
-    private int? SteamThreadLimit()
-    {
-        var session = GetSession();
-        if (session == null) return null;
-        if (session.SessionType.IsAccountHolder()) return null;
-
-        // Guest: check per-user override first, then system default
-        var prefs = _userPreferencesService.GetPreferences(session.Id);
-        return prefs?.SteamMaxThreadCount ?? _stateService.GetDefaultGuestMaxThreadCount();
-    }
 
     /// <summary>
     /// Clamp the default concurrency value so it does not exceed the guest thread limit.

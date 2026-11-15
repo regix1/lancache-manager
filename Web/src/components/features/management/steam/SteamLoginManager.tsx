@@ -209,7 +209,6 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({ mockMode, onError
                     variant="filled"
                     color="secondary"
                     size="sm"
-                    stableWidth
                     disabled={!canManage || access?.canLogout !== true}
                   >
                     {t('management.steamAuth.logout')}

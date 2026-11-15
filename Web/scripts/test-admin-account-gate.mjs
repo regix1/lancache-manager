@@ -67,38 +67,42 @@ const evaluate = (expression, bindings) => {
 
 const wizardCondition = initializerOf(appFile, 'shouldShowInitializationFlow');
 
+// The sign-in screen is drawn while `signInOpen` holds, from the one branch that tests it.
+const signInCondition = initializerOf(appFile, 'signInOpen');
+assert.ok(signInCondition.includes("authMode === 'unauthenticated'"));
+assert.ok(signInCondition.includes('authenticationEnabled'));
 const signInConditions = collect(
   appFile,
-  (node) =>
-    ts.isIfStatement(node) &&
-    node.expression.getText(appFile).includes("authMode === 'unauthenticated'") &&
-    node.expression.getText(appFile).includes('authenticationEnabled')
+  (node) => ts.isIfStatement(node) && node.expression.getText(appFile) === 'signInOpen'
 );
 assert.equal(signInConditions.length, 1, 'expected exactly one sign-in screen gate in App.tsx');
-const signInCondition = signInConditions[0].expression.getText(appFile);
+
+// AppSetup's gate is up while `gateOpen` holds; the gate kind it holds picks the recovery wizard
+// over access setup, and the gate element draws the recovery wizard's steps.
+const accessCondition = initializerOf(setupFile, 'gateOpen');
+assert.ok(accessCondition.includes('authenticationSetupRequired'));
 const accessConditions = collect(
   setupFile,
-  (node) =>
-    ts.isIfStatement(node) && node.expression.getText(setupFile) === 'authenticationSetupRequired'
+  (node) => ts.isIfStatement(node) && node.expression.getText(setupFile) === 'gateOpen'
 );
 assert.equal(accessConditions.length, 1);
-const accessCondition = accessConditions[0].expression.getText(setupFile);
 const recoveryConditions = collect(
-  accessConditions[0],
+  setupFile,
   (node) =>
-    ts.isIfStatement(node) &&
-    node.expression.getText(setupFile).includes('mainAdminRecoveryAvailable')
+    ts.isConditionalExpression(node) &&
+    node.condition.getText(setupFile).includes('mainAdminRecoveryAvailable')
 );
 assert.equal(recoveryConditions.length, 1);
-const recoveryCondition = recoveryConditions[0].expression.getText(setupFile);
-assert.ok(recoveryConditions[0].thenStatement.getText(setupFile).includes('<AdminAccountStep />'));
+const recoveryCondition = recoveryConditions[0].condition.getText(setupFile);
+const gateElement = initializerOf(setupFile, 'gate');
+assert.ok(gateElement.includes('<AdminAccountStep />'));
 
 const wizardBranches = collect(
   appFile,
-  (node) =>
-    ts.isIfStatement(node) && node.expression.getText(appFile) === 'shouldShowInitializationFlow'
+  (node) => ts.isIfStatement(node) && node.expression.getText(appFile) === 'depotOpen'
 );
 assert.equal(wizardBranches.length, 1, 'expected exactly one wizard branch in App.tsx');
+assert.ok(initializerOf(appFile, 'depotOpen').includes('shouldShowInitializationFlow'));
 
 /**
  * App.tsx returns from the first of the two branches that matches, so knowing that both conditions
@@ -225,6 +229,8 @@ const screensFor = (
     evaluate(accessCondition, {
       checkingAuth: false,
       checkingSetupStatus: false,
+      loading: false,
+      statusFailed: false,
       setupStatus,
       authenticationSetupRequired
     })
@@ -304,7 +310,9 @@ test('access setup gates the Docker probe and all ordinary application consumers
     assert.ok(gates[0].getText(setupFile).includes(`<${name}>`), `${name} starts before setup`);
   }
   assert.ok(gates[0].getText(setupFile).includes('{children}'));
-  assert.ok(accessConditions[0].thenStatement.getText(setupFile).includes('<AccessSetup />'));
+  assert.ok(gateElement.includes('<AccessSetup opened={gateOpen} />'));
+  // While the gate is up AppSetup draws the gate alone, so no application consumer mounts.
+  assert.ok(!accessConditions[0].thenStatement.getText(setupFile).includes('children'));
 });
 
 test('owner recovery remains available before access setup without mounting the app', () => {
@@ -321,7 +329,7 @@ test('owner recovery remains available before access setup without mounting the 
 
 test('recovery waits for an unreadable database before asking for account credentials', () => {
   assert.ok(
-    recoveryConditions[0].thenStatement
+    recoveryConditions[0].whenTrue
       .getText(setupFile)
       .includes('resolveInitialStep(setupStatus, true)')
   );
@@ -341,9 +349,7 @@ test('recovery waits for an unreadable database before asking for account creden
       mode === 'external' ? 'ExternalDatabaseSetupStep' : 'DatabaseSetupStep'
     );
     assert.ok(
-      recoveryConditions[0].thenStatement
-        .getText(setupFile)
-        .includes(`<${screens.stepComponent} onSetupComplete={refreshSetupStatus} />`)
+      gateElement.includes(`<${screens.stepComponent} onSetupComplete={refreshSetupStatus} />`)
     );
 
     const ready = screensFor(

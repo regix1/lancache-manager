@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { holdAppRoot, holdScrollLock } from '@utils/appRoot';
 import { getFocusable } from '@utils/focus';
 import { MODAL_EXIT_MS } from '@hooks/useExitPresence';
 import { CustomScrollbar } from './CustomScrollbar';
@@ -97,22 +98,11 @@ export const Modal: React.FC<ModalProps> = ({
     full: 'max-w-7xl'
   };
 
-  const setBackgroundInert = (inert: boolean) => {
-    const appRoot = document.getElementById('root');
-    if (!appRoot) return;
-    if (inert) appRoot.setAttribute('aria-hidden', 'true');
-    else appRoot.removeAttribute('aria-hidden');
-  };
-
   React.useEffect(() => {
-    // Drop this modal's id from the shared stack; when it was the last one, release the scroll lock
-    // and reset the monotonic z counter so it never grows without bound across a long session.
+    // Drop this modal's id from the shared stack and reset the monotonic z counter so it never
+    // grows without bound across a long session.
     const removeFromStack = (id: number) => {
       modalStack = modalStack.filter((stacked) => stacked.id !== id);
-      if (modalStack.length === 0) {
-        document.documentElement.classList.remove('modal-open');
-        setBackgroundInert(false);
-      }
       // Reset each band's counter as soon as that band is empty (not only when the whole stack is).
       // This keeps a 'normal' modal reopened while an 'elevated' login prompt lingers from climbing
       // toward the portaled dropdown/tooltip layer (z 85-90): the moment the last normal modal
@@ -145,12 +135,6 @@ export const Modal: React.FC<ModalProps> = ({
 
       // Remember what had focus so we can restore it on close.
       previouslyFocusedRef.current = (document.activeElement as HTMLElement) ?? null;
-
-      // Only lock scroll / hide background for the first modal.
-      if (modalStack.length === 0) {
-        document.documentElement.classList.add('modal-open');
-        setBackgroundInert(true);
-      }
 
       // Add this modal to the stack and give it a z-index strictly above every modal already open in
       // its band ('elevated' login prompts always outrank 'normal' modals regardless of open order).
@@ -201,6 +185,18 @@ export const Modal: React.FC<ModalProps> = ({
     // stackPriority is constant per modal instance; listed so the open branch always reads the value
     // it renders with (it never actually changes mid-open, so this cannot cause a spurious re-run).
   }, [opened, stackPriority]);
+
+  // Lock the page's scroll and hide it from assistive technology for as long as this dialog is
+  // drawn, its closing fade included: a scroll during the fade would move the page behind it.
+  React.useEffect(() => {
+    if (!isVisible) return;
+    const releaseScrollLock = holdScrollLock();
+    const releaseRoot = holdAppRoot(false);
+    return () => {
+      releaseScrollLock();
+      releaseRoot();
+    };
+  }, [isVisible]);
 
   // Move focus into the modal once it becomes visible. Don't steal focus if the
   // content already focused something itself (e.g. an autoFocus input).

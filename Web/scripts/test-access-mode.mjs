@@ -78,19 +78,54 @@ test('dialog tab stops include only the selected radio in each group', (t) => {
   assert.deepEqual(getFocusable(dialog), [first, selected, separate, button]);
 });
 
-test('SSO selection and setup actions require an HTTPS page', () => {
+test('SSO over plain HTTP is blocked only for the services that need HTTPS there', () => {
   assert.ok(accessSource.includes("const https = window.location.protocol === 'https:'"));
-  assert.ok(accessSource.includes('const modeBlocked = oidc && !https'));
+  assert.match(
+    accessSource,
+    /const httpsBlocks = \(candidate: LoginKind\): boolean =>\s+candidate === 'apple'\s+\? !https \|\|\s+window\.location\.hostname === 'localhost' \|\|\s+\/\^\[\\d\.\]\+\$\|\^\\\[\/\.test\(window\.location\.hostname\)\s+: \(candidate === 'google' \|\| candidate === 'microsoft'\) && !window\.isSecureContext;/
+  );
+  assert.ok(accessSource.includes('const modeBlocked = oidc && httpsBlocks(kind)'));
+  assert.ok(
+    accessSource.includes(
+      'const testBlocked = pendingLoginKind !== null && httpsBlocks(pendingLoginKind)'
+    )
+  );
   const choiceDisabled = cardProps(accessSource, 'choice');
-  assert.ok(choiceDisabled.includes('(usesOidc(choice) && !https)'));
-  assert.ok(choiceDisabled.includes('(signInModeFromEnvironment && choice !== accountMode)'));
-  assert.ok(accessSource.includes('disabled={busy || modeBlocked}'));
+  assert.ok(!choiceDisabled.includes('https'), 'a sign-in mode card is blocked on HTTP');
+  assert.ok(
+    choiceDisabled.includes('disabled={signInModeFromEnvironment && choice !== accountMode}')
+  );
+  assert.ok(
+    !accessSource.includes('disabled={busy || modeBlocked}'),
+    'Continue is blocked on HTTP'
+  );
   assert.ok(accessSource.includes('if (busy || modeBlocked) return;'));
-  assert.ok(accessSource.includes('if (busy || !https) return;'));
-  assert.ok(accessSource.includes('disabled={busy || !https || !apiKey.trim()}'));
+  assert.ok(accessSource.includes('if (busy || testBlocked) return;'));
+  assert.ok(accessSource.includes('disabled={busy || testBlocked || !apiKey.trim()}'));
   assert.ok(accessSource.includes('disabled={busy || modeBlocked || !apiKey.trim()}'));
   assert.ok(!accessSource.includes("group.id === 'sso' && !https"));
-  assert.ok(accessSource.includes("t('accessSetup.ssoRequiresHttps')"));
+  assert.ok(
+    accessSource.includes("t('accessSetup.ssoRequiresHttps', { name: serviceLabel(kind) })")
+  );
+  assert.ok(accessSource.includes("t('accessSetup.ssoRequiresHttps', { name: pendingName })"));
+  // Apple is also refused over HTTPS on localhost or an IP address, so its warning names the
+  // address Apple needs instead of asking for HTTPS.
+  assert.match(
+    accessSource,
+    /kind === 'apple'\s+\? t\('accessSetup\.services\.apple\.addresses'\)\s+: t\('accessSetup\.ssoRequiresHttps', \{ name: serviceLabel\(kind\) \}\)/
+  );
+  assert.match(
+    accessSource,
+    /pendingLoginKind === 'apple'\s+\? t\('accessSetup\.services\.apple\.addresses'\)\s+: t\('accessSetup\.ssoRequiresHttps', \{ name: pendingName \}\)/
+  );
+  for (const locale of ['en', 'zh']) {
+    const blocked = JSON.parse(readWebSource(`src/i18n/locales/${locale}.json`)).accessSetup
+      .environment.modeBlocked;
+    assert.ok(
+      !/over HTTPS|通过 HTTPS 打开/.test(blocked),
+      `${locale} environment.modeBlocked asks someone who may already be on HTTPS to open the app over HTTPS`
+    );
+  }
   assert.ok(cardSource.includes('disabled={disabled}'));
   const styles = readWebSource('src/styles/components/cards.css');
   assert.match(
@@ -114,7 +149,9 @@ test('copy and show/hide buttons stay usable while a step submits', () => {
 test('disabled access choices explain their requirements through the shared card tooltip', () => {
   const choice = cardProps(accessSource, 'choice');
   assert.ok(choice.includes('disabledReason={'));
-  assert.ok(choice.includes("t('accessSetup.httpsRequired')"));
+  const service = cardProps(accessSource, 'candidate');
+  assert.ok(service.includes('httpsBlocks(candidate)'));
+  assert.ok(service.includes("t('accessSetup.httpsRequired')"));
   assert.ok(cardSource.includes('<Tooltip content={disabledReason}'));
   assert.ok(cardSource.includes('if (!blocked) return card;'));
   assert.ok(cardSource.includes('tabIndex={0}'));
@@ -379,7 +416,7 @@ test('both callback URLs of the chosen service are shown read-only with a copy a
 });
 
 test('testing a connection stages the settings and then starts the real sign-in', () => {
-  const saveStart = accessSource.indexOf('const save = async () => {');
+  const saveStart = accessSource.indexOf('const save = async (confirmedCount?: number) => {');
   const save = accessSource.slice(saveStart, accessSource.indexOf('const testSignIn', saveStart));
   const staged = save.indexOf('authService.configureAccess({');
   const started = save.indexOf('await startTest(', staged);
@@ -418,7 +455,11 @@ test('callback guidance shows address requirements before the URLs and keeps tes
       accessSource.indexOf("renderCallback('callback', callback)")
   );
   assert.ok(accessSource.includes('const [addressHelp, setAddressHelp] = useState(false)'));
-  assert.ok(accessSource.includes('!oidc && !window.isSecureContext'));
+  assert.ok(accessSource.includes('{!window.isSecureContext && ('));
+  assert.ok(
+    !accessSource.includes('!oidc && !window.isSecureContext'),
+    'SSO hides the HTTP warning'
+  );
   assert.ok(!accessSource.includes('hint={t(`accessSetup.${target}Hint`)}'));
   for (const [locale, text] of [
     ['en', en],
@@ -453,13 +494,14 @@ test('callback guidance shows address requirements before the URLs and keeps tes
     assert.ok(/127\.0\.0\.1/.test(text.services.microsoft.testing), `${locale} microsoft loopback`);
     assert.ok(/::1/.test(text.services.microsoft.testing), `${locale} microsoft IPv6 restriction`);
     assert.match(text.ssoRequiresHttps, /HTTPS/);
-    assert.match(text.localAddress, /HTTPS/);
+    assert.match(text.ssoRequiresHttps, /\{\{name\}\}/);
+    assert.doesNotMatch(text.localAddress, /HTTPS/, `${locale} loopback text demands HTTPS`);
+    assert.doesNotMatch(text.issuerHint, /HTTPS/, `${locale} issuer hint demands HTTPS`);
     for (const kind of LOGIN_KINDS) {
       assert.doesNotMatch(text.services[kind].testing, /http:\/\//);
     }
     assert.ok(/localhost/.test(text.services.apple.addresses), `${locale} apple localhost`);
     assert.ok(/HTTPS/.test(text.services.customOidc.testing), `${locale} issuer HTTPS requirement`);
-    assert.ok(/HTTPS/.test(text.issuerHint), `${locale} issuer field HTTPS requirement`);
     assert.equal(text.services.apple.deployment, undefined);
     assert.equal(text.callbacksIntro, undefined);
     assert.equal(text.callbackHint, undefined);
@@ -475,8 +517,9 @@ test('callback guidance shows address requirements before the URLs and keeps tes
       `${kind} address requirement is too long`
     );
   }
-  assert.match(en.services.github.addresses, /^This app requires HTTPS/);
-  assert.match(en.services.customOidc.addresses, /^This app requires HTTPS/);
+  // GitHub and a custom service may run over plain HTTP, so their text names no rule of this app.
+  assert.doesNotMatch(en.services.github.addresses, /This app requires HTTPS/);
+  assert.doesNotMatch(en.services.customOidc.addresses, /This app requires HTTPS/);
 });
 
 test('access setup separates sign-in requirements, safety notes and identity format guidance', () => {
@@ -498,7 +541,8 @@ test('access setup separates sign-in requirements, safety notes and identity for
     assert.match(text.modes.apiKeyOidc.warning, /shared|共用/);
     assert.doesNotMatch(text.modes.apiKeyOidc.warning, /requires|account|要求|账户/i);
     assert.match(text.keyOwnership, /Every mode|所有模式/);
-    assert.match(text.keyOwnership, /first account|第一个账户/);
+    assert.match(text.keyOwnership, /primary administrator|主管理员/);
+    assert.match(text.keyOwnership, /sign-in is off|登录关闭/);
     assert.match(text.keyOwnership, /ownership and recovery|所有权和恢复/);
     assert.match(text.testExplanation, /failed test.*unchanged|测试失败不会更改/);
     for (const kind of LOGIN_KINDS) {

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { compileToUrl } from './transpile-module.mjs';
 
@@ -23,4 +24,24 @@ test('no event name is listed twice', () => {
 
   assert.deepEqual(duplicated, [], `listed twice: ${duplicated.join(', ')}`);
   assert.equal(seen.size, SIGNALR_EVENTS.length);
+});
+
+// The browser dispatches only the names in SIGNALR_EVENTS, so an event the server sends under a
+// name missing there (a rename on one side) reaches no handler and fails silently.
+test('every event name the server sends is one the browser listens for', () => {
+  const serverNames = [
+    ...readFileSync(
+      new URL('../../Api/LancacheManager/Hubs/SignalREvents.cs', import.meta.url),
+      'utf8'
+    ).matchAll(/public const string \w+ = "(\w+)";/g)
+  ].map(([, name]) => name);
+  assert.ok(serverNames.length > 0, 'SignalREvents.cs was read');
+
+  const listened = new Set(SIGNALR_EVENTS);
+  const unheard = serverNames.filter((name) => !listened.has(name));
+  assert.deepEqual(
+    unheard,
+    [],
+    `sent by the server but not in SIGNALR_EVENTS: ${unheard.join(', ')}`
+  );
 });

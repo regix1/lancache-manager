@@ -133,6 +133,7 @@ export const SIGNALR_EVENTS = [
   'UserPreferencesReset',
 
   // System / Config
+  'SystemRefreshRateChanged',
   'DefaultGuestRefreshRateChanged',
   'AllowedTimeFormatsChanged',
   'DefaultGuestPreferencesChanged',
@@ -820,6 +821,12 @@ export interface ShowToastEvent {
 }
 
 export interface GuestRefreshRateUpdatedEvent {
+  sessionId: string;
+  /** The session's stored rate; null after "Use default" cleared it. */
+  refreshRate: string | null;
+}
+
+export interface SystemRefreshRateChangedEvent {
   refreshRate: string;
 }
 
@@ -948,7 +955,7 @@ export interface DataImportCompleteEvent extends OperationEvent {
 /**
  * Fired when the default Epic guest prefill configuration changes.
  * BROADCAST to all clients via NotifyAllAsync on the downloads hub.
- * Handled by GuestConfiguration.tsx and ActiveSessions.tsx for local state updates.
+ * Handled by GuestConfiguration.tsx and SessionPreferences.tsx for local state updates.
  */
 export interface EpicGuestPrefillConfigChangedEvent {
   enabledByDefault: boolean;
@@ -957,31 +964,33 @@ export interface EpicGuestPrefillConfigChangedEvent {
 }
 
 /**
- * Battle.net guest prefill config changed (anonymous service - no thread limit).
- * Handled by GuestConfiguration.tsx and ActiveSessions.tsx for local state updates.
+ * Battle.net guest prefill config changed (anonymous service with a thread limit).
+ * Handled by GuestConfiguration.tsx and SessionPreferences.tsx for local state updates.
  */
 export interface BattleNetGuestPrefillConfigChangedEvent {
   enabledByDefault: boolean;
   durationHours: number;
+  battleNetMaxThreadCount: number | null;
 }
 
 /**
- * Riot guest prefill config changed (anonymous service - no thread limit).
- * Handled by GuestConfiguration.tsx and ActiveSessions.tsx for local state updates.
+ * Riot guest prefill config changed (anonymous service with a thread limit).
+ * Handled by GuestConfiguration.tsx and SessionPreferences.tsx for local state updates.
  */
 export interface RiotGuestPrefillConfigChangedEvent {
   enabledByDefault: boolean;
   durationHours: number;
+  riotMaxThreadCount: number | null;
 }
 
 /**
  * Xbox guest prefill config changed (login-required service - mirrors Epic, has thread limit).
- * Handled by GuestConfiguration.tsx and ActiveSessions.tsx for local state updates.
+ * Handled by GuestConfiguration.tsx and SessionPreferences.tsx for local state updates.
  */
 export interface XboxGuestPrefillConfigChangedEvent {
   enabledByDefault: boolean;
   durationHours: number;
-  xboxMaxThreadCount: number;
+  xboxMaxThreadCount: number | null;
 }
 
 // ============================================================================

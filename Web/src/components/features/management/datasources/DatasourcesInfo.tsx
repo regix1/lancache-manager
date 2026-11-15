@@ -314,12 +314,13 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   const loadData = useCallback(async () => {
     const request = ++positionsRequestRef.current;
+    // A failure on screen stays until this read answers, so its Retry keeps the box.
     setLoading(true);
-    setLoadError(null);
     try {
       const [positionsData] = await Promise.all([fetchLogPositions(), refreshLogResetRunning()]);
       if (request !== positionsRequestRef.current) return;
       setLogPositions(positionsData);
+      setLoadError(null);
     } catch (err) {
       if (request !== positionsRequestRef.current) return;
       setLoadError(getErrorMessage(err));
@@ -610,7 +611,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         onToggle={() => setIsExpanded((prev) => !prev)}
         badge={headerActions}
       >
-        {loading ? (
+        {loading && !loadError ? (
           <LoadingState message={t('management.datasources.loadingDatasources')} shape="rows" />
         ) : (
           <div className="space-y-3">
@@ -619,7 +620,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                 title={t('management.datasources.errors.loadFailed')}
                 message={loadError}
                 retryLabel={t('common.retry')}
-                onRetry={() => void loadData()}
+                onRetry={() => loadData()}
               />
             )}
 

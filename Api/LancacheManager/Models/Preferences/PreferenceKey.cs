@@ -21,7 +21,10 @@ public enum PreferenceKey
     RefreshRateLocked,
     AllowedTimeFormats,
     SteamMaxThreadCount,
-    EpicMaxThreadCount
+    EpicMaxThreadCount,
+    XboxMaxThreadCount,
+    BattleNetMaxThreadCount,
+    RiotMaxThreadCount
 }
 
 public class PreferenceKeyJsonConverter : JsonConverter<PreferenceKey>
@@ -43,6 +46,9 @@ public class PreferenceKeyJsonConverter : JsonConverter<PreferenceKey>
         "allowedtimeformats" => PreferenceKey.AllowedTimeFormats,
         "steammaxthreadcount" => PreferenceKey.SteamMaxThreadCount,
         "epicmaxthreadcount" => PreferenceKey.EpicMaxThreadCount,
+        "xboxmaxthreadcount" => PreferenceKey.XboxMaxThreadCount,
+        "battlenetmaxthreadcount" => PreferenceKey.BattleNetMaxThreadCount,
+        "riotmaxthreadcount" => PreferenceKey.RiotMaxThreadCount,
         _ => PreferenceKey.Unknown
     };
 
@@ -66,6 +72,9 @@ public class PreferenceKeyJsonConverter : JsonConverter<PreferenceKey>
             "allowedtimeformats" => PreferenceKey.AllowedTimeFormats,
             "steammaxthreadcount" => PreferenceKey.SteamMaxThreadCount,
             "epicmaxthreadcount" => PreferenceKey.EpicMaxThreadCount,
+            "xboxmaxthreadcount" => PreferenceKey.XboxMaxThreadCount,
+            "battlenetmaxthreadcount" => PreferenceKey.BattleNetMaxThreadCount,
+            "riotmaxthreadcount" => PreferenceKey.RiotMaxThreadCount,
             _ => PreferenceKey.Unknown
         };
     }
@@ -89,6 +98,9 @@ public class PreferenceKeyJsonConverter : JsonConverter<PreferenceKey>
             PreferenceKey.AllowedTimeFormats => "allowedtimeformats",
             PreferenceKey.SteamMaxThreadCount => "steammaxthreadcount",
             PreferenceKey.EpicMaxThreadCount => "epicmaxthreadcount",
+            PreferenceKey.XboxMaxThreadCount => "xboxmaxthreadcount",
+            PreferenceKey.BattleNetMaxThreadCount => "battlenetmaxthreadcount",
+            PreferenceKey.RiotMaxThreadCount => "riotmaxthreadcount",
             _ => "unknown"
         };
         writer.WriteStringValue(str);

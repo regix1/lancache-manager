@@ -24,7 +24,7 @@ namespace LancacheManager.Tests;
 // Shares the process-wide auth-disabled session (SessionService.cs:44) with DisabledAuthenticationAccessTests,
 // which is already in this collection, so it runs where that class cannot run beside it.
 [Collection(nameof(EndpointAuthorizationCollection))]
-public sealed class SessionAuthenticationHandlerTests
+public sealed class SessionAuthenticationHandlerTests : IDisposable
 {
     [Fact]
     public async Task RotatedSharedSession_StillHandsOutATokenThatValidates()
@@ -314,4 +314,7 @@ public sealed class SessionAuthenticationHandlerTests
         typeof(SessionService).GetField(name, BindingFlags.NonPublic | BindingFlags.Static)
         ?? throw new InvalidOperationException($"SessionService no longer has a static {name}.");
 
+    // The outage tests leave the hold-off set for five seconds, so the next class in this collection that
+    // resolves the shared session would be refused it.
+    public void Dispose() => ResetSharedAuthDisabledSession();
 }

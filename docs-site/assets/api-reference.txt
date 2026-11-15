@@ -59,7 +59,7 @@ Access: requires a signed-in session
 
 Returns the Battle.net guest-prefill defaults.
 
-Response 200 (`BattleNetGuestPrefillConfigResponse`): `enabledByDefault?: boolean`, `durationHours?: integer`
+Response 200 (`EpicGuestPrefillConfigResponse`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
 
 ### GET /api/auth/guest/config
 
@@ -99,7 +99,7 @@ Access: requires a signed-in session
 
 Returns the Riot guest-prefill defaults.
 
-Response 200 (`BattleNetGuestPrefillConfigResponse`): `enabledByDefault?: boolean`, `durationHours?: integer`
+Response 200 (`EpicGuestPrefillConfigResponse`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
 
 ### GET /api/auth/guest/status
 
@@ -199,7 +199,7 @@ Access: requires a signed-in session
 Gets the caller's own preferences via their session, or defaults when no session or no stored
 preferences exist yet.
 
-Response 200 (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`
+Response 200 (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`, `xboxMaxThreadCount?: integer?`, `battleNetMaxThreadCount?: integer?`, `riotMaxThreadCount?: integer?`
 
 ### GET /api/user-preferences/session/{sessionId}
 
@@ -209,7 +209,7 @@ Gets a session's preferences by ID. A session belonging to the owner answers as 
 does not exist.
 
 Parameters: `sessionId` (path): string
-Response 200 (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`
+Response 200 (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`, `xboxMaxThreadCount?: integer?`, `battleNetMaxThreadCount?: integer?`, `riotMaxThreadCount?: integer?`
 
 ### POST /api/account-setup/first-admin
 
@@ -269,7 +269,7 @@ Access: requires a signed-in session
 
 Regenerates the admin API key.
 
-Response 200 (`ApiKeyRegenerateResponse`): `success?: boolean`, `apiKey?: string`, `message?: string`, `warning?: string`
+Response 200 (`ApiKeyRegenerateResponse`): `success?: boolean`, `apiKey?: string`, `message?: string`, `warning?: string`, `stageKey?: string?`
 
 ### POST /api/auth/guest
 
@@ -285,8 +285,8 @@ Access: requires a signed-in session
 
 Saves the Battle.net guest-prefill defaults.
 
-Body (`BattleNetGuestPrefillConfigRequest`): `enabledByDefault?: boolean`, `durationHours?: integer`
-Response 200 (`SetBattleNetGuestPrefillConfigResponse`): `success?: boolean`, `enabledByDefault?: boolean`, `durationHours?: integer`
+Body (`BattleNetGuestPrefillConfigRequest`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
+Response 200 (`SetGuestPrefillConfigResponse`): `success?: boolean`, `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
 
 ### POST /api/auth/guest/config/duration
 
@@ -340,8 +340,8 @@ Access: requires a signed-in session
 
 Saves the Riot guest-prefill defaults.
 
-Body (`RiotGuestPrefillConfigRequest`): `enabledByDefault?: boolean`, `durationHours?: integer`
-Response 200 (`SetBattleNetGuestPrefillConfigResponse`): `success?: boolean`, `enabledByDefault?: boolean`, `durationHours?: integer`
+Body (`RiotGuestPrefillConfigRequest`): `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
+Response 200 (`SetGuestPrefillConfigResponse`): `success?: boolean`, `enabledByDefault?: boolean`, `durationHours?: integer`, `maxThreadCount?: integer?`
 
 ### POST /api/auth/guest/xbox-prefill/config
 
@@ -539,7 +539,7 @@ Access: requires a signed-in session
 
 Replaces the caller's own preferences.
 
-Body (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`
+Body (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`, `xboxMaxThreadCount?: integer?`, `battleNetMaxThreadCount?: integer?`, `riotMaxThreadCount?: integer?`
 Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
 
 ### PUT /api/user-preferences/session/{sessionId}
@@ -550,7 +550,7 @@ Replaces a session's preferences by ID. A session belonging to the owner answers
 that does not exist.
 
 Parameters: `sessionId` (path): string
-Body (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`
+Body (`UserPreferencesDto`): `selectedTheme?: string?`, `sharpCorners?: boolean`, `disableFocusOutlines?: boolean`, `disableTooltips?: boolean`, `picsAlwaysVisible?: boolean`, `disableStickyNotifications?: boolean`, `useLocalTimezone?: boolean`, `useUtcTimezone?: boolean`, `use24HourFormat?: boolean`, `showDatasourceLabels?: boolean`, `refreshRate?: string?`, `refreshRateLocked?: boolean?`, `allowedTimeFormats?: array?`, `steamMaxThreadCount?: integer?`, `epicMaxThreadCount?: integer?`, `xboxMaxThreadCount?: integer?`, `battleNetMaxThreadCount?: integer?`, `riotMaxThreadCount?: integer?`
 Response 200 (`MessageResponse`): `success?: boolean`, `message?: string`
 
 ### PATCH /api/sessions/{id}/refresh-rate
@@ -2596,15 +2596,6 @@ Reports whether a LANCache Manager import is currently running.
 
 Response 200 (`DataImportStatusResponse`): `isProcessing?: boolean`, `status?: object`, `message?: string?`, `percentComplete?: number?`, `operationId?: string?`, `stageKey?: string?`, `context?: object`
 
-### GET /api/migration/validate-connection
-
-Access: requires a signed-in session
-
-Validates a connection string against a source LANCache Manager database.
-
-Parameters: `connectionString`? (query): string
-Response 200 (`ConnectionValidationResponse`): `valid?: boolean`, `message?: string`, `stageKey?: string?`, `recordCount?: integer?`
-
 ### GET /api/operations/{id}
 
 Access: requires a signed-in session
@@ -2692,6 +2683,7 @@ Access: requires a signed-in session
 
 Gets the default prefill panel settings.
 
+Parameters: `service`? (query): string
 Response 200 (`PrefillDefaultsResponse`): `operatingSystems?: string[]`, `maxConcurrency?: string`, `maxThreadLimit?: integer?`
 
 ### GET /api/system/refresh-rate
@@ -2765,6 +2757,15 @@ Imports historical download rows from another LANCache Manager database.
 
 Body (`DataMigrationImportRequest`): `connectionString?: string`, `batchSize?: integer?`, `overwriteExisting?: boolean`
 Response 200 (`MigrationImportResponse`): `message?: string`, `stageKey?: string?`, `totalRecords?: integer`, `imported?: integer`, `skipped?: integer`, `errors?: integer`
+
+### POST /api/migration/validate-connection
+
+Access: requires a signed-in session
+
+Validates a connection string against a source LANCache Manager database.
+
+Body (`MigrationConnectionRequest`): `connectionString?: string`
+Response 200 (`ConnectionValidationResponse`): `valid?: boolean`, `message?: string`, `stageKey?: string?`, `recordCount?: integer?`
 
 ### POST /api/operations/{id}/cancel
 
@@ -2912,7 +2913,8 @@ Response 200 (`GuestRefreshRateLockResponse`): `success?: boolean`, `locked?: bo
 
 Access: requires a signed-in session
 
-Updates the default prefill panel settings.
+Updates the default prefill panel settings. `epicDefaultPrefillMaxConcurrency` is still accepted and
+stored, but nothing reads it: every service's prefill panel, Epic included, uses `maxConcurrency`.
 
 Body (`SetPrefillDefaultsRequest`): `operatingSystems?: array?`, `maxConcurrency?: string?`, `epicDefaultPrefillMaxConcurrency?: string?`
 Response 200 (`PrefillDefaultsResponse`): `operatingSystems?: string[]`, `maxConcurrency?: string`, `maxThreadLimit?: integer?`

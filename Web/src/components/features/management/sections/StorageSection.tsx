@@ -168,6 +168,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const [evictedServices, setEvictedServices] = useState<ServiceCacheInfo[]>([]);
   const [evictedItemsLoading, setEvictedItemsLoading] = useState(true);
   const [evictedItemsError, setEvictedItemsError] = useState<string | null>(null);
+  // A reload an event starts replaces the Retry's read, so Retry stays busy until the newest settles.
+  const [evictedItemsRetrying, setEvictedItemsRetrying] = useState(false);
   const allEvictedNginxReopenGate = getNginxReopenGateForEntities(datasources, [
     ...evictedServices,
     ...evictedGames
@@ -222,6 +224,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       setEvictedItemsError(null);
       hasLoadedEvictedItemsRef.current = true;
       setEvictedItemsLoading(false);
+      setEvictedItemsRetrying(false);
       return;
     }
     if (!hasLoadedEvictedItemsRef.current) {
@@ -246,7 +249,10 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
       });
     } finally {
       hasLoadedEvictedItemsRef.current = true;
-      if (request === evictedItemsRequestRef.current) setEvictedItemsLoading(false);
+      if (request === evictedItemsRequestRef.current) {
+        setEvictedItemsLoading(false);
+        setEvictedItemsRetrying(false);
+      }
     }
   }, [mockMode, notifyError, t]);
 
@@ -505,6 +511,8 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
   const [orphanedGroups, setOrphanedGroups] = useState<OrphanedDownloadGroup[]>([]);
   const [orphanedLoading, setOrphanedLoading] = useState(true);
   const [orphanedLoadError, setOrphanedLoadError] = useState<string | null>(null);
+  // A reload an event starts replaces the Retry's read, so Retry stays busy until the newest settles.
+  const [orphanedRetrying, setOrphanedRetrying] = useState(false);
   const [removingOrphaned, setRemovingOrphaned] = useState(false);
   const [confirmRemoveOrphaned, setConfirmRemoveOrphaned] = useState(false);
   const [removeOrphanedError, setRemoveOrphanedError] = useState<string | null>(null);
@@ -623,6 +631,7 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         if (isCurrentFetch()) {
           setOrphanedLoading(false);
           setOrphanedLoadError(null);
+          setOrphanedRetrying(false);
         }
         return;
       }
@@ -635,7 +644,10 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
         if (!isCurrentFetch() || isAbortError(err)) return;
         setOrphanedLoadError(getErrorMessage(err));
       } finally {
-        if (isCurrentFetch()) setOrphanedLoading(false);
+        if (isCurrentFetch()) {
+          setOrphanedLoading(false);
+          setOrphanedRetrying(false);
+        }
       }
     },
     [mockMode]
@@ -1123,17 +1135,18 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                     evictionLoadError !== null && !evictionSettingsExpanded && <SectionErrorChip />
                   }
                 >
-                  {evictionLoading ? (
-                    <LoadingState
-                      message={t('management.sections.data.evictionLoadingSettings')}
-                      shape="settings"
-                    />
-                  ) : evictionLoadError !== null ? (
+                  {evictionLoadError !== null ? (
                     <ErrorBlock
                       title={t('management.sections.data.evictionLoadError')}
                       message={evictionLoadError}
                       retryLabel={t('common.retry')}
-                      onRetry={() => void loadEvictionSettings()}
+                      onRetry={() => loadEvictionSettings()}
+                      retrying={evictionLoading}
+                    />
+                  ) : evictionLoading ? (
+                    <LoadingState
+                      message={t('management.sections.data.evictionLoadingSettings')}
+                      shape="settings"
                     />
                   ) : (
                     <div className="space-y-3">
@@ -1203,7 +1216,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                         title={t('management.storage.errors.fetchEvictedItems')}
                         message={evictedItemsError}
                         retryLabel={t('common.retry')}
-                        onRetry={() => void fetchEvictedItems()}
+                        onRetry={() => {
+                          setEvictedItemsRetrying(true);
+                          return fetchEvictedItems();
+                        }}
+                        retrying={evictedItemsRetrying}
                         className={
                           evictedGames.length + evictedServices.length > 0 ? 'mb-3' : undefined
                         }
@@ -1248,7 +1265,11 @@ const StorageSectionContent: React.FC<StorageSectionProps> = ({
                         title={t('management.sections.data.orphanedDownloadsLoadError')}
                         message={orphanedLoadError}
                         retryLabel={t('common.retry')}
-                        onRetry={() => void fetchOrphanedDownloads()}
+                        onRetry={() => {
+                          setOrphanedRetrying(true);
+                          return fetchOrphanedDownloads();
+                        }}
+                        retrying={orphanedRetrying}
                       />
                     )}
                     {(orphanedLoadError === null || orphanedGroups.length > 0) && (

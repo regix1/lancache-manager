@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import test from 'node:test';
-import { pathToFileURL } from 'node:url';
 import { openStatusCheck, readStatusCheckText } from './status-check-page.mjs';
+import { withBrowser } from './transpile-module.mjs';
 
 // In Chinese, the dates on the Status Check page read in the Chinese form: the check finished on
 // 2026-11-11 ("Last checked") and two failing Nintendo names were added to the domain list on
@@ -20,14 +19,8 @@ test(
   'in Chinese the Status Check dates use the Chinese date form',
   { skip: !process.env.PLAYWRIGHT_PATH },
   async () => {
-    assert.ok(
-      existsSync(new URL('../dist/index.html', import.meta.url)),
-      'run npm run build before this test'
-    );
-    const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
-    const browser = await chromium.launch({ headless: true });
     const problems = [];
-    try {
+    await withBrowser(async (browser) => {
       const { context, page } = await openStatusCheck(browser, {
         language: 'zh',
         expandFailing: true
@@ -47,9 +40,7 @@ test(
       } finally {
         await context.close();
       }
-    } finally {
-      await browser.close();
-    }
+    });
     assert.deepEqual(problems, [], problems.join('\n'));
   }
 );

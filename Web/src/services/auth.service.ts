@@ -10,10 +10,17 @@ export type { AccountMode } from '@utils/accountMode';
 
 export type AuthMode = 'authenticated' | 'guest' | 'unauthenticated';
 
+type SignOutOutcome = 'ended' | 'cookieCleared' | 'unchanged';
+
 interface AccessSetupRequest {
   mode: AccountMode;
   apiKey: string;
   acknowledgeUnauthenticated: boolean;
+  /**
+   * The account count the person confirmed deleting by switching to unauthenticated access. Left out,
+   * or no longer the count on the server, the server asks for the confirm with the current count.
+   */
+  confirmedAccountCount?: number;
   /**
    * One named connection to stage for testing. Absent when the request only changes the mode or
    * keeps connections that were tested before. Only the fields the kind needs are sent.
@@ -52,8 +59,8 @@ interface AccessSetupResponse {
 export type SessionType = 'admin' | 'user' | 'guest';
 
 /**
- * Admin and user sessions both sign in as an account and have the same access; a guest has neither.
- * Mirrors SessionTypeExtensions.IsAccountHolder on the server.
+ * True for a session backed by an account (admin or user); a guest holds none. The server limits a
+ * user-role account's writes to itself. Mirrors SessionTypeExtensions.IsAccountHolder on the server.
  */
 export function isAccountHolder(sessionType: SessionType | null): boolean {
   return sessionType === 'admin' || sessionType === 'user';
@@ -424,29 +431,52 @@ class AuthService {
     });
   }
 
-  logout(): Promise<void> {
+  // 'ended' when the server ended the session, 'cookieCleared' when it could not but cleared this
+  // browser's cookie, 'unchanged' when the cookie is still set or no answer came.
+  logout(): Promise<SignOutOutcome> {
     return this.serialize(async () => {
+      let outcome: SignOutOutcome = 'unchanged';
+      let status: number | null = null;
       try {
-        await fetch(`${API_URL}/api/auth/logout`, {
+        const response = await fetch(`${API_URL}/api/auth/logout`, {
           method: 'POST',
           headers: antiforgeryHeaders(),
           credentials: 'include'
         });
+        status = response.status;
+        if (response.ok) {
+          outcome = 'ended';
+        } else {
+          console.error('[AuthService] logout refused:', response.status);
+          if (response.status === 500) {
+            const body: ApiErrorData = await response.json().catch(() => ({}));
+            if (body.code === 'sessionCookieCleared') outcome = 'cookieCleared';
+          }
+        }
       } catch (error: unknown) {
-        // The finally below signs this device out regardless, so the UI says "logged out" while the
-        // session the server holds may still be live. Only this tells the user to try again.
         console.error('[AuthService] logout error:', error);
+      }
+      // A sign-out that did not end the session gets a notice: only this tells the user the
+      // sign-out did not finish and to try again. With no answer at all the cookie stays and signs
+      // this browser back in on the next load. A 500 is the server saying it could not end the
+      // session; its code says the cookie was cleared, and with no code the failure came before
+      // the sign-out ran and the cookie is still set. Any other refusal (a 400 from the antiforgery
+      // check, or a proxy's 502, 503 or 504 while the app restarts) never reached the sign-out, so
+      // the cookie stays as well.
+      if (outcome !== 'ended') {
+        const message =
+          status === null
+            ? i18n.t('auth.errors.logoutUnreachable')
+            : status === 500
+              ? i18n.t('auth.errors.logoutIncomplete')
+              : i18n.t('auth.errors.logoutUnconfirmed');
         window.dispatchEvent(
           new CustomEvent(APP_EVENTS.SHOW_TOAST, {
-            detail: { type: 'error', message: i18n.t('auth.errors.logoutIncomplete') }
+            detail: { type: 'error', message }
           })
         );
-      } finally {
-        this.isAuthenticated = false;
-        this.authMode = 'unauthenticated';
-        this.sessionType = null;
-        this.sessionId = null;
       }
+      return outcome;
     });
   }
 

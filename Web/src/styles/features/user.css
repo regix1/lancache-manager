@@ -1,18 +1,13 @@
 /* ==============================================
- * USER - Sessions, Status, Config, Settings Groups
+ * USER - Users page, shared session-row helpers, Tooltip overlay
  * ==============================================
  *
- * Session surfaces now use the shared divided-list / labeled-readout / well
- * family (`.mgmt-list`, `.mgmt-row`, `.dash-readout`, `.mgmt-stat-grid`,
- * `.badge-count`) imported via managementSectionContent.css + dashboard.css.
- * This sheet keeps only: the status dot, the small session-row layout helpers
- * that sit on top of `.mgmt-row`, the shared Tooltip overlay blocks, and the
- * tab-content fade.
+ * The Users page is one card: a list pane (search, filter, pinned settings
+ * entries, rows, Create account) and the picked item's detail pane. Its rules
+ * are the `.users-*` family below. The `.session-row*` and `.session-detail`
+ * helpers stay because Prefill Sessions (PrefillSessionsSection.tsx) builds its
+ * rows on them. The status dot lives in styles/utilities/patterns.css.
  */
-
-/* The .status-dot base, its state classes and the pulse-dot-ring/away keyframes now
-   live in styles/utilities/patterns.css so schedule/prefill/connection dots can share
-   them. This sheet keeps only the session-row helpers and the tab-content fade. */
 
 /* ===== TOOLTIP (shared Tooltip + dashboard charts - global, do not remove) ===== */
 
@@ -49,22 +44,7 @@
 }
 
 /* ==============================================
- * TAB CONTENT
- * ============================================== */
-
-.user-tab-content {
-  animation: settingsContentFadeIn 200ms ease forwards;
-}
-
-/* Stacked page sections (sessions card, history card). */
-.session-console {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-/* ==============================================
- * SESSION ROW (built on top of the shared .mgmt-row)
+ * SESSION ROW (Prefill Sessions, built on top of the shared .mgmt-row)
  * ============================================== */
 
 /* The whole row is the expand/collapse control, so it needs a pointer; the visible
@@ -89,45 +69,12 @@
   min-width: 0;
 }
 
-.session-row__identity {
-  min-width: 0;
-  max-width: min(100%, 30rem);
-  overflow-wrap: anywhere;
-}
-
-.session-you {
-  font-size: var(--font-size-2xs);
-  font-weight: 500;
-  color: var(--theme-success);
-}
-
-/* Quiet secondary lines: device/location, last-seen, and inline status text. Tones carry the
-   only color (revoked / expired / remaining) - no filled pills. */
+/* Quiet secondary lines. Tones carry the only color - no filled pills. */
 .session-row__meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.25rem 0.6rem;
-}
-
-.session-row__where,
-.session-row__when {
-  min-width: 0;
-}
-
-.session-row__where > span,
-.session-row__when > span {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.session-row__where {
-  color: var(--theme-text-secondary);
-}
-
-.session-row__when {
-  color: var(--theme-text-muted);
-  font-variant-numeric: tabular-nums;
 }
 
 /* The icon and its message are one flex row so a long reason wraps beside the icon rather
@@ -144,10 +91,6 @@
   flex-shrink: 0;
 }
 
-.session-row__meta .is-warning {
-  color: var(--theme-warning);
-}
-
 .session-row__chevron {
   flex-shrink: 0;
 }
@@ -160,20 +103,7 @@
   height: 2rem;
 }
 
-/* Users sessions still use a bare SVG; Prefill uses a filled icon-square Button
-   with this class only for row order. */
-svg.session-row__chevron {
-  width: 1.15rem;
-  height: 1.15rem;
-  color: var(--theme-text-muted);
-  transition: transform 0.2s ease;
-}
-
-svg.session-row__chevron.is-open {
-  transform: rotate(180deg);
-}
-
-/* Direct current-session actions and each row's menu stay visible at rest. */
+/* Row actions and the row menu stay visible at rest. */
 .session-row__actions {
   opacity: 1;
   flex-wrap: nowrap;
@@ -181,150 +111,488 @@ svg.session-row__chevron.is-open {
   flex: 0 0 auto;
 }
 
-.session-row__direct-action {
-  min-width: 4.5rem;
-}
-
-/* ==============================================
- * SESSION EXPANSION DETAIL (inside .mgmt-row-detail)
- * ============================================== */
-
 .session-detail {
   display: flex;
   flex-direction: column;
   gap: 0.875rem;
 }
 
-.session-detail__id {
-  word-break: break-all;
-}
-
-.session-detail__client-ip,
-.session-detail .mgmt-stat__value {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-/* Per-service prefill access readout (guest rows + edit modal summary). */
-.session-prefill-readout {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.4rem 0.85rem;
-}
-
-.session-prefill-svc {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: var(--font-size-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.session-prefill-svc.is-enabled {
-  color: var(--theme-success);
-}
-
-.session-prefill-svc.is-disabled {
-  color: var(--theme-text-muted);
-}
-
-/* Edit-modal per-service prefill row (inside a .mgmt-list): icon + name on the
-   left, status badge + grant/revoke button in the trailing action cluster. */
-.session-prefill-edit__label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex: 1 1 0%;
-  min-width: 0;
-}
-
-.session-prefill-edit__icon {
-  flex-shrink: 0;
-  color: var(--theme-text-muted);
-}
-
 /* ==============================================
- * SESSION ACCESS + FIND TOOLBAR
+ * USERS PAGE: list pane on the left, the picked item on the right
  * ============================================== */
 
-/* Guest lock is a setting, not a filter peer. The well gives it its own surface so
-   it never shares a row with All/Accounts/Guest, search, or page size. */
-.well-surface.session-access {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem 1.25rem;
-  padding: 0.75rem 0.875rem;
-  overflow: visible;
+/* Below 1024px the two panes do not both fit their content, so the page shows one at a time. */
+.users-split {
+  display: block;
 }
 
-.session-access__copy {
+.users-split[data-phone-view='list'] .users-detail-pane,
+.users-split[data-phone-view='detail'] .users-list-pane {
+  display: none;
+}
+
+.users-list-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.users-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Equal quarters at every width: without a zero minimum, a longer count widens its own segment. */
+.users-tools .segmented-control-button {
+  min-width: 0;
+}
+
+/* Rows reach 8px past the pane's content edge so a row's own 8px inset puts its text on the
+   same line as the search box. */
+.users-list-scroll {
+  margin-inline: -0.5rem;
+}
+
+.users-back {
+  padding: 1rem 1rem 0;
+}
+
+@media (min-width: 1024px) {
+  .users-split {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-rows: minmax(0, 1fr);
+    /* One height whatever is picked, tall enough for a list of seven people: a pane taller than
+       this scrolls inside itself, so picking another row never moves the list, Create account, the
+       card's edge or the page scroll. It also fits the window, so a pane's Save footer is on
+       screen without scrolling the page. */
+    height: clamp(30rem, calc(100dvh - 9.5rem), 50rem);
+  }
+
+  .users-split[data-phone-view] .users-list-pane {
+    display: block;
+  }
+
+  /* A column, so the pane's scroll takes the split's height. */
+  .users-split[data-phone-view] .users-detail-pane {
+    display: flex;
+  }
+
+  /* Both panes fill the split's height and scroll inside it. */
+  .users-list-pane {
+    grid-column: span 5;
+    position: relative;
+    min-width: 0;
+  }
+
+  .users-list-inner {
+    position: absolute;
+    inset: 0;
+    padding: 1.5rem;
+  }
+
+  .users-list-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .users-detail-pane {
+    grid-column: span 7;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    border-left: 1px solid var(--theme-border-secondary);
+  }
+
+  .users-detail-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+}
+
+/* ---- List rows ---- */
+
+.users-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The two settings entries and the people below them would read as one list without it. */
+.users-rows--settings {
+  margin-inline: 0.5rem;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--theme-border-secondary);
+}
+
+.users-rows--settings .users-row,
+.users-rows--people .users-row,
+.user-settings-group .users-rows .users-row {
+  width: calc(100% + 1rem);
+  margin-inline: -0.5rem;
+}
+
+.users-rows--people {
+  padding-inline: 0.5rem;
+}
+
+.users-row {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr) 1rem;
+  align-items: center;
+  column-gap: 0.75rem;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.5rem;
+  border: 0;
+  border-radius: var(--theme-border-radius-sm);
+  background: transparent;
+  color: var(--theme-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.users-row:hover {
+  background-color: var(--theme-bg-surface-hover);
+}
+
+.users-row:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: -2px;
+}
+
+.users-row[aria-current='true'] {
+  background-color: var(--theme-selected-bg);
+}
+
+.users-row--quiet {
+  min-height: 3rem;
+}
+
+/* A disabled account reads grayed out by color alone; opacity would also fade the focus ring
+   and the selected fill. The aside and the line under the title are muted already. */
+.users-row--dimmed .mgmt-row__title {
+  color: var(--theme-text-muted);
+}
+
+/* The muted gray falls under 4.5:1 on the hover and selected fills and matches the muted line
+   under it, so on those fills the name steps up to the secondary text color. */
+.users-row--dimmed:hover .mgmt-row__title,
+.users-row--dimmed[aria-current='true'] .mgmt-row__title {
+  color: var(--theme-text-secondary);
+}
+
+.users-row__lead {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.users-row__icon {
+  width: 1rem;
+  height: 1rem;
+  color: var(--theme-text-muted);
+}
+
+.users-row__body {
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
   min-width: 0;
 }
 
-.session-access__title {
-  margin: 0;
-  font-size: var(--font-size-md);
-  font-weight: 500;
-  color: var(--theme-text-primary);
+.users-row__title-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
 }
 
-.session-access__hint {
-  margin: 0;
-  font-size: var(--font-size-xs);
+.users-row__title--quiet {
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--theme-text-secondary);
+}
+
+.users-row__aside,
+.users-row__line {
+  font-size: var(--font-size-base);
   color: var(--theme-text-muted);
 }
 
-/* Search on its own row; type filter and page size on the next. */
-.session-toolbar {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
+.users-row__line {
+  overflow-wrap: anywhere;
 }
 
-.session-toolbar__filters {
+/* The chevron marks the picked row by shape as well as fill. On a phone every row opens a
+   page, so every row carries it. */
+.users-row__chevron {
+  width: 1rem;
+  height: 1rem;
+  color: var(--theme-text-muted);
+}
+
+@media (min-width: 1024px) {
+  .users-row__chevron {
+    visibility: hidden;
+  }
+
+  .users-row[aria-current='true'] .users-row__chevron {
+    visibility: visible;
+    color: var(--theme-text-primary);
+  }
+}
+
+.users-list-foot {
+  display: flex;
+}
+
+/* ---- Detail pane ---- */
+
+.users-pane-head {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--theme-border-secondary);
+}
+
+.users-pane-head:last-child {
+  border-bottom: 0;
+}
+
+.users-pane-head__text {
+  min-width: 0;
+}
+
+.users-pane-head__title {
+  margin: 0;
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--theme-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.users-pane-head__line {
+  margin: 0.25rem 0 0;
+  font-size: var(--font-size-base);
+  color: var(--theme-text-secondary);
+}
+
+/* The header's text buttons sit 8px apart, wider than the list rows' 4px action gap. */
+.users-pane-head .mgmt-row__actions {
+  gap: 0.5rem;
+}
+
+/* Every text button of a detail pane shares one width: the header's Log out, Revoke, Delete,
+   Disable and Enable, and the Sign-in pane's Change and Remove beside the metrics row's Reset to
+   default. 7.75rem holds "Reset to default", the widest of these labels in English and Chinese. */
+.users-pane-btn,
+.users-pane-body .metrics-reset-button {
+  min-width: 7.75rem;
+}
+
+.users-pane-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1rem;
+}
+
+.users-section__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.25rem;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--theme-text-primary);
+}
+
+/* Label above value reads fastest when many short facts sit together; the columns wrap with the
+   pane's width so a phone gets one fact per row. */
+.users-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.75rem 1.25rem;
+  margin: 0.75rem 0 0;
+}
+
+/* Each group after the first starts below a hairline, so the three kinds of fact read as blocks. */
+.users-facts + .users-facts {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+.users-facts__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.users-facts__item--wide {
+  grid-column: 1 / -1;
+}
+
+.users-facts dt {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--theme-text-muted);
+}
+
+.users-facts dd {
+  margin: 0;
+  font-size: var(--font-size-base);
+  line-height: 1.4;
+  color: var(--theme-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.users-facts__id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-sm);
+  color: var(--theme-text-secondary);
+}
+
+.users-copy-line {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+  font-size: var(--font-size-base);
+  color: var(--theme-text-muted);
+}
+
+.users-copy-line__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Prefill service rows ---- */
+
+/* The icon column fits the widest service mark, Battle.net's, which is 1.5 times as wide as tall. */
+.users-svc,
+.users-svc-head {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.5rem 0.75rem;
 }
 
-.session-filter-types {
-  flex: 1 1 16rem;
+.users-svc-head {
+  display: none;
+}
+
+/* A mark beside its name reads heavier than the name in the same color. */
+.users-svc__icon {
+  justify-self: center;
+  color: var(--theme-text-secondary);
+}
+
+.users-svc__name {
+  min-width: 0;
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  color: var(--theme-text-primary);
+}
+
+/* Phone: the dropdowns take their own row, split in two equal halves under the service name. */
+.users-svc__cells {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.users-svc__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
   min-width: 0;
 }
 
-.session-filter-pagesize {
-  flex: 0 0 auto;
-  min-width: 6.5rem;
+.users-svc__cell-label {
+  font-size: var(--font-size-base);
+  color: var(--theme-text-muted);
+}
+
+/* A cell is a 10rem column on desktop and half the row on a phone; the dropdown fills it rather
+   than keeping the setting rows' 12rem width. */
+.users-svc__cell .user-settings-dropdown {
+  width: 100%;
+}
+
+.users-svc + .users-svc {
+  margin-top: 0.75rem;
+}
+
+/* Lines the warning up with the service name, past the icon column and its gap, at body size. */
+.users-svc__warning {
+  padding-left: 2.75rem;
+  font-size: var(--font-size-base);
+}
+
+@media (min-width: 1024px) {
+  .users-svc-head {
+    display: grid;
+    font-size: var(--font-size-base);
+    color: var(--theme-text-muted);
+  }
+
+  .users-svc--one,
+  .users-svc-head {
+    grid-template-columns: 2rem minmax(0, 1fr) auto 12rem;
+  }
+
+  .users-svc--two {
+    grid-template-columns: 2rem minmax(0, 1fr) auto 10rem 10rem;
+  }
+
+  .users-svc-head > span:first-child {
+    grid-column: 4;
+  }
+
+  .users-svc-head > span + span {
+    grid-column: 5;
+  }
+
+  .users-svc__cells {
+    display: contents;
+  }
+
+  .users-svc + .users-svc {
+    margin-top: 0;
+  }
+
+  .users-svc__cell-label {
+    display: none;
+  }
+
+  .users-pane-head,
+  .users-pane-body {
+    padding: 1.5rem;
+  }
 }
 
 /* ==============================================
- * ANIMATIONS
+ * RESPONSIVE
  * ============================================== */
 
-@keyframes settingsContentFadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* ==============================================
- * RESPONSIVE + REDUCED MOTION
- * ============================================== */
-
-/* Phones: interactive session rows keep identity and disclosure on the first line,
-   with any row actions using the full second line. */
+/* Phones: Prefill Sessions rows keep identity and disclosure on the first line, with any row
+   actions using the full second line. */
 @media (max-width: 639.98px) {
   .mgmt-row--interactive.session-row {
     display: grid;
@@ -377,14 +645,6 @@ svg.session-row__chevron.is-open {
     min-width: 2.75rem;
   }
 
-  .session-row__actions > .session-row__direct-action {
-    flex: 1 1 0;
-    width: auto;
-    height: 2.75rem;
-    min-height: 2.75rem;
-    min-width: 0;
-  }
-
   .session-row__actions .btn-icon-square--sm {
     flex: 0 0 2.75rem;
     width: 2.75rem;
@@ -393,37 +653,56 @@ svg.session-row__chevron.is-open {
     min-width: 2.75rem;
   }
 
-  .session-filter-types,
-  .session-filter-pagesize {
-    flex: 1 1 100%;
-  }
-
-  /* 2.75rem is the touch minimum used elsewhere in the app. The page-size trigger
-     and the guest-access toggle set a fixed height, so they need the compound
-     selector to beat it. */
-  .session-filter-pagesize .ed-trigger,
-  .session-access button {
+  /* Users page: the switch keeps a fixed 40px box, so it gets the 44px touch floor here; buttons
+     already get it from buttons.css and the multi-select from dropdowns.css. */
+  .users-card button.rounded-full.h-10 {
     height: 2.75rem;
   }
 
-  /* The lock switch is wrapped in a Tooltip, so the well's trailing child is that
-     wrapper. Stretch both so Unlocked and Locked share the row on a phone. */
-  .session-access > *,
-  .session-access button {
-    width: 100%;
+  /* HelpPopover and the shared metrics switch take no class for their small buttons, so the help
+     trigger and Reset to default get the .pointer-target-44 overlay here. */
+  .users-card .help-popover-trigger,
+  .users-card .metrics-reset-button {
+    position: relative;
   }
 
-  .session-access button > span {
+  .users-card .help-popover-trigger::before,
+  .users-card .metrics-reset-button::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+
+  /* A header text button beside the row menu takes the rest of the header's width. */
+  .users-pane-head .mgmt-row__actions:has(.users-pane-btn) {
+    flex: 1 1 100%;
+  }
+
+  .users-pane-head .mgmt-row__actions > .users-pane-btn {
     flex: 1 1 0;
+  }
+
+  /* Equal quarters on a phone: the count goes under the word, because word and count side by
+     side need more than a quarter of the track once a count reaches two digits. Worst case
+     cleared: a three-digit count under "Signed in" in a 77px quarter. */
+  .users-tools .segmented-control-button {
+    padding-inline: 0.25rem;
+  }
+
+  .users-tools .segmented-control-label {
+    flex-direction: column;
+    gap: 0.125rem;
+    font-size: var(--font-size-sm);
+    line-height: 1;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .user-tab-content {
-    animation: none;
-  }
-
-  svg.session-row__chevron {
+  .users-row {
     transition: none;
   }
 }

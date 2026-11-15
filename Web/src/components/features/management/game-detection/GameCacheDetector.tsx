@@ -390,8 +390,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         return;
       }
 
+      // The error box stays drawn until the read answers; `syncCachedDetection` clears it then.
       setIsLoadingInitialCache(true);
-      setLoadError(null);
       try {
         const snapshot = await syncCachedDetection('Failed to load cached games and services', {
           onError: (error) => setLoadError(getErrorMessage(error))
@@ -1260,6 +1260,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             message={loadError}
             retryLabel={t('common.retry')}
             onRetry={() => setInitialLoadRetry((current) => current + 1)}
+            retrying={isLoadingInitialCache}
             className={hasBodyContent ? 'mb-3' : undefined}
           />
         )}

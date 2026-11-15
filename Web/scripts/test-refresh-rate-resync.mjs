@@ -123,6 +123,7 @@ const { createComponent } = await import(reactStubUrl);
 
 const state = {
   authMode: 'guest',
+  sessionId: null,
   isConnected: true,
   currentPreferences: { refreshRate: null, refreshRateLocked: null },
   requests: [],
@@ -150,12 +151,17 @@ export const useSignalR = () => {
 `);
 
 const authStubUrl = toUrl(`
-export const useAuth = () => ({ authMode: globalThis.refreshRateTestState.authMode });
+export const useAuth = () => ({
+  authMode: globalThis.refreshRateTestState.authMode,
+  sessionId: globalThis.refreshRateTestState.sessionId
+});
 `);
 
 const sessionPreferencesStubUrl = toUrl(`
 export const useSessionPreferences = () => ({
-  currentPreferences: globalThis.refreshRateTestState.currentPreferences
+  currentPreferences: globalThis.refreshRateTestState.currentPreferences,
+  error: null,
+  resyncPreferences: () => undefined
 });
 `);
 
@@ -228,8 +234,14 @@ const { SIGNALR_SEED_EVENTS } = await import(
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 /** Mounts one provider at the given auth mode and connection state. */
-const mount = ({ authMode = 'guest', isConnected = true, refreshRateLocked = null } = {}) => {
+const mount = ({
+  authMode = 'guest',
+  sessionId = null,
+  isConnected = true,
+  refreshRateLocked = null
+} = {}) => {
   state.authMode = authMode;
+  state.sessionId = sessionId;
   state.isConnected = isConnected;
   state.currentPreferences = authMode === 'guest' ? { refreshRate: null, refreshRateLocked } : null;
   state.requests = [];
@@ -272,6 +284,29 @@ test('a socket already live at mount fetches once, for a guest and for an admin'
   await settle();
   assert.equal(state.requests.length, 1);
   assert.equal(admin.published().refreshRate, 'RELAXED');
+});
+
+test('a pushed guest rate changes only the guest whose session it names', async () => {
+  const guest = mount({ authMode: 'guest', sessionId: 'a' });
+  state.requests[0].respond({ locked: true, refreshRate: 'STANDARD' });
+  await settle();
+  assert.equal(guest.published().refreshRate, 'STANDARD');
+
+  state.handlers.get('GuestRefreshRateUpdated')({ sessionId: 'b', refreshRate: 'SLOW' });
+  assert.equal(
+    guest.published().refreshRate,
+    'STANDARD',
+    'another guest was changed, not this one'
+  );
+
+  state.handlers.get('GuestRefreshRateUpdated')({ sessionId: 'a', refreshRate: 'SLOW' });
+  assert.equal(guest.published().refreshRate, 'SLOW');
+
+  const admin = mount({ authMode: 'authenticated', sessionId: 'a' });
+  state.requests[0].respond({ refreshRate: 'RELAXED' });
+  await settle();
+  state.handlers.get('GuestRefreshRateUpdated')({ sessionId: 'a', refreshRate: 'ULTRA' });
+  assert.equal(admin.published().refreshRate, 'RELAXED', 'an account holder keeps the system rate');
 });
 
 test('an unlock sent while the socket was down is picked up on recovery', async () => {

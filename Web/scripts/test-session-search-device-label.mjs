@@ -15,7 +15,7 @@ import {
  * filter callback, the search, the label and the parser are all lifted from the shipped files.
  */
 
-const SESSIONS = 'src/components/features/user/ActiveSessions.tsx';
+const SESSIONS = 'src/components/features/user/UserTab.tsx';
 const TYPES = 'src/components/features/user/types.ts';
 
 const parseUserAgent = bindLifted(liftConstArrow(TYPES, 'parseUserAgent'), {});
@@ -58,14 +58,12 @@ const cases = [
 
 for (const [locale, query, expected, label] of cases) {
   test(`searching the ${locale} page finds rows by ${label}`, () => {
-    const deviceTitle = bindLifted(liftConstArrow(SESSIONS, 'deviceTitle'), {
-      t: translator(locale),
-      parseUserAgent
-    });
+    const deviceTitle = bindLifted(liftConstArrow(TYPES, 'deviceTitle'), { parseUserAgent });
     const matches = bindLifted(filterCallback.getText(source), {
       sessionMatchesSearch,
-      searchQuery: query,
-      deviceTitle
+      query,
+      deviceTitle,
+      t: translator(locale)
     });
     assert.deepEqual(
       rows.filter(matches).map((row) => row.id),
@@ -74,13 +72,11 @@ for (const [locale, query, expected, label] of cases) {
   });
 }
 
-test('the label helper is declared before the search filter reads it', () => {
-  const [deviceTitleStart, filterStart] = ['deviceTitle', 'filteredActiveSessions'].map((name) =>
-    findSoleNode(
-      source,
-      `${name} declaration`,
-      (node) => ts.isVariableDeclaration(node) && node.name.getText(source) === name
-    ).getStart(source)
+test('the search reads the same label helper the rows show, from types.ts', () => {
+  const specifier = findSoleNode(
+    source,
+    'deviceTitle import',
+    (node) => ts.isImportSpecifier(node) && node.name.getText(source) === 'deviceTitle'
   );
-  assert.ok(deviceTitleStart < filterStart);
+  assert.equal(specifier.parent.parent.parent.moduleSpecifier.text, './types');
 });

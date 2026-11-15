@@ -325,13 +325,15 @@ public class DatabaseService
     private async Task DoResetAsync(Guid operationId, List<string> tableNames, bool fullReset, CancellationToken cancellationToken)
     {
         var terminalOutcome = OperationStatus.Failed;
+        // The sessions whose delete committed; null until it does, so an ending before the commit tells no window.
+        IReadOnlyCollection<Guid>? deletedSessionIds = null;
+        using var scope = _scopes.CreateScope();
 
         try
         {
             // Context acquisition is part of the reset lifecycle: a database outage here must flow
             // through the same failed terminal report/cleanup as an exception during deletion.
             await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-            using var scope = _scopes.CreateScope();
             _logger.LogInformation($"Starting selective database reset for tables: {string.Join(", ", tableNames)}");
 
             // Send initial progress update
@@ -417,6 +419,10 @@ public class DatabaseService
 
             // The prefill runs whose rows the reset deleted; only these leave the live sessions' cards.
             var deletedRunIds = new List<Guid>();
+
+            // The sessions the reset deleted, so the prefill each one started stops once the delete commits.
+            // Kept across attempts: a retry after a commit that did land finds no rows left to read.
+            var clearedSessions = new Dictionary<Guid, SessionType>();
 
             if (tablesToClear.Contains("UserSessions"))
             {
@@ -735,9 +741,15 @@ public class DatabaseService
 
                         case "UserSessions":
                             // CRITICAL: UserSessions is always processed FIRST (priority 0)
-                            // This ensures all users are logged out immediately before any other tables are cleared.
+                            // This ends every session before any other table is cleared; the windows are told after the commit.
                             // The platform logouts already ran before the transaction.
                             _logger.LogInformation($"[PRIORITY] Clearing UserSessions table to invalidate all active sessions");
+                            foreach (var cleared in await context.UserSessions
+                                .Select(session => new { session.Id, session.SessionType })
+                                .ToListAsync(cancellationToken))
+                            {
+                                clearedSessions.TryAdd(cleared.Id, cleared.SessionType);
+                            }
                             var userSessionsCount = await context.UserSessions.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {userSessionsCount:N0} user sessions");
                             deletedRows += userSessionsCount;
@@ -754,19 +766,10 @@ public class DatabaseService
                                 },
                                 $"Cleared user sessions ({userSessionsCount:N0} rows)");
 
-                            // IMMEDIATELY broadcast UserSessionsCleared event to log out all connected users
-                            // This happens RIGHT AFTER deletion, not at the end of the operation
-                            // Note: This SignalR event will trigger the frontend to clear cookies and redirect to login
-                            _logger.LogInformation("Broadcasting UserSessionsCleared event to all clients (immediate logout)");
-                            await _notifications.NotifyAllAsync(SignalREvents.UserSessionsCleared, new
-                            {
-                                stageKey = "signalr.dbReset.sessionsCleared.logout",
-                                context = new Dictionary<string, object?>(),
-                                clearCookies = true, // Signal frontend to clear all auth cookies
-                                timestamp = DateTime.UtcNow
-                            });
-
-                            _logger.LogInformation("All users have been logged out. Continuing with remaining table deletions in background...");
+                            // The windows are told only after the commit: a cancel or a later table's failure
+                            // rolls this delete back, and a window that had signed out would sit on the sign-in
+                            // screen with a session that still works.
+                            _logger.LogInformation("User sessions deleted. Continuing with the remaining tables...");
                             break;
 
                         case "Events":
@@ -1192,42 +1195,82 @@ public class DatabaseService
             }
             }); // end deleteStrategy.ExecuteAsync
 
-            if (tablesToClear.Contains("LogEntries"))
+            if (tablesToClear.Contains("UserSessions"))
             {
-                _stateRepository.ClearLogProcessingPositions();
-                // The import starts again from the first line and brings back rows of runs that
-                // ended long ago, so the next marking pass reads the whole window.
-                scope.ServiceProvider.GetRequiredService<PrefillSessionService>().ResetMarkingPass();
+                deletedSessionIds = clearedSessions.Keys;
             }
 
-            // Live sessions also hold their finished runs in memory. This waits for each session's run
-            // sweep, so it runs after the commit: inside the delete transaction a sweep could be waiting on it.
-            if (tablesToClear.Contains("PrefillSessions"))
+            try
             {
-                foreach (var daemon in PrefillDaemonServiceBase.ResolveAllDaemons(scope.ServiceProvider))
+                if (tablesToClear.Contains("LogEntries"))
                 {
-                    // Waits for the session's run sweep, so it takes the reset's token like the sign-outs above.
-                    await daemon.ForgetFinishedRunsAsync(deletedRunIds).WaitAsync(cancellationToken);
+                    _stateRepository.ClearLogProcessingPositions();
+                    // The import starts again from the first line and brings back rows of runs that
+                    // ended long ago, so the next marking pass reads the whole window.
+                    scope.ServiceProvider.GetRequiredService<PrefillSessionService>().ResetMarkingPass();
                 }
             }
-
-            // The rows and positions are settled, so the import may resume before the completion
-            // report; the using declaration still releases the lock on every early exit.
-            if (logLock is not null)
+            finally
             {
-                await logLock.DisposeAsync();
-            }
+                // The delete is committed, so the steps below run even when the state file could not be
+                // written above: the rows are gone either way, and a deleted guest's prefill would otherwise
+                // keep running with no page that can reach it.
 
-            // Broadcast preference reset event AFTER all database operations complete
-            // Note: UserSessionsCleared is now broadcast IMMEDIATELY after UserSessions deletion (not here)
-            if (shouldBroadcastPreferencesReset)
-            {
-                _logger.LogInformation("Broadcasting UserPreferencesReset event to all clients");
-                await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesReset, new
+                // The rows and positions are settled and nothing below touches them, so the import resumes
+                // before the waits on run sweeps and container kills; the using declaration still releases
+                // the lock on every early exit.
+                if (logLock is not null)
                 {
-                    message = "User preferences have been reset to defaults",
-                    timestamp = DateTime.UtcNow
-                });
+                    await logLock.DisposeAsync();
+                }
+
+                // Live sessions also hold their finished runs in memory. This waits for each session's run
+                // sweep, so it runs after the commit: inside the delete transaction a sweep could be waiting on it.
+                if (tablesToClear.Contains("PrefillSessions"))
+                {
+                    foreach (var daemon in PrefillDaemonServiceBase.ResolveAllDaemons(scope.ServiceProvider))
+                    {
+                        // The delete is committed, so this wait does not take the reset's token: a cancel here
+                        // would report a reset whose tables are already empty as canceled.
+                        await daemon.ForgetFinishedRunsAsync(deletedRunIds);
+                    }
+                }
+
+                // No page can reach the prefill of a deleted session, so it stops with it, as when a new API key
+                // clears every session. After the commit, so a prefill start still finishing for one of these
+                // sessions finds it gone and ends itself, and a reset that rolls back cancels no guest's start. The
+                // delete is committed, so the stop does not take the reset's token.
+                var clearedGuestIds = clearedSessions.Where(cleared => cleared.Value == SessionType.Guest).Select(cleared => cleared.Key).ToList();
+                foreach (var guestId in clearedGuestIds)
+                    PrefillDaemonServiceBase.GuestGate.EnterStop(guestId);
+                try
+                {
+                    var daemons = PrefillDaemonServiceBase.ResolveAllDaemons(scope.ServiceProvider).ToArray();
+                    var stops = await Task.WhenAll(clearedSessions.Keys.Select(sessionId => PrefillDaemonServiceBase.TerminateGuestSessionsAsync(daemons,
+                        sessionId, "User sessions reset", PrefillDaemonServiceBase.AccessEndedReasonKey, sessionId.ToString())));
+                    foreach (var (sessionId, stopped) in clearedSessions.Keys.Zip(stops))
+                    {
+                        if (!stopped.Success)
+                            _logger.LogWarning("Session {SessionId} was deleted by the reset, but prefill cleanup is incomplete: {FailedSessions} sessions and {PendingStarts} starts remain",
+                                sessionId, stopped.FailedSessions, stopped.PendingStarts);
+                    }
+                }
+                finally
+                {
+                    foreach (var guestId in clearedGuestIds)
+                        PrefillDaemonServiceBase.GuestGate.ExitStop(guestId);
+                }
+
+                // Broadcast preference reset event AFTER all database operations complete
+                if (shouldBroadcastPreferencesReset)
+                {
+                    _logger.LogInformation("Broadcasting UserPreferencesReset event to all clients");
+                    await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesReset, new
+                    {
+                        message = "User preferences have been reset to defaults",
+                        timestamp = DateTime.UtcNow
+                    });
+                }
             }
 
             // Publish the success terminal only after the execution-strategy callback returned, so a
@@ -1313,6 +1356,33 @@ public class DatabaseService
             ReleaseResetOperation(operationId);
 
             _logger.LogInformation("Reset operation {OperationId} ended with {Outcome}", operationId, terminalOutcome);
+
+            // Once the delete is committed the sessions are gone however the reset ends, so every ending tells
+            // the windows. With sign-in on, each window whose session this event names signs out, and each
+            // deleted session's open windows lose their connection and their presence, as when every session is
+            // cleared for a new API key. After the terminal report, because the window that started the reset
+            // holds one of these sessions and would otherwise miss its ending.
+            if (deletedSessionIds is not null)
+            {
+                _logger.LogInformation("Broadcasting UserSessionsCleared event to all clients");
+                await _notifications.NotifyAllAsync(SignalREvents.UserSessionsCleared, new
+                {
+                    stageKey = "signalr.dbReset.sessionsCleared.logout",
+                    context = new Dictionary<string, object?>(),
+                    clearCookies = true, // Signal frontend to clear all auth cookies
+                    sessionIds = deletedSessionIds.Select(sessionId => sessionId.ToString()).ToList(),
+                    timestamp = DateTime.UtcNow
+                });
+
+                var connections = scope.ServiceProvider.GetService<ConnectionTrackingService>();
+                var activity = scope.ServiceProvider.GetService<IActivityRegistry>();
+                foreach (var sessionId in deletedSessionIds)
+                {
+                    connections?.DisconnectSession(sessionId);
+                    if (activity is not null)
+                        await activity.ReportAsync(ActivityDomains.UserSession, sessionId.ToString(), ActivityAspects.Present, false);
+                }
+            }
         }
     }
 

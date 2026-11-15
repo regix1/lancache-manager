@@ -49,63 +49,67 @@ export function ScheduleHistory() {
   const mountedRef = useRef(false);
   const pageRef = useRef<ScheduleHistoryQuery>(initialQuery);
   const requestRef = useRef({
-    running: false,
+    loop: null as Promise<void> | null,
     pending: false,
     owner: 0,
     controller: null as AbortController | null
   });
 
-  const fetchHistory = useCallback(async (): Promise<void> => {
+  // A call while the loop runs restarts its read and gets the loop's promise, so a Retry clicked
+  // during an event or reconnect read stays busy until the read that replaces the box settles.
+  const fetchHistory = useCallback((): Promise<void> => {
     const request = requestRef.current;
-    if (request.running) {
+    if (request.loop) {
       request.pending = true;
       request.owner++;
       request.controller?.abort();
-      return;
+      return request.loop;
     }
 
-    request.running = true;
-    try {
-      do {
-        request.pending = false;
-        const owner = ++request.owner;
-        const requestedPage = pageRef.current;
-        const controller = new AbortController();
-        request.controller = controller;
+    request.loop = (async () => {
+      try {
+        do {
+          request.pending = false;
+          const owner = ++request.owner;
+          const requestedPage = pageRef.current;
+          const controller = new AbortController();
+          request.controller = controller;
 
-        try {
-          const next = await ApiService.getScheduleHistory(requestedPage, controller.signal);
-          if (mountedRef.current && owner === request.owner) {
-            const acceptedQuery =
-              next.page === requestedPage.page
-                ? requestedPage
-                : { ...requestedPage, page: next.page };
-            const itemIds = new Set(next.items.map((item) => item.id));
-            pageRef.current = acceptedQuery;
-            setQuery(acceptedQuery);
-            setConfirmed(next);
-            setConfirmedQuery(acceptedQuery);
-            setExpandedIds((current) => {
-              const kept = new Set([...current].filter((id) => itemIds.has(id)));
-              return kept.size === current.size ? current : kept;
-            });
-            setError(null);
-            setLoaded(true);
+          try {
+            const next = await ApiService.getScheduleHistory(requestedPage, controller.signal);
+            if (mountedRef.current && owner === request.owner) {
+              const acceptedQuery =
+                next.page === requestedPage.page
+                  ? requestedPage
+                  : { ...requestedPage, page: next.page };
+              const itemIds = new Set(next.items.map((item) => item.id));
+              pageRef.current = acceptedQuery;
+              setQuery(acceptedQuery);
+              setConfirmed(next);
+              setConfirmedQuery(acceptedQuery);
+              setExpandedIds((current) => {
+                const kept = new Set([...current].filter((id) => itemIds.has(id)));
+                return kept.size === current.size ? current : kept;
+              });
+              setError(null);
+              setLoaded(true);
+            }
+          } catch (requestError: unknown) {
+            if (mountedRef.current && owner === request.owner && !isAbortError(requestError)) {
+              setError(getErrorMessage(requestError));
+              setLoaded(true);
+            }
+          } finally {
+            if (owner === request.owner) {
+              request.controller = null;
+            }
           }
-        } catch (requestError: unknown) {
-          if (mountedRef.current && owner === request.owner && !isAbortError(requestError)) {
-            setError(getErrorMessage(requestError));
-            setLoaded(true);
-          }
-        } finally {
-          if (owner === request.owner) {
-            request.controller = null;
-          }
-        }
-      } while (request.pending && mountedRef.current);
-    } finally {
-      request.running = false;
-    }
+        } while (request.pending && mountedRef.current);
+      } finally {
+        request.loop = null;
+      }
+    })();
+    return request.loop;
   }, []);
 
   useEffect(() => {
@@ -290,7 +294,7 @@ export function ScheduleHistory() {
             title={t('management.schedules.history.fetchError')}
             message={error}
             retryLabel={t('common.retry')}
-            onRetry={() => void fetchHistory()}
+            onRetry={() => fetchHistory()}
           />
         )}
 

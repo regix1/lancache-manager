@@ -6,6 +6,15 @@ public sealed class AccessSetupRequest
     public string ApiKey { get; set; } = string.Empty;
     public bool Recovery { get; set; }
     public bool AcknowledgeUnauthenticated { get; set; }
+
+    /// <summary>
+    /// The account count the person confirmed deleting when switching to unauthenticated access, which
+    /// deletes every account. Left out, or different from the count at the time of the save, the switch
+    /// is answered with an <see cref="AccountRefusalResponse"/> whose stage key is
+    /// <see cref="AccountRefusalResponse.WipeConfirmRequired"/> and whose context holds the current
+    /// count, and nothing is saved.
+    /// </summary>
+    public int? ConfirmedAccountCount { get; set; }
     public LoginSetupRequest? Login { get; set; }
     public OidcSetupRequest? Oidc { get; set; }
 }

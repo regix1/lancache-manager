@@ -4,6 +4,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -216,6 +217,11 @@ public sealed class DefaultGuestPreferencesTests : IDisposable
             cacheManagementService: null!,
             dbContextFactory: null!,
             claimWindow: null!);
+
+        // The guest-default routes refuse a user-role account, so they read the caller's session.
+        var httpContext = new DefaultHttpContext();
+        httpContext.Items["Session"] = new UserSession { Id = Guid.NewGuid(), SessionType = SessionType.Admin };
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
 
         return (controller, (TNotifications)(object)notifications);
     }

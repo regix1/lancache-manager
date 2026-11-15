@@ -17,6 +17,7 @@ using Npgsql;
 
 namespace LancacheManager.Tests;
 
+[Collection(nameof(DatabaseResetCollection))]
 public sealed class DatasourceRemovalTests
 {
     [Fact]

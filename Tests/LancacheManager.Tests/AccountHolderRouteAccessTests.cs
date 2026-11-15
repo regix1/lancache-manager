@@ -9,9 +9,11 @@ using LancacheManager.Security;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Tests;
 
@@ -19,7 +21,9 @@ namespace LancacheManager.Tests;
 /// A user session and an admin session must be answered identically. The routes are compared by the
 /// authorization decision the running application actually makes, against the principals the real
 /// authentication handler actually mints, because the alternative - firing every verb at every route -
-/// would run the cache-clear and database-reset handlers for real.
+/// would run the cache-clear and database-reset handlers for real. The policies stay the same for both;
+/// the changes a user-role account may not make are refused after them, by UserRoleRefusalFilter,
+/// which <see cref="UserRoleRefusalTests"/> covers.
 /// </summary>
 [Collection(nameof(EndpointAuthorizationCollection))]
 public sealed class AccountHolderRouteAccessTests
@@ -104,11 +108,14 @@ public sealed class AccountHolderRouteAccessTests
     }
 
     /// <summary>
-    /// The two hand-rolled session-type checks that answer with a status code rather than a body: writing
-    /// an admin-only preference key, and changing a refresh rate the caller does not own.
+    /// The two hand-rolled session-type checks that answer with a status code rather than a body. Writing
+    /// an admin-only preference key is an admin's alone, since a user that could clear its own lock or
+    /// thread cap would undo what the admin set: a user is refused 403 on each one and the admin is not.
+    /// Any other key answers a user as it answers an admin. Changing the refresh rate of a session another
+    /// account holds is an admin's alone too.
     /// </summary>
     [Fact]
-    public async Task TheHandRolledSessionTypeChecksAnswerAUserExactlyAsTheyAnswerAnAdmin()
+    public async Task TheHandRolledSessionTypeChecksRefuseAUserOnlyWhatIsAnAdminsAlone()
     {
         using var host = new EndpointAuthorizationHost();
         using var isolationClient = host.Application.CreateClient();
@@ -117,25 +124,46 @@ public sealed class AccountHolderRouteAccessTests
         using var adminClient = await host.CreateAdminClientAsync();
         using var userClient = await CreateUserClientAsync(host);
 
-        var somebodyElse = Guid.NewGuid();
+        (string Key, JsonElement Value)[] adminOnlyKeys =
+        [
+            ("refreshRateLocked", JsonSerializer.SerializeToElement(true)),
+            ("allowedTimeFormats", JsonSerializer.SerializeToElement(new[] { "server-24h" })),
+            ("steamMaxThreadCount", JsonSerializer.SerializeToElement(8)),
+            ("epicMaxThreadCount", JsonSerializer.SerializeToElement(8)),
+            ("xboxMaxThreadCount", JsonSerializer.SerializeToElement(8)),
+            ("battlenetMaxThreadCount", JsonSerializer.SerializeToElement(8)),
+            ("riotMaxThreadCount", JsonSerializer.SerializeToElement(8))
+        ];
 
-        foreach (var (name, request) in new (string, Func<HttpClient, Task<HttpResponseMessage>>)[]
-                 {
-                     ("PATCH /api/user-preferences/refreshRateLocked",
-                         client => client.PatchAsJsonAsync("/api/user-preferences/refreshRateLocked", true)),
-                     ("PATCH /api/sessions/{id}/refresh-rate for a session the caller does not own",
-                         client => client.PatchAsJsonAsync(
-                             $"/api/sessions/{somebodyElse}/refresh-rate",
-                             new RefreshRateRequest { RefreshRate = "30s" }))
-                 })
+        foreach (var (key, value) in adminOnlyKeys)
         {
-            using var adminResponse = await request(adminClient);
-            using var userResponse = await request(userClient);
-            Assert.NotEqual(HttpStatusCode.Forbidden, userResponse.StatusCode);
+            using var adminWrite = await adminClient.PatchAsJsonAsync($"/api/user-preferences/{key}", value);
+            using var userWrite = await userClient.PatchAsJsonAsync($"/api/user-preferences/{key}", value);
             Assert.True(
-                adminResponse.StatusCode == userResponse.StatusCode,
-                $"{name} answered an admin {(int)adminResponse.StatusCode} and a user {(int)userResponse.StatusCode}.");
+                adminWrite.StatusCode == HttpStatusCode.OK,
+                $"PATCH /api/user-preferences/{key} answered an admin {(int)adminWrite.StatusCode}, not 200.");
+            Assert.True(
+                userWrite.StatusCode == HttpStatusCode.Forbidden,
+                $"PATCH /api/user-preferences/{key} answered a user {(int)userWrite.StatusCode}, not 403.");
         }
+
+        using var adminRate = await adminClient.PatchAsJsonAsync("/api/user-preferences/refreshRate", "LIVE");
+        using var userRate = await userClient.PatchAsJsonAsync("/api/user-preferences/refreshRate", "LIVE");
+        Assert.Equal(HttpStatusCode.OK, userRate.StatusCode);
+        Assert.True(
+            adminRate.StatusCode == userRate.StatusCode,
+            $"PATCH /api/user-preferences/refreshRate answered an admin {(int)adminRate.StatusCode} and a user {(int)userRate.StatusCode}.");
+
+        // Another ordinary account's session: the owner's would answer a user 404, since it is hidden.
+        using var otherUserClient = await CreateUserClientAsync(host);
+        var otherUserSession = await SessionIdAsync(otherUserClient);
+
+        using var userOnOther = await userClient.PatchAsJsonAsync(
+            $"/api/sessions/{otherUserSession}/refresh-rate", new RefreshRateRequest { RefreshRate = "30s" });
+        using var adminOnOther = await adminClient.PatchAsJsonAsync(
+            $"/api/sessions/{otherUserSession}/refresh-rate", new RefreshRateRequest { RefreshRate = "30s" });
+        Assert.Equal(HttpStatusCode.Forbidden, userOnOther.StatusCode);
+        Assert.NotEqual(HttpStatusCode.Forbidden, adminOnOther.StatusCode);
     }
 
     /// <summary>
@@ -197,8 +225,9 @@ public sealed class AccountHolderRouteAccessTests
         Assert.Equal(usernames[adminAccountId], adminRow.GetProperty("username").GetString());
         Assert.Equal(usernames[userAccountId], userRow.GetProperty("username").GetString());
         Assert.NotEqual(adminRow.GetProperty("username").GetString(), userRow.GetProperty("username").GetString());
-        Assert.False(adminRow.TryGetProperty("accountId", out _));
-        Assert.False(userRow.TryGetProperty("accountId", out _));
+        // The page matches a session to its account by this id, never by user name.
+        Assert.Equal(adminAccountId, adminRow.GetProperty("accountId").GetGuid());
+        Assert.Equal(userAccountId, userRow.GetProperty("accountId").GetGuid());
         Assert.False(adminRow.GetProperty("accountDeleted").GetBoolean());
         Assert.False(userRow.GetProperty("accountDeleted").GetBoolean());
         Assert.Equal(adminRow.GetProperty("ipAddress").GetString(), userRow.GetProperty("ipAddress").GetString());
@@ -243,20 +272,27 @@ public sealed class AccountHolderRouteAccessTests
         Assert.False(shared.TryGetProperty("username", out _));
         Assert.False(shared.GetProperty("accountDeleted").GetBoolean());
 
+        var requestedUsername = $"shared-{Guid.NewGuid():N}";
         using var createdResponse = await client.PostAsJsonAsync(
             "/api/accounts",
             new CreateAccountRequest
             {
-                Username = $"shared-{Guid.NewGuid():N}",
+                Username = requestedUsername,
                 Password = "Endpoint-Contract-9"
             });
-        Assert.Equal(HttpStatusCode.Created, createdResponse.StatusCode);
-        var created = await createdResponse.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("user", created.GetProperty("role").GetString());
-        Assert.False(created.GetProperty("isMainAdmin").GetBoolean());
+        // With sign-in off nobody could sign in to a new account, so the shared session's create is
+        // refused with a stage key the Users page can name, and no row is written.
+        Assert.Equal(HttpStatusCode.Conflict, createdResponse.StatusCode);
+        var refusal = await createdResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(AccountRefusalResponse.SignInOff, refusal.GetProperty("stageKey").GetString());
+        var contexts = host.Application.Services.GetRequiredService<IDbContextFactory<AppDbContext>>();
+        await using (var read = await contexts.CreateDbContextAsync())
+        {
+            Assert.False(await read.UserAccounts.AnyAsync(account => account.Username == requestedUsername));
+        }
 
         using var roleResponse = await client.PutAsJsonAsync(
-            $"/api/accounts/{created.GetProperty("id").GetGuid()}/role",
+            $"/api/accounts/{Guid.NewGuid()}/role",
             new { role = "admin" });
         Assert.Equal(HttpStatusCode.NotFound, roleResponse.StatusCode);
     }
@@ -273,12 +309,14 @@ public sealed class AccountHolderRouteAccessTests
         using var isolationClient = host.Application.CreateClient();
         await host.AssertIsolationAsync(isolationClient);
 
+        using var adminClient = await host.CreateAdminClientAsync();
         using var userClient = await CreateUserClientAsync(host);
         using var guestClient = await CreateGuestClientAsync(host);
 
         // The routes that carry an id are driven against rows that exist, so a 404 cannot be read as the
-        // 200 a user is owed. Both rows are created through the API by the user whose access is under test.
-        using var groupResponse = await userClient.PostAsJsonAsync(
+        // 200 a user is owed. Both rows are created through the API by an admin, since a user-role account
+        // may only read what the installation shares.
+        using var groupResponse = await adminClient.PostAsJsonAsync(
             "/api/client-groups",
             new CreateClientGroupRequest { Nickname = $"route-access-{Guid.NewGuid():N}" });
         Assert.Equal(HttpStatusCode.Created, groupResponse.StatusCode);
@@ -286,7 +324,7 @@ public sealed class AccountHolderRouteAccessTests
             .GetProperty("id").GetInt64();
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        using var eventResponse = await userClient.PostAsJsonAsync(
+        using var eventResponse = await adminClient.PostAsJsonAsync(
             "/api/events",
             new CreateEventRequest { Name = $"route-access-{Guid.NewGuid():N}", StartTime = now, EndTime = now + 3600 });
         Assert.Equal(HttpStatusCode.Created, eventResponse.StatusCode);
@@ -493,15 +531,24 @@ public sealed class AccountHolderRouteAccessTests
         return (await PrincipalForAsync(host, admin.RawToken), await PrincipalForAsync(host, user.RawToken));
     }
 
-    private static UserAccount NewAccount(bool mainAdmin = false) => new()
+    // The accounts land in the host database every class in the collection shares, and the shared admin
+    // sign-in verifies the main administrator's stored hash, so each one carries a hash it can read.
+    private static UserAccount NewAccount(bool mainAdmin = false)
     {
-        Id = Guid.NewGuid(),
-        Username = $"route-{Guid.NewGuid():N}",
-        PasswordHash = "unused",
-        Role = mainAdmin ? SessionType.Admin : SessionType.User,
-        IsMainAdmin = mainAdmin,
-        CreatedAtUtc = DateTime.UtcNow
-    };
+        var account = new UserAccount
+        {
+            Id = Guid.NewGuid(),
+            Username = $"route-{Guid.NewGuid():N}",
+            Role = mainAdmin ? SessionType.Admin : SessionType.User,
+            IsMainAdmin = mainAdmin,
+            CreatedAtUtc = DateTime.UtcNow
+        };
+        account.PasswordHash = AccountHasher.HashPassword(account, Guid.NewGuid().ToString("N"));
+        return account;
+    }
+
+    private static readonly PasswordHasher<UserAccount> AccountHasher = new(Options.Create(
+        new PasswordHasherOptions { CompatibilityMode = PasswordHasherCompatibilityMode.IdentityV3, IterationCount = 1_000 }));
 
     private static async Task<ClaimsPrincipal> PrincipalForAsync(EndpointAuthorizationHost host, string rawToken)
     {

@@ -106,7 +106,7 @@ import type {
 } from '../components/features/prefill/persistentPrefillTypes';
 import type { CredentialChallenge } from '../hooks/usePrefillSteamAuth';
 import type { MetricsSecurityResponse } from '../components/features/management/grafana/GrafanaEndpoints.types';
-import type { GuestDurationResponse } from '../components/features/user/AccessSecurityCard.types';
+import type { GuestDurationResponse } from '../components/features/user/types';
 
 // The backend error body shape (`ApiErrorData`) and the structured 409 `OperationConflictBody`
 // now live in ./apiError alongside the typed `ApiError` they feed, so the sibling services can
@@ -2810,11 +2810,12 @@ class ApiService {
   // Migration / Import APIs
   // =====================================================
 
-  // Validate a connection string for migration
+  // Validate a connection string for migration. The string holds the source password, so it goes in
+  // the body rather than the address.
   static async validateMigrationConnection(connectionString: string): Promise<ValidationResult> {
     const res = await fetch(
-      `${API_BASE}/migration/validate-connection?connectionString=${encodeURIComponent(connectionString)}`,
-      this.getFetchOptions({ method: 'GET' })
+      `${API_BASE}/migration/validate-connection`,
+      this.getJsonFetchOptions({ connectionString }, { method: 'POST' })
     );
     return this.handleResponse<ValidationResult>(res);
   }

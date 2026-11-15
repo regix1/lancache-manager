@@ -15,6 +15,7 @@ namespace LancacheManager.Tests;
 /// A reset clears two small tables one right after the other, then spends a long time on the next one. The card
 /// must show the second cleared table during that stretch, instead of the first one until the next table is done.
 /// </summary>
+[Collection(nameof(DatabaseResetCollection))]
 public sealed class DatabaseResetQuietStretchTests
 {
     private const string ClearedTableStageKey = "signalr.dbReset.clearedTable";

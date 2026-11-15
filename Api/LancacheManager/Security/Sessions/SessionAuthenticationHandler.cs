@@ -50,6 +50,7 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
                     return AuthenticateResult.NoResult();
                 }
 
+                UserSession? held = null;
                 if (!string.IsNullOrEmpty(rawToken))
                 {
                     session = await sessionService.ValidateSessionAsync(rawToken);
@@ -58,12 +59,32 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
                             .GetRequiredService<AccessService>()
                             .IsMainAdminAsync(session))
                     {
+                        held = session;
                         session = null;
                     }
                 }
 
                 if (session is null)
                 {
+                    // The shared cookie replaces the one this browser held, so no browser could sign that
+                    // session out afterwards. It ends here, as it does when a sign-in replaces it, before the
+                    // cookie is set: the browser's old live connection is closed by the time it applies the
+                    // shared session, and an end that fails leaves the old cookie to try again. Only its prefill
+                    // stop, which waits on Docker, runs after the answer.
+                    if (held is not null)
+                    {
+                        try
+                        {
+                            await sessionService.EndSessionReplacedBySharedSessionAsync(held, Context.RequestServices);
+                        }
+                        catch (Exception ex)
+                        {
+                            // The cookie was already validated; it is ending its session that failed.
+                            Logger.LogError(ex, "Could not end the session this browser held before handing it the shared session; the request continues unauthenticated and the next one tries again");
+                            return AuthenticateResult.NoResult();
+                        }
+                    }
+
                     sessionService.SetSessionCookie(Context, shared.Value.RawToken, shared.Value.Session.ExpiresAtUtc);
                     session = shared.Value.Session;
                 }

@@ -5,7 +5,7 @@ import type { CredentialFieldsProps } from './CredentialFields.types';
 import { noAutofill } from '@utils/autofill';
 import { requiresApiKey, usesOidc } from '@utils/accountMode';
 
-const inputClassName = 'w-full p-3 text-sm themed-input';
+const inputClassName = 'w-full px-3 text-sm themed-input control-h-md';
 
 /**
  * The API key, username and password block that every sign-in surface renders.

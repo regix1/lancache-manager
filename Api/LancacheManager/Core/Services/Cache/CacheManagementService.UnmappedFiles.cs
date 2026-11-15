@@ -20,11 +20,7 @@ public partial class CacheManagementService
         Func<double, string, Task> onProgress,
         CancellationToken cancellationToken)
     {
-        var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
-        if (capabilityDenial != null)
-        {
-            throw new InvalidOperationException(capabilityDenial);
-        }
+        RequireUnambiguousKeyScheme();
 
         PublishCount(new CacheFileCountState(operationId, null, null, null, null));
 

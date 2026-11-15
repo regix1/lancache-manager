@@ -222,11 +222,11 @@ public class ScheduleRunGateTests
         var completed = service.RunCompleted;
         string? error = null;
         var canceled = false;
-        service.RunCompleted = (admitted, key, failure, wasCanceled, kept) =>
+        service.RunCompleted = (admitted, key, failure, reason, wasCanceled, kept) =>
         {
             error = failure;
             canceled = wasCanceled;
-            completed?.Invoke(admitted, key, failure, wasCanceled, kept);
+            completed?.Invoke(admitted, key, failure, reason, wasCanceled, kept);
         };
         var lastRun = DateTime.UtcNow.AddHours(-1);
         service.SetLastRunUtc(lastRun);
@@ -305,6 +305,42 @@ public class ScheduleRunGateTests
         var run = tracker.GetOperation(terminal.OperationId)!;
         Assert.Equal("signalr.generic.failed", run.Message);
         Assert.Equal("boom", run.ErrorDetail);
+    }
+
+    [Fact]
+    public async Task RunNowRefusedWithAKeyEndsOnThatKeyWithNoServerText()
+    {
+        const string refusalKey = "errors.corruption.keySchemeUnavailable";
+        using var service = new RunGateProbeService("gameDetection");
+        var tracker = CreateRealTracker();
+        var announced = new TaskCompletionSource<ScheduledRunCompleteEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var notifications = CreateProxy<ISignalRNotificationService>((_, args) =>
+        {
+            if (args?.Length > 1 && args[1] is ScheduledRunCompleteEvent terminal)
+                announced.TrySetResult(terminal);
+            return Task.CompletedTask;
+        });
+        _ = CreateRegistry(service, CacheScanGateHarness.Idle(), tracker, notifications);
+
+        await service.InvokeRunScheduledWorkAsync(
+            RunTrigger.Manual,
+            CancellationToken.None,
+            new RunNotice(NotificationMode.All, RunTrigger.Manual),
+            _ => throw new ValidationException("Datasource 'default' has mixed or unknown cache-key evidence")
+            {
+                StageKey = refusalKey
+            });
+        var terminal = await announced.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The live card words the failure from the event, a reload and Schedule History from the row.
+        Assert.Equal(refusalKey, terminal.StageKey);
+        Assert.Equal(refusalKey, terminal.Error);
+        var run = tracker.GetOperation(terminal.OperationId)!;
+        Assert.Equal(refusalKey, run.Message);
+        Assert.Equal(refusalKey, run.FailureReason?.StageKey);
+        // The event reaches guest connections too, so the server's English sentence stays off the run.
+        Assert.Null(run.ErrorDetail);
     }
 
     [Theory]

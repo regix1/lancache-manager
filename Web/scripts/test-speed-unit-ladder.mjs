@@ -19,7 +19,8 @@ const { formatSpeed, formatSpeedWithSeparatedUnit } = await import(
   await compileToUrl('../src/utils/formatters.ts', {
     '@/i18n': moduleUrl(`export default { t: (key) => key };`),
     './constants': moduleUrl(`export const FILE_SIZE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];`),
-    './dateTimeFormat': moduleUrl(`export const formatTimestamp = () => '';`)
+    './dateTimeFormat': moduleUrl(`export const formatTimestamp = () => '';`),
+    './timezone': moduleUrl(`export const parseUtcDate = (value) => new Date(value);`)
   })
 );
 

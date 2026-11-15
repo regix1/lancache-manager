@@ -82,42 +82,58 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
     md: 'w-4 h-4'
   };
 
+  // Several callers move `value` only once the server has answered, so the half the user clicked
+  // is held and drawn active for as long as the save runs; once it ends, `value` decides again,
+  // which puts a failed save back where it was.
+  const [clickedValue, setClickedValue] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    if (!loading) setClickedValue(null);
+  }, [loading]);
+  const shownValue = loading && clickedValue !== null ? clickedValue : value;
+
   // w-fit below: the pill is sized by its two labels, never by the column it sits in. As a plain
   // child of a stretching flex column it would otherwise run the full width of the form and read as
   // a banner rather than a control. It used to be spared that by the tooltip wrapper it no longer
   // always has.
+  // While it saves the switch keeps its size and brightness: the spinner is laid over the active
+  // half's own label, which stays in place (and stays its accessible name) but does not paint.
   const button = (
     <button
       onClick={() => {
         const currentIndex = options.findIndex((o) => o.value === value);
         const nextIndex = currentIndex === 0 ? 1 : 0;
+        setClickedValue(options[nextIndex].value);
         onChange(options[nextIndex].value);
       }}
       disabled={disabled || loading}
       className={`flex w-fit items-center rounded-full font-medium transition bg-themed-secondary ${sizeClasses[size]} ${
-        disabled || loading ? 'opacity-60 cursor-wait' : 'cursor-pointer'
+        disabled ? 'opacity-60 cursor-wait' : loading ? 'cursor-wait' : 'cursor-pointer'
       }`}
     >
       {options.map((option) => {
-        const isActive = value === option.value;
+        const isActive = shownValue === option.value;
+        const busy = loading && isActive;
         return (
           <span
             key={option.value}
             className={`flex items-center justify-center gap-1.5 ${textClasses[size]} h-full rounded-full transition ${
               isActive ? 'shadow-sm no-dark-shadow' : 'text-themed-muted'
-            }`}
+            } ${busy ? 'relative' : ''}`}
             style={getActiveStyles(option, isActive)}
           >
-            {loading && isActive ? (
-              <LoadingSpinner inline size={size === 'sm' ? 'xs' : 'sm'} />
-            ) : option.icon && React.isValidElement(option.icon) ? (
-              React.cloneElement(option.icon as React.ReactElement<{ className?: string }>, {
-                className: iconSizes[size]
-              })
-            ) : (
-              option.icon
+            <span className={`contents ${busy ? 'btn-busy-content' : ''}`}>
+              {option.icon && React.isValidElement(option.icon)
+                ? React.cloneElement(option.icon as React.ReactElement<{ className?: string }>, {
+                    className: iconSizes[size]
+                  })
+                : option.icon}
+              {option.label}
+            </span>
+            {busy && (
+              <span className="absolute inset-0 flex items-center justify-center">
+                <LoadingSpinner inline size={size === 'sm' ? 'xs' : 'sm'} />
+              </span>
             )}
-            {option.label}
           </span>
         );
       })}

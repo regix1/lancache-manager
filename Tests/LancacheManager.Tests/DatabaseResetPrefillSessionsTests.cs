@@ -17,6 +17,7 @@ namespace LancacheManager.Tests;
 /// its newest persistent container. Which rows a cascade takes is a property of the real schema,
 /// so the reset method itself runs here against PostgreSQL.
 /// </summary>
+[Collection(nameof(DatabaseResetCollection))]
 public sealed class DatabaseResetPrefillSessionsTests
 {
     [Fact]

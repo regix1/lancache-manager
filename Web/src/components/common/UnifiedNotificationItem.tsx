@@ -387,7 +387,6 @@ export const UnifiedNotificationItem = React.memo(function UnifiedNotificationIt
             className="background-task-control-row__cancel text-themed-secondary delete-hover"
             loading={notification.details?.cancelPending}
             disabled={notification.details?.cancelRequested && !canForceStop}
-            stableWidth
             aria-busy={notification.details?.cancelPending === true}
             aria-label={t(
               canForceStop

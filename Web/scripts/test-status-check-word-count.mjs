@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import test from 'node:test';
-import { pathToFileURL } from 'node:url';
 import { openStatusCheck, readStatusCheckText } from './status-check-page.mjs';
+import { withBrowser } from './transpile-module.mjs';
 
 // The Status Check page after a finished check (six services, one failing) shows far less text than
 // it did on 2026-11-11, when the English page at 1280px showed 163 words. The cap of 100 leaves room
@@ -18,13 +17,7 @@ test(
   'the finished Status Check page shows at most 100 words in English',
   { skip: !process.env.PLAYWRIGHT_PATH },
   async () => {
-    assert.ok(
-      existsSync(new URL('../dist/index.html', import.meta.url)),
-      'run npm run build before this test'
-    );
-    const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
-    const browser = await chromium.launch({ headless: true });
-    try {
+    await withBrowser(async (browser) => {
       const { context, page } = await openStatusCheck(browser, {
         language: 'en',
         expandFailing: false
@@ -42,8 +35,6 @@ test(
       } finally {
         await context.close();
       }
-    } finally {
-      await browser.close();
-    }
+    });
   }
 );

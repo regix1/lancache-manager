@@ -14,10 +14,12 @@ namespace LancacheManager.Security;
 /// account exists the installation is unclaimed, and no session should outlive a restart into that
 /// state. The first account makes it a no-op from then on.
 ///
-/// An installation using unauthenticated access is left alone entirely. It can remain account-less,
+/// An installation using unauthenticated access keeps its sessions. It can remain account-less,
 /// so the count might never rise and this would clear its
 /// sessions on every start. The display preferences hang off the session row and cascade with it, so
-/// that would reset the theme, the clock and the refresh rate every time the container restarts.
+/// that would reset the theme, the clock and the refresh rate every time the container restarts. When a
+/// finished setup runs with sign-in off, which keeps no accounts, the start deletes every account
+/// instead, as the in-app switch to that mode does.
 /// </summary>
 public class FirstAdminSessionResetService : IHostedService
 {
@@ -44,8 +46,34 @@ public class FirstAdminSessionResetService : IHostedService
 
         if (!sessionService.IsAuthenticationEnabled())
         {
+            // A finished setup with sign-in off keeps no accounts. Security__SignInMode turns sign-in off with
+            // a restart and no save, and a temporary signed-in mode from that variable can leave an account
+            // behind a saved unauthenticated mode, so the accounts the in-app switch deletes are deleted here.
+            // A setup still in progress keeps its accounts.
+            var access = scope.ServiceProvider.GetRequiredService<AccessService>();
+            if (access.AllowsKeyRecovery())
+            {
+                // A failure here must not stop the app from starting. The accounts it leaves are
+                // deleted by the next start or by the switch to unauthenticated access in the app.
+                try
+                {
+                    if ((await access.AccountIdsAsync()).Count > 0)
+                    {
+                        var deleted = await access.DeleteEveryAccountAsync(null, null, scope.ServiceProvider);
+                        _logger.LogWarning("Deleted {Count} accounts because sign-in is off", deleted);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Could not delete the accounts left while sign-in is off");
+                }
+            }
             return;
         }
+
+        // A configuration change can turn sign-in on with no save in the app, so the session every browser
+        // shared while it was off would otherwise stay an administrator until access setup finishes.
+        await sessionService.RetireSharedAdminSessionAsync();
 
         await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
         if (await context.UserAccounts.AnyAsync(cancellationToken))
@@ -53,7 +81,7 @@ public class FirstAdminSessionResetService : IHostedService
             return;
         }
 
-        var cleared = await sessionService.ClearAllSessionsAsync();
+        var cleared = await sessionService.ClearAllSessionsAsync(scope.ServiceProvider);
 
         if (cleared > 0)
         {

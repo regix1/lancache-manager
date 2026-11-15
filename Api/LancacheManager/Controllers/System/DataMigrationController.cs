@@ -548,11 +548,13 @@ public class DataMigrationController : ControllerBase
     /// response body (<c>Valid = false</c>), not as an HTTP error, since a bad connection string
     /// is an expected input here rather than a server fault.
     /// </remarks>
-    /// <param name="connectionString">PostgreSQL connection string for the source database.</param>
-    [HttpGet("validate-connection")]
+    /// <param name="request">PostgreSQL connection string for the source database. It travels in the body, so the
+    /// password stays out of the address and out of proxy access logs.</param>
+    [HttpPost("validate-connection")]
     [ProducesResponseType(typeof(ConnectionValidationResponse), StatusCodes.Status200OK)]
-    public async Task<ActionResult<ConnectionValidationResponse>> ValidateConnectionAsync([FromQuery] string connectionString)
+    public async Task<ActionResult<ConnectionValidationResponse>> ValidateConnectionAsync([FromBody] MigrationConnectionRequest request)
     {
+        var connectionString = request.ConnectionString;
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             return BadRequest(ApiResponse.Error("Connection string is required"));

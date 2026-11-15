@@ -33,6 +33,12 @@ public class AccountSetupRefusalResponse
     /// </summary>
     public const string MainAdminNotFound = "errors.accountSetup.mainAdminNotFound";
 
+    /// <summary>
+    /// Sign-in is turned off on a finished setup, and that mode keeps no accounts. The first
+    /// administrator is created after sign-in is turned back on.
+    /// </summary>
+    public const string SignInOff = "errors.accountSetup.signInOff";
+
     public string StageKey { get; set; } = string.Empty;
 
     public string Error { get; set; } = string.Empty;

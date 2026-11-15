@@ -45,10 +45,11 @@ const MemoryDiagnostics: React.FC = () => {
   const fetchMemoryStats = async () => {
     const request = ++statsRequestRef.current;
     try {
-      setError(null);
+      // The error stays drawn until this read answers, so a Retry keeps its box and busy state.
       const data = await ApiService.getMemoryStats<MemoryStats>();
       if (request !== statsRequestRef.current) return;
       setStats(data);
+      setError(null);
     } catch (err: unknown) {
       if (request !== statsRequestRef.current) return;
       const detail = getErrorMessage(err);
@@ -106,7 +107,7 @@ const MemoryDiagnostics: React.FC = () => {
           title={t('memory.failedToLoad')}
           message={error}
           retryLabel={t('common.retry')}
-          onRetry={() => void fetchMemoryStats()}
+          onRetry={() => fetchMemoryStats()}
         />
       </div>
     );
@@ -129,7 +130,7 @@ const MemoryDiagnostics: React.FC = () => {
           title={t('memory.failedToLoad')}
           message={error}
           retryLabel={t('common.retry')}
-          onRetry={() => void fetchMemoryStats()}
+          onRetry={() => fetchMemoryStats()}
         />
       )}
 

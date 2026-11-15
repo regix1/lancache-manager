@@ -36,7 +36,6 @@ export const LoginServiceButtons: React.FC<LoginServiceButtonsProps> = ({
             variant={branded ? 'transparent' : 'filled'}
             color="primary"
             fullWidth
-            stableWidth
             className={branded ? `login-service-button login-service-button--${service.kind}` : ''}
             leftSection={branded ? <LoginServiceMark kind={service.kind} /> : undefined}
             loading={starting === service.id}

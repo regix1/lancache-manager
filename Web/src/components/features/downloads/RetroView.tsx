@@ -915,6 +915,7 @@ const RetroView = memo(
               message={getErrorMessage(serverRetro.error)}
               retryLabel={t('common.retry')}
               onRetry={serverRetro.reload}
+              retrying={serverRetro.isRequesting}
             />
           )}
 

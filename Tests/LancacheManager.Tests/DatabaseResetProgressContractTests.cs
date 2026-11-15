@@ -14,6 +14,14 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LancacheManager.Tests;
 
+// A reset's running set, current id and current progress are static on DatabaseService, so two classes that
+// start or run a reset at once read each other's reset.
+[CollectionDefinition(nameof(DatabaseResetCollection), DisableParallelization = true)]
+public sealed class DatabaseResetCollection
+{
+}
+
+[Collection(nameof(DatabaseResetCollection))]
 public class DatabaseResetProgressContractTests
 {
     [Fact]

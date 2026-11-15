@@ -648,8 +648,8 @@ builder.Services.AddAuthorization(options =>
         .Build();
 
     // Both claim values an account holder can present. CreateTicket lowercases the session type
-    // (SessionAuthenticationHandler.cs:162), and a user is answered like an admin everywhere
-    // (SessionTypeExtensions.cs:13). A guest presents "guest" and is still refused.
+    // (SessionAuthenticationHandler.cs:162). A user passes this policy like an admin and reads what an
+    // admin reads; UserRoleRefusalFilter refuses it the changes. A guest presents "guest" and is still refused.
     options.AddPolicy("AccountHolder", policy =>
         policy.RequireClaim("SessionType", "admin", "user"));
 
@@ -701,9 +701,13 @@ builder.Services.AddAntiforgery(options =>
 builder.Services.AddSingleton<AntiforgeryToken>();
 
 // One filter covers every controller. Explicit bootstrap and sign-in actions opt out because they
-// run before a caller can obtain the antiforgery pair.
+// run before a caller can obtain the antiforgery pair. The user-role refusal is added after it, so
+// a request without the token is answered as a forged one first.
 builder.Services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(options =>
-    options.Filters.Add<AntiforgeryFilter>());
+{
+    options.Filters.Add<AntiforgeryFilter>();
+    options.Filters.Add<UserRoleRefusalFilter>();
+});
 
 // Register SignalR connection tracking service for targeted messaging
 builder.Services.AddSingleton<LancacheManager.Core.Services.ConnectionTrackingService>();
@@ -1202,7 +1206,11 @@ if (apiKeyService.WasNewKeyGenerated && databaseAvailable)
 {
     using var startupScope = app.Services.CreateScope();
     var sessionService = startupScope.ServiceProvider.GetRequiredService<SessionService>();
-    await sessionService.ClearAllSessionsAsync();
+    var cleared = await sessionService.ClearAllSessionsAsync(startupScope.ServiceProvider);
+    if (cleared > 0)
+    {
+        app.Logger.LogWarning("Cleared {Count} sessions because a new API key was generated", cleared);
+    }
 }
 
 // MUST be first: Handle forwarded headers from reverse proxies (nginx, Cloudflare, etc.)
@@ -1242,6 +1250,10 @@ app.Use(async (context, next) =>
     headers["X-Content-Type-Options"] = "nosniff";
     headers["X-Frame-Options"] = "DENY";
     headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    // Stops other sites from embedding responses through no-cors loads. same-site rather than same-origin,
+    // because an install that serves the UI and the API on two hostnames of one domain loads its game
+    // banners from the API hostname with plain <img> tags.
+    headers["Cross-Origin-Resource-Policy"] = "same-site";
     // OWASP-recommended denial of sensor/device features the admin UI never uses.
     headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()";
     // Content-Security-Policy is REPORT-ONLY for now: it surfaces violations without blocking,

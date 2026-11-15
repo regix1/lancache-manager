@@ -393,12 +393,27 @@
 
   /* Phone: the same 44px touch minimum dropdowns.css gives .ed-trigger. Without it a segmented
      control standing next to a picker is 4px shorter than it, since the picker grows for touch
-     and this box keeps its 40px utility height. The segments stretch to the container, so
-     raising the box is all it takes. The compact h-8 size is left alone: it sits in dense rows
-     that have no room for a 44px control. */
+     and this box keeps its 40px utility height. The track's padding and border leave each
+     segment 36px tall, so each segment's hit area grows over that inset to the full 44px, never
+     onto a neighbor. The compact h-8 size is left alone: it sits in dense rows that have no room
+     for a 44px control. */
   @media (max-width: 639.98px) {
     .segmented-control-container.h-10 {
       height: 44px;
+    }
+
+    .segmented-control-container.h-10 .segmented-control-button {
+      position: relative;
+    }
+
+    .segmented-control-container.h-10 .segmented-control-button::before {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 0;
+      width: 100%;
+      height: 44px;
+      transform: translateY(-50%);
     }
   }
 

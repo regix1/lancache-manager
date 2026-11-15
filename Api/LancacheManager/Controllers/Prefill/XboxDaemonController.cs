@@ -26,9 +26,6 @@ public class XboxDaemonController : DaemonControllerBase<XboxPrefillDaemonServic
     {
     }
 
-    protected override int? ResolveThreadLimit(UserSession session)
-    {
-        if (session.SessionType.IsAccountHolder()) return null;
-        return _stateService.GetDefaultGuestMaxThreadCount();
-    }
+    protected override int? ResolveThreadLimit(UserSession session) =>
+        GuestThreadLimit.Resolve(PrefillPlatform.Xbox, session, _userPreferencesService, _stateService);
 }

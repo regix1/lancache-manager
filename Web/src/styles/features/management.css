@@ -4,6 +4,12 @@
 
 /* ===== MANAGEMENT TAB STYLES ===== */
 
+/* Set on a section switch to the height the page's scroll needs, so a shorter section leaves room
+   below it instead of moving the header and nav. */
+.management-tab-container {
+  min-height: var(--management-tab-held-height, 0px);
+}
+
 /* Management Navigation Container */
 .management-nav-container {
   position: relative;

@@ -539,6 +539,9 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         // section by section after a reload, and a marker left at false would let the one-time UTC
         // migration change the state between the two loads.
         UtcTimeFormatMigrated = true,
+        // Same reason: left false, the one-time copy of the Steam thread limit would overwrite the
+        // Battle.net and Riot limits below between the two loads.
+        GuestThreadLimitsSeeded = true,
         GuestPrefillEnabledByDefault = true,
         GuestPrefillDurationHours = 1,
         AdminPersistentLoginValidityDays = 222,
@@ -551,8 +554,10 @@ public sealed class StateServiceSectionIsolationTests : IDisposable
         EpicDefaultPrefillMaxConcurrency = "distinct-epic",
         BattleNetGuestPrefillEnabledByDefault = true,
         BattleNetGuestPrefillDurationHours = 1,
+        BattleNetDefaultGuestMaxThreadCount = 3,
         RiotGuestPrefillEnabledByDefault = true,
         RiotGuestPrefillDurationHours = 1,
+        RiotDefaultGuestMaxThreadCount = 7,
         XboxGuestPrefillEnabledByDefault = true,
         XboxGuestPrefillDurationHours = 1,
         XboxDefaultGuestMaxThreadCount = 4,

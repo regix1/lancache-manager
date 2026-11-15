@@ -176,6 +176,7 @@ public sealed class EndpointAuthorizationContractTests
         "AccessController.StartOidc",
         "AccessController.StartLogin",
         "AccessController.GetOidcChallenge",
+        "AccessController.CompleteAppleSignIn",
         "AuthController.GetStatus",
         "AuthController.Login",
         "AuthController.StartGuest",

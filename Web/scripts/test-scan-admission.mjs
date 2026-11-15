@@ -256,6 +256,7 @@ test('an older evicted items read that fails after a newer one succeeded shows n
       setEvictedServices: (value) => state.services.push(value),
       setEvictedItemsLoading: (value) => state.loading.push(value),
       setEvictedItemsError: (value) => state.errors.push(value),
+      setEvictedItemsRetrying: () => undefined,
       getErrorMessage: (error) => error.message,
       notifyError: (message, error) => state.logged.push(error.message),
       t: (key) => key

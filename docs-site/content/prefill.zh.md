@@ -13,7 +13,7 @@ Steam、Epic、Battle.net、Riot 和 Xbox 各自在独立的容器中运行，�
 ### 要求
 
 - 已挂载 Docker 套接字（`/var/run/docker.sock`）
-- 以**主要**或**账户**登录 LANCache Manager（**访客模式**只能预填充**访客默认设置**中授权的平台）
+- 以**主要**或**账户**登录 LANCache Manager（**访客模式**只能预填充在用户页面的**访客访问**中，或在该访客自己的会话中授权的平台）
 - 预填充容器可以访问到你的缓存服务器（参见下方的[网络设置](#prefill-network)）
 
 ### 运行一次预填充

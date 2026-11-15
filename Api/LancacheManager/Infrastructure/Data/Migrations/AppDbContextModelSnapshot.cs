@@ -1408,6 +1408,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<string>("AllowedTimeFormats")
                         .HasColumnType("text");
 
+                    b.Property<int?>("BattleNetMaxThreadCount")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("DisableFocusOutlines")
                         .HasColumnType("boolean");
 
@@ -1428,6 +1431,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     b.Property<bool?>("RefreshRateLocked")
                         .HasColumnType("boolean");
+
+                    b.Property<int?>("RiotMaxThreadCount")
+                        .HasColumnType("integer");
 
                     b.Property<string>("SelectedTheme")
                         .HasColumnType("text");
@@ -1455,6 +1461,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     b.Property<bool>("UseUtcTimezone")
                         .HasColumnType("boolean");
+
+                    b.Property<int?>("XboxMaxThreadCount")
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -1539,6 +1548,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<string>("SessionType")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<bool>("SignedOut")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime?>("SteamPrefillExpiresAtUtc")
                         .HasColumnType("timestamp with time zone");

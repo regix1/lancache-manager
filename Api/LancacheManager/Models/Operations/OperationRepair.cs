@@ -154,6 +154,8 @@ public sealed class EvictionScanRepair
     public int Evicted { get; set; }
     public int UnEvicted { get; set; }
     public string? DetectionError { get; set; }
+    /// <summary>The failed detection's own ending key, set instead of <see cref="DetectionError"/> when that key names the reason.</summary>
+    public string? DetectionStageKey { get; set; }
     /// <summary>The cache folders the scan did not check, so a scan restored after a restart still names them.</summary>
     public List<string>? UncheckedFolders { get; set; }
 }

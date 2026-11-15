@@ -79,17 +79,6 @@
     box-shadow: inset 0 0 0 1px var(--theme-warning);
   }
 
-  /* Session badges */
-  .session-badge-user {
-    background-color: var(--theme-user-session-bg);
-    color: var(--theme-user-session);
-  }
-
-  .session-badge-guest {
-    background-color: var(--theme-guest-session-bg);
-    color: var(--theme-guest-session);
-  }
-
   /* Status badges */
   .status-badge-warning {
     background-color: var(--theme-warning-bg);

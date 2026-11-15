@@ -23,7 +23,7 @@ import {
  * The last two cases swap the stub for the installed client and show why the server's Close must
  * allow reconnecting: that Close takes the page through reconnecting to a new connection and a
  * reload of the run list, while a Close without it leaves the page on its outage state with no new
- * connection and no reload.
+ * connection and no reload until its 10 s failed-start timer starts one.
  */
 
 const toUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
@@ -592,19 +592,49 @@ test('a Close that allows reconnecting shows reconnecting, reconnects and reload
   );
 });
 
-test('a Close that forbids reconnecting leaves the page on its outage state without reconnecting', async (t) => {
+test('a Close that forbids reconnecting leaves the page on its outage state without reconnecting at once', async (t) => {
   const { harness, snapshotRequests } = await mountInstalledClient(t);
   const requestsBefore = snapshotRequests.count;
 
   // A close of the live connection is an outage, so the page keeps the reconnecting state the
-  // connection banner reads until the next start answers.
-  transport.deliver('{"type":7}');
-  await until(
-    () =>
-      harness.published().connectionState === 'reconnecting' && !harness.published().isConnected,
-    'the client never reported the close'
-  );
+  // connection banner reads until the next start answers. The Close gives the client no reconnect
+  // of its own, so the page starts again on its failed-start timer rather than at once.
+  const armed = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    const handle = originalSetTimeout(callback, delay, ...args);
+    if (delay === 10000) armed.push(handle);
+    return handle;
+  };
+  try {
+    transport.deliver('{"type":7}');
+    await until(
+      () =>
+        harness.published().connectionState === 'reconnecting' && !harness.published().isConnected,
+      'the client never reported the close'
+    );
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
 
   assert.equal(transport.connects, 1);
   assert.equal(snapshotRequests.count, requestsBefore);
+
+  // Signing out, as the app does, clears the pending timer, so nothing starts after this test.
+  const cleared = [];
+  const originalClearTimeout = globalThis.clearTimeout;
+  globalThis.clearTimeout = (handle) => {
+    cleared.push(handle);
+    originalClearTimeout(handle);
+  };
+  try {
+    state.isAuthenticated = false;
+    state.windowListeners.get('auth-session-updated')();
+  } finally {
+    globalThis.clearTimeout = originalClearTimeout;
+  }
+  assert.ok(
+    armed.some((handle) => cleared.includes(handle)),
+    'the page armed no failed-start timer after the Close, so it never starts again'
+  );
 });

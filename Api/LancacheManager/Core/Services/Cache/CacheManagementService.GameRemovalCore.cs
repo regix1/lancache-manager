@@ -1,5 +1,6 @@
 using System.Runtime.ExceptionServices;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
@@ -7,16 +8,17 @@ namespace LancacheManager.Core.Services;
 public partial class CacheManagementService
 {
     /// <summary>
-    /// Fails closed when any datasource cannot map logical objects to cache keys: per-game cache
-    /// removal requires an unambiguous key scheme across every datasource, rather than partially
-    /// deleting a mixed or unknown fleet.
+    /// Fails closed when any datasource cannot map logical objects to cache keys: every cache
+    /// removal and file count requires an unambiguous key scheme across every datasource, rather
+    /// than partially deleting a mixed or unknown fleet. The refusal names its reason by key, so
+    /// each card shows it in the reader's language.
     /// </summary>
     private void RequireUnambiguousKeyScheme()
     {
         var keyCapabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
         if (keyCapabilityDenial != null)
         {
-            throw new InvalidOperationException(keyCapabilityDenial);
+            throw new ValidationException(keyCapabilityDenial) { StageKey = "errors.corruption.keySchemeUnavailable" };
         }
     }
 

@@ -13,7 +13,7 @@ import { bindLifted, compileToUrl, liftHookCallback, transpile } from './transpi
  */
 
 const EVENT = 'AccountsChanged';
-const SCREEN = 'src/components/features/user/UserAccounts.tsx';
+const SCREEN = 'src/components/features/user/useUserAccounts.ts';
 
 const readRepoFile = (relativePath) =>
   readFileSync(new URL(`../../${relativePath}`, import.meta.url), 'utf8');
@@ -80,11 +80,22 @@ test('every route that changes an account row sends it', () => {
     return controller.slice(start, next === -1 ? undefined : next);
   });
 
+  // The wipe hands its delete to AccessService.DeleteEveryAccountAsync, the same delete the switch to
+  // unauthenticated access runs, and that method sends the event; so the wipe counts as sending it
+  // when it calls that method and the method's body sends it.
+  const access = readRepoFile('Api/LancacheManager/Security/AccessService.cs');
+  const sharedDeleteStart = access.indexOf('> DeleteEveryAccountAsync(');
+  assert.notEqual(sharedDeleteStart, -1, 'AccessService.DeleteEveryAccountAsync was not found');
+  const sharedDeleteEnd = access.indexOf('\n    public ', sharedDeleteStart);
+  const sharedDeleteSends = access
+    .slice(sharedDeleteStart, sharedDeleteEnd === -1 ? undefined : sharedDeleteEnd)
+    .includes(`SignalREvents.${EVENT}`);
+
   routes.forEach((route, index) => {
-    assert.ok(
-      bodies[index].includes(`SignalREvents.${EVENT}`),
-      `${route} changes an account row without telling anyone`
-    );
+    const sends =
+      bodies[index].includes(`SignalREvents.${EVENT}`) ||
+      (bodies[index].includes('_accessService.DeleteEveryAccountAsync(') && sharedDeleteSends);
+    assert.ok(sends, `${route} changes an account row without telling anyone`);
   });
 });
 
@@ -144,6 +155,8 @@ test('an older accounts read that fails after a newer one answered leaves no err
       setAccounts: (value) => state.accounts.push(value),
       setLoadError: (value) => state.errors.push(value),
       setLoading: (value) => state.loading.push(value),
+      markLoaded: () => state.loading.push(false),
+      markFailed: () => state.loading.push(false),
       getErrorMessage: (error) => error.message
     }
   );

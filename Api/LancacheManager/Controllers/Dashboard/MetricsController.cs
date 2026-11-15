@@ -120,30 +120,36 @@ public class MetricsController : ControllerBase
     /// Gets metrics authentication security settings.
     /// </summary>
     /// <remarks>
-    /// Returns current state, source (UI toggle or config), and env var default.
+    /// Returns current state, source (UI toggle, config, or the built-in default when neither sets
+    /// it), and env var default.
     /// </remarks>
     [HttpGet("security")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     [ProducesResponseType(typeof(MetricsSecurityResponse), StatusCodes.Status200OK)]
     public ActionResult<MetricsSecurityResponse> GetSecurity()
     {
-        // Get env var / appsettings.json value (the default)
-        var configValue = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
+        return Ok(ReadSecurity());
+    }
+
+    private MetricsSecurityResponse ReadSecurity()
+    {
+        // Get env var / appsettings value (null when the operator set none)
+        var configValue = _configuration.GetValue<bool?>("Security:RequireAuthForMetrics");
 
         // Get UI toggle value (null if not set via UI)
         var stateValue = _stateRepository.GetRequireAuthForMetrics();
 
-        // Effective value: UI override takes precedence, otherwise use config
-        var effectiveValue = stateValue ?? configValue;
-        var source = stateValue.HasValue ? "ui" : "config";
+        // Effective value: UI override takes precedence, then config, then public
+        var effectiveValue = stateValue ?? configValue ?? false;
+        var source = stateValue.HasValue ? "ui" : configValue.HasValue ? "config" : "default";
 
-        return Ok(new MetricsSecurityResponse
+        return new MetricsSecurityResponse
         {
             RequiresAuthentication = effectiveValue,
             Source = source,
             CanToggle = true,
-            EnvVarValue = configValue
-        });
+            EnvVarValue = configValue ?? false
+        };
     }
 
     /// <summary>
@@ -159,20 +165,17 @@ public class MetricsController : ControllerBase
         _stateRepository.SetRequireAuthForMetrics(request.Enabled);
 
         // Broadcast updated state to all connected clients
-        var configValue = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
-        var stateValue = _stateRepository.GetRequireAuthForMetrics();
-        var effectiveValue = stateValue ?? configValue;
-        var source = stateValue.HasValue ? "ui" : "config";
+        var security = ReadSecurity();
 
         await _notifications.NotifyAllAsync(SignalREvents.MetricsSecurityUpdated, new
         {
-            requiresAuthentication = effectiveValue,
-            source,
-            canToggle = true,
-            envVarValue = configValue
+            requiresAuthentication = security.RequiresAuthentication,
+            source = security.Source,
+            canToggle = security.CanToggle,
+            envVarValue = security.EnvVarValue
         });
 
         // Return updated state
-        return GetSecurity();
+        return Ok(security);
     }
 }

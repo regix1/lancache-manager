@@ -7,7 +7,7 @@ interface SessionPreferencesContextType {
   /** The sentence for the current session's last failed preferences read, `null` after one that answered. */
   error: string | null;
   /** Asks again for the current session's preferences; Retry for Display preferences. */
-  resyncPreferences: () => void;
+  resyncPreferences: () => void | Promise<void>;
   isLoaded: (sessionId: string) => boolean;
   isLoading: (sessionId: string) => boolean;
   loadSessionPreferences: (sessionId: string) => Promise<void>;

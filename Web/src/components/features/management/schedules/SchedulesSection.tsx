@@ -500,7 +500,7 @@ const DepotIncrementalCheck = memo(function DepotIncrementalCheck({
         <div className="schedule-detail-control">
           {/* Full control column, like every other control in this panel, so the rows line up
               down one edge. The rest matches Run Now on the scheduled-prefill card: the label
-              stays put and stableWidth overlays the spinner on it, so a Steam call that takes
+              stays put and Button overlays the spinner on it, so a Steam call that takes
               seconds does not swap the text and resize the button under the pointer. Loading is
               not repeated in disabled - Button already blocks a second press while it spins, and
               hand-toggling disabled for an in-flight request is what flashed every control on
@@ -510,7 +510,6 @@ const DepotIncrementalCheck = memo(function DepotIncrementalCheck({
             variant="subtle"
             size="sm"
             fullWidth
-            stableWidth
             onClick={handleCheck}
             disabled={isDisabled}
             loading={isChecking}
@@ -1469,8 +1468,9 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
   // Only one GET is ever in flight. A second caller (e.g. the reconnect effect firing right after the
   // mount effect) can't race it - it records a trailing refresh instead, which runs once when the
   // current fetch settles. So two GETs never resolve stale-last, a failing fetch never discards a
-  // concurrent successful one, and a reconnect recovery is never dropped.
-  const isFetchingRef = useRef(false);
+  // concurrent successful one, and a reconnect recovery is never dropped. It holds the running
+  // fetch, so a second caller, a Retry among them, waits for the pass it joined.
+  const isFetchingRef = useRef<Promise<void> | null>(null);
   const pendingRefetchRef = useRef(false);
 
   const crawlIncrementalModeRef = useRef(picsProgress?.crawlIncrementalMode);
@@ -1489,34 +1489,36 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
       // A refresh was requested while one is already in flight (e.g. a reconnect during the mount
       // GET). Record it so exactly one more fetch runs when the current one settles.
       pendingRefetchRef.current = true;
-      return;
+      return isFetchingRef.current;
     }
-    isFetchingRef.current = true;
-    try {
-      do {
-        pendingRefetchRef.current = false;
-        const generationAtRequest = signalrGenerationRef.current;
-        try {
-          const data = await ApiService.getSchedules();
-          // A SignalR SchedulesUpdated arrived while this GET was in flight - it is fresher than this
-          // snapshot, so drop the GET result rather than roll back the live state.
-          if (signalrGenerationRef.current === generationAtRequest) {
-            setSchedules(readSchedules(data));
-            setError(null);
+    isFetchingRef.current = (async () => {
+      try {
+        do {
+          pendingRefetchRef.current = false;
+          const generationAtRequest = signalrGenerationRef.current;
+          try {
+            const data = await ApiService.getSchedules();
+            // A SignalR SchedulesUpdated arrived while this GET was in flight - it is fresher than this
+            // snapshot, so drop the GET result rather than roll back the live state.
+            if (signalrGenerationRef.current === generationAtRequest) {
+              setSchedules(readSchedules(data));
+              setError(null);
+            }
+          } catch (err) {
+            // A push that landed during this GET already replaced the list with fresher data and
+            // cleared the error, so only a failure with no push in between is reported. The render
+            // keeps any rows already on screen under the error box.
+            if (signalrGenerationRef.current === generationAtRequest) {
+              setError(getErrorMessage(err));
+            }
           }
-        } catch (err) {
-          // A push that landed during this GET already replaced the list with fresher data and
-          // cleared the error, so only a failure with no push in between is reported. The render
-          // keeps any rows already on screen under the error box.
-          if (signalrGenerationRef.current === generationAtRequest) {
-            setError(getErrorMessage(err));
-          }
-        }
-        // If another refresh was requested mid-fetch, run one more pass rather than dropping it.
-      } while (pendingRefetchRef.current);
-    } finally {
-      isFetchingRef.current = false;
-    }
+          // If another refresh was requested mid-fetch, run one more pass rather than dropping it.
+        } while (pendingRefetchRef.current);
+      } finally {
+        isFetchingRef.current = null;
+      }
+    })();
+    return isFetchingRef.current;
   }, [mockMode]);
 
   // Initial load
@@ -1909,7 +1911,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           title={t('management.schedules.fetchError')}
           message={error}
           retryLabel={t('common.retry')}
-          onRetry={() => void fetchSchedules()}
+          onRetry={() => fetchSchedules()}
         />
       </TabPanel>
     );
@@ -1977,7 +1979,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({
           title={t('management.schedules.fetchError')}
           message={error}
           retryLabel={t('common.retry')}
-          onRetry={() => void fetchSchedules()}
+          onRetry={() => fetchSchedules()}
         />
       )}
 

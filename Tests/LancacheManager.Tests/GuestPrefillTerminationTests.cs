@@ -469,7 +469,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         var first = AddGuest(daemons[0], gateways[0], owner.Id);
         var second = AddGuest(daemons[1], gateways[1], owner.Id);
         var unrelated = AddGuest(daemons[1], gateways[1], Guid.NewGuid());
-        var account = AddGuest(daemons[0], gateways[0], owner.Id, temporary: false);
+        var account = AddGuest(daemons[0], gateways[0], Guid.NewGuid(), temporary: false);
         var persistent = AddGuest(daemons[0], gateways[0], owner.Id, persistent: true);
         await history.CreateSessionAsync(first.Id, owner.Id, first.ContainerId, first.ContainerName, first.ExpiresAt, DateTime.UtcNow);
         await history.CreateSessionAsync(second.Id, owner.Id, second.ContainerId, second.ContainerName, second.ExpiresAt, DateTime.UtcNow, "Epic");
@@ -630,7 +630,7 @@ public sealed partial class PrefillContainerOrchestrationTests
         var firstSession = AddGuest(first, firstGateway, owner);
         var secondSession = AddGuest(second, secondGateway, owner);
         var unrelated = AddGuest(second, secondGateway, Guid.NewGuid());
-        var account = AddGuest(first, firstGateway, owner, temporary: false);
+        var account = AddGuest(first, firstGateway, Guid.NewGuid(), temporary: false);
         var persistent = AddGuest(first, firstGateway, owner, persistent: true);
         firstGateway.HoldKillContainer = true;
         PrefillDaemonServiceBase.GuestGate.EnterStop(owner);

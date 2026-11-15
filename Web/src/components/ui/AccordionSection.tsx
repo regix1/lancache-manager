@@ -101,6 +101,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
     <Button
       type="button"
       variant="accordion"
+      size={surface === 'well' ? 'sm' : 'md'}
       open={isExpanded}
       className={`btn-icon-square flex-shrink-0${surface === 'well' ? ' btn-icon-square--sm' : ''}`}
       onClick={(e) => {
@@ -145,10 +146,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
               className={`icon-box icon-box--sm transition duration-300 ${
                 isExpanded ? 'scale-105' : 'scale-100'
               }`}
-              style={{
-                backgroundColor: themeColorVar(iconColor, 'subtle'),
-                boxShadow: isExpanded ? `0 2px 8px ${themeColorVar(iconColor, 'muted')}` : 'none'
-              }}
+              style={{ backgroundColor: themeColorVar(iconColor, 'subtle') }}
             >
               <Icon
                 className={`w-4 h-4 flex-shrink-0 transition-transform duration-300 ${

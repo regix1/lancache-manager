@@ -153,8 +153,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
     // Mount, reconnect, the reloads after each action and Retry can overlap; only the newest
     // request writes the list, the error or the loading state.
     const request = ++themesRequestRef.current;
+    // A failure on screen stays until this read answers, so its Retry keeps the box.
     setLoading(true);
-    setLoadError(null);
     try {
       const { themes: data, loadError: themesError } = await themeService.loadThemes();
       if (request !== themesRequestRef.current) return;
@@ -733,7 +733,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                   title={t('management.themes.notifications.loadFailed')}
                   message={loadError}
                   retryLabel={t('common.retry')}
-                  onRetry={() => void loadThemes()}
+                  onRetry={() => loadThemes()}
                 />
               )}
 

@@ -183,7 +183,7 @@ public sealed class ApiKeyRotationTests : IDisposable
         var accountId = await SeedAccountAsync(database.Factory, "alice");
         var oldKey = _apiKeyService.GetApiKey();
 
-        var request = new DefaultHttpContext();
+        var request = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
         request.Request.Headers["X-Api-Key"] = oldKey;
         var response = await RotateAsync(NewController(
             database.Factory, sessions, NewAuditService(database.Factory), request,
@@ -328,7 +328,7 @@ public sealed class ApiKeyRotationTests : IDisposable
         await using var database = await TestDatabase.CreateAsync();
         var sessions = NewSessionService(database.Factory, authenticationEnabled: false);
 
-        var request = new DefaultHttpContext();
+        var request = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
         request.Request.Headers["X-Api-Key"] = _apiKeyService.GetApiKey();
         var response = await RotateAsync(NewController(
             database.Factory, sessions, NewAuditService(database.Factory), request,
@@ -570,7 +570,7 @@ public sealed class ApiKeyRotationTests : IDisposable
     /// </summary>
     private static DefaultHttpContext RequestFor(UserSession session)
     {
-        var context = new DefaultHttpContext();
+        var context = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
         context.Items["Session"] = session;
         return context;
     }

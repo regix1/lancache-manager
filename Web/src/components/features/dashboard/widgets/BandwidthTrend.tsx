@@ -420,7 +420,7 @@ const BandwidthTrend: React.FC<BandwidthTrendProps> = memo(({ badge }) => {
         title={t('widgets.bandwidthTrend.loadFailed')}
         message={loadError}
         retryLabel={t('common.retry')}
-        onRetry={() => void refreshStats(true)}
+        onRetry={() => refreshStats(true)}
       />
     );
 

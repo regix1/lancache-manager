@@ -1,6 +1,6 @@
 # 访问与登录 { #sign-in }
 
-首次运行时需要选择用户如何登录。升级的实例会请你确认一次该选择；账户、缓存和预填充设置都会保留。之后可在 **用户 → 账户 → 访问与登录** 中更改。
+首次运行时需要选择用户如何登录。升级的实例会请你确认一次该选择；账户、缓存和预填充设置都会保留，除非选择无需身份验证，该模式会删除所有账户。之后可在 **用户 → 登录 → 更改** 中更改。
 
 ## 五种模式
 
@@ -13,7 +13,8 @@
 | 免认证访问 | 无需输入 | 仅限受信任的局域网 |
 
 - **免认证访问** 会让任何能访问该应用的人使用其管理功能。
-- 两种单点登录模式都需要 HTTPS。
+- **切换到免认证访问会删除所有账户。** 应用会先请你确认，并显示将删除的账户数量。要重新开启登录，你需要创建一个新的管理员账户。
+- 如果 OpenID Connect 服务商或 GitHub 接受 `http://` 回调地址，单点登录可以通过纯 HTTP 使用。Google 和 Microsoft 除 localhost 外都需要 HTTPS，Apple 需要 HTTPS 域名。
 - 密码和 API 密钥模式可以使用 HTTP。在不受信任的网络中请使用 HTTPS，以免密码和会话 Cookie 以明文传输。
 
 ### 通过环境变量设置模式
@@ -22,7 +23,8 @@
 
 | `Security__SignInMode` | 首次运行设置的访问步骤 |
 |---|---|
-| `Password`、`ApiKeyPassword` 或 `Unauthenticated` | 跳过。数据库步骤和第一个账户步骤仍然会运行。 |
+| `Password` 或 `ApiKeyPassword` | 跳过。数据库步骤和第一个账户步骤仍然会运行。 |
+| `Unauthenticated` | 跳过。每次启动都会删除所有账户，包括环境变量中的登录所允许的账户。不会创建第一个账户。如果在该登录的变量仍然设置的情况下重新开启登录，该用户下次登录时会重新创建该账户。 |
 | `Oidc` 或 `ApiKeyOidc` | 以只读方式显示。所有者在此处通过环境变量中的登录进行登录。 |
 
 之后如果你删除这些变量，访问步骤会重新出现。取值和名称见[通过环境变量设置登录](configuration-reference.md#sign-in-environment)。
@@ -39,7 +41,7 @@
 保存模式后，该变量不再改变它。
 
 !!! note "API 密钥始终有效"
-    密钥属于第一个账户，即主管理员。在任何模式下它都可用于所有权确认和账户恢复。只有两种 API 密钥模式会在登录时要求输入它。
+    密钥属于主管理员，登录关闭时则属于运行此实例的人。在任何模式下它都可用于所有权确认和账户恢复。只有两种 API 密钥模式会在登录时要求输入它。
 
     ```bash
     docker exec lancache-manager cat /data/security/api_key.txt
@@ -57,7 +59,7 @@
 | GitHub | 客户端 ID 和客户端密钥 |
 | Microsoft | 应用程序（客户端）ID、客户端密钥和目录（租户）ID |
 | Apple | Services ID、Team ID、Key ID 和 `.p8` 私钥 |
-| 其他（OpenID Connect） | HTTPS 颁发者 URL、客户端 ID 和客户端密钥 |
+| 其他（OpenID Connect） | HTTP 或 HTTPS 颁发者 URL、客户端 ID 和客户端密钥 |
 
 - **Microsoft：** 填写租户 GUID，个人账户填 `consumers`。`common` 和 `organizations` 会被拒绝。
 - **Apple：** 本应用会自动生成 Apple 的客户端密钥。Apple 要求 HTTPS 域名，不接受 localhost 和 IP 地址。
@@ -85,12 +87,15 @@
 
 ### 回调地址
 
-- 单点登录需要 HTTPS，即使在 localhost 上也是如此。
+- 通过纯 HTTP 使用时，服务商必须接受 `http://` 回调 URL。许多自托管的 OpenID Connect 服务商都接受。Google 和 Microsoft 只在 localhost 上接受，Apple 从不接受。
+- 通过纯 HTTP 使用时，登录代码和服务商的密钥会以未加密方式经过你的网络。在不受信任的网络中请使用 HTTPS。
 - 域名无需公开。只在局域网或 VPN 内可解析的名称就足够。
+- 服务商使用自签名或私有证书时：把签发它的 CA 证书以 PEM 格式、`.crt` 文件名放入 `/data/certs/`，然后重启容器。应用会把它加入受信任的根证书，公共根证书仍然受信任。
+- 在终止 TLS 的反向代理之后运行时，请设置 `Security__ForceSecureCookies=true`，把代理加入 `Security__KnownProxyNetworks`，并传递原始的 `Host` 请求头（nginx 中为 `proxy_set_header Host $host;`）。回调 URL 基于该主机生成。
 
 ## 切换模式
 
-- 现有会话保持登录。可在 **用户 → 会话** 中结束它们。
+- 在需要登录的模式之间切换时，现有会话保持登录。要结束某个会话，请在用户列表中选中它并选择**撤销**。切换到无需身份验证会删除所有账户及其会话。
 - 选择任何登录模式都会立即停止共享的免认证访问。
 - 通过单点登录创建的账户还没有密码。切换到密码模式前请先设置密码。
 

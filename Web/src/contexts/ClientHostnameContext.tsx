@@ -42,13 +42,20 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
   // out of order. Only the newest attempt may write, otherwise an older answer reinstates names the
   // toggle has just cleared and they stay on screen until something else refreshes.
   const attemptRef = useRef(0);
+  // The Clients save holds the setEnabled and setSettings of the render it started in, so a save
+  // still out when mock mode turns on would read the old flag; the read checks the current one.
+  const mockModeRef = useRef(mockMode);
+  mockModeRef.current = mockMode;
 
   // Fetch the whole address-to-name map in one request. Rows read it from memory, so no row ever
   // waits on a lookup and a missing entry simply leaves the raw address showing.
   const refreshHostnames = useCallback(async () => {
     // Reverse lookup names a real network's machines, so mock mode drops back to the raw generated
     // addresses instead of labeling them with someone's real hostnames.
-    if (mockMode) {
+    if (mockModeRef.current) {
+      // A real read still out must not land on the generated addresses, and since it will no
+      // longer clear the spinner itself, this branch does.
+      attemptRef.current++;
       setHostnameLookup({
         enabled: false,
         hostnames: {},
@@ -60,12 +67,13 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
       return;
     }
     const attempt = ++attemptRef.current;
+    // A failure on screen stays until this read answers, so its Retry keeps the box.
     setLoading(true);
-    setError(null);
     try {
       const result = await ApiService.getClientHostnames();
       if (attempt !== attemptRef.current) return;
       setHostnameLookup(result);
+      setError(null);
     } catch (err: unknown) {
       if (attempt !== attemptRef.current) return;
       setError(getErrorMessage(err));
@@ -75,11 +83,12 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
         setLoading(false);
       }
     }
-  }, [mockMode]);
+  }, []);
 
   // Every signed-in viewer asks, guest included. The server decides what a guest is told: it
   // answers one as though the lookup were off until an admin allows guests to see client names,
   // so the map is simply empty rather than the request being an error the page has to explain.
+  // Mock mode is listed so that turning it on or off runs the read again, which then checks it.
   useEffect(() => {
     if (authLoading) return;
     if (authMode === 'authenticated' || authMode === 'guest') {
@@ -89,6 +98,8 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
       // nothing replaces it here, so this branch owns that.
       attemptRef.current++;
       setLoading(false);
+      // A failure belongs to the session that read it, so the next sign-in starts without it.
+      setError(null);
       setHostnameLookup((previous) => ({
         ...previous,
         enabled: false,
@@ -96,10 +107,13 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
         reason: 'none'
       }));
     }
-  }, [authLoading, authMode, refreshHostnames]);
+  }, [authLoading, authMode, mockMode, refreshHostnames]);
 
   const setEnabled = useCallback(
-    async (enabled: boolean): Promise<void> => {
+    async (enabled: boolean): Promise<boolean> => {
+      // Mock mode shows generated data, so nothing done on it reaches the real server, and the
+      // caller is told nothing was written.
+      if (mockModeRef.current) return false;
       const result = await ApiService.setClientHostnameLookup(enabled);
       if (!result.enabled) {
         // Dropping the names locally is enough - the rows fall back to raw addresses on the next
@@ -114,10 +128,11 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
           hostnames: {},
           reason: 'none'
         }));
-        return;
+        return true;
       }
       setHostnameLookup((previous) => ({ ...previous, enabled: true }));
       await refreshHostnames();
+      return true;
     },
     [refreshHostnames]
   );
@@ -125,10 +140,14 @@ export const ClientHostnameProvider: React.FC<ClientHostnameProviderProps> = ({ 
   // The server refuses anything outside the private ranges, so the rejection reaches the caller as
   // an error rather than being swallowed into a silently unchanged field.
   const setSettings = useCallback(
-    async (settings: ClientHostnameSettings): Promise<void> => {
+    async (settings: ClientHostnameSettings): Promise<boolean> => {
+      // The mock page shows default settings, and a save sends every field, so writing it would
+      // put those defaults over the real ones. The caller is told nothing was written.
+      if (mockModeRef.current) return false;
       const result = await ApiService.setClientHostnameSettings(settings);
       setHostnameLookup((previous) => ({ ...previous, settings: result }));
       await refreshHostnames();
+      return true;
     },
     [refreshHostnames]
   );

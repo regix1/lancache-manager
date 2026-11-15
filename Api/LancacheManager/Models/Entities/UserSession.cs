@@ -54,6 +54,8 @@ public class UserSession
     // Revocation
     public bool IsRevoked { get; set; }
     public DateTime? RevokedAtUtc { get; set; }
+    // The session was ended by its own user signing out rather than by an admin or a role change.
+    public bool SignedOut { get; set; }
 
     // Prefill access - when set and in the future, guest has prefill tab access for the given service
     public DateTime? SteamPrefillExpiresAtUtc { get; set; }

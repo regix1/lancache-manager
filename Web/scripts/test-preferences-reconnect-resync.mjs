@@ -154,10 +154,11 @@ const mountPreferences = ({
   let loadErrors = {};
 
   const refs = {
-    loadingIds: { current: new Set() },
+    loadingIds: { current: new Map() },
     loadedIds: { current: new Set() },
     failedIds: { current: new Set() },
     pendingDefaultClocks: { current: new Map() },
+    pendingRefreshRates: { current: new Map() },
     loadGenerations: { current: new Map() },
     preferencesRef: { current: {} }
   };
@@ -226,6 +227,10 @@ const mountPreferences = ({
     window: { dispatchEvent: (event) => dispatched.push(event.detail.key) }
   });
 
+  const handleGuestRefreshRateUpdated = lift(callbackNamed('handleGuestRefreshRateUpdated'), {
+    ...shared
+  });
+
   return {
     requests,
     complaints,
@@ -235,6 +240,8 @@ const mountPreferences = ({
     resyncPreferences,
     applyOptimisticPreferences,
     handleUserPreferencesUpdated,
+    handleGuestRefreshRateUpdated,
+    refreshRate: () => state[SESSION]?.refreshRate,
     loadErrors: () => loadErrors,
     seedLoadErrors: (next) => {
       loadErrors = next;
@@ -359,6 +366,59 @@ test('a write made while the answer was on the wire is not overwritten by it', a
     context.refs.loadedIds.current.has(SESSION),
     'the session holds preferences either way, so a discarded answer must not leave it unloaded'
   );
+});
+
+test("an admin's rate for this session, set while a read is on the wire, outlives that read's answer", async () => {
+  atRest();
+  for (const [moment, readFirst] of [
+    ['the first load', false],
+    ['a reconnect read', true]
+  ]) {
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const context = mountPreferences({
+      body: { ...SERVER_12H, selectedTheme: 'fetched', refreshRate: 'SLOW' },
+      gate: readFirst ? Promise.resolve() : gate
+    });
+    if (readFirst) {
+      await context.loadSessionPreferences(SESSION);
+      assert.equal(context.refreshRate(), 'SLOW');
+      context.seedLoadErrors({ [SESSION]: 'reason: refused with 500' });
+    }
+
+    const read = readFirst
+      ? (() => {
+          context.refs.loadedIds.current.delete(SESSION);
+          return context.loadSessionPreferences(SESSION);
+        })()
+      : context.loadSessionPreferences(SESSION);
+    // "Use default": the server stored no rate for the session and announced it.
+    context.handleGuestRefreshRateUpdated({ sessionId: SESSION, refreshRate: null });
+    release();
+    await read;
+
+    assert.equal(
+      context.refreshRate(),
+      null,
+      `the admin cleared the session's rate during ${moment}, yet its answer put SLOW back`
+    );
+    assert.equal(
+      context.theme(),
+      'fetched',
+      `the rate push threw away ${moment}'s answer, so the other keys it read never arrived`
+    );
+    assert.deepEqual(
+      context.loadErrors(),
+      {},
+      `${moment} answered, yet its session still shows the earlier failed read`
+    );
+    assert.ok(
+      !context.refs.pendingRefreshRates.current.has(SESSION),
+      'the announced rate was laid over one answer only, so it must not outlive that read'
+    );
+  }
 });
 
 /** A whole row that matches the defaults everywhere except the theme, as the broadcast carries one. */

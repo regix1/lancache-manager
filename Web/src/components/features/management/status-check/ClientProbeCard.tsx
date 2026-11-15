@@ -151,7 +151,10 @@ const ClientProbeCard: React.FC<ClientProbeCardProps> = ({
               className="flex-shrink-0"
               onClick={() => void handleCopyCommands()}
             >
-              {copied ? t(`${keys}.probeCopied`) : t('common.copy')}
+              <span className="copy-button-label">
+                <span>{copied ? t(`${keys}.probeCopied`) : t('common.copy')}</span>
+                <span aria-hidden="true">{t(`${keys}.probeCopied`)}</span>
+              </span>
             </Button>
           </div>
           <code className="block whitespace-pre-wrap break-all text-xs font-mono px-3 py-2 rounded-md bg-themed-secondary text-themed-secondary">

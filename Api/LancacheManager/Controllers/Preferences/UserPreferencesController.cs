@@ -4,6 +4,8 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Middleware;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Filters;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -24,17 +26,20 @@ public class UserPreferencesController : ControllerBase
     private readonly UserPreferencesService _preferencesService;
     private readonly ISignalRNotificationService _notifications;
     private readonly SessionService _sessionService;
+    private readonly StateService _stateService;
 
     public UserPreferencesController(
         ILogger<UserPreferencesController> logger,
         UserPreferencesService preferencesService,
         ISignalRNotificationService notifications,
-        SessionService sessionService)
+        SessionService sessionService,
+        StateService stateService)
     {
         _logger = logger;
         _preferencesService = preferencesService;
         _notifications = notifications;
         _sessionService = sessionService;
+        _stateService = stateService;
     }
 
     /// <summary>
@@ -68,8 +73,8 @@ public class UserPreferencesController : ControllerBase
     /// </summary>
     /// <remarks>
     /// The stored/broadcast values are not always exactly what was sent: clock fields are settled
-    /// against each other and an unrecognized refresh rate is dropped, and admin-only columns are
-    /// redacted before a guest's own save is announced to everyone.
+    /// against each other and an unrecognized refresh rate is dropped. A caller that is not an admin
+    /// cannot write the admin-only columns, and the announcement leaves out the thread caps.
     /// </remarks>
     [HttpPut]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
@@ -89,10 +94,11 @@ public class UserPreferencesController : ControllerBase
         var stored = await _preferencesService.SavePreferencesAsync(
             sessionId,
             preferences,
-            preserveAdminFields: !session.SessionType.IsAccountHolder());
+            preserveAdminFields: session.SessionType != SessionType.Admin,
+            guestRefreshRateLocked: session.SessionType == SessionType.Guest && _stateService.GetGuestRefreshRateLocked());
         if (stored != null)
         {
-            RedactForBroadcast(stored, session);
+            RedactForBroadcast(stored);
             await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences = stored });
             return Ok(MessageResponse.Ok("Preferences saved successfully"));
         }
@@ -101,25 +107,25 @@ public class UserPreferencesController : ControllerBase
     }
 
     /// <summary>
-    /// Takes the admin-only columns off preferences that are about to be announced on behalf of a guest.
-    /// The stored row carries them whoever last wrote it, and this announcement reaches every connected
-    /// client rather than only the session it names, so one guest's own save would otherwise hand its
-    /// allowed formats, refresh lock and thread caps to everyone. An account holder's write is left
-    /// whole: those screens are the ones that set the values and need to see them land.
+    /// Takes the thread caps off preferences that are about to be announced. The announcement reaches
+    /// every connected client rather than only the session it names, and no client reads a cap from it.
+    /// The refresh lock and the allowed time formats stay: the named session's own window applies them
+    /// from this event, so leaving them out would put that window back on the defaults after its own save.
     /// </summary>
-    private static void RedactForBroadcast(UserPreferencesDto stored, UserSession session)
+    private static void RedactForBroadcast(UserPreferencesDto stored)
     {
-        if (!session.SessionType.IsAccountHolder())
-        {
-            UserPreferencesService.RedactAdminFields(stored);
-        }
+        stored.SteamMaxThreadCount = null;
+        stored.EpicMaxThreadCount = null;
+        stored.XboxMaxThreadCount = null;
+        stored.BattleNetMaxThreadCount = null;
+        stored.RiotMaxThreadCount = null;
     }
 
     /// <summary>
     /// Updates a single preference by key for the caller's own session.
     /// </summary>
     /// <remarks>
-    /// Guests are forbidden from writing admin-only keys.
+    /// Only an admin may write admin-only keys.
     /// </remarks>
     [HttpPatch("{key}")]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
@@ -137,15 +143,23 @@ public class UserPreferencesController : ControllerBase
         if (preferenceKey == PreferenceKey.Unknown)
             return BadRequest(new MessageResponse { Success = false, Message = "Invalid preference key" });
 
-        // Guests cannot write admin-only preference keys
-        if (!session.SessionType.IsAccountHolder() && UserPreferencesService.IsAdminOnlyKey(preferenceKey))
+        // Only an admin writes the admin-only preference keys, its own lock among them
+        if (session.SessionType != SessionType.Admin && UserPreferencesService.IsAdminOnlyKey(preferenceKey))
+            return Forbid();
+
+        // The guest and user pages hide their rate picker while the administrator has locked it; this
+        // keeps the lock for a request sent without that page.
+        if (session.SessionType != SessionType.Admin
+            && preferenceKey == PreferenceKey.RefreshRate
+            && _preferencesService.IsRefreshRateLocked(
+                sessionId, session.SessionType == SessionType.Guest && _stateService.GetGuestRefreshRateLocked()))
             return Forbid();
 
         var preferences = await _preferencesService.UpdatePreferenceAsync(sessionId, preferenceKey, value);
 
         if (preferences != null)
         {
-            RedactForBroadcast(preferences, session);
+            RedactForBroadcast(preferences);
             await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
             return Ok(MessageResponse.Ok("Preference updated successfully"));
         }
@@ -180,7 +194,7 @@ public class UserPreferencesController : ControllerBase
 
         if (preferences != null)
         {
-            RedactForBroadcast(preferences, session);
+            RedactForBroadcast(preferences);
             await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
             return Ok(MessageResponse.Ok("Preference updated successfully"));
         }
@@ -213,14 +227,16 @@ public class UserPreferencesController : ControllerBase
 
     /// <summary>
     /// Replaces a session's preferences by ID. A session belonging to the owner answers as one
-    /// that does not exist.
+    /// that does not exist, and a user-role account is refused any session its account does not hold.
     /// </summary>
     /// <remarks>
-    /// Unlike <see cref="SavePreferencesAsync"/>, admin-only columns are not redacted since the
-    /// caller is already an admin.
+    /// An admin's save writes the admin-only columns; a user-role account's save of its own account's
+    /// session keeps them as stored, the same as its own save. The announcement leaves out the thread
+    /// caps, and a session removed before the save lands answers 404.
     /// </remarks>
     [Authorize(Policy = "AccountHolder")]
     [HttpPut("session/{sessionId}")]
+    [HandlerChecksCaller]
     [ProducesResponseType(typeof(MessageResponse), StatusCodes.Status200OK)]
     public async Task<ActionResult<MessageResponse>> SaveForSessionAsync(Guid sessionId, [FromBody] UserPreferencesDto preferences)
     {
@@ -229,11 +245,27 @@ public class UserPreferencesController : ControllerBase
             return NotFound(ApiResponse.NotFound("Session"));
         }
 
-        var stored = await _preferencesService.SavePreferencesAsync(sessionId, preferences);
+        if (!await _sessionService.CallerMayChangeSessionAsync(GetSession(), sessionId))
+        {
+            return Forbid();
+        }
+
+        // A user-role caller reaches only its own account's sessions, whose unset lock leaves the rate free.
+        var stored = await _preferencesService.SavePreferencesAsync(
+            sessionId,
+            preferences,
+            preserveAdminFields: GetSession()!.SessionType != SessionType.Admin);
         if (stored != null)
         {
+            RedactForBroadcast(stored);
             await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences = stored });
             return Ok(MessageResponse.Ok("Preferences saved successfully"));
+        }
+
+        // The save finds no session when it was removed between the caller's read and this write.
+        if (await _sessionService.GetSessionByIdAsync(sessionId) == null)
+        {
+            return NotFound(ApiResponse.NotFound("Session"));
         }
 
         return StatusCode(500, new MessageResponse { Success = false, Message = "Error saving preferences" });

@@ -186,9 +186,6 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
               onClick={onRemove}
               awaitPermissions
               loading={isRemoving}
-              // Without this the spinner is inserted BESIDE the trash icon rather than over it,
-              // so a square icon button ends up showing both at once and grows out of its square.
-              stableWidth
               disabled={
                 !isAdmin ||
                 diskActionBlocked ||

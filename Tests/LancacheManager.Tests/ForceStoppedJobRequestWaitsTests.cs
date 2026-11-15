@@ -11,6 +11,7 @@ namespace LancacheManager.Tests;
 /// as the job's button asks, must wait on a card and start once the stopped job's code has ended: it must
 /// not start beside the stopped job, and it must not be dropped with nothing shown.
 /// </summary>
+[Collection(nameof(DatabaseResetCollection))]
 public sealed class ForceStoppedJobRequestWaitsTests
 {
     [Fact]

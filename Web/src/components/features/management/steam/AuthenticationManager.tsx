@@ -31,6 +31,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   const {
     authMode,
     refreshAuth,
+    logout,
     startGuestSession,
     sessionExpiresAt,
     authenticationEnabled,
@@ -59,6 +60,9 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   // produced it ended this session, so everything after it is answered 401.
   const [rotatedKey, setRotatedKey] = useState<string | null>(null);
   const shownRotatedKey = useHeldValue(rotatedKey);
+  // Set from the same answer when the other accounts could not be removed. Left in place when the
+  // dialog closes so it keeps its text while it fades; the next rotation replaces it.
+  const [rotatedStageKey, setRotatedStageKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (authMode !== 'guest' || !sessionExpiresAt) {
@@ -252,9 +256,12 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
         '/api/api-keys/regenerate',
         ApiService.getFetchOptions({ method: 'POST' })
       );
-      const rotated = await ApiService.handleResponse<{ apiKey: string }>(response);
+      const rotated = await ApiService.handleResponse<{ apiKey: string; stageKey?: string }>(
+        response
+      );
 
       setShowRegenerateConfirm(false);
+      setRotatedStageKey(rotated.stageKey ?? null);
       setRotatedKey(rotated.apiKey);
     } catch (error: unknown) {
       // Shown in the confirmation rather than as a toast: the refusal is about the button that was
@@ -266,11 +273,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
   };
 
   const handleRotatedKeyDismissed = async () => {
-    // The server ended this session when the key rotated, so this is the local half of the same
-    // logout the component already runs elsewhere. It happens before the key is cleared, so the
-    // unexpected-logout detector sees the change while it is still held off and the sign-in surface
-    // goes up because this handler puts it up, not because a 401 tripped something.
-    await authService.logout();
+    // The server ended this session when the key rotated, so no sign-out is sent for it: the status
+    // read draws this window signed out. It runs before the key is cleared, so the unexpected-logout
+    // detector sees the change while it is still held off and the sign-in surface goes up because
+    // this handler puts it up, not because a 401 tripped something.
     await refreshAuth();
     setRotatedKey(null);
     setShowAuthModal(true);
@@ -280,9 +286,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     setAuthLoading(true);
 
     try {
-      await authService.logout();
+      // A refused sign-out already raised its own notice, so it gets no success notice on top.
+      const ended = await logout();
       await refreshAuth();
-      onSuccess?.(t('management.auth.notifications.loggedOut'));
+      if (ended) onSuccess?.(t('management.auth.notifications.loggedOut'));
     } catch (error: unknown) {
       console.error('Error logging out:', error);
       onError?.(t('management.auth.errors.logoutFailed'), error);
@@ -586,6 +593,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
       <ApiKeyRotatedModal
         opened={rotatedKey !== null}
         apiKey={shownRotatedKey ?? ''}
+        stageKey={rotatedStageKey}
         onClose={handleRotatedKeyDismissed}
       />
     </>

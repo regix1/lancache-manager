@@ -63,16 +63,20 @@ public sealed class DownloadHubCookieConnectionTests
         using var ownerClient = host.Application.CreateClient();
         await EndpointAuthorizationHost.PrimeAntiforgeryAsync(ownerClient);
         var apiKey = host.Application.Services.GetRequiredService<ApiKeyService>().GetApiKey();
+        // While authentication is off the session check keeps only the main administrator's account
+        // cookie, so the account socket is the owner's own signed-in session.
+        string accountCookie;
         using (var login = await ownerClient.PostAsJsonAsync(
             "/api/auth/login",
             new LoginRequest { ApiKey = apiKey, Username = ownerName, Password = ownerPassword }))
         {
             Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+            accountCookie = login.Headers.GetValues("Set-Cookie")
+                .Select(value => value.Split(';')[0])
+                .Last(value => value.StartsWith("LancacheManager.Session=", StringComparison.Ordinal));
         }
         await EndpointAuthorizationHost.PrimeAntiforgeryAsync(ownerClient);
-        using var scope = host.Application.Services.CreateScope();
         var sharedCookie = await SharedCookieAsync(host);
-        var accountCookie = (await SessionAsync(host, scope, SessionType.Admin)).Cookie;
         var sharedConnections = new[]
         {
             new HubOverLongPolling(host.Application.Server.CreateClient(), sharedCookie),

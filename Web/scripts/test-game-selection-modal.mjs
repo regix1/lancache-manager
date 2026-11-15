@@ -646,8 +646,12 @@ test('both picker parents omit row deletion and keep caller-specific clear-all o
     assert.deepEqual(removedDeclarations, []);
   }
 
-  // Clear-all remains admin-only in the ordinary picker because its route is AccountHolder-only.
-  assert.equal(panel.text.includes('isAdmin ? handleClearAllFromCache : undefined'), true);
+  // Clear-all is offered to admins only in the ordinary picker: the record is everyone's, so the
+  // server refuses a guest and a user-role account.
+  assert.equal(
+    panel.text.includes("isAdmin && sessionType !== 'user' ? handleClearAllFromCache : undefined"),
+    true
+  );
   assert.equal(scheduled.text.includes('clearAllPrefillCache'), false);
   assert.equal(modalFile.text.includes('onRemoveFromCache'), false);
   assert.equal(modalFile.text.includes('removingAppId'), false);

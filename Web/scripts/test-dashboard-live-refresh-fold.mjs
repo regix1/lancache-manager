@@ -61,6 +61,7 @@ const makeHarness = () => {
     FAILED_BATCH: {},
     i18n: { t: (key) => key },
     setIsRefreshing: () => undefined,
+    fetchIdleWaiters: { current: [] },
     liveRefetchPendingRef,
     liveFollowUpWantedRef,
     setLiveFollowUps: (update) => {

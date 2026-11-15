@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { bindLifted, liftHookCallback } from './transpile-module.mjs';
+import { bindLifted, liftHookCallback, ordersOf } from './transpile-module.mjs';
 
 /**
  * Status Check opened while nothing else is happening on the page. Its mount read asks for the
@@ -30,14 +30,6 @@ const deferred = () => {
 const flush = async () => {
   for (let turn = 0; turn < 10; turn += 1) await new Promise((done) => setImmediate(done));
 };
-
-/** Every order of the given steps. */
-const orders = (steps) =>
-  steps.length <= 1
-    ? [steps]
-    : steps.flatMap((step, index) =>
-        orders([...steps.slice(0, index), ...steps.slice(index + 1)]).map((rest) => [step, ...rest])
-      );
 
 const oldSource = {
   repoUrl: 'https://github.com/uklans/cache-domains',
@@ -159,7 +151,7 @@ const ordersThatEndStale = async ({ cached, serverNow, staleRead, fire, shown, e
     },
     { label: 'the newer event lands', run: (page) => fire(page.handlers) }
   ];
-  for (const order of orders(steps)) {
+  for (const order of ordersOf(steps)) {
     const page = openPage({ cached, serverNow });
     for (const step of order) {
       step.run(page);

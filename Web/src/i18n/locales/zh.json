@@ -7,10 +7,10 @@
       "test": "测试{{name}}"
     },
     "descriptions": {
-      "choose": "选择访问此实例时需要使用的凭据。主管理员以后可以更改此设置。",
-      "configure": "验证所有权，然后配置所选方式。现有账户和缓存设置将保留。"
+      "choose": "选择访问此实例时需要使用的凭据。以后可以在用户页面的“登录”中更改此设置。",
+      "configure": "验证所有权，然后配置所选方式。缓存设置将保留。除非选择无身份验证，否则账户也将保留。"
     },
-    "upgrade": "1.10.7 版本新增了登录方式。请为此实例确认一次访问设置；您的账户、缓存和预填充设置将保留。",
+    "upgrade": "1.10.7 版本新增了登录方式。请为此实例确认一次访问设置；您的缓存和预填充设置将保留，除非选择无身份验证，否则您的账户也将保留。",
     "groups": {
       "local": "本地账户",
       "sso": "单点登录",
@@ -43,8 +43,8 @@
         "warning": "任何能够访问此应用的人都可使用管理功能。仅适用于所有人员和设备均受信任的网络。"
       }
     },
-    "keyOwnership": "所有模式都会保留实例 API 密钥，用于验证所有权和恢复；密钥归第一个账户（主管理员）所有。",
-    "sessions": "现有账户会话仍然有效。可在用户页面的会话列表中结束这些会话。切换到需要登录的模式后，共享的无身份验证访问将被撤销。",
+    "keyOwnership": "所有模式都会保留实例 API 密钥，用于验证所有权和恢复；密钥归主管理员所有，登录关闭时则归运行此实例的人所有。",
+    "sessions": "在需要登录的模式之间切换时，账户会话仍保持登录。要结束某个会话，请在用户列表中选中它并选择“撤销”。切换到需要登录的模式后，共享的无身份验证访问将结束。",
     "ownerHeading": "验证实例所有权",
     "ownerDescription": "输入实例密钥以授权此次更改。这项一次性的设置验证与登录凭据要求相互独立。",
     "keyLocation": "在服务器上的以下位置查找密钥：",
@@ -57,7 +57,7 @@
     "httpsWarning": "支持本地 HTTP 访问。凭据和会话以未加密方式传输，因此在不可信网络上请使用 HTTPS。",
     "serviceHeading": "用户应使用哪个服务登录？",
     "serviceHint": "已连接的服务保持可用。选择一个以添加或更新。",
-    "ssoRequiresHttps": "通过 HTTP 访问时无法使用单点登录。请使用 HTTPS 连接此应用。",
+    "ssoRequiresHttps": "无法通过此 HTTP 地址使用 {{name}} 登录。请使用 HTTPS 连接此应用。",
     "httpsRequired": "需要 HTTPS",
     "connected": "已连接",
     "connectedList": "已连接：{{names}}",
@@ -77,22 +77,30 @@
     "privateKey": "Sign in with Apple 密钥（.p8 文件）",
     "privateKeyHint": "粘贴完整的 .p8 文件内容。它将受保护地存储在服务器上，不会再次显示。",
     "issuer": "签发者 URL",
-    "issuerHint": "必须使用 HTTPS。如有领域或应用路径，请一并填写。",
+    "issuerHint": "身份服务列出的签发者地址。如有领域或应用路径，请一并填写。",
     "displayName": "登录按钮名称（可选）",
     "clientId": "客户端 ID",
     "clientSecret": "客户端密钥",
     "callback": "登录回调 URL",
     "setupCallback": "测试回调 URL",
     "callbackOrigin": "这些返回 URL 已内置于应用中。复制前，请通过预定的登录地址打开应用。",
-    "localAddress": "此设置即使在 localhost 上也要求 HTTPS。回环地址指向运行浏览器的设备，而不是其他服务器。",
+    "localAddress": "回环地址指向运行浏览器的设备，而不是其他服务器。",
     "privateHosting": "应用仍可仅在局域网或 VPN 内访问，无需公网托管。",
-    "addressHelp": "本地 HTTPS 说明",
+    "addressHelp": "本地地址说明",
     "advanced": "高级设置",
     "advancedHint": "用于测试此连接的账户会自动关联到主管理员。",
     "additionalUsers": "允许其他单点登录用户",
     "allowedSubjects": "允许的主体（可选）",
     "oidcSafety": "启用前会测试连接。测试失败将保留当前登录设置。",
-    "acknowledge": "我了解，任何能访问此应用的人都将获得管理权限，无需登录。",
+    "acknowledge": "我了解，任何能访问此应用的人都将获得管理权限，无需登录，并且所有账户都会被删除。",
+    "wipeConfirm": {
+      "title": "删除所有账户",
+      "message_one": "关闭登录将删除 {{count}} 个账户及其会话和登录关联。",
+      "message_other": "关闭登录将删除全部 {{count}} 个账户及其会话和登录关联。",
+      "summary": "要重新开启登录，必须创建新的管理员账户。此操作无法撤销。",
+      "confirm": "删除账户并关闭登录",
+      "required": "关闭登录将删除所有账户。请确认后继续。"
+    },
     "testHeading": "测试连接",
     "testConnection": "测试连接",
     "testConnectionHint": "打开 {{name}} 验证管理员登录。测试成功前，当前设置保持不变。",
@@ -121,9 +129,8 @@
     "done": "完成",
     "sso": "单点登录",
     "signInSso": "使用 {{name}} 继续",
-    "change": "更改登录方式",
+    "change": "更改",
     "signInMethod": "登录方式",
-    "manageDescription": "用户登录此实例的方式，以及可用于登录的外部服务。",
     "ownerServiceHeading": "登录方式",
     "localPasswordHeading": "创建本地密码",
     "localPasswordDescription": "您的管理员账户由单点登录创建，尚无密码。请现在设置密码，以便更改后仍可登录。",
@@ -148,7 +155,7 @@
         "title": "GitHub",
         "note": "用户使用 GitHub 账户登录。",
         "register": "在 GitHub Settings → Developer settings → OAuth Apps 中创建应用。添加下方两个回调 URL，关闭通配符匹配，然后生成客户端密钥。",
-        "addresses": "本应用在局域网上使用 GitHub 登录需要 HTTPS。不支持普通 HTTP 局域网地址。",
+        "addresses": "GitHub 可能拒绝 127.0.0.1 以外的普通 HTTP 回调地址。如果被拒绝，请使用 HTTPS 连接此应用。",
         "testing": "GitHub 建议回环回调使用 127.0.0.1 而非 localhost。",
         "credentials": "复制客户端 ID 和您生成的客户端密钥。不会请求仓库或电子邮件权限。",
         "subjects": "GitHub 数字账户 ID，每行一个。请勿使用用户名或电子邮件地址。"
@@ -177,8 +184,8 @@
         "nameAtStart": "您的身份服务",
         "note": "任何 OpenID Connect 服务，例如 Keycloak、Authentik、Authelia 或 Okta。",
         "register": "创建使用授权码流程的 OpenID Connect Web 客户端。将下方两个 URL 添加为允许的重定向 URI。",
-        "addresses": "本应用在局域网上使用单点登录需要 HTTPS。您的身份服务可能有更严格的规定。",
-        "testing": "签发者 URL 也必须使用 HTTPS；请检查身份服务的回调要求。",
+        "addresses": "如果您的身份服务接受 HTTP 回调地址，就可以使用普通 HTTP。许多服务要求 HTTPS，请检查其回调规定。",
+        "testing": "签发者 URL 可以使用 HTTP 或 HTTPS。如果使用自签名或私有证书，请把其 CA 证书放入 /data/certs 并重启应用。",
         "credentials": "输入该注册提供的签发者 URL、客户端 ID 和客户端密钥。",
         "subjects": "此签发者的主体 ID（sub 声明），每行一个。请勿使用电子邮件地址或显示名称。"
       }
@@ -193,7 +200,7 @@
     "environment": {
       "setByEnvironment": "由环境变量设置",
       "modeSetByEnvironment": "登录模式由环境变量设置，无法在此处更改。",
-      "modeBlocked": "登录模式由环境变量设置，无法在此处更改。要继续，请通过 HTTPS 打开此应用，或修改 Security__SignInMode 后重启应用。",
+      "modeBlocked": "登录模式由环境变量设置，无法在此处更改。要继续，请通过此登录服务接受的 HTTPS 地址打开此应用，或修改 Security__SignInMode 后重启应用。",
       "incomplete": "环境变量已设置此服务的部分内容，但服务器暂时无法使用。请在下方填写缺少的设置。如果仍然保存失败，启动日志会指出需要修正的环境变量。"
     }
   },
@@ -627,11 +634,11 @@
           "label": "本地（24小时制）"
         },
         "server12": {
-          "description": "服务器时区，12小时制（下午 3:30）",
+          "description": "服务器时区，12小时制",
           "label": "服务器（12小时制）"
         },
         "server24": {
-          "description": "服务器时区，24小时制（15:30）",
+          "description": "服务器时区，24小时制",
           "label": "服务器（24小时制）"
         }
       },
@@ -689,7 +696,7 @@
     "downloads": "下载",
     "clients": "客户端",
     "prefill": "预填充",
-    "authenticate": "验证身份",
+    "authenticate": "登录",
     "users": "用户",
     "events": "事件",
     "management": "管理",
@@ -868,6 +875,7 @@
         "noActiveDesc": "下载将实时显示在此处",
         "noDownloads": "没有下载",
         "noDownloadsInPeriod": "{{period}} 内没有下载",
+        "noDownloadsToShow": "没有可显示的下载",
         "loading": "加载下载中..."
       },
       "timeRanges": {
@@ -976,7 +984,7 @@
       "empty": {
         "title": "无可用数据",
         "description": "服务统计将显示在此处",
-        "action": "查看日志"
+        "action": "查看下载"
       }
     },
     "errors": {
@@ -1130,7 +1138,7 @@
     },
     "form": {
       "placeholder": "lm_xxxxxxxxxxxxxxxxxxxxx",
-      "submit": "验证身份"
+      "submit": "登录"
     },
     "help": {
       "title": "API 密钥",
@@ -1149,7 +1157,9 @@
       "loginFailedStatus": "登录失败：{{status}}",
       "networkDuringLogin": "登录时发生网络错误",
       "guestSessionFailed": "无法启动访客会话",
-      "logoutIncomplete": "已在此设备上登出，但无法连接服务器。恢复网络后请再次登出。",
+      "logoutIncomplete": "登出未完成：服务器无法结束该会话。如果仍处于登录状态，请再次登出。",
+      "logoutUnreachable": "登出未完成：无法连接服务器。恢复网络后请再次登出。",
+      "logoutUnconfirmed": "登出未完成：服务器未接受该请求。请稍后再次登出。",
       "network": "网络错误"
     }
   },
@@ -1187,14 +1197,13 @@
   "user": {
     "tabs": {
       "sessions": "会话",
-      "guestDefaults": "访客默认设置",
       "accounts": "账户"
     },
     "accounts": {
       "title": "用户账户",
       "loading": "加载账户中...",
       "paginationLabel": "个账户",
-      "mainAdmin": "主要",
+      "mainAdmin": "主管理员",
       "neverSignedIn": "从未登录",
       "columns": {
         "username": "用户名",
@@ -1205,7 +1214,7 @@
         "actions": "操作"
       },
       "roles": {
-        "user": "账户"
+        "user": "用户"
       },
       "status": {
         "active": "活跃",
@@ -1242,9 +1251,6 @@
         "wipe": "清除账户失败"
       }
     },
-    "locked": "访客模式已锁定。新访客无法登录。",
-    "unlocked": "访客模式已解锁。访客现在可以登录。",
-    "refreshRateUpdated": "默认访客刷新率已更新",
     "errors": {
       "updateGuestDuration": "更新访客会话时长失败",
       "updateGuestLock": "更新访客模式锁定失败",
@@ -1256,7 +1262,6 @@
     "guest": {
       "sections": {
         "help": {
-          "accessSecurityTitle": "关于",
           "appearanceDisplayTitle": "关于"
         },
         "accessSecurity": "访问与安全",
@@ -1330,17 +1335,9 @@
           "label": "方角",
           "description": "使用方角而非圆角"
         },
-        "disableTooltips": {
-          "label": "禁用工具提示",
-          "description": "隐藏工具提示"
-        },
         "datasourceLabels": {
           "label": "数据源标签",
           "description": "在多数据源模式下显示"
-        },
-        "lockRefreshRate": {
-          "label": "锁定刷新率",
-          "description": "阻止访客更改其刷新率"
         }
       },
       "prefillDurationOptions": {
@@ -1354,8 +1351,7 @@
         },
         "sectionTitle": "预填充服务",
         "sectionSubtitle": "按服务控制访客预填充权限",
-        "updated": "预填充配置已更新",
-        "existingGuestsNote": "开启某个服务时，也会向已登录且该服务没有未过期授权的访客立即授予访问权限；关闭它或更改时长、线程数只影响新的访客会话。要撤销或修改已登录访客的权限，请使用“活动会话”。",
+        "existingGuestsNote": "开启某个服务时，也会向已登录且该服务没有未过期授权的访客立即授予访问权限；关闭它或更改时长、线程数只影响新的访客会话。要撤销或修改已登录访客的权限，请在列表中选择该访客。",
         "warning": "安全风险：所有访客（包括已登录的）都将能够触发预填充。建议保持关闭，改为按会话授予访问权限。",
         "services": {
           "help": {
@@ -1399,7 +1395,7 @@
     },
     "bulkActions": {
       "buttons": {
-        "reset": "重置为默认值",
+        "reset": "将所有访客重置为默认值",
         "clear": "清除所有访客"
       },
       "resetSuccess": "重置 {{count}} 个访客会话为默认值",
@@ -1424,6 +1420,137 @@
     "groups": {
       "sessions": "会话",
       "guestDefaults": "访客默认设置"
+    },
+    "panes": {
+      "separator": "，",
+      "unsavedChanges": "有未保存的更改",
+      "list": {
+        "aria": "用户和设置",
+        "back": "返回列表",
+        "filters": {
+          "signedIn": "已登录",
+          "guests": "访客",
+          "ended": "已结束"
+        },
+        "signIn": "登录",
+        "guestAccessOpen": "开放，会话时长 {{count}} 小时",
+        "guestAccessLocked": "已锁定，会话时长 {{count}} 小时",
+        "sessionLine": "{{device}}，位于 {{place}}，{{when}}",
+        "sessionLineNoPlace": "{{device}}，{{when}}",
+        "endedRevoked": "{{when}}已撤销",
+        "endedExpired": "{{when}}已过期",
+        "endedSignedOut": "{{when}}已退出登录",
+        "disabled": "已停用",
+        "signedInOn_one": "已在 {{count}} 台设备上登录",
+        "signedInOn_other": "已在 {{count}} 台设备上登录",
+        "neverSignedIn": "从未登录",
+        "lastSignedIn": "上次登录于 {{when}}",
+        "created": "创建于 {{when}}",
+        "empty": {
+          "signedIn": "当前无人登录",
+          "signedInHint": "用户连接后，会话将显示在此处",
+          "accountsHint": "您创建的账户将显示在此处",
+          "guests": "当前没有访客登录",
+          "guestsHint": "访客连接后将显示在此处",
+          "ended": "没有已结束的会话",
+          "endedHint": "已结束的会话将显示在此处"
+        },
+        "noMatch": "没有与此搜索匹配的内容",
+        "noMatchHint": "请尝试名称、设备或 IP",
+        "pickPrompt": "选择一行以查看详细信息"
+      },
+      "header": {
+        "guestSession": "{{device}}，{{remaining}}",
+        "accountLine": "{{role}}，{{state}}",
+        "created": "创建于 {{when}}",
+        "lastSignIn": "上次登录 {{when}}",
+        "endedLine": "{{kind}}会话，{{reason}}",
+        "kindGuest": "访客",
+        "kindAccount": "账户"
+      },
+      "time": {
+        "justNow": "刚刚",
+        "minutesAgo": "{{count}} 分钟前",
+        "hoursAgo": "{{count}} 小时前",
+        "daysAgo": "{{count}} 天前",
+        "hoursMinutesLeft": "剩余 {{hours}} 小时 {{minutes}} 分钟",
+        "minutesLeft": "剩余 {{minutes}} 分钟"
+      },
+      "menu": {
+        "editAccount": "编辑账户",
+        "disableAccount": "停用账户",
+        "enableAccount": "启用账户",
+        "deleteAccount": "删除账户",
+        "deleteSession": "删除会话",
+        "label": "{{name}} 的更多操作"
+      },
+      "sections": {
+        "thisDevice": "此设备",
+        "device": "设备",
+        "otherDevices": "其他设备",
+        "prefs": "此会话的偏好设置",
+        "guestSignIn": "登录",
+        "guestPrefill": "新访客的预填充",
+        "guestSees": "访客看到的内容",
+        "howUsersSignIn": "用户如何登录"
+      },
+      "facts": {
+        "deviceAt": "{{device}}，位于 {{place}}",
+        "signedIn": "已登录",
+        "lastSeen": "上次活动 {{when}}",
+        "placeSeen": "{{place}}，{{when}}",
+        "never": "永不过期",
+        "clockServer": "服务器时钟",
+        "clockLocal": "本地时钟",
+        "clockUtc": "UTC 时钟",
+        "labels": {
+          "device": "设备",
+          "address": "地址",
+          "lastSeen": "上次活动",
+          "expires": "过期时间",
+          "ended": "已结束",
+          "publicAddress": "公网地址",
+          "provider": "网络服务商",
+          "language": "语言",
+          "timezone": "时区",
+          "screen": "屏幕",
+          "clock": "时钟",
+          "session": "会话"
+        },
+        "copied": "已复制",
+        "copyAria": "复制会话 ID"
+      },
+      "prefs": {
+        "refreshRate": "刷新率",
+        "mayChangeRate": "访客可更改刷新率",
+        "accountMayChangeRate": "可更改刷新率",
+        "keepVisible": "保持通知可见",
+        "timeFormats": "时间格式",
+        "threads": "线程数",
+        "threadsFor": "{{service}} 线程数",
+        "accessLasts": "访问时长",
+        "accessLastsFor": "{{service}} 访问时长",
+        "newGuestsCanSignIn": "新访客可以登录",
+        "sessionLength": "会话时长",
+        "everyGuestCan": "每位访客都可以启动 {{service}} 预填充。",
+        "loadFailed": "无法加载此会话的偏好设置"
+      },
+      "help": {
+        "lock": "锁定后将阻止新访客登录。已登录的访客会保留其会话，直到会话结束。",
+        "lengthUi": "在此页面设置。重置会恢复为配置文件或环境变量中的时长；两者都未设置时恢复为默认时长。",
+        "lengthConfig": "来自配置文件或环境变量。在此处更改将覆盖它。",
+        "lengthDefault": "使用内置默认值。在此处更改将覆盖它。",
+        "prefill": "开启后，每位新访客登录时都会获得该服务的预填充访问权限。访问时长设置该权限保持开放的时间。线程数限制一次预填充同时运行的下载数量。",
+        "everyGuest": "每位新访客无需申请即可获得 {{duration}} 的 {{service}} 预填充访问权限。预填充会将完整游戏下载到缓存中，并占用共享的互联网线路。",
+        "lockAria": "关于访客登录锁定",
+        "lengthAria": "关于访客会话时长",
+        "prefillAria": "关于新访客的预填充",
+        "everyGuestAria": "为什么为每位访客开启 {{service}} 预填充很重要",
+        "serviceAria": "关于 {{name}} 登录服务",
+        "primaryAdmin": "主管理员账户无法在此处编辑、停用或删除。",
+        "metrics": "公开时，任何能访问此服务器的人无需登录即可读取 /metrics，其中包括每个客户端的 IP 地址。安全模式需要 API 密钥。",
+        "metricsAria": "关于谁可以读取 Prometheus 指标"
+      }
     }
   },
   "actions": {
@@ -1457,7 +1584,6 @@
       "revoked": "已撤销"
     },
     "history": {
-      "title": "会话历史",
       "summary": "已退出或过期的会话。",
       "help": {
         "aboutTitle": "关于"
@@ -1502,17 +1628,11 @@
       "guest": "访客"
     },
     "relative": {
-      "never": "从不",
-      "justNow": "刚刚",
-      "minutesAgo": "{{count}} 分钟前",
-      "hoursAgo": "{{count}} 小时前",
-      "daysAgo": "{{count}} 天前"
+      "never": "从不"
     },
     "sessionTypes": {
-      "authenticatedUser": "已验证用户",
-      "guestUser": "访客",
-      "authenticatedDevice": "已验证设备",
-      "guestDevice": "访客设备"
+      "accountSession": "账户会话",
+      "guestSession": "访客会话"
     },
     "help": {
       "aboutTitle": "关于",
@@ -1558,19 +1678,19 @@
       "logout": "登出"
     },
     "revokeModal": {
-      "title": "撤销设备",
+      "title": "撤销会话",
       "message": "您确定要撤销此 {{type}} 吗？",
-      "summary": "用户将立即被登出。设备会被标记为已撤销而不是删除，因此仍保留在历史中。",
-      "confirm": "撤销设备"
+      "summary": "该会话将立即被登出。它会被标记为已撤销而不是删除，因此仍保留在“已结束”列表中。",
+      "confirm": "撤销会话"
     },
     "deleteModal": {
-      "title": "删除设备",
+      "title": "删除会话",
       "message": "您确定要永久删除此 {{type}} 吗？",
-      "summary": "用户将立即被登出，该设备也会从历史中永久删除。此操作无法撤销。",
-      "confirm": "永久删除"
+      "summary": "该会话将立即被登出并被永久删除。此操作无法撤销。",
+      "endedSummary": "该会话将从“已结束”列表中永久删除。此操作无法撤销。",
+      "confirm": "删除会话"
     },
     "preferencesModal": {
-      "title": "编辑用户首选项",
       "loading": "加载首选项中...",
       "selectedTheme": "所选主题",
       "customTheme": "此用户的自定义主题",
@@ -1607,9 +1727,7 @@
       "status": {
         "enabled": "已启用",
         "expired": "已过期",
-        "disabled": "已禁用",
-        "hoursMinutesRemaining": "剩余 {{hours}} 小时 {{minutes}} 分钟",
-        "minutesRemaining": "剩余 {{minutes}} 分钟"
+        "disabled": "已禁用"
       },
       "actions": {
         "grant": "授予权限",
@@ -1628,7 +1746,7 @@
       "savePreferences": "保存首选项失败",
       "logout": "登出失败"
     },
-    "searchPlaceholder": "按设备、IP 或浏览器搜索",
+    "searchPlaceholder": "搜索名称、设备或 IP",
     "summary": "当前已登录的设备及其偏好设置。"
   },
   "downloads": {
@@ -2280,6 +2398,8 @@
       },
       "authRequired": "需要认证",
       "authRequiredDesc": "请先认证以访问此部分。",
+      "adminOnly": "只有管理员可以更改这些设置",
+      "adminOnlyDesc": "这些设置适用于此安装的所有用户，因此您的账户只能更改自己的设置。",
       "guestModeActive": "访客模式已激活",
       "guestModeDesc": "管理功能在访客模式下已禁用。请先认证以访问完整功能。",
       "data": {
@@ -2534,11 +2654,9 @@
         "visual": "视觉",
         "sharpCorners": "方角",
         "sharpCornersDesc": "使用方角替代圆角",
-        "disableTooltips": "禁用工具提示",
-        "disableTooltipsDesc": "在界面中隐藏工具提示",
+        "disableTooltipsDesc": "在界面中显示工具提示",
         "notifications": "通知",
-        "disableStickyNotifications": "禁用固定通知",
-        "disableStickyNotificationsDesc": "通知栏随页面滚动而非固定在顶部",
+        "disableStickyNotificationsDesc": "页面滚动时通知栏固定在顶部",
         "keepNotificationsVisible": "保持通知可见",
         "keepNotificationsVisibleDesc": "禁用所有通知的自动关闭，直到手动关闭",
         "downloads": "下载",
@@ -2794,6 +2912,7 @@
         "hostnames": {
           "loadFailed": "加载主机名失败",
           "saveFailed": "保存主机名设置失败",
+          "switchNotSaved": "查询设置已保存，但“显示客户端主机名”未更改。请再次保存以更改它。",
           "help": {
             "aboutTitle": "关于"
           },
@@ -4565,7 +4684,7 @@
       },
       "description": {
         "authenticated": "管理功能已启用",
-        "disabled": "已选择无需身份验证的访问方式。无需登录即可使用管理功能；更改登录设置仍需主管理员授权。",
+        "disabled": "已选择无需身份验证的访问方式。无需登录即可使用管理功能；更改登录设置仍需提供实例 API 密钥。",
         "guest": "仅查看权限已激活",
         "requiresKeyOrGuest": "管理功能需要 API 密钥或访客访问权限",
         "requiresKey": "管理功能需要 API 密钥"
@@ -4574,13 +4693,13 @@
       "regenerate": "重新生成",
       "guestMode": "访客模式",
       "guest": "访客",
-      "authenticate": "验证身份",
+      "authenticate": "登录",
       "checkingStatus": "正在检查身份验证状态...",
       "auth": "认证",
       "fullAccess": "完全访问",
       "modal": {
         "fullAccessRequired": "需要完全访问",
-        "authenticationRequired": "需要认证",
+        "authenticationRequired": "需要登录",
         "guestMessage": "要使用完整管理功能，请使用您的 API 密钥进行身份验证。",
         "unauthenticatedMessage": "管理操作需要身份验证。请输入您的 API 密钥或继续作为访客。",
         "apiKeyOnlyMessage": "管理操作需要身份验证。请输入您的 API 密钥。",
@@ -4600,7 +4719,8 @@
         "title": "您的新 API 密钥",
         "message": "应用只显示这一次此密钥（它还会在服务器日志中打印一次）。请立即复制，因为所有人都已被登出，重新登录需要它。",
         "copied": "已复制！",
-        "copyFailed": "此浏览器不允许页面代为复制。请在关闭前手动选中上方的密钥并复制。"
+        "copyFailed": "此浏览器不允许页面代为复制。请在关闭前手动选中上方的密钥并复制。",
+        "accountsKept": "无法删除其他用户账户，因此它们仍然可以登录。请在“用户”页面删除它们，或再次重新生成密钥。"
       },
       "notifications": {
         "sessionRevoked": "您的会话已过期或被撤销。请重新认证。",
@@ -5565,7 +5685,7 @@
       }
     },
     "auth": {
-      "defaultTitle": "需要认证",
+      "defaultTitle": "需要登录",
       "defaultSubtitle": "请使用您的 API 密钥、用户名和密码登录",
       "labels": {
         "apiKey": "API 密钥",
@@ -5581,8 +5701,8 @@
       },
       "actions": {
         "pleaseWait": "请稍候...",
-        "authenticating": "认证中...",
-        "authenticate": "验证身份"
+        "authenticating": "登录中...",
+        "authenticate": "登录"
       },
       "guestMode": {
         "disabled": "访客模式当前已被管理员禁用。",
@@ -5888,7 +6008,7 @@
           "description": "客户端统计表及其命中率进度条"
         },
         "authenticate": {
-          "label": "验证身份",
+          "label": "登录",
           "description": "访客登录界面及其 API 密钥表单"
         },
         "users": {
@@ -5948,10 +6068,6 @@
         "gameCharts": {
           "title": "游戏图表",
           "description": "游戏分布图 - 仪表板上磁盘游戏环形图的 20 种可自定义颜色"
-        },
-        "sessions": {
-          "title": "会话",
-          "description": "已验证用户和访客 - 用户选项卡中会话徽章和图标颜色"
         },
         "events": {
           "title": "事件",
@@ -6559,36 +6675,6 @@
           "label": "游戏其他",
           "description": "其余游戏合并在一起",
           "affects": ["磁盘游戏图表"]
-        },
-        "userSessionColor": {
-          "label": "已验证用户颜色",
-          "description": "已验证用户的图标和文本颜色",
-          "affects": ["用户徽章文本", "已验证用户图标", "已验证统计卡片"]
-        },
-        "userSessionBg": {
-          "label": "已验证用户背景",
-          "description": "已验证用户徽章背景色",
-          "affects": ["用户徽章背景", "已认证图标背景"]
-        },
-        "guestSessionColor": {
-          "label": "访客用户颜色",
-          "description": "访客用户的图标和文本颜色",
-          "affects": ["访客徽章文本", "访客用户图标", "访客统计卡片"]
-        },
-        "guestSessionBg": {
-          "label": "访客用户背景",
-          "description": "访客用户徽章背景色",
-          "affects": ["访客徽章背景", "访客图标背景"]
-        },
-        "activeSessionColor": {
-          "label": "活跃会话颜色",
-          "description": "当前活跃会话的图标和文本颜色",
-          "affects": ["活跃会话徽章文本", "活跃会话图标"]
-        },
-        "activeSessionBg": {
-          "label": "活跃会话背景",
-          "description": "活跃会话徽章的背景",
-          "affects": ["活跃会话徽章", "活跃会话行"]
         },
         "eventColor1": {
           "label": "事件颜色1",
@@ -7317,7 +7403,7 @@
       "recoverSubmit": "保存密码",
       "recovering": "正在保存密码...",
       "recoveredHeading": "密码已保存",
-      "recoveredDescription": "密码已保存，此设备已作为主管理员登录。您可以在用户 → 账户 → 访问与登录中更改登录方式。",
+      "recoveredDescription": "密码已保存，此设备已作为主管理员登录。您可以在用户 → 登录 → 更改中更改登录方式。",
       "insecureConnection": {
         "title": "此连接未加密",
         "description": "您在此设置的密码会以明文形式在网络上传输，之后的每次登录同样如此。在他人从其他设备连接之前，请为本站点启用 HTTPS。"
@@ -7944,7 +8030,8 @@
       "rescanningWithMappings": "正在使用 {{count}} 个新映射重新扫描...",
       "staleCleanedUp": "已结束：此检测是之前启动遗留的",
       "error": {
-        "fatal": "游戏缓存检测失败: {{errorDetail}}"
+        "fatal": "游戏缓存检测失败: {{errorDetail}}",
+        "timedOut": "游戏缓存检测已停止，因为某个步骤未能及时完成。请重试；详情请查看服务器日志。"
       }
     },
     "gameRemove": {
@@ -8192,7 +8279,8 @@
       "claimWindowClosed": "创建首个账户的时间窗口已关闭。请重启应用程序以重新打开。",
       "recoveryWindowClosed": "恢复主管理员密码的时间窗口已关闭。请重启应用程序以重新打开。",
       "accountExists": "此安装上已存在账户。",
-      "mainAdminNotFound": "没有以该名称注册的主管理员账户。"
+      "mainAdminNotFound": "没有以该名称注册的主管理员账户。",
+      "signInOff": "登录已关闭，此模式不保留任何账户。请开启登录后再创建第一个管理员。"
     },
     "antiforgery": {
       "tokenMismatch": "此页面的安全令牌缺失或与当前会话不匹配。请刷新页面后重试。"
@@ -8213,9 +8301,11 @@
       "mainAdminProtected": "无法在此更改拥有此安装的账户。",
       "wipeRequiresMainAdmin": "只有拥有此安装的账户才能删除所有账户。",
       "selfProtected": "您无法删除或禁用当前登录的账户。",
+      "ownAccountOnly": "您只能更改自己的账户。",
       "usernameTaken": "该用户名已被占用。",
       "credentialsRejected": "用户名或密码不符合要求。",
-      "environmentManaged": "此账户由环境变量授权。请先从该变量中移除它并重启应用，然后再删除该账户。"
+      "environmentManaged": "此账户由环境变量授权。请先从该变量中移除它并重启应用，然后再删除该账户。",
+      "signInOff": "登录已关闭，此模式不保留任何账户。请先开启登录，再创建账户。"
     },
     "cache": {
       "readOnly": "无法清除缓存：缓存目录为只读。这通常是 docker-compose.yml 中 PUID/PGID 设置不正确导致的。LANCache 容器被配置为以 UID/GID {{uidGid}} 运行（通过 PUID/PGID 环境变量配置）。",

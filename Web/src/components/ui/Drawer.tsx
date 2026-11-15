@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
+import { holdScrollLock } from '@utils/appRoot';
 
 /** Share of the panel's own width a swipe has to clear to dismiss it; below that it springs back. */
 const SWIPE_CLOSE_FRACTION = 0.3;
@@ -54,13 +55,12 @@ const Drawer: React.FC<DrawerProps> = ({
   );
 
   useEffect(() => {
-    if (opened) {
-      document.addEventListener('keydown', handleKeyDown);
-      document.documentElement.classList.add('modal-open');
-    }
+    if (!opened) return;
+    document.addEventListener('keydown', handleKeyDown);
+    const releaseScrollLock = holdScrollLock();
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.documentElement.classList.remove('modal-open');
+      releaseScrollLock();
     };
   }, [opened, handleKeyDown]);
 

@@ -46,6 +46,9 @@ public class UserPreferences
     // Per-session max thread count limit per service (null = use system default)
     public int? SteamMaxThreadCount { get; set; }
     public int? EpicMaxThreadCount { get; set; }
+    public int? XboxMaxThreadCount { get; set; }
+    public int? BattleNetMaxThreadCount { get; set; }
+    public int? RiotMaxThreadCount { get; set; }
 
     // Timestamp
     public DateTime UpdatedAtUtc { get; set; }

@@ -1061,7 +1061,7 @@ public partial class CacheManagementService
         var capabilityDenial = _capabilityService.CheckAllCanMapLogicalObjects();
         if (capabilityDenial != null)
         {
-            throw new InvalidOperationException(capabilityDenial);
+            throw new ValidationException(capabilityDenial) { StageKey = "errors.corruption.keySchemeUnavailable" };
         }
 
         // Resolve all evidence-dependent launch arguments only after the shared guard.

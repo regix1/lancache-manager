@@ -33,6 +33,9 @@ public class UserPreferencesService
         public string[]? AllowedTimeFormats { get; set; } // Allowed time formats for this user (null = all formats)
         public int? SteamMaxThreadCount { get; set; } // Per-session Steam max thread count limit (null = use system default)
         public int? EpicMaxThreadCount { get; set; } // Per-session Epic max thread count limit (null = use system default)
+        public int? XboxMaxThreadCount { get; set; } // Per-session Xbox max thread count limit (null = use system default)
+        public int? BattleNetMaxThreadCount { get; set; } // Per-session Battle.net max thread count limit (null = use system default)
+        public int? RiotMaxThreadCount { get; set; } // Per-session Riot max thread count limit (null = use system default)
 
         /// <summary>
         /// Creates a UserPreferencesDto with default values.
@@ -94,14 +97,26 @@ public class UserPreferencesService
     }
 
     /// <summary>
+    /// Whether a session that is not an admin's may not change its refresh rate: the session's own lock
+    /// when the administrator set one, else <paramref name="guestRefreshRateLocked"/>, which the caller
+    /// passes as the lock for every guest for a guest session and false for a user-role account. The
+    /// guest and user pages decide the same way.
+    /// </summary>
+    public bool IsRefreshRateLocked(Guid sessionId, bool guestRefreshRateLocked)
+        => GetPreferences(sessionId)?.RefreshRateLocked ?? guestRefreshRateLocked;
+
+    /// <summary>
     /// Save or update user preferences and return what was stored. The stored preferences are not always
     /// the ones that were sent: the clock columns are settled against each other and a refresh rate the
-    /// server does not recognize is dropped. Returns null when nothing was saved.
+    /// server does not recognize is dropped. Returns null when nothing was saved. With
+    /// <paramref name="preserveAdminFields"/> (a caller that is not an admin) the admin-only columns stay as
+    /// stored and the rate stays while it is locked, the unset lock meaning <paramref name="guestRefreshRateLocked"/>.
     /// </summary>
     public async Task<UserPreferencesDto?> SavePreferencesAsync(
         Guid sessionId,
         UserPreferencesDto preferencesDto,
-        bool preserveAdminFields = false)
+        bool preserveAdminFields = false,
+        bool guestRefreshRateLocked = false)
     {
         if (preserveAdminFields)
         {
@@ -149,13 +164,21 @@ public class UserPreferencesService
                     existingPreferences.UseUtcTimezone = preferencesDto.UseUtcTimezone;
                     existingPreferences.Use24HourFormat = preferencesDto.Use24HourFormat;
                     existingPreferences.ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels;
-                    existingPreferences.RefreshRate = RefreshRateExtensions.TryParseWire(preferencesDto.RefreshRate);
+                    // A guest's rate stays as stored while it is locked, decided on this tracked row so a lock
+                    // the administrator just saved is the one that counts.
+                    if (!preserveAdminFields || !(existingPreferences.RefreshRateLocked ?? guestRefreshRateLocked))
+                    {
+                        existingPreferences.RefreshRate = RefreshRateExtensions.TryParseWire(preferencesDto.RefreshRate);
+                    }
                     if (!preserveAdminFields)
                     {
                         existingPreferences.RefreshRateLocked = preferencesDto.RefreshRateLocked;
                         existingPreferences.AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats);
                         existingPreferences.SteamMaxThreadCount = preferencesDto.SteamMaxThreadCount;
                         existingPreferences.EpicMaxThreadCount = preferencesDto.EpicMaxThreadCount;
+                        existingPreferences.XboxMaxThreadCount = preferencesDto.XboxMaxThreadCount;
+                        existingPreferences.BattleNetMaxThreadCount = preferencesDto.BattleNetMaxThreadCount;
+                        existingPreferences.RiotMaxThreadCount = preferencesDto.RiotMaxThreadCount;
                     }
                     existingPreferences.UpdatedAtUtc = DateTime.UtcNow;
                     NormalizeClockPreferences(existingPreferences);
@@ -176,11 +199,16 @@ public class UserPreferencesService
                         UseUtcTimezone = preferencesDto.UseUtcTimezone,
                         Use24HourFormat = preferencesDto.Use24HourFormat,
                         ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels,
-                        RefreshRate = RefreshRateExtensions.TryParseWire(preferencesDto.RefreshRate),
+                        RefreshRate = preserveAdminFields && guestRefreshRateLocked
+                            ? null
+                            : RefreshRateExtensions.TryParseWire(preferencesDto.RefreshRate),
                         RefreshRateLocked = preferencesDto.RefreshRateLocked,
                         AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats),
                         SteamMaxThreadCount = preferencesDto.SteamMaxThreadCount,
                         EpicMaxThreadCount = preferencesDto.EpicMaxThreadCount,
+                        XboxMaxThreadCount = preferencesDto.XboxMaxThreadCount,
+                        BattleNetMaxThreadCount = preferencesDto.BattleNetMaxThreadCount,
+                        RiotMaxThreadCount = preferencesDto.RiotMaxThreadCount,
                         UpdatedAtUtc = DateTime.UtcNow
                     };
                     NormalizeClockPreferences(newPreferences);
@@ -439,6 +467,15 @@ public class UserPreferencesService
             case PreferenceKey.EpicMaxThreadCount:
                 preferences.EpicMaxThreadCount = GetNullableInt(value);
                 break;
+            case PreferenceKey.XboxMaxThreadCount:
+                preferences.XboxMaxThreadCount = GetNullableInt(value);
+                break;
+            case PreferenceKey.BattleNetMaxThreadCount:
+                preferences.BattleNetMaxThreadCount = GetNullableInt(value);
+                break;
+            case PreferenceKey.RiotMaxThreadCount:
+                preferences.RiotMaxThreadCount = GetNullableInt(value);
+                break;
             default:
                 _logger.LogWarning("Unknown preference key: {Key}", preferenceKey);
                 return false;
@@ -630,6 +667,9 @@ public class UserPreferencesService
         PreferenceKey.AllowedTimeFormats => true,
         PreferenceKey.SteamMaxThreadCount => true,
         PreferenceKey.EpicMaxThreadCount => true,
+        PreferenceKey.XboxMaxThreadCount => true,
+        PreferenceKey.BattleNetMaxThreadCount => true,
+        PreferenceKey.RiotMaxThreadCount => true,
         _ => false
     };
 
@@ -642,6 +682,9 @@ public class UserPreferencesService
         dto.AllowedTimeFormats = null;
         dto.SteamMaxThreadCount = null;
         dto.EpicMaxThreadCount = null;
+        dto.XboxMaxThreadCount = null;
+        dto.BattleNetMaxThreadCount = null;
+        dto.RiotMaxThreadCount = null;
     }
 
     /// <summary>
@@ -682,6 +725,9 @@ public class UserPreferencesService
         RefreshRateLocked = prefs.RefreshRateLocked,
         AllowedTimeFormats = ParseAllowedTimeFormats(prefs.AllowedTimeFormats),
         SteamMaxThreadCount = prefs.SteamMaxThreadCount,
-        EpicMaxThreadCount = prefs.EpicMaxThreadCount
+        EpicMaxThreadCount = prefs.EpicMaxThreadCount,
+        XboxMaxThreadCount = prefs.XboxMaxThreadCount,
+        BattleNetMaxThreadCount = prefs.BattleNetMaxThreadCount,
+        RiotMaxThreadCount = prefs.RiotMaxThreadCount
     };
 }

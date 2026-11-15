@@ -168,7 +168,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             }
             if (startupDenial is not null || !await EnterRunAsync(CurrentRunNotice))
             {
-                await EndRunAsync(taken, ServiceKey, null, false, report: false);
+                await EndRunAsync(taken, ServiceKey, null, null, false, report: false);
             }
             else
             {
@@ -202,7 +202,7 @@ public abstract class ScheduledBackgroundService : ScheduledServiceBase
             }
             finally
             {
-                await EndRunAsync(startupNotice, ServiceKey, startupError, startupNotice.Canceled,
+                await EndRunAsync(startupNotice, ServiceKey, startupError, null, startupNotice.Canceled,
                     report: !stoppingToken.IsCancellationRequested);
                 // Whether startup succeeded or failed, the next thing is the main loop's skip-first
                 // sleep, so set the countdown to that before the END broadcast rather than shipping a

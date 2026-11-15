@@ -24,10 +24,6 @@ public class SteamDaemonController : DaemonControllerBase<SteamDaemonService>
     {
     }
 
-    protected override int? ResolveThreadLimit(UserSession session)
-    {
-        if (session.SessionType.IsAccountHolder()) return null;
-        var prefs = _userPreferencesService.GetPreferences(session.Id);
-        return prefs?.SteamMaxThreadCount ?? _stateService.GetDefaultGuestMaxThreadCount();
-    }
+    protected override int? ResolveThreadLimit(UserSession session) =>
+        GuestThreadLimit.Resolve(PrefillPlatform.Steam, session, _userPreferencesService, _stateService);
 }

@@ -20,6 +20,7 @@ namespace LancacheManager.Tests;
 /// Reading the names out of the screen's own source is what makes the next drift fail here rather
 /// than on a user's box.
 /// </summary>
+[Collection(nameof(DatabaseResetCollection))]
 public sealed partial class DatabaseResetOfferedTablesTests
 {
     [Fact]

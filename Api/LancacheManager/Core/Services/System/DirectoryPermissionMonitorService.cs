@@ -116,19 +116,11 @@ public class DirectoryPermissionMonitorService : ScheduledBackgroundService
             // Update cached permission flags on DatasourceService
             _datasourceService.RefreshPermissions();
 
-            // Broadcast permission change to all connected clients
+            // Broadcast permission change to all connected clients. Guests receive it too, so it carries no
+            // writability: each account holder's page reloads the details from GET /api/system/permissions.
             await _signalRNotificationService.NotifyAllAsync(
                 SignalREvents.DirectoryPermissionsChanged,
-                new
-                {
-                    timestamp = DateTime.UtcNow,
-                    datasources = datasources.Select(ds => new
-                    {
-                        name = ds.Name,
-                        cacheWritable = _lastKnownState[ds.Name].CacheWritable,
-                        logsWritable = _lastKnownState[ds.Name].LogsWritable
-                    })
-                });
+                new { timestamp = DateTime.UtcNow });
         }
     }
 

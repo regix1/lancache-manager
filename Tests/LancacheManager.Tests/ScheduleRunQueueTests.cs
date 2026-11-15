@@ -1535,10 +1535,10 @@ public sealed class ScheduleRunQueueTests
         var tracker = CreateTracker();
         using var schedules = Install([loop], CacheScanGateHarness.Idle(), tracker);
         var report = loop.RunCompleted!;
-        loop.RunCompleted = (notice, key, error, canceled, kept) =>
+        loop.RunCompleted = (notice, key, error, reason, canceled, kept) =>
         {
             CacheScanGateHarness.RaiseDownloadsEnded();
-            report(notice, key, error, canceled, kept);
+            report(notice, key, error, reason, canceled, kept);
         };
 
         await loop.RunAsync(RunTrigger.Scheduled, null).WaitAsync(Timeout);

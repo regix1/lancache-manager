@@ -22,6 +22,7 @@ namespace LancacheManager.Tests;
 /// Map a new entity, forget the allowlist entry, and the endpoint that claims to wipe everything
 /// quietly leaves that table full.
 /// </summary>
+[Collection(nameof(DatabaseResetCollection))]
 public sealed class DatabaseResetFullWipeTablesTests
 {
     [Fact]

@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, List, LayoutGrid } from 'lucide-react';
 import { useEvents } from '@contexts/useEvents';
+import { useAuth } from '@contexts/useAuth';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
@@ -18,6 +19,9 @@ type ViewMode = 'calendar' | 'list';
 const EventsTab: React.FC = () => {
   const { t } = useTranslation();
   const { events, activeEvents, loading, error, refreshEvents } = useEvents();
+  const { sessionType } = useAuth();
+  // Events are shared by every account, so a user-role account reads them and changes none.
+  const mayChange = sessionType !== 'user';
   const [viewMode, setViewMode] = useState<ViewMode>('calendar');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
@@ -79,15 +83,17 @@ const EventsTab: React.FC = () => {
           />
 
           {/* Create Event Button */}
-          <Button
-            onClick={() => handleCreateEvent()}
-            color="primary"
-            variant="filled"
-            leftSection={<Plus className="w-4 h-4" />}
-          >
-            <span className="hidden sm:inline">{t('events.newEvent')}</span>
-            <span className="sm:hidden">{t('events.newEventShort')}</span>
-          </Button>
+          {mayChange && (
+            <Button
+              onClick={() => handleCreateEvent()}
+              color="primary"
+              variant="filled"
+              leftSection={<Plus className="w-4 h-4" />}
+            >
+              <span className="hidden sm:inline">{t('events.newEvent')}</span>
+              <span className="sm:hidden">{t('events.newEventShort')}</span>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -96,7 +102,7 @@ const EventsTab: React.FC = () => {
           title={t('events.errors.fetchFailed')}
           message={error}
           retryLabel={t('common.retry')}
-          onRetry={() => void refreshEvents()}
+          onRetry={() => refreshEvents()}
         />
       )}
 
@@ -138,10 +144,10 @@ const EventsTab: React.FC = () => {
             <EventCalendar
               events={events}
               onEventClick={handleEditEvent}
-              onDayClick={handleCreateEvent}
+              onDayClick={mayChange ? handleCreateEvent : undefined}
             />
           ) : (
-            <EventList events={events} onEventClick={handleEditEvent} />
+            <EventList events={events} onEventClick={mayChange ? handleEditEvent : undefined} />
           )}
         </Card>
       )}
@@ -152,6 +158,7 @@ const EventsTab: React.FC = () => {
         opened={showCreateModal}
         event={editingEvent}
         initialStart={initialStart}
+        readOnly={!mayChange}
         onClose={handleCloseModal}
         // The context's create, update and delete reload the event list before they resolve.
         onSave={handleCloseModal}

@@ -44,7 +44,7 @@ The mode decision and full compose examples live in [Choosing an Image and Datab
 |----------|---------|-------------|
 | `Security__EnableAuthentication` | `true` | Used only before a sign-in mode is saved. `true` selects **API key, username and password**. `false` selects **Unauthenticated**. A saved mode is not replaced by this variable. |
 | `Security__GuestSessionDurationHours` | `6` | Default guest session length (also configurable in the UI). |
-| `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. **Endpoint Access** under Management → Integrations overrides this when set. |
+| `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. **Endpoint Access** under Management → Integrations, or **Prometheus Metrics** under Users → Sign-in, overrides this when set. |
 | `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty means same-origin only (the safe default). `*` allows any origin without credentials; an explicit list allows those origins with credentials. |
 | `Security__ApiKeyPath` | `/data/security/api_key.txt` | Override the file path the installation API key is read from and written to. Useful if you bind-mount secrets from outside `/data`. |
 | `Security__KnownProxyNetworks` | (empty) | Comma-separated CIDR list of trusted proxy networks for `X-Forwarded-For` (e.g. `172.16.0.0/12,10.0.0.0/8`). Set this when nginx, Traefik, or another reverse proxy fronts the manager so client IPs are reported correctly. Loopback is always trusted. Leaving it empty behind a proxy on another host or container also means the sign-in rate limit counts every client against the proxy's address, so one person getting their password wrong repeatedly can lock everybody else out for a minute. |
@@ -58,15 +58,15 @@ Not every `/metrics` setting has an environment variable. The update interval, t
 | Level | What you can do | Examples |
 |-------|----------------|----------|
 | **Primary** | Owns the installation. The only account that can wipe every account or regenerate the API key. Hidden from every other account, including its sessions. | Wipe accounts, regenerate the key |
-| **Account** | Signed-in access to the app. Sees and manages every other Account. Cannot see the Primary account or its sessions. | Browse downloads, change own settings |
-| **Guest** | View access through a guest session. Prefill is separate: Primary or an Account can grant it per platform, including for one session. | Browse downloads, stats, events, client data |
+| **Account** | Signed-in access to the app. Sees the other ordinary accounts and changes only its own settings. Cannot see the Primary account or its sessions. Install-wide settings are admin-only. | Browse downloads, change own settings |
+| **Guest** | View access through a guest session. Prefill is separate: the Primary account grants it per platform, for every new guest or for one session. | Browse downloads, stats, events, client data |
 
 To give a user access without sharing an account:
 
-1. On the **Users** page, make sure guest logins are **Unlocked**.
+1. On the **Users** page, open **Guest access** and turn **New guests can sign in** on.
 2. Your guest clicks **Continue as Guest** on the sign-in screen.
 
-Session length, and whether new guests get Prefill, are set under **Guest Defaults**.
+Session length, and whether new guests get Prefill, are set in **Guest access** on the **Users** page.
 
 Every page and action needs a signed-in account or a guest session. The exceptions are:
 
@@ -88,7 +88,7 @@ You can set the sign-in mode and single sign-on logins in the Compose file inste
 | `ApiKeyPassword` | API key, username and password |
 | `ApiKeyOidc` | API key and single sign-on (alias `ApiKeyAndSso`) |
 | `Oidc` | Single sign-on (alias `Sso`) |
-| `Unauthenticated` | Unauthenticated |
+| `Unauthenticated` | Unauthenticated. Each start deletes every account, including one an environment login allows. |
 
 Each single sign-on login uses the same fields. The providers are custom OpenID Connect (`Oidc`), `Google`, `GitHub`, `Microsoft` and `Apple`.
 
@@ -106,7 +106,7 @@ Some providers need extra fields.
 
 | Variable | Meaning | Default |
 |----------|---------|---------|
-| `Security__Oidc__Authority` | HTTPS issuer URL of the custom OpenID Connect provider. | (unset) |
+| `Security__Oidc__Authority` | HTTP or HTTPS issuer URL of the custom OpenID Connect provider. For a provider with a self-signed or private certificate, put its CA certificate (PEM, `.crt`) in `/data/certs/` and restart. | (unset) |
 | `Security__Microsoft__Tenant` | Directory (tenant) GUID, or `consumers` for personal accounts. | (unset) |
 | `Security__Apple__TeamId` | Apple Team ID. | (unset) |
 | `Security__Apple__KeyId` | Apple Key ID. | (unset) |
@@ -124,17 +124,20 @@ How the values behave:
 | Secrets from the environment | They are never written to `state.json`. |
 | `Oidc` or `ApiKeyOidc` with no valid login | The app falls back to `ApiKeyPassword`, never to `Unauthenticated`, and logs an error that names the missing fields. |
 | An invalid `Security__SignInMode` value | The app logs it once and ignores it. |
-| First-run setup with `Password`, `ApiKeyPassword` or `Unauthenticated` | The access step is skipped. The database and first-account steps still run. |
+| First-run setup with `Password` or `ApiKeyPassword` | The access step is skipped. The database and first-account steps still run. |
+| First-run setup with `Unauthenticated` | The access step is skipped. Each start deletes every account, including one an environment login allows. No first account is created. |
 | First-run setup with `Oidc` or `ApiKeyOidc` | The access step still shows, read-only. The owner signs in there through the environment login. |
 | You remove the variables later | The access step returns. A stored login that lost its environment fields, with no environment left to fill them, is no longer listed. |
 
-An account that an environment login allows, by `OwnerSubject` or `AllowedSubjects`, cannot be removed:
+While sign-in is on, an account that an environment login allows, by `OwnerSubject` or `AllowedSubjects`, cannot be removed:
 
 - Delete and bulk delete refuse it.
 - API key rotation keeps the account.
 - Account reset keeps the account and its saved Steam, Epic and Xbox logins.
 - The refusal reads: "An environment variable allows this account. Remove it from that variable and restart the app before deleting the account."
 - A login service with any environment field cannot be removed in the UI.
+
+Turning sign-in off deletes that account too, like every other account. If sign-in is turned back on while the variable is still set, that user's next sign-in creates the account again.
 
 If a fallback locks the owner out, follow [Password Recovery](password-recovery.md#single-sign-on-owner).
 

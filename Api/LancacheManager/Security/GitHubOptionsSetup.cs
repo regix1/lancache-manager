@@ -32,6 +32,10 @@ public sealed class GitHubOptionsSetup : IConfigureNamedOptions<OAuthOptions>
         options.TokenEndpoint = "https://github.com/login/oauth/access_token";
         options.UserInformationEndpoint = "https://api.github.com/user";
         options.UsePkce = true;
+        // The callback is a top-level GET, which carries Lax cookies, and an HTTP page cannot set a
+        // Secure one. SameAsRequest keeps it Secure on HTTPS and behind Security:ForceSecureCookies.
+        options.CorrelationCookie.SameSite = SameSiteMode.Lax;
+        options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         options.SaveTokens = false;
         options.SignInScheme = AccessService.OidcCookieScheme;
         options.EventsType = typeof(GitHubEvents);

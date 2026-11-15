@@ -1016,6 +1016,163 @@ public sealed class CacheScanDetectionPhaseTests
         Assert.Equal("signalr.evictionScan.capabilityRefused", row.Error);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnEvictedRecordRemovalTheCapabilityCheckRefusesEndsOnTheKeySchemeKeyAsync(bool scoped)
+    {
+        const string refusalKey = "errors.corruption.keySchemeUnavailable";
+        using var ctx = new PhaseContext();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        // With no log file the datasource has no key evidence, so the removal cannot map its rows.
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        File.Delete(Path.Combine(source.LogPath, "access.log"));
+
+        var removalId = scoped
+            ? await ctx.Scan.StartScopedEvictionRemovalAsync(EvictionScope.Service, "steam", null, null, CancellationToken.None)
+            : await ctx.Scan.StartBulkEvictionRemovalAsync(CancellationToken.None);
+        var ended = Assert.IsType<EvictionRemovalComplete>(await ctx.Notifications.WaitForAsync(
+            SignalREvents.EvictionRemovalComplete,
+            value => value is EvictionRemovalComplete { OperationId: var operationId } && operationId == removalId));
+
+        // The card, a reload and a guest connection all get the reason as a key, never the server's English text.
+        Assert.False(ended.Success);
+        Assert.Equal(refusalKey, ended.StageKey);
+        Assert.Equal(refusalKey, ended.Error);
+        Assert.Null(tracker.GetOperation(removalId)!.ErrorDetail);
+        var row = Assert.Single(tracker.GetRuns().Runs, run => run.OperationId == removalId);
+        Assert.Equal(refusalKey, row.Error);
+    }
+
+    [Fact]
+    public async Task ARemoveModeScanWhoseKeyEvidenceGoesBeforeItsCleanupEndsOnTheKeySchemeKeyAsync()
+    {
+        const string refusalKey = "errors.corruption.keySchemeUnavailable";
+        using var ctx = new PhaseContext();
+        await using var context = ctx.CreateContext();
+        context.Downloads.Add(new Download
+        {
+            Service = PrefillPlatform.Steam.ToService(), ClientIp = "127.0.0.1", Datasource = "Default", GameAppId = 123,
+            GameName = "Removed", IsEvicted = true, StartTimeUtc = DateTime.UtcNow, EndTimeUtc = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+        var tracker = new UnifiedOperationTracker(new ProcessManager(NullLogger<ProcessManager>.Instance),
+            NullLogger<UnifiedOperationTracker>.Instance);
+        PhaseContext.SetField(ctx.Scan, "_operationTracker", tracker);
+        ctx.State.SetEvictedDataMode(EvictedDataMode.Remove.ToWireString());
+        PhaseContext.SetField(ctx.Scan, "_stateService", ctx.State);
+        PhaseContext.SetField(ctx.Scan, "_datasourceService", ctx.Datasources);
+        PhaseContext.SetField(ctx.Scan, "_cacheScanGate", Idle());
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        // The log file goes while the native scan runs, after the scan's own checks passed and before its cleanup.
+        PhaseContext.SetField(ctx.Scan, "_rustProcessHelper", new ScanResultRustProcessHelper(
+            async (operationId, cancellationToken) =>
+            {
+                var checkpoint = await context.EvictionScanCheckpoints
+                    .SingleAsync(item => item.OperationId == operationId, cancellationToken);
+                checkpoint.FinalizedAtUtc = DateTime.UtcNow;
+                await context.SaveChangesAsync(cancellationToken);
+                File.Delete(Path.Combine(source.LogPath, "access.log"));
+            }));
+        var scanNotice = new RunNotice(NotificationMode.All, RunTrigger.Manual);
+        var scanId = ctx.RegisterScan(scanNotice);
+
+        var scan = (Task)typeof(CacheReconciliationService)
+            .GetMethod("ReconcileCacheFilesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(ctx.Scan, [context, scanId, CancellationToken.None, scanNotice])!;
+        var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        await ctx.CompleteDetectionAsync(detection.Id);
+        await ctx.WaitForRepairAsync(scan, TimeSpan.FromSeconds(10));
+        var outcome = scan.GetType().GetProperty("Result")!.GetValue(scan)!;
+        var error = (string?)outcome.GetType().GetProperty("Error")!.GetValue(outcome);
+
+        Assert.False((bool)outcome.GetType().GetProperty("Success")!.GetValue(outcome)!);
+        Assert.Equal(refusalKey, error);
+        // The ending every reader of the scan derives (the live card, the terminal event, a restored run) is that key.
+        var ending = (string)typeof(CacheReconciliationService)
+            .GetMethod("EndingStageKey", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, [error])!;
+        Assert.Equal(refusalKey, ending);
+        Assert.Equal(0, ctx.Notifications.Count(SignalREvents.EvictionRemovalStarted));
+        Assert.True(await context.Downloads.AnyAsync(download => download.IsEvicted));
+    }
+
+    [Fact]
+    public async Task TheEvictionRoutesRefuseAnUnknownKeySchemeWithTheKeySchemeKeyAsync()
+    {
+        const string refusalKey = "errors.corruption.keySchemeUnavailable";
+        using var ctx = new PhaseContext();
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        File.Delete(Path.Combine(source.LogPath, "access.log"));
+        var capability = new DatasourceCapabilityService(ctx.Datasources);
+        var stats = new StatsController(
+            context: null!,
+            clientGroupsRepository: null!,
+            ctx.State,
+            Options.Create(new ApiOptions()),
+            (ISignalRNotificationService)(object)ctx.Notifications,
+            ctx.Scan,
+            operationTracker: null!,
+            operationQueue: null!,
+            capability,
+            clientHostnameService: null!,
+            eventsService: null!,
+            (RustSpeedTrackerService)RuntimeHelpers.GetUninitializedObject(typeof(RustSpeedTrackerService)),
+            operationStateService: null!,
+            prefillSessions: null!)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var saved = await stats.UpdateEvictionSettingsAsync(
+            new UpdateEvictionSettingsRequest { EvictedDataMode = EvictedDataMode.Remove.ToWireString() });
+        var scanned = await stats.ReconcileAsync(CancellationToken.None);
+        var guarded = CacheRouteGuards.DenyIfKeyDependentUnavailable(capability);
+
+        // The page words a 400 by its stage key, so each answer names the refusal by key beside the English sentence.
+        foreach (var answer in new[] { saved.Result, scanned.Result, guarded })
+        {
+            var refused = Assert.IsType<BadRequestObjectResult>(answer);
+            Assert.Equal(refusalKey, Assert.IsType<ErrorResponse>(refused.Value).StageKey);
+        }
+    }
+
+    [Fact]
+    public async Task CacheRemovalsAndCountsRefuseAnUnknownKeySchemeWithTheKeySchemeKeyAsync()
+    {
+        const string refusalKey = "errors.corruption.keySchemeUnavailable";
+        using var ctx = new PhaseContext();
+        var source = Assert.Single(ctx.Datasources.GetDatasources());
+        File.Delete(Path.Combine(source.LogPath, "access.log"));
+        var cache = (CacheManagementService)RuntimeHelpers.GetUninitializedObject(typeof(CacheManagementService));
+        void Set(string name, object value) => typeof(CacheManagementService)
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .SetValue(cache, value);
+        Set("_capabilityService", new DatasourceCapabilityService(ctx.Datasources));
+        Set("_pathResolver", new TempDirPathResolver(ctx.Root));
+        // The check right before each native launch, shared by every removal flavor.
+        var launch = typeof(CacheManagementService)
+            .GetMethod("RunRustRemovalProcessAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .MakeGenericMethod(typeof(object), typeof(object));
+
+        var refusals = new[]
+        {
+            await Assert.ThrowsAsync<ValidationException>(() => cache.RemoveServiceFromCacheAsync("steam")),
+            await Assert.ThrowsAsync<ValidationException>(() => cache.RemoveGameFromCacheAsync(123)),
+            await Assert.ThrowsAsync<ValidationException>(() => cache.CountUnmappedCacheFilesAsync(
+                Guid.NewGuid(), (_, _) => Task.CompletedTask, CancellationToken.None)),
+            await Assert.ThrowsAsync<ValidationException>(() => cache.CountServiceCacheFilesAsync(
+                "steam", Guid.NewGuid(), (_, _) => Task.CompletedTask, CancellationToken.None)),
+            await Assert.ThrowsAsync<ValidationException>(() => (Task)launch.Invoke(cache,
+                ["[Test]", null, null, "test remover", CancellationToken.None, null, null, null])!)
+        };
+
+        // Each card words a keyed refusal by its key (GamesController, CacheController and the count route read it).
+        Assert.All(refusals, refusal => Assert.Equal(refusalKey, refusal.StageKey));
+    }
+
     [Fact]
     public async Task ACorruptionScanTheCapabilityCheckRefusesEndsWithItsOwnKey()
     {
@@ -1314,8 +1471,22 @@ public sealed class CacheScanDetectionPhaseTests
     {
         using var ctx = new PhaseContext();
         var scanId = ctx.RegisterScan(new RunNotice(silent ? NotificationMode.Silent : NotificationMode.All, RunTrigger.Scheduled));
+        // The scan prepares its repair record before its detection phase, which saves a failure there.
+        await ctx._operationStateService.PrepareRepairAsync(new OperationRepair
+        {
+            Id = scanId,
+            Type = OperationType.EvictionScan,
+            Name = "Eviction Scan",
+            StartedAt = DateTime.UtcNow,
+            Sources = [new OperationRepairSource { Datasource = Assert.Single(ctx.Datasources.GetDatasources()).Name }],
+            EvictionScan = new EvictionScanRepair()
+        }, CancellationToken.None);
         var phase = ctx.RunPhaseAsync(scanId, CancellationToken.None);
         var detection = await ctx.Tracker.WaitForOperationAsync(OperationType.GameDetection);
+        // Ends the way a detection that threw ends: the generic key, with the error text as its detail.
+        var metrics = (GameDetectionMetrics)detection.Metadata!;
+        metrics.CompletionStageKey = "signalr.generic.failed";
+        metrics.CompletionContext = new Dictionary<string, object?> { ["errorDetail"] = "Cache index could not be read" };
         ctx.Tracker.Fail(detection.Id, "Cache index could not be read");
         await phase.WaitAsync(TimeSpan.FromSeconds(5));
         await ctx.ReportProgressAsync(scanId);
@@ -3571,6 +3742,31 @@ public sealed class CacheScanDetectionPhaseTests
         var warning = Assert.Single(ended.Warnings);
         Assert.Equal("signalr.gameDetect.error.fatal", warning.StageKey);
         Assert.Equal("detector crashed", warning.Context["errorDetail"]);
+    }
+
+    [Fact]
+    public async Task ARestoredScanWhoseDetectionTimedOutWarnsWithTheTimeoutKeyAsync()
+    {
+        await using var run = await RepairRun.CreateAsync(("default", ["access.log"], true));
+        var repair = new OperationRepair
+        {
+            Id = Guid.NewGuid(),
+            Type = OperationType.EvictionScan,
+            Name = "Eviction Scan",
+            StartedAt = DateTime.UtcNow.AddMinutes(-3),
+            Sources = [new OperationRepairSource { Datasource = "default" }],
+            // Read the way the repair file is read, so the saved field name is checked too.
+            EvictionScan = JsonSerializer.Deserialize<EvictionScanRepair>(
+                """{ "Processed": 3, "DetectionStageKey": "signalr.gameDetect.error.timedOut" }""")
+        };
+
+        await run.Scan.RestoreRepairAsync(repair, CancellationToken.None);
+        run.Tracker.CompleteOperation(repair.Id, success: true);
+
+        var ended = Assert.Single(run.Tracker.GetRuns().Runs, row => row.OperationId == repair.Id);
+        var warning = Assert.Single(ended.Warnings);
+        Assert.Equal("signalr.gameDetect.error.timedOut", warning.StageKey);
+        Assert.Empty(warning.Context);
     }
 
     [Fact]

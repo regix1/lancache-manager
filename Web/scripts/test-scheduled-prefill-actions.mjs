@@ -7,6 +7,7 @@ import {
   bindLifted,
   compileToUrl,
   findSoleNode,
+  liftConstArrow,
   liftHookCallback,
   parseSource,
   transpile
@@ -2809,6 +2810,16 @@ function createModalHarness(document, onClose = () => undefined) {
     MODAL_ELEVATED_BASE_Z: 10080,
     modalTopZ: 80,
     elevatedTopZ: 10080,
+    // The shipped root hold, reading this harness's document, with its counts starting at zero.
+    holdAppRoot: bindLifted(liftConstArrow('src/utils/appRoot.ts', 'holdAppRoot'), {
+      document,
+      hiddenHolds: 0,
+      inertHolds: 0
+    }),
+    holdScrollLock: bindLifted(liftConstArrow('src/utils/appRoot.ts', 'holdScrollLock'), {
+      document,
+      scrollHolds: 0
+    }),
     setTimeout: (callback, delay) => {
       const id = ++timerId;
       timers.set(id, { callback, delay });

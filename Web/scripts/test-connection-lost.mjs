@@ -122,11 +122,21 @@ test('a section failure box stays quiet while the connection is lost', async () 
   const useConnectionLost = await loadConnectionLost();
   const ErrorBlock = bindLifted(
     componentArrow('src/components/ui/ErrorBlock.tsx', 'ErrorBlock'),
-    { useConnectionLost, Alert, Button, h },
+    {
+      useConnectionLost,
+      Alert,
+      Button,
+      h,
+      useRef: (initial) => ({ current: initial }),
+      useState: (initial) => [initial, () => undefined]
+    },
     jsx
   );
 
-  const onRetry = () => undefined;
+  let retries = 0;
+  const onRetry = () => {
+    retries += 1;
+  };
   const props = {
     title: 'Failed to load clients',
     message: 'The server could not complete the request.',
@@ -151,7 +161,9 @@ test('a section failure box stays quiet while the connection is lost', async () 
     assert.equal(tree.props.children.props.children, props.message);
     const retry = tree.props.action;
     assert.equal(retry.type, Button);
-    assert.equal(retry.props.onClick, onRetry);
+    retries = 0;
+    retry.props.onClick();
+    assert.equal(retries, 1);
     assert.equal(retry.props.children, props.retryLabel);
   }
 });
@@ -159,11 +171,21 @@ test('a section failure box stays quiet while the connection is lost', async () 
 test('Retry renders inside the red box, not below it', async () => {
   const useConnectionLost = await loadConnectionLost();
   setConnection({ hasSession: true, mockMode: false, connectionState: 'connected' });
-  const onRetry = () => undefined;
+  let retries = 0;
+  const onRetry = () => {
+    retries += 1;
+  };
 
   const ErrorBlock = bindLifted(
     componentArrow('src/components/ui/ErrorBlock.tsx', 'ErrorBlock'),
-    { useConnectionLost, Alert, Button, h },
+    {
+      useConnectionLost,
+      Alert,
+      Button,
+      h,
+      useRef: (initial) => ({ current: initial }),
+      useState: (initial) => [initial, () => undefined]
+    },
     jsx
   );
   const box = ErrorBlock({ title: 'Failed', message: 'Reason', retryLabel: 'Retry', onRetry });
@@ -186,7 +208,8 @@ test('Retry renders inside the red box, not below it', async () => {
   const slot = root.props.children.find((child) => child?.props?.className === 'alert-action');
   assert.ok(slot, 'the alert has no action slot inside its box');
   assert.equal(slot.props.children.type, Button);
-  assert.equal(slot.props.children.props.onClick, onRetry);
+  slot.props.children.props.onClick();
+  assert.equal(retries, 1);
 
   // The startup card puts its Retry in the same place and keeps its extra form below the box.
   const StartupErrorCard = bindLifted(
@@ -274,7 +297,14 @@ test('an open section whose only content is a hidden failure box draws no empty 
 
   const ErrorBlock = bindLifted(
     componentArrow('src/components/ui/ErrorBlock.tsx', 'ErrorBlock'),
-    { React, useConnectionLost, Alert: plain('section'), Button: plain('button') },
+    {
+      React,
+      useConnectionLost,
+      Alert: plain('section'),
+      Button: plain('button'),
+      useRef: React.useRef,
+      useState: React.useState
+    },
     reactJsx
   );
   const CollapsibleRegion = bindLifted(

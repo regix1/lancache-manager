@@ -461,8 +461,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       // Capture the selection now; the response is validated against it and a
       // method switch bumps the epoch so a late response can never repaint.
       const method = detectionMethod;
+      // A failure on screen stays until this read answers (`applyCachedScan` writes it then), so
+      // its Retry keeps the box.
       beginLoad(showNotification);
-      setCachedLoadError(null);
       const requestEpoch = resultEpochRef.current;
       try {
         const cached = await ApiService.getCachedCorruptionDetection(method);
@@ -876,11 +877,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const loadDetails = async (service: string) => {
     if (!scanId || loadingDetailsServices.has(service)) return;
     const requestEpoch = resultEpochRef.current;
-    setDetailErrors((current) => {
-      const next = { ...current };
-      delete next[service];
-      return next;
-    });
+    // A failure on screen stays until this read answers, so its Retry keeps the box.
     setLoadingDetailsServices((current) => new Set(current).add(service));
     try {
       const details = await ApiService.getCorruptionDetails(service, scanId);
@@ -897,6 +894,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         return;
       }
       setCorruptionDetails((current) => ({ ...current, [service]: details }));
+      setDetailErrors((current) => {
+        const next = { ...current };
+        delete next[service];
+        return next;
+      });
     } catch (error: unknown) {
       if (requestEpoch !== resultEpochRef.current) return;
       setDetailErrors((current) => ({ ...current, [service]: getErrorMessage(error) }));
@@ -1402,12 +1404,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             />
           )}
 
-          {cachedLoadError && !isLoading && (
+          {cachedLoadError && (
             <ErrorBlock
               title={t('management.corruption.errors.loadCachedData')}
               message={cachedLoadError}
               retryLabel={t('common.retry')}
-              onRetry={() => void loadCachedData()}
+              onRetry={() => loadCachedData()}
+              retrying={isLoading}
             />
           )}
 
@@ -1535,7 +1538,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                   variant="filled"
                                   color="destructive"
                                   size="xs"
-                                  stableWidth
                                 >
                                   {isRemoving
                                     ? t('management.corruption.removing')
@@ -1576,19 +1578,20 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                         </div>
                       </div>
                       <CollapsibleRegion open={isExpanded} contentClassName="mgmt-row-detail">
-                        {loadingDetailsServices.has(service) ? (
-                          <LoadingState
-                            variant="spinner"
-                            message={t('management.corruption.loadingDetails')}
-                          />
-                        ) : detailErrors[service] !== undefined ? (
+                        {detailErrors[service] !== undefined ? (
                           <ErrorBlock
                             title={t('management.corruption.errors.loadDetails', {
                               service: getServiceDisplayName(service)
                             })}
                             message={detailErrors[service]}
                             retryLabel={t('common.retry')}
-                            onRetry={() => void loadDetails(service)}
+                            onRetry={() => loadDetails(service)}
+                            retrying={loadingDetailsServices.has(service)}
+                          />
+                        ) : loadingDetailsServices.has(service) ? (
+                          <LoadingState
+                            variant="spinner"
+                            message={t('management.corruption.loadingDetails')}
                           />
                         ) : corruptionDetails[service]?.length > 0 ? (
                           <CorruptionChunkList chunks={corruptionDetails[service]} />

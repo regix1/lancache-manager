@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import Badge from '@components/ui/Badge';
 import { ProgressBar } from '@components/ui/ProgressBar';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { MODAL_EXIT_MS, useExitPresence } from '@hooks/useExitPresence';
+import { holdAppRoot, holdScrollLock } from '@utils/appRoot';
 import { getFocusable } from '@utils/focus';
 
 interface SetupGateProps {
@@ -20,6 +22,11 @@ interface SetupGateProps {
    */
   steps?: { current: number; total: number; label: string };
   footer?: ReactNode;
+  /**
+   * False fades the gate out and then removes it, so its host keeps it drawn and closes it with
+   * `opened={false}`, whether the person closed it or its task succeeded.
+   */
+  opened: boolean;
   onClose?: () => void;
   /** Scrollable body. */
   children: ReactNode;
@@ -38,37 +45,34 @@ export const SetupGate: React.FC<SetupGateProps> = ({
   leading,
   steps,
   footer,
+  opened,
   onClose,
   children
 }) => {
   const dialog = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  const { present } = useExitPresence(opened, MODAL_EXIT_MS);
   const stepText = steps ? `${steps.current} / ${steps.total}` : '';
   useEffect(() => {
+    if (!present) return;
     const previous = document.activeElement;
     const element = dialog.current;
     if (element && !element.contains(previous)) element.focus();
-    const appRoot = document.getElementById('root');
-    const previousHidden = appRoot?.getAttribute('aria-hidden');
-    const previousInert = appRoot?.inert;
-    const scrollLocked = document.documentElement.classList.contains('modal-open');
-    document.documentElement.classList.add('modal-open');
-    if (appRoot) {
-      appRoot.setAttribute('aria-hidden', 'true');
-      appRoot.inert = true;
-    }
+    const releaseScrollLock = holdScrollLock();
+    const releaseRoot = holdAppRoot(true);
     return () => {
-      if (!scrollLocked) document.documentElement.classList.remove('modal-open');
-      if (appRoot) {
-        if (previousHidden === null) appRoot.removeAttribute('aria-hidden');
-        else if (previousHidden !== undefined) appRoot.setAttribute('aria-hidden', previousHidden);
-        appRoot.inert = previousInert ?? false;
-      }
+      releaseScrollLock();
+      releaseRoot();
       if (previous instanceof HTMLElement && document.contains(previous)) previous.focus();
     };
-  }, []);
+  }, [present]);
+  if (!present) return null;
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-themed-primary">
+    <div
+      className={`fixed inset-0 z-[80] flex items-center justify-center p-4 bg-themed-primary transition-opacity duration-[250ms] ease-out ${
+        opened ? '' : 'opacity-0 pointer-events-none'
+      }`}
+    >
       <div className="absolute inset-0 opacity-5 setup-gate-stripe" />
 
       <div

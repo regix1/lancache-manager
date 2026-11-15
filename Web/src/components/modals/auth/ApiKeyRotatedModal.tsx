@@ -15,6 +15,8 @@ interface ApiKeyRotatedModalProps {
    * dialog is the only place the new key ever appears.
    */
   apiKey: string;
+  /** i18n key from the rotation's answer when the other accounts could not be removed, else null. */
+  stageKey: string | null;
   onClose: () => void;
 }
 
@@ -25,6 +27,7 @@ interface ApiKeyRotatedModalProps {
 export const ApiKeyRotatedModal: React.FC<ApiKeyRotatedModalProps> = ({
   opened,
   apiKey,
+  stageKey,
   onClose
 }) => {
   const { t } = useTranslation();
@@ -56,6 +59,8 @@ export const ApiKeyRotatedModal: React.FC<ApiKeyRotatedModalProps> = ({
       <div className="space-y-4">
         <Alert color="yellow">{t('management.auth.rotatedModal.message')}</Alert>
 
+        {stageKey && <Alert color="red">{t(stageKey)}</Alert>}
+
         <code className="well-surface rotated-api-key">{apiKey}</code>
 
         {copyFailed && <Alert color="red">{t('management.auth.rotatedModal.copyFailed')}</Alert>}
@@ -70,7 +75,10 @@ export const ApiKeyRotatedModal: React.FC<ApiKeyRotatedModalProps> = ({
             onClick={handleCopy}
             className="w-full sm:w-auto"
           >
-            {copied ? t('management.auth.rotatedModal.copied') : t('common.copy')}
+            <span className="copy-button-label">
+              <span>{copied ? t('management.auth.rotatedModal.copied') : t('common.copy')}</span>
+              <span aria-hidden="true">{t('management.auth.rotatedModal.copied')}</span>
+            </span>
           </Button>
         </div>
       </div>

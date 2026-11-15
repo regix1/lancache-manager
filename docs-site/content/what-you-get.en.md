@@ -33,12 +33,12 @@ Open it when you want to know which machines pull the most and whether their ins
 ### Users
 
 <div align="center" markdown>
-<img alt="Users page showing the active session list" src="../images/users-sessions.png" />
+<img alt="Users page showing the list of sessions and accounts" src="../images/users-sessions.png" />
 
-<em>Users - active sessions and guest access</em>
+<em>Users - sessions, accounts and guest access</em>
 </div>
 
-This is where guest access and signed-in accounts live: watch **Sessions**, use **Create Account**, and hand out a time-limited **Guest Mode** session without sharing an account. **Guest Defaults** can also grant Prefill per platform. The **Primary** account and its sessions are visible only to that account.
+This is where guest access and signed-in accounts live: one list of sessions and accounts with a detail pane, **Create account**, and the **Guest access** entry, which hands out time-limited guest sessions and can grant Prefill per platform. The **Sign-in** entry sets how users sign in. The **Primary** account and its sessions are visible only to that account.
 
 ### Events
 

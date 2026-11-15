@@ -43,7 +43,7 @@ public class MetricsAuthenticationMiddleware
         }
 
         var uiToggleValue = stateRepository.GetRequireAuthForMetrics();
-        var configValue = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
+        var configValue = _configuration.GetValue<bool?>("Security:RequireAuthForMetrics") ?? false;
         var requireAuth = uiToggleValue ?? configValue;
 
         if (!requireAuth)

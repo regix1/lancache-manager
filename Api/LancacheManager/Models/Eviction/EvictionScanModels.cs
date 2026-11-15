@@ -11,7 +11,8 @@ public record EvictionScanStarted(
 
 /// <summary>
 /// SignalR event payload emitted after each batch during an eviction scan.
-/// Context retains detectionError when the preliminary detection failed; the scan can continue.
+/// When the preliminary detection failed, Context carries detectionStageKey (the detection's own ending key)
+/// or, for a failure with no key of its own, detectionError (its error text); the scan can continue.
 /// </summary>
 public record EvictionScanProgress(
     Guid OperationId,

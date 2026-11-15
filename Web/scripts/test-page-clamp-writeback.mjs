@@ -3,29 +3,20 @@ import test from 'node:test';
 import { bindLifted, liftHookCallback } from './transpile-module.mjs';
 
 /**
- * Both paged lists clamp the page they RENDER, which stops a shrinking list showing a blank table.
- * What that clamp does not do is move the page the component is holding.
+ * The downloads list clamps the page it RENDERS, which stops a shrinking list showing a blank
+ * table. What that clamp does not do is move the page the component is holding.
  *
  * Delete the last rows of page 4 and the view correctly falls back to page 1, but `currentPage` is
  * still 4. Add rows back and the view jumps to page 4 on its own, with nobody having touched the
  * pager. Writing the clamp back is what keeps the number and the view in step.
  *
- * The two user lists count their rows from an array already in memory. The downloads tab does not
- * any more: its page comes from the server, so it waits for the response to echo the page it asked
- * for before it clamps, the same way the retro list does.
+ * Its page comes from the server, so it waits for the response to echo the page it asked for
+ * before it clamps, the same way the retro list does.
  */
 
 const DOWNLOADS_TAB = 'src/components/features/downloads/DownloadsTab.tsx';
 
 const SITES = [
-  {
-    label: 'active sessions',
-    path: 'src/components/features/user/ActiveSessions.tsx'
-  },
-  {
-    label: 'user accounts',
-    path: 'src/components/features/user/UserAccounts.tsx'
-  },
   {
     label: 'downloads',
     path: DOWNLOADS_TAB
@@ -34,8 +25,7 @@ const SITES = [
 
 /**
  * The write-back effect exactly as the component runs it. `echoedPage` is the page the last
- * response came back holding; it defaults to the page being asked for, which is the settled state
- * the two user lists are always in.
+ * response came back holding; it defaults to the page being asked for, the settled state.
  */
 const runWriteBack = (
   path,

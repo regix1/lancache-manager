@@ -117,8 +117,17 @@ public class SessionRecord
     public DateTime ExpiresAt { get; set; }
     public bool IsRevoked { get; set; }
     public bool IsCurrentSession { get; set; }
+
+    /// <summary>True for the one session every browser runs on while sign-in is off. It cannot be revoked or deleted then.</summary>
+    public bool IsSharedSession { get; set; }
     public bool IsExpired { get; set; }
     public DateTime? RevokedAt { get; set; }
+
+    /// <summary>True when the session ended because its own user signed out. <see cref="IsRevoked"/> stays true for it.</summary>
+    public bool SignedOut { get; set; }
+
+    /// <summary>The account this session signed in as, so the page matches sessions to accounts by key. Null for guests and key-only sessions.</summary>
+    public Guid? AccountId { get; set; }
     /// <summary>Backward-compatible: true if Steam, Epic, or Battle.net prefill is active, or session is admin.</summary>
     public bool PrefillEnabled { get; set; }
     public bool SteamPrefillEnabled { get; set; }
@@ -162,6 +171,12 @@ public class ApiKeyRegenerateResponse
 
     public string Message { get; set; } = string.Empty;
     public string Warning { get; set; } = string.Empty;
+
+    /// <summary>
+    /// i18n key the dialog shows when the rotation could not remove the other accounts, so the owner
+    /// learns they can still sign in. Null when every account the rotation meant to remove is gone.
+    /// </summary>
+    public string? StageKey { get; set; }
 }
 
 public class GuestConfigResponse
@@ -219,7 +234,7 @@ public class GuestPrefillConfigResponse
 
 /// <summary>
 /// Response for POST api/auth/guest/prefill/config: the Steam guest-prefill defaults after the
-/// save. Shared with the Epic and Xbox save endpoints, whose responses have the same shape.
+/// save. Shared with the Epic, Battle.net, Riot and Xbox save endpoints, whose responses have the same shape.
 /// </summary>
 public class SetGuestPrefillConfigResponse
 {
@@ -232,8 +247,8 @@ public class SetGuestPrefillConfigResponse
 }
 
 /// <summary>
-/// Response for GET api/auth/guest/epic-prefill/config. Shared with the Xbox get endpoint,
-/// whose response has the same shape.
+/// Response for GET api/auth/guest/epic-prefill/config. Shared with the Battle.net, Riot and Xbox
+/// get endpoints, whose responses have the same shape.
 /// </summary>
 public class EpicGuestPrefillConfigResponse
 {
@@ -242,28 +257,6 @@ public class EpicGuestPrefillConfigResponse
 
     /// <summary>Per-guest-session thread cap. Null when no cap is configured.</summary>
     public int? MaxThreadCount { get; set; }
-}
-
-/// <summary>
-/// Response for GET api/auth/guest/battlenet-prefill/config. Battle.net guest prefill is
-/// anonymous (no account login), so it carries no thread-count cap. Shared with the Riot get
-/// endpoint, whose response has the same shape.
-/// </summary>
-public class BattleNetGuestPrefillConfigResponse
-{
-    public bool EnabledByDefault { get; set; }
-    public int DurationHours { get; set; }
-}
-
-/// <summary>
-/// Response for POST api/auth/guest/battlenet-prefill/config: the Battle.net guest-prefill
-/// defaults after the save. Shared with the Riot save endpoint, whose response has the same shape.
-/// </summary>
-public class SetBattleNetGuestPrefillConfigResponse
-{
-    public bool Success { get; set; }
-    public bool EnabledByDefault { get; set; }
-    public int DurationHours { get; set; }
 }
 
 /// <summary>Response for POST api/auth/guest/prefill/toggle/{sessionId}: the per-session prefill grant after the change.</summary>

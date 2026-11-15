@@ -189,20 +189,20 @@ const DisplayPreferences: React.FC = () => {
           onChange={handleSharpCornersChange}
         />
         <SettingRow
-          label={t('management.sections.displayPreferences.disableTooltips')}
+          label={t('activeSessions.preferencesModal.tooltips')}
           description={t('management.sections.displayPreferences.disableTooltipsDesc')}
-          checked={disableTooltips}
-          onChange={handleTooltipsChange}
+          checked={!disableTooltips}
+          onChange={(shown: boolean) => handleTooltipsChange(!shown)}
         />
       </SettingSection>
 
       {/* Notification Settings */}
       <SettingSection icon={Bell} title={t('management.sections.displayPreferences.notifications')}>
         <SettingRow
-          label={t('management.sections.displayPreferences.disableStickyNotifications')}
+          label={t('activeSessions.preferencesModal.stickyNotifications.title')}
           description={t('management.sections.displayPreferences.disableStickyNotificationsDesc')}
-          checked={disableStickyNotifications}
-          onChange={handleStickyNotificationsChange}
+          checked={!disableStickyNotifications}
+          onChange={(sticky: boolean) => handleStickyNotificationsChange(!sticky)}
         />
         <SettingRow
           label={t('management.sections.displayPreferences.keepNotificationsVisible')}

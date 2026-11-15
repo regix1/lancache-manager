@@ -372,6 +372,9 @@ public sealed class UserPreferencesServiceTests
             preferences.RefreshRateLocked = false;
             preferences.SteamMaxThreadCount = 2;
             preferences.EpicMaxThreadCount = 3;
+            preferences.XboxMaxThreadCount = 4;
+            preferences.BattleNetMaxThreadCount = 5;
+            preferences.RiotMaxThreadCount = 7;
             await context.SaveChangesAsync();
         }
 
@@ -385,6 +388,9 @@ public sealed class UserPreferencesServiceTests
             preferences.RefreshRateLocked = true;
             preferences.SteamMaxThreadCount = 8;
             preferences.EpicMaxThreadCount = 6;
+            preferences.XboxMaxThreadCount = 9;
+            preferences.BattleNetMaxThreadCount = 10;
+            preferences.RiotMaxThreadCount = 11;
             await context.SaveChangesAsync();
         }
 
@@ -397,7 +403,61 @@ public sealed class UserPreferencesServiceTests
         Assert.True(stored.RefreshRateLocked);
         Assert.Equal(8, stored.SteamMaxThreadCount);
         Assert.Equal(6, stored.EpicMaxThreadCount);
+        Assert.Equal(9, stored.XboxMaxThreadCount);
+        Assert.Equal(10, stored.BattleNetMaxThreadCount);
+        Assert.Equal(11, stored.RiotMaxThreadCount);
         Assert.True(stored.SharpCorners);
+    }
+
+    // The Xbox, Battle.net and Riot thread limits an admin saves for one session are stored and read back,
+    // so the session pane shows them after a reload and the prefill for that service is capped by them.
+    [Fact]
+    public async Task AdminSave_StoresEachServiceThreadLimit()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var sessionId = await database.AddSessionAsync();
+        var service = NewService(database);
+
+        var stored = await service.SavePreferencesAsync(sessionId, new UserPreferencesDto
+        {
+            XboxMaxThreadCount = 8,
+            BattleNetMaxThreadCount = 6,
+            RiotMaxThreadCount = 4
+        });
+
+        Assert.NotNull(stored);
+        var reread = Assert.IsType<UserPreferencesDto>(service.GetPreferences(sessionId));
+        Assert.Equal(8, reread.XboxMaxThreadCount);
+        Assert.Equal(6, reread.BattleNetMaxThreadCount);
+        Assert.Equal(4, reread.RiotMaxThreadCount);
+    }
+
+    // A guest may neither write a service thread limit through the per-key update nor see one in the
+    // announcement of its own save.
+    [Theory]
+    [InlineData(PreferenceKey.XboxMaxThreadCount)]
+    [InlineData(PreferenceKey.BattleNetMaxThreadCount)]
+    [InlineData(PreferenceKey.RiotMaxThreadCount)]
+    public void ServiceThreadLimitKey_IsAdminOnly(PreferenceKey key)
+    {
+        Assert.True(IsAdminOnlyKey(key));
+    }
+
+    [Fact]
+    public void RedactAdminFields_ClearsEachServiceThreadLimit()
+    {
+        var preferences = new UserPreferencesDto
+        {
+            XboxMaxThreadCount = 8,
+            BattleNetMaxThreadCount = 6,
+            RiotMaxThreadCount = 4
+        };
+
+        RedactAdminFields(preferences);
+
+        Assert.Null(preferences.XboxMaxThreadCount);
+        Assert.Null(preferences.BattleNetMaxThreadCount);
+        Assert.Null(preferences.RiotMaxThreadCount);
     }
 
     // P-10: the full save has the same first-write race as the per-key one. Two tabs saving a session's

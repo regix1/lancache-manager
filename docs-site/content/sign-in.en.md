@@ -1,6 +1,6 @@
 # Access and sign-in { #sign-in }
 
-On first run you choose how users sign in. An upgraded install asks you to confirm the choice once; your accounts, cache, and prefill settings are kept. Change it later at **Users → Accounts → Access and sign-in**.
+On first run you choose how users sign in. An upgraded install asks you to confirm the choice once; your accounts, cache, and prefill settings are kept, unless you choose Unauthenticated, which deletes every account. Change it later at **Users → Sign-in → Change**.
 
 ## The five modes
 
@@ -13,7 +13,8 @@ On first run you choose how users sign in. An upgraded install asks you to confi
 | Unauthenticated | Nothing | A trusted LAN only |
 
 - **Unauthenticated** lets anyone who can reach the app use its management features.
-- The two single sign-on modes need HTTPS.
+- **Switching to Unauthenticated deletes every account.** The app first asks you to confirm and shows how many accounts it will delete. To turn sign-in back on, you create a new admin account.
+- Single sign-on works over plain HTTP with an OpenID Connect provider or GitHub that accepts an `http://` callback address. Google and Microsoft need HTTPS except on localhost, and Apple needs an HTTPS domain.
 - Password and API key modes work over plain HTTP. Use HTTPS on any network you do not trust, so passwords and session cookies are not sent in the clear.
 
 ### Set the mode from the environment
@@ -22,7 +23,8 @@ Set `Security__SignInMode` in the Compose file to fix the mode. The mode picker 
 
 | `Security__SignInMode` | Access step of first-run setup |
 |---|---|
-| `Password`, `ApiKeyPassword` or `Unauthenticated` | Skipped. The database and first-account steps still run. |
+| `Password` or `ApiKeyPassword` | Skipped. The database and first-account steps still run. |
+| `Unauthenticated` | Skipped. Each start deletes every account, including one an environment login allows. No first account is created. If sign-in is turned back on while that login's variables are still set, that user's next sign-in creates the account again. |
 | `Oidc` or `ApiKeyOidc` | Shown read-only. The owner signs in there through the environment login. |
 
 If you remove the variables later, the access step comes back. The values and names are in [Sign-in from environment variables](configuration-reference.md#sign-in-environment).
@@ -39,7 +41,7 @@ Without `Security__SignInMode`, and until a mode is saved, the `Security__Enable
 Once you save a mode, the variable no longer changes it.
 
 !!! note "The API key always works"
-    The key belongs to the first account, the primary administrator. It stays valid for ownership and recovery in every mode. Only the two API key modes ask for it at sign-in.
+    The key belongs to the primary administrator, or to whoever runs the installation while sign-in is off. It stays valid for ownership and recovery in every mode. Only the two API key modes ask for it at sign-in.
 
     ```bash
     docker exec lancache-manager cat /data/security/api_key.txt
@@ -57,7 +59,7 @@ There is no central sign-in service. You register an application with each provi
 | GitHub | Client ID and client secret |
 | Microsoft | Application (client) ID, client secret, and directory (tenant) ID |
 | Apple | Services ID, Team ID, Key ID, and the `.p8` key |
-| Other (OpenID Connect) | HTTPS issuer URL, client ID, and client secret |
+| Other (OpenID Connect) | HTTP or HTTPS issuer URL, client ID, and client secret |
 
 - **Microsoft:** use the tenant GUID, or `consumers` for personal accounts. The values `common` and `organizations` are rejected.
 - **Apple:** the app creates Apple's client secret for you. Apple needs an HTTPS domain and rejects localhost and IP addresses.
@@ -85,12 +87,15 @@ You allow users by their account ID from the provider, not by email address or d
 
 ### Callback addresses
 
-- Single sign-on needs HTTPS, even on localhost.
+- Over plain HTTP, the provider must accept an `http://` callback URL. Many self-hosted OpenID Connect providers do. Google and Microsoft accept one only on localhost, and Apple never does.
+- Over plain HTTP, the sign-in code and the provider's keys cross your network unencrypted. Use HTTPS on any network you do not trust.
 - The domain does not have to be public. A name that only resolves on your LAN or VPN is enough.
+- A provider with a self-signed or private certificate: put the CA certificate that signed it, in PEM form with a `.crt` file name, in `/data/certs/`, then restart the container. The app adds it to the trusted roots, and the public roots stay trusted.
+- Behind a reverse proxy that ends TLS, set `Security__ForceSecureCookies=true`, list the proxy in `Security__KnownProxyNetworks`, and pass the original `Host` header (`proxy_set_header Host $host;` in nginx). The callback URL is built from that host.
 
 ## Switching modes
 
-- Existing sessions stay signed in. End them at **Users → Sessions**.
+- Switching between sign-in modes keeps existing sessions signed in. End one by picking it in the Users list and choosing **Revoke**. Switching to Unauthenticated deletes every account and its sessions.
 - Picking any sign-in mode ends shared unauthenticated access right away.
 - An account created through single sign-on has no password yet. Set one before you switch to a password mode.
 

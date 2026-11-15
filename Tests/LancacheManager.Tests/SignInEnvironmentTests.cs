@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
@@ -319,6 +320,85 @@ public sealed class SignInEnvironmentTests : IDisposable
         AssertNoStoredSecret();
     }
 
+    // The owner starts the setup sign-in through the environment login while sign-in is on, and the
+    // owner (in another tab) turns sign-in off before the provider sends the browser back. The environment
+    // login keeps its revision through that switch, so only the record that the sign-in started with
+    // sign-in on stops it from creating a main administrator and turning sign-in back on. With sign-in
+    // off an owner sign-in cannot start either.
+    [Fact]
+    public async Task SetupSignInThatReturnsAfterSignInWasTurnedOffLeavesSignInOff()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var configuration = CompleteOidc(
+            ("Security:Oidc:OwnerSubject", "owner-subject"),
+            ("Security:ApiKeyPath", Path.Combine(_root, "api-key.txt")));
+        var state = CreateStateService(_root);
+        var access = new AccessService(state, configuration, database.Factory);
+        Assert.True(access.IsAuthenticationEnabled(), "sign-in is not on when the setup sign-in starts");
+        var started = Assert.IsType<OidcSettings>(access.GetLoginSettings("customOidc", setup: true));
+        var properties = new AuthenticationProperties();
+        properties.Items["access_revision"] = started.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        properties.Items["access_setup"] = "true";
+        properties.Items["access_owner"] = "false";
+        properties.Items["access_sign_in_off"] = "false";
+        properties.Items["login_id"] = "customOidc";
+        properties.Items["oidc_issuer"] = Authority;
+        properties.Items["oidc_subject"] = "owner-subject";
+
+        access.Apply(
+            new AccessSetupRequest { Mode = AccountMode.Unauthenticated, ApiKey = "x", AcknowledgeUnauthenticated = true },
+            null);
+        Assert.False(access.IsAuthenticationEnabled(), "the switch did not turn sign-in off");
+        Assert.Equal(started.Revision, access.GetLoginSettings("customOidc", setup: true)?.Revision);
+
+        var wrong = new List<string>();
+        var events = new OidcEvents(
+            access,
+            NewSignInService(access, database.Factory, state, configuration),
+            new OptionsCache<OpenIdConnectOptions>(),
+            TimeProvider.System,
+            NullLogger<OidcEvents>.Instance);
+        var callback = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
+        string? location = null;
+        var thrown = await Record.ExceptionAsync(async () => location = await events.CompleteSignInAsync(properties, callback));
+        if (thrown is not null)
+            wrong.Add($"the callback threw {thrown.GetType().Name} ({thrown.Message})");
+        else if (location?.Contains("oidcError=unavailable", StringComparison.Ordinal) != true)
+            wrong.Add($"the callback sent the browser to {location}, not to the setup step's unavailable message");
+        if (access.GetMode() != AccountMode.Unauthenticated)
+            wrong.Add($"the mode is {access.GetMode()}, so the setup turned sign-in back on");
+        await using (var context = database.Factory.CreateDbContext())
+        {
+            var left = await context.UserAccounts.CountAsync();
+            if (left > 0)
+                wrong.Add($"{left} account(s) exist with sign-in off");
+        }
+
+        // An owner sign-in started directly with sign-in off.
+        var apiKey = new ApiKeyService(NullLogger<ApiKeyService>.Instance, configuration, pathResolver: null!);
+        var controller = new AccessController(
+            access,
+            apiKey,
+            new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
+            new OidcChallengeStore(TimeProvider.System),
+            new OptionsCache<OpenIdConnectOptions>(),
+            new OptionsCache<OAuthOptions>())
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+        Assert.Equal("owner-subject", access.GetLoginSettings("customOidc", setup: false)?.OwnerSubject);
+        var ownerStart = await controller.StartLoginAsync(new LoginStartRequest
+        {
+            LoginId = "customOidc",
+            ApiKey = apiKey.GetApiKey(),
+            Owner = true
+        });
+        if (ownerStart.Result is not ConflictObjectResult)
+            wrong.Add($"an owner sign-in start with sign-in off was answered {ownerStart.Result?.GetType().Name}, not refused");
+
+        Assert.True(wrong.Count == 0, "a sign-in with sign-in off: " + string.Join("; ", wrong));
+    }
+
     [Theory]
     [InlineData(LoginKind.CustomOidc)]
     [InlineData(LoginKind.GitHub)]
@@ -340,7 +420,7 @@ public sealed class SignInEnvironmentTests : IDisposable
         var state = CreateStateService(_root);
         // No database exists yet, so any attempt to open one fails the callback.
         var access = new AccessService(state, configuration, dbContextFactory: null!);
-        var signIns = NewSignInService(access, null!, state, configuration);
+        var signIns = NewSignInService(access, new ThrowingDbContextFactory(), state, configuration);
         var settings = Assert.IsType<OidcSettings>(access.GetLoginSettings(loginId, setup: true));
         var properties = new AuthenticationProperties();
         properties.Items["access_revision"] = settings.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -691,8 +771,10 @@ public sealed class SignInEnvironmentTests : IDisposable
             await context.SaveChangesAsync();
         }
 
-        await rotation.RotateAsOwnerAsync(database.Factory);
+        var answer = await rotation.RotateAsOwnerAsync(database.Factory);
 
+        // The environment-allowed account stays by design, so the owner is not told accounts were kept.
+        Assert.Null(StageKeySent(answer));
         await using var check = database.Factory.CreateDbContext();
         Assert.True(await check.UserAccounts.AnyAsync(account => account.Id == member));
         Assert.False(await check.UserAccounts.AnyAsync(account => account.Id == other));
@@ -724,12 +806,21 @@ public sealed class SignInEnvironmentTests : IDisposable
             .AddInterceptors(new AccountDeleteFails())
             .Options);
 
-        await Assert.ThrowsAnyAsync<DbUpdateException>(() => rotation.RotateAsOwnerAsync(failing));
+        // The key has already changed when the delete fails, so the rotation still answers with the
+        // new key, and tells the owner the other accounts were kept.
+        var answer = await rotation.RotateAsOwnerAsync(failing);
 
+        Assert.Equal("management.auth.rotatedModal.accountsKept", StageKeySent(answer));
         Assert.Contains(member, rotation.State.GetState().Access.Logins.Single().AccountIds.Values);
         await using var check = database.Factory.CreateDbContext();
         Assert.True(await check.UserAccounts.AnyAsync(account => account.Id == member));
     }
+
+    /// <summary>The rotation answer's stage key as the browser reads it, null when it sends none.</summary>
+    private static string? StageKeySent(ApiKeyRegenerateResponse answer)
+        => JsonSerializer.SerializeToElement(answer, JsonSerializerOptions.Web).TryGetProperty("stageKey", out var key)
+            ? key.GetString()
+            : null;
 
     [Theory]
     [InlineData(false)]
@@ -796,6 +887,58 @@ public sealed class SignInEnvironmentTests : IDisposable
         Assert.Contains(member, files.State.GetState().Access.Logins.Single().AccountIds.Values);
     }
 
+    // An open Users page loads its accounts and sessions once. A first sign-in through a login service
+    // adds an account and a session, and every later sign-in adds a session; each has to be announced
+    // after it is stored, as a password sign-in announces its session.
+    [Fact]
+    public async Task ExternalSignInsTellAnOpenUsersPageAboutTheirAccountAndSession()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var configuration = CompleteOidc(
+            ("Security:Oidc:AllowedSubjects", "newcomer"),
+            ("Security:ApiKeyPath", Path.Combine(_root, "api-key.txt")));
+        var state = CreateStateService(_root);
+        var access = new AccessService(state, configuration, database.Factory);
+        var settings = Assert.IsType<OidcSettings>(access.GetLoginSettings("customOidc", setup: false));
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, CacheScanDetectionPhaseTests.RecordingNotifications>();
+        var sent = (CacheScanDetectionPhaseTests.RecordingNotifications)(object)notifications;
+        var accountListsLoaded = new List<Guid[]>();
+        var sessionsAnnounced = new List<(string? SessionId, bool Live)>();
+        sent.OnSent = (eventName, message) =>
+        {
+            using var context = database.Factory.CreateDbContext();
+            if (eventName == SignalREvents.AccountsChanged)
+            {
+                accountListsLoaded.Add(context.UserAccounts.AsNoTracking().Select(account => account.Id).ToArray());
+            }
+            else if (eventName == SignalREvents.UserSessionCreated)
+            {
+                var sessionId = message?.GetType().GetProperty("sessionId")?.GetValue(message) as string;
+                sessionsAnnounced.Add((sessionId, Guid.TryParse(sessionId, out var id)
+                    && context.UserSessions.Any(session => session.Id == id && !session.IsRevoked)));
+            }
+        };
+        var signIns = SocialLoginTests.NewSignIns(
+            access, database.Factory, NewSessions(database.Factory, state, configuration), notifications);
+
+        var first = await signIns.TryCreateSessionAsync(settings, owner: false, Authority, "newcomer", new DefaultHttpContext());
+
+        Assert.NotNull(first);
+        Assert.True(first.AccountCreated);
+        Assert.True(
+            accountListsLoaded.Any(accounts => accounts.Contains(first.AccountId)),
+            $"a first sign-in created an account and sent no accounts event after it was stored ({accountListsLoaded.Count} sent), " +
+            "so an open Users page does not list it");
+        Assert.Contains((first.SessionId.ToString(), true), sessionsAnnounced);
+
+        var again = await signIns.TryCreateSessionAsync(settings, owner: false, Authority, "newcomer", new DefaultHttpContext());
+
+        Assert.NotNull(again);
+        Assert.False(again.AccountCreated);
+        Assert.Contains((again.SessionId.ToString(), true), sessionsAnnounced);
+        Assert.Single(accountListsLoaded);
+    }
+
     [Fact]
     public async Task TwoFirstSignInsForOneIdentityShareOneAccount()
     {
@@ -811,7 +954,7 @@ public sealed class SignInEnvironmentTests : IDisposable
         var racing = new TestDbContextFactory(new DbContextOptionsBuilder<AppDbContext>(database.Options)
             .AddInterceptors(new AccountArrivesFirst(database.Options, accountId))
             .Options);
-        var signIns = new ExternalSignInService(access, racing, NewSessions(database.Factory, state, configuration));
+        var signIns = SocialLoginTests.NewSignIns(access, racing, NewSessions(database.Factory, state, configuration));
 
         var signIn = await signIns.TryCreateSessionAsync(settings, owner: false, Authority, "newcomer", new DefaultHttpContext());
 
@@ -994,7 +1137,7 @@ public sealed class SignInEnvironmentTests : IDisposable
         IDbContextFactory<AppDbContext> contexts,
         StateService state,
         IConfiguration configuration)
-        => new(access, contexts, NewSessions(contexts, state, configuration));
+        => SocialLoginTests.NewSignIns(access, contexts, NewSessions(contexts, state, configuration));
 
     private async Task<(AuthController Controller, ApiKeyService ApiKey)> NewPasswordSignInAsync(
         TestDatabase database,
@@ -1046,23 +1189,25 @@ public sealed class SignInEnvironmentTests : IDisposable
     {
         var caller = AccountResetTests.Session(ownerId, "live");
         caller.SessionType = SessionType.Admin;
-        var controller = new AccountsController(
-            contexts,
-            new PasswordHasher<UserAccount>(),
-            new SessionService(
+        var services = new ServiceCollection()
+            .AddSingleton(contexts)
+            .AddSingleton<IPasswordHasher<UserAccount>>(new PasswordHasher<UserAccount>())
+            .AddSingleton(new SessionService(
                 contexts,
                 new ApiKeyService(NullLogger<ApiKeyService>.Instance, configuration, pathResolver: null!),
                 NullLogger<SessionService>.Instance,
                 stateService: null!,
                 signalR: null!,
-                configuration),
-            new IdentityAuditService(contexts, NullLogger<IdentityAuditService>.Instance),
-            new AccountLockout(NullLogger<AccountLockout>.Instance),
-            new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance),
-            DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>(),
-            NullLogger<AccountsController>.Instance,
-            access);
-        var httpContext = new DefaultHttpContext();
+                configuration))
+            .AddSingleton(new IdentityAuditService(contexts, NullLogger<IdentityAuditService>.Instance))
+            .AddSingleton(new AccountLockout(NullLogger<AccountLockout>.Instance))
+            .AddSingleton(new AccountClaimWindow(NullLogger<AccountClaimWindow>.Instance))
+            .AddSingleton(DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>())
+            .AddSingleton<ILogger<AccountsController>>(NullLogger<AccountsController>.Instance)
+            .AddSingleton(access)
+            .BuildServiceProvider();
+        var controller = ActivatorUtilities.CreateInstance<AccountsController>(services);
+        var httpContext = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
         httpContext.Items["Session"] = caller;
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
         return controller;
@@ -1106,7 +1251,7 @@ public sealed class SignInEnvironmentTests : IDisposable
 
         public AccessService Access { get; }
 
-        public async Task RotateAsOwnerAsync(TestDbContextFactory contexts)
+        public async Task<ApiKeyRegenerateResponse> RotateAsOwnerAsync(TestDbContextFactory contexts)
         {
             var ownerId = Guid.NewGuid();
             await using (var context = contexts.CreateDbContext())
@@ -1116,7 +1261,7 @@ public sealed class SignInEnvironmentTests : IDisposable
             }
             var caller = AccountResetTests.Session(ownerId, "live");
             caller.SessionType = SessionType.Admin;
-            var httpContext = new DefaultHttpContext();
+            var httpContext = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
             httpContext.Items["Session"] = caller;
             var sessions = new SessionService(
                 contexts,
@@ -1145,7 +1290,8 @@ public sealed class SignInEnvironmentTests : IDisposable
                 ControllerContext = new ControllerContext { HttpContext = httpContext }
             };
 
-            Assert.IsType<OkObjectResult>(await controller.RegenerateApiKeyAsync());
+            var answer = Assert.IsType<OkObjectResult>(await controller.RegenerateApiKeyAsync());
+            return Assert.IsType<ApiKeyRegenerateResponse>(answer.Value);
         }
     }
 

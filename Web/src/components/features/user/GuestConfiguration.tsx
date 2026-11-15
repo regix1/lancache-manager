@@ -1,15 +1,18 @@
-import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, ChevronsDownUp, ChevronsUpDown } from 'lucide-react';
-import { AccordionSection } from '@components/ui/AccordionSection';
-import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
-import { AccordionGroupToggle } from '@components/ui/AccordionGroupToggle';
-import { GroupHeading } from '@components/ui/GroupHeading';
-import { useAccordionGroupItem } from '@contexts/AccordionGroupContext';
-import { SectionActionsMenu } from '@components/ui/SectionActionsMenu';
-import { SectionErrorChip, SectionHeaderActions } from '@components/ui/SectionHeaderActions';
-import { ActionMenuItem } from '@components/ui/ActionMenu';
+import { RotateCcw, Eraser } from 'lucide-react';
+import { HelpPopover } from '@components/ui/HelpPopover';
+import { RowActionsMenu } from '@components/ui/RowActionsMenu';
+import { ActionMenuItem, ActionMenuDivider } from '@components/ui/ActionMenu';
 import { ErrorBlock } from '@components/ui/ErrorBlock';
+import { Alert } from '@components/ui/Alert';
+import { Button } from '@components/ui/Button';
+import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
+import { ToggleSwitch } from '@components/ui/ToggleSwitch';
+import { Tooltip } from '@components/ui/Tooltip';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { assertOk } from '@services/apiError';
 import { getErrorMessage } from '@utils/error';
@@ -29,18 +32,25 @@ import type { ClockPreferences } from '@/types/userPreferences';
 import type { DefaultGuestPreferencesChangedEvent } from '@contexts/SignalRContext/types';
 import { TIME_SETTING_VALUES, type TimeSettingValue } from '@contexts/TimezoneContext.types';
 import { clockFromTimeSetting, timeSettingFromClock } from '@utils/pendingPreferences';
-import { type ThemeOption, durationOptions, refreshRateOptions, showToast } from './types';
-import AccessSecurityCard from './AccessSecurityCard';
-import PrefillServicePanel from './PrefillServicePanel';
-import AppearanceDisplayCard from './AppearanceDisplayCard';
+import {
+  type GuestDurationResponse,
+  type ThemeOption,
+  durationOptions,
+  refreshRateOptions,
+  showToast
+} from './types';
+import UserPaneHeader from './UserPaneHeader';
+import UserPaneSection from './UserPaneSection';
+import UserSettingRow from './UserSettingRow';
+import { getOnOffOptions } from './onOffOptions';
+import { getTimeFormatOptions, guestTimeFormatKeys } from './timeFormatOptions';
 import {
   toGuestPrefillConfig,
   type GuestPrefillConfig,
-  type GuestPrefillConfigField,
   type GuestPrefillConfigResponse
 } from './guestPrefillConfig';
 import { getThreadOptions } from './threadOptions';
-import '@components/features/management/managementSectionContent.css';
+import { withoutSent } from './draftEdits';
 import './user-settings.css';
 
 interface DefaultGuestPreferencesResponse {
@@ -53,48 +63,72 @@ interface DefaultGuestPreferencesResponse {
   allowedTimeFormats?: string[];
 }
 
-// A prefill change held while its service's read or save is open; `field` names the control that
-// shows busy once it is sent.
-interface PendingPrefillEdit {
-  field: GuestPrefillConfigField;
-  edits: Partial<GuestPrefillConfig>;
+// The guest settings the host stores, as the pane drafts them. A null length puts it back to the
+// configured or built-in one.
+interface GuestAccessSettings {
+  guestModeLocked: boolean;
+  durationHours: number | null;
+  theme: string;
+  refreshRate: string;
+  refreshRateLocked: boolean;
+}
+
+type DraftedPreference =
+  | 'sharpCorners'
+  | 'disableTooltips'
+  | 'showDatasourceLabels'
+  | 'allowedTimeFormats';
+
+// A setting Save could not store: the title that names it and the reason its request failed.
+interface GuestSaveFailure {
+  title: string;
+  reason: unknown;
 }
 
 interface GuestConfigurationProps {
-  guestDurationHours: number;
-  onDurationChange: (duration: number) => void;
-  updatingDuration: boolean;
+  guestDuration: GuestDurationResponse | null;
+  // Each change callback stores one setting and rejects when the server refuses it.
+  // null clears the saved length, so the configured or built-in length applies
+  onDurationChange: (hours: number | null) => Promise<void>;
+  // The host's guest-defaults load error; with guestDuration null it means the first read failed,
+  // so the Session length row hides instead of spinning
+  guestDefaultsError: string | null;
+  guestModeLocked: boolean;
+  onToggleGuestLock: (locked: boolean) => Promise<void>;
+  // Active guest sessions, or null while the session list has had no load without error; only 0
+  // hides "Reset all guests", while "Clear all guests" always shows so a cleanup the server asked
+  // to retry can be retried
+  guestCount: number | null;
+  onGuestsChanged: () => void;
   defaultGuestTheme: string;
-  onGuestThemeChange: (themeId: string) => void;
-  updatingGuestTheme: boolean;
+  onGuestThemeChange: (themeId: string) => Promise<void>;
   defaultGuestRefreshRate: string;
-  onGuestRefreshRateChange: (rate: string) => void;
-  updatingGuestRefreshRate: boolean;
+  onGuestRefreshRateChange: (rate: string) => Promise<void>;
   guestRefreshRateLocked: boolean;
-  onGuestRefreshRateLockChange: (locked: boolean) => void;
-  updatingGuestRefreshRateLock: boolean;
+  onGuestRefreshRateLockChange: (locked: boolean) => Promise<void>;
   availableThemes: ThemeOption[];
 }
 
 const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
-  guestDurationHours,
+  guestDuration,
   onDurationChange,
-  updatingDuration,
+  guestDefaultsError,
+  guestModeLocked,
+  onToggleGuestLock,
+  guestCount,
+  onGuestsChanged,
   defaultGuestTheme,
   onGuestThemeChange,
-  updatingGuestTheme,
   defaultGuestRefreshRate,
   onGuestRefreshRateChange,
-  updatingGuestRefreshRate,
   guestRefreshRateLocked,
   onGuestRefreshRateLockChange,
-  updatingGuestRefreshRateLock,
   availableThemes
 }) => {
   const { t } = useTranslation();
   const { notifyError } = useErrorHandler();
   const { on, off, isConnected } = useSignalR();
-  const { authMode } = useAuth();
+  const { authMode, isAdmin } = useAuth();
   const [defaultGuestPreferences, setDefaultGuestPreferences] = useState<DefaultGuestPreferences>({
     useLocalTimezone: false,
     useUtcTimezone: false,
@@ -115,8 +149,8 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   // applies only to fields no push touched while the save was open.
   const defaultPrefsPushesRef = useRef(new Map<keyof DefaultGuestPreferences, number>());
   const prefillConfigRequestRef = useRef(0);
-  const [updatingDefaultPref, setUpdatingDefaultPref] = useState<string | null>(null);
-  const [updatingAllowedFormats, setUpdatingAllowedFormats] = useState(false);
+  // Services saved or pushed since the newest prefill batch started keep their values when it answers.
+  const prefillChangedRef = useRef(new Set<GameServiceId>());
 
   // Guest prefill permissions, one entry per service in PREFILL_SERVICES. The load and
   // update calls below are keyed off the same table, so a new service needs no state here.
@@ -131,49 +165,25 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const [loadingPrefillConfigs, setLoadingPrefillConfigs] = useState<
     Record<GameServiceId, boolean>
   >(() => prefillServiceRecord<boolean>(() => false));
-  const [updatingPrefillConfigs, setUpdatingPrefillConfigs] = useState<
-    Record<GameServiceId, GuestPrefillConfigField | null>
-  >(() => prefillServiceRecord<GuestPrefillConfigField | null>(() => null));
-  // The change a service's open save is sending, and a change made while that save or the first
-  // read was open, held to send when it ends. The panel shows both on top of the stored values.
-  const [sendingPrefillEdits, setSendingPrefillEdits] = useState<
-    Record<GameServiceId, Partial<GuestPrefillConfig> | null>
-  >(() => prefillServiceRecord<Partial<GuestPrefillConfig> | null>(() => null));
-  const [pendingPrefillEdits, setPendingPrefillEdits] = useState<
-    Record<GameServiceId, PendingPrefillEdit | null>
-  >(() => prefillServiceRecord<PendingPrefillEdit | null>(() => null));
 
-  const [prefillSectionExpanded, setPrefillSectionExpanded] = useState(false);
-  useAccordionGroupItem('guest-prefill-services', prefillSectionExpanded, () =>
-    setPrefillSectionExpanded((prev) => !prev)
-  );
-  const [prefillServiceExpanded, setPrefillServiceExpanded] = useState<
-    Record<GameServiceId, boolean>
-  >(() => prefillServiceRecord<boolean>(() => false));
+  // The pane saves together with its Save button: each control the admin changed waits here until
+  // Save sends it. The controls draw it on top of the saved values, so a push moves only the
+  // controls nobody changed.
+  const [draftHost, setDraftHost] = useState<Partial<GuestAccessSettings>>({});
+  const [draftPrefs, setDraftPrefs] = useState<
+    Partial<Pick<DefaultGuestPreferences, DraftedPreference>>
+  >({});
+  const [draftPrefill, setDraftPrefill] = useState<
+    Partial<Record<GameServiceId, Partial<GuestPrefillConfig>>>
+  >({});
+  const [saving, setSaving] = useState(false);
+  // The first failure of the newest Save, shown above Save until the next Save ends.
+  const [saveFailure, setSaveFailure] = useState<GuestSaveFailure | null>(null);
 
-  const enabledPrefillCount = useMemo(
-    () =>
-      PREFILL_SERVICES.filter(
-        (service: PrefillServiceConfig) => prefillConfigs[service.id].enabledByDefault
-      ).length,
-    [prefillConfigs]
-  );
-
-  const allPrefillServicesExpanded = PREFILL_SERVICES.every(
-    (service: PrefillServiceConfig) => prefillServiceExpanded[service.id]
-  );
-
-  const togglePrefillService = (serviceId: GameServiceId) => {
-    setPrefillServiceExpanded((prev: Record<GameServiceId, boolean>) => ({
-      ...prev,
-      [serviceId]: !prev[serviceId]
-    }));
-  };
-
-  const handlePrefillExpandCollapseAll = () => {
-    const next = !allPrefillServicesExpanded;
-    setPrefillServiceExpanded(prefillServiceRecord<boolean>(() => next));
-  };
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [showBulkResetConfirm, setShowBulkResetConfirm] = useState(false);
+  const [showClearGuestsConfirm, setShowClearGuestsConfirm] = useState(false);
+  const [bulkActionInProgress, setBulkActionInProgress] = useState<string | null>(null);
 
   const applyDefaultPrefsChange = useCallback((patch: Partial<DefaultGuestPreferences>) => {
     for (const key of Object.keys(patch) as (keyof DefaultGuestPreferences)[])
@@ -203,6 +213,20 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     },
     [applyDefaultPrefsChange]
   );
+
+  // One setting's request; a failure comes back named by `title` instead of thrown, so one refused
+  // setting does not stop the others Save sends.
+  const attempt = async (
+    title: string,
+    send: () => Promise<void>
+  ): Promise<GuestSaveFailure | null> => {
+    try {
+      await send();
+      return null;
+    } catch (reason: unknown) {
+      return { title, reason };
+    }
+  };
 
   // Helper to update default time format based on a format value.
   //
@@ -245,9 +269,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     { value: '3', label: t('user.guest.prefillDurationOptions.3') }
   ];
   const maxThreadOptions = getThreadOptions(t);
-  const preferenceLabels: Record<string, string> = {
+  const onOffOptions = getOnOffOptions(t);
+  const timeFormatOptions = getTimeFormatOptions(t, guestTimeFormatKeys);
+  const themeOptions = availableThemes.map((theme: ThemeOption) => ({
+    value: theme.id,
+    label: theme.name
+  }));
+  const preferenceLabels = {
     sharpCorners: t('user.guest.preferences.sharpCorners.label'),
-    disableTooltips: t('user.guest.preferences.disableTooltips.label'),
+    // The row reads "Tooltips" with On meaning shown, so its save error names it the same way
+    disableTooltips: t('activeSessions.preferencesModal.tooltips'),
     showDatasourceLabels: t('user.guest.preferences.datasourceLabels.label')
   };
 
@@ -298,27 +329,18 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     }
   };
 
-  const handleUpdateDefaultGuestPref = async (key: string, value: boolean) => {
-    if (authMode !== 'authenticated') return;
-    try {
-      setUpdatingDefaultPref(key);
-      const pushesBefore = new Map(defaultPrefsPushesRef.current);
-      const response = await fetch(
-        `/api/system/default-guest-preferences/${key}`,
-        ApiService.getJsonFetchOptions({ value }, { method: 'PATCH' })
-      );
+  const handleUpdateDefaultGuestPref = async (
+    key: keyof typeof preferenceLabels,
+    value: boolean
+  ): Promise<void> => {
+    const pushesBefore = new Map(defaultPrefsPushesRef.current);
+    const response = await fetch(
+      `/api/system/default-guest-preferences/${key}`,
+      ApiService.getJsonFetchOptions({ value }, { method: 'PATCH' })
+    );
 
-      await assertOk(response);
-      applyDefaultPrefsReply({ [key]: value }, pushesBefore);
-    } catch (err: unknown) {
-      notifyError(
-        t('user.guest.errors.updateDefault', { label: preferenceLabels[key] || key }),
-        err,
-        { logLabel: 'Failed to update default guest preference' }
-      );
-    } finally {
-      setUpdatingDefaultPref(null);
-    }
+    await assertOk(response);
+    applyDefaultPrefsReply({ [key]: value }, pushesBefore);
   };
 
   const handleDefaultGuestPreferencesChanged = useCallback(
@@ -340,6 +362,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   // capability rather than off a fixed field.
   const handlePrefillConfigChanged = useCallback(
     (service: PrefillServiceConfig, data: GuestPrefillConfigChangedPayload) => {
+      prefillChangedRef.current.add(service.id);
       setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
         ...prev,
         [service.id]: {
@@ -354,10 +377,10 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     []
   );
 
-  const handleAllowedFormatsChange = async (formats: string[]) => {
-    if (authMode !== 'authenticated') return;
-    try {
-      setUpdatingAllowedFormats(true);
+  const handleAllowedFormatsChange = async (
+    formats: string[]
+  ): Promise<GuestSaveFailure | null> => {
+    const listFailure = await attempt(t('user.guest.errors.updateAllowedTimeFormats'), async () => {
       const pushesBefore = new Map(defaultPrefsPushesRef.current);
       const response = await fetch(
         '/api/system/default-guest-preferences/allowed-time-formats',
@@ -366,31 +389,22 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
 
       await assertOk(response);
       applyDefaultPrefsReply({ allowedTimeFormats: formats }, pushesBefore);
+    });
+    if (listFailure !== null) return listFailure;
 
-      // If current default is no longer in allowed list, update to first allowed format.
-      // The allowed list is already saved, so a failure here names the default clock save.
-      const currentDefault = getCurrentDefaultFormat();
-      if (!formats.includes(currentDefault) && formats.length > 0) {
-        try {
-          await updateDefaultTimeFormat(formats[0] as TimeSettingValue);
-        } catch (err: unknown) {
-          notifyError(t('user.guest.errors.updateDefaultTimeFormat'), err, {
-            logLabel: 'Failed to update default time format'
-          });
-        }
-      }
-    } catch (err: unknown) {
-      notifyError(t('user.guest.errors.updateAllowedTimeFormats'), err, {
-        logLabel: 'Failed to update allowed time formats'
-      });
-    } finally {
-      setUpdatingAllowedFormats(false);
-    }
+    // If current default is no longer in allowed list, update to first allowed format.
+    // The allowed list is already saved, so a failure here names the default clock save.
+    const currentDefault = getCurrentDefaultFormat();
+    if (formats.includes(currentDefault) || formats.length === 0) return null;
+    return attempt(t('user.guest.errors.updateDefaultTimeFormat'), () =>
+      updateDefaultTimeFormat(formats[0] as TimeSettingValue)
+    );
   };
 
   // Guest prefill config load/update, driven by PREFILL_SERVICES. Only services that
   // support a thread cap send or read maxThreadCount; the anonymous ones never carry the
   // field on the wire, so it is omitted from their request body and pinned to null locally.
+  // Resolves true only when this service's read answered and was applied.
   const loadPrefillConfig = useCallback(async (service: PrefillServiceConfig, request: number) => {
     try {
       setLoadingPrefillConfigs((prev: Record<GameServiceId, boolean>) => ({
@@ -400,19 +414,24 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       const configResponse = await fetch(service.guestConfigPath, ApiService.getFetchOptions());
       await assertOk(configResponse);
       const config = (await configResponse.json()) as GuestPrefillConfigResponse;
-      if (request !== prefillConfigRequestRef.current) return;
-      setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
-        ...prev,
-        [service.id]: toGuestPrefillConfig(service, config)
-      }));
+      if (request !== prefillConfigRequestRef.current) return false;
+      if (!prefillChangedRef.current.has(service.id)) {
+        setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
+          ...prev,
+          [service.id]: toGuestPrefillConfig(service, config)
+        }));
+      }
+      return true;
     } catch (err) {
-      if (request !== prefillConfigRequestRef.current) return;
-      // A change held during the read would be sent on top of the panel's starting values.
-      setPendingPrefillEdits((prev: Record<GameServiceId, PendingPrefillEdit | null>) => ({
-        ...prev,
-        [service.id]: null
-      }));
+      if (request !== prefillConfigRequestRef.current) return false;
+      // A change made during the read sits on the panel's starting values, which Save would send.
+      setDraftPrefill((prev: Partial<Record<GameServiceId, Partial<GuestPrefillConfig>>>) => {
+        const rest = { ...prev };
+        delete rest[service.id];
+        return rest;
+      });
       setPrefillConfigError(getErrorMessage(err));
+      return false;
     } finally {
       if (request === prefillConfigRequestRef.current) {
         setLoadingPrefillConfigs((prev: Record<GameServiceId, boolean>) => ({
@@ -424,133 +443,241 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   }, []);
 
   // Mount, reconnect and Retry each reload every service as one batch, and batches can overlap;
-  // only the newest batch writes values, the error or the loading flags.
+  // only the newest batch writes values, the error or the loading flags. The error box stays up
+  // while a Retry runs and clears once every read of the newest batch succeeded.
   const loadPrefillConfigs = useCallback(() => {
     const request = ++prefillConfigRequestRef.current;
-    setPrefillConfigError(null);
-    for (const service of PREFILL_SERVICES) {
-      void loadPrefillConfig(service, request);
-    }
+    prefillChangedRef.current.clear();
+    void Promise.all(
+      PREFILL_SERVICES.map((service: PrefillServiceConfig) => loadPrefillConfig(service, request))
+    ).then((applied: boolean[]) => {
+      if (request === prefillConfigRequestRef.current && !applied.includes(false)) {
+        setPrefillConfigError(null);
+      }
+    });
   }, [loadPrefillConfig]);
 
-  const updatePrefillConfig = useCallback(
-    async (
-      service: PrefillServiceConfig,
-      field: GuestPrefillConfigField,
-      change: Partial<GuestPrefillConfig>
-    ) => {
-      if (authMode !== 'authenticated') return;
-      // One request per service at a time: a change made while its read or save is open is
-      // merged into the held change and sent when that request ends.
-      if (loadingPrefillConfigs[service.id] || updatingPrefillConfigs[service.id] !== null) {
-        setPendingPrefillEdits((prev: Record<GameServiceId, PendingPrefillEdit | null>) => ({
-          ...prev,
-          [service.id]: { field, edits: { ...prev[service.id]?.edits, ...change } }
-        }));
-        return;
-      }
-      const next = { ...prefillConfigs[service.id], ...change };
-      try {
-        setUpdatingPrefillConfigs(
-          (prev: Record<GameServiceId, GuestPrefillConfigField | null>) => ({
-            ...prev,
-            [service.id]: field
-          })
-        );
-        setSendingPrefillEdits(
-          (prev: Record<GameServiceId, Partial<GuestPrefillConfig> | null>) => ({
-            ...prev,
-            [service.id]: change
-          })
-        );
-        const body: Record<string, unknown> = {
-          enabledByDefault: next.enabledByDefault,
-          durationHours: next.durationHours
-        };
-        if (service.supportsMaxThreads) {
-          body.maxThreadCount = next.maxThreadCount;
-        }
-        const response = await fetch(
-          service.guestConfigPath,
-          ApiService.getJsonFetchOptions(body, { method: 'POST' })
-        );
-
-        await assertOk(response);
-        const config = (await response.json()) as GuestPrefillConfigResponse;
-        setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
-          ...prev,
-          [service.id]: toGuestPrefillConfig(service, config)
-        }));
-        showToast('success', t('user.guest.prefill.updated'));
-      } catch (err: unknown) {
-        // A held change was made on top of the one that failed; the panel falls back to the
-        // stored values, so the error is not followed by a save of half the edit.
-        setPendingPrefillEdits((prev: Record<GameServiceId, PendingPrefillEdit | null>) => ({
-          ...prev,
-          [service.id]: null
-        }));
-        notifyError(t('user.guest.prefill.errors.update'), err, {
-          logLabel: `Failed to update ${service.shortName} prefill config`
-        });
-      } finally {
-        setUpdatingPrefillConfigs(
-          (prev: Record<GameServiceId, GuestPrefillConfigField | null>) => ({
-            ...prev,
-            [service.id]: null
-          })
-        );
-        setSendingPrefillEdits(
-          (prev: Record<GameServiceId, Partial<GuestPrefillConfig> | null>) => ({
-            ...prev,
-            [service.id]: null
-          })
-        );
-      }
-    },
-    [authMode, loadingPrefillConfigs, updatingPrefillConfigs, prefillConfigs, notifyError, t]
-  );
-
-  // Sends each held change once its service's read or save has ended.
-  useEffect(() => {
-    for (const service of PREFILL_SERVICES) {
-      const pending = pendingPrefillEdits[service.id];
-      if (
-        pending === null ||
-        loadingPrefillConfigs[service.id] ||
-        updatingPrefillConfigs[service.id] !== null
-      )
-        continue;
-      setPendingPrefillEdits((prev: Record<GameServiceId, PendingPrefillEdit | null>) => ({
-        ...prev,
-        [service.id]: null
-      }));
-      void updatePrefillConfig(service, pending.field, pending.edits);
+  // A service stores its whole row, so the request carries the saved row with the change on top.
+  const updatePrefillConfig = async (
+    service: PrefillServiceConfig,
+    change: Partial<GuestPrefillConfig>
+  ): Promise<void> => {
+    const next = { ...prefillConfigs[service.id], ...change };
+    const body: Record<string, unknown> = {
+      enabledByDefault: next.enabledByDefault,
+      durationHours: next.durationHours
+    };
+    if (service.supportsMaxThreads) {
+      body.maxThreadCount = next.maxThreadCount;
     }
-  }, [pendingPrefillEdits, loadingPrefillConfigs, updatingPrefillConfigs, updatePrefillConfig]);
+    const response = await fetch(
+      service.guestConfigPath,
+      ApiService.getJsonFetchOptions(body, { method: 'POST' })
+    );
 
-  // What the panel shows: the stored values with the change being sent and the held one on top.
+    await assertOk(response);
+    const config = (await response.json()) as GuestPrefillConfigResponse;
+    prefillChangedRef.current.add(service.id);
+    setPrefillConfigs((prev: Record<GameServiceId, GuestPrefillConfig>) => ({
+      ...prev,
+      [service.id]: toGuestPrefillConfig(service, config)
+    }));
+  };
+
+  // The saved host settings, which the host's loads and pushes keep current.
+  const savedHost: GuestAccessSettings = {
+    guestModeLocked,
+    durationHours: guestDuration?.durationHours ?? null,
+    theme: defaultGuestTheme,
+    refreshRate: defaultGuestRefreshRate,
+    refreshRateLocked: guestRefreshRateLocked
+  };
+
+  // What the controls draw: the saved values with the changes waiting for Save on top.
+  const shownHost: GuestAccessSettings = { ...savedHost, ...draftHost };
+  const shownPrefs: DefaultGuestPreferences = { ...defaultGuestPreferences, ...draftPrefs };
   const shownPrefillConfig = (service: PrefillServiceConfig): GuestPrefillConfig => ({
     ...prefillConfigs[service.id],
-    ...sendingPrefillEdits[service.id],
-    ...pendingPrefillEdits[service.id]?.edits
+    ...draftPrefill[service.id]
   });
 
-  // Handler callbacks for PrefillServicePanel
-  const handleToggleEnabled = (service: PrefillServiceConfig) => {
-    void updatePrefillConfig(service, 'enabled', {
-      enabledByDefault: !shownPrefillConfig(service).enabledByDefault
+  // A change back to the saved value is no change, so it leaves the draft.
+  const editHost = <K extends keyof GuestAccessSettings>(
+    key: K,
+    value: GuestAccessSettings[K]
+  ): void => {
+    setDraftHost((previous: Partial<GuestAccessSettings>) => {
+      const rest = { ...previous };
+      if (value === savedHost[key]) delete rest[key];
+      else rest[key] = value;
+      return rest;
     });
   };
 
+  // Formats are compared as sets, so picking the saved formats in another order is no change.
+  const editPreference = <K extends DraftedPreference>(
+    key: K,
+    value: DefaultGuestPreferences[K]
+  ): void => {
+    const saved = defaultGuestPreferences[key];
+    const same =
+      Array.isArray(value) && Array.isArray(saved)
+        ? value.length === saved.length && value.every((format: string) => saved.includes(format))
+        : value === saved;
+    setDraftPrefs((previous: Partial<Pick<DefaultGuestPreferences, DraftedPreference>>) => {
+      const rest = { ...previous };
+      if (same) delete rest[key];
+      else rest[key] = value;
+      return rest;
+    });
+  };
+
+  const editPrefill = (
+    service: PrefillServiceConfig,
+    change: Partial<GuestPrefillConfig>
+  ): void => {
+    const saved = prefillConfigs[service.id];
+    setDraftPrefill((previous: Partial<Record<GameServiceId, Partial<GuestPrefillConfig>>>) => {
+      const edits: Partial<GuestPrefillConfig> = { ...previous[service.id], ...change };
+      for (const key of Object.keys(change) as (keyof GuestPrefillConfig)[])
+        if (edits[key] === saved[key]) delete edits[key];
+      const rest = { ...previous };
+      if (Object.keys(edits).length === 0) delete rest[service.id];
+      else rest[service.id] = edits;
+      return rest;
+    });
+  };
+
+  // Handler callbacks for the prefill service rows
+  const handleToggleEnabled = (service: PrefillServiceConfig) => {
+    editPrefill(service, { enabledByDefault: !shownPrefillConfig(service).enabledByDefault });
+  };
+
   const handleDurationChange = (service: PrefillServiceConfig, hours: number) => {
-    void updatePrefillConfig(service, 'duration', { durationHours: hours });
+    editPrefill(service, { durationHours: hours });
   };
 
   // Services without a thread cap hide the control entirely, so this can only fire for
   // services that support one; the guard keeps a stray call from posting the field.
   const handleMaxThreadsChange = (service: PrefillServiceConfig, threads: number | null) => {
     if (!service.supportsMaxThreads) return;
-    void updatePrefillConfig(service, 'maxThreads', { maxThreadCount: threads });
+    editPrefill(service, { maxThreadCount: threads });
+  };
+
+  // How Save stores each host setting, and the title that names its failure.
+  const hostSaves: {
+    [K in keyof GuestAccessSettings]: {
+      title: string;
+      send: (value: GuestAccessSettings[K]) => Promise<void>;
+    };
+  } = {
+    guestModeLocked: { title: t('user.errors.updateGuestLock'), send: onToggleGuestLock },
+    durationHours: { title: t('user.errors.updateGuestDuration'), send: onDurationChange },
+    theme: { title: t('user.errors.updateGuestTheme'), send: onGuestThemeChange },
+    refreshRate: { title: t('user.errors.updateGuestRefreshRate'), send: onGuestRefreshRateChange },
+    refreshRateLocked: {
+      title: t('user.errors.updateGuestRefreshRateLock'),
+      send: onGuestRefreshRateLockChange
+    }
+  };
+
+  const hasChanges =
+    Object.keys(draftHost).length > 0 ||
+    Object.keys(draftPrefs).length > 0 ||
+    Object.keys(draftPrefill).length > 0;
+
+  // One Save sends every changed setting through its own request; a refused one does not stop the
+  // rest. A control changed again while Save runs stays a change, and a setting whose save failed
+  // keeps its change.
+  const saveGuestAccess = async (): Promise<void> => {
+    if (saving || authMode !== 'authenticated') return;
+    setSaving(true);
+    const sentHost = draftHost;
+    const sentPrefs = draftPrefs;
+    const sentPrefill = draftPrefill;
+
+    const saveHost = async <K extends keyof GuestAccessSettings>(
+      key: K,
+      value: GuestAccessSettings[K]
+    ): Promise<GuestSaveFailure | null> => {
+      const failure = await attempt(hostSaves[key].title, () => hostSaves[key].send(value));
+      if (failure === null) {
+        setDraftHost((previous: Partial<GuestAccessSettings>) => withoutSent(previous, key, value));
+      }
+      return failure;
+    };
+    const hostWrites = (Object.keys(sentHost) as (keyof GuestAccessSettings)[]).map(
+      <K extends keyof GuestAccessSettings>(key: K) =>
+        saveHost(key, sentHost[key] as GuestAccessSettings[K])
+    );
+
+    const toggleWrites = (Object.keys(preferenceLabels) as (keyof typeof preferenceLabels)[])
+      .filter((key: keyof typeof preferenceLabels) => sentPrefs[key] !== undefined)
+      .map(async (key: keyof typeof preferenceLabels): Promise<GuestSaveFailure | null> => {
+        const value = sentPrefs[key] === true;
+        const failure = await attempt(
+          t('user.guest.errors.updateDefault', { label: preferenceLabels[key] }),
+          () => handleUpdateDefaultGuestPref(key, value)
+        );
+        if (failure === null) {
+          setDraftPrefs((previous: Partial<Pick<DefaultGuestPreferences, DraftedPreference>>) =>
+            withoutSent(previous, key, value)
+          );
+        }
+        return failure;
+      });
+
+    const formats = sentPrefs.allowedTimeFormats;
+    const formatWrites =
+      formats === undefined
+        ? []
+        : [
+            handleAllowedFormatsChange(formats).then(
+              (failure: GuestSaveFailure | null): GuestSaveFailure | null => {
+                if (failure === null) {
+                  setDraftPrefs(
+                    (previous: Partial<Pick<DefaultGuestPreferences, DraftedPreference>>) =>
+                      withoutSent(previous, 'allowedTimeFormats', formats)
+                  );
+                }
+                return failure;
+              }
+            )
+          ];
+
+    const prefillWrites = PREFILL_SERVICES.flatMap((service: PrefillServiceConfig) => {
+      const change = sentPrefill[service.id];
+      if (change === undefined) return [];
+      return [
+        attempt(t('user.guest.prefill.errors.update'), () =>
+          updatePrefillConfig(service, change)
+        ).then((failure: GuestSaveFailure | null): GuestSaveFailure | null => {
+          if (failure === null) {
+            setDraftPrefill(
+              (previous: Partial<Record<GameServiceId, Partial<GuestPrefillConfig>>>) => {
+                const edits: Partial<GuestPrefillConfig> = { ...previous[service.id] };
+                for (const key of Object.keys(change) as (keyof GuestPrefillConfig)[])
+                  if (edits[key] === change[key]) delete edits[key];
+                const rest = { ...previous };
+                if (Object.keys(edits).length === 0) delete rest[service.id];
+                else rest[service.id] = edits;
+                return rest;
+              }
+            );
+          }
+          return failure;
+        })
+      ];
+    });
+
+    const failures = await Promise.all([
+      ...hostWrites,
+      ...toggleWrites,
+      ...formatWrites,
+      ...prefillWrites
+    ]);
+    setSaving(false);
+    setSaveFailure(failures.find((failure: GuestSaveFailure | null) => failure !== null) ?? null);
   };
 
   // Refresh guest defaults when SignalR reconnects (catches config events missed during disconnect)
@@ -593,151 +720,411 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     loadPrefillConfigs
   ]);
 
-  const helpAccessory = (
-    <HelpPopover position="left" width={320} aria-label={t('common.help')}>
-      <HelpSection title={t('user.guest.prefill.help.aboutTitle')}>
-        {t('user.guest.prefill.sectionSubtitle')}
-      </HelpSection>
-    </HelpPopover>
-  );
-
-  const serviceDescriptions: Record<GameServiceId, string> = {
-    steam: t('user.guest.prefill.services.steamDescription'),
-    epic: t('user.guest.prefill.services.epicDescription'),
-    battlenet: t('user.guest.prefill.services.battlenetDescription'),
-    riot: t('user.guest.prefill.services.riotDescription'),
-    xbox: t('user.guest.prefill.services.xboxDescription')
+  const handleBulkResetToDefaults = async () => {
+    try {
+      setBulkActionInProgress('reset');
+      const { affectedCount } = await ApiService.bulkResetSessionsToDefaults<{
+        affectedCount: number;
+      }>();
+      showToast('success', t('user.bulkActions.resetSuccess', { count: affectedCount }));
+      setShowBulkResetConfirm(false);
+    } catch (err: unknown) {
+      notifyError(t('user.bulkActions.errors.resetFailed'), err, {
+        logLabel: 'Failed to reset sessions to defaults'
+      });
+    } finally {
+      setBulkActionInProgress(null);
+    }
   };
 
-  return (
-    <div>
-      <GroupHeading label={t('user.groups.guestDefaults')} actions={<AccordionGroupToggle />} />
+  const handleClearAllGuests = async () => {
+    try {
+      setBulkActionInProgress('clear');
+      const { clearedCount } = await ApiService.bulkClearGuestSessions<{ clearedCount: number }>();
+      showToast('success', t('user.bulkActions.clearSuccess', { count: clearedCount }));
+      onGuestsChanged();
+      setShowClearGuestsConfirm(false);
+    } catch (err: unknown) {
+      notifyError(t('user.bulkActions.errors.clearFailed'), err, {
+        logLabel: 'Failed to clear guest sessions'
+      });
+    } finally {
+      setBulkActionInProgress(null);
+    }
+  };
 
-      <div className="space-y-4">
-        <AccessSecurityCard
-          guestDurationHours={guestDurationHours}
-          onDurationChange={onDurationChange}
-          updatingDuration={updatingDuration}
-          durationOptions={translatedDurationOptions}
-        />
+  const headerLines: React.ReactNode[] =
+    guestDuration === null
+      ? []
+      : [
+          t(
+            guestModeLocked
+              ? 'user.panes.list.guestAccessLocked'
+              : 'user.panes.list.guestAccessOpen',
+            { count: guestDuration.durationHours }
+          )
+        ];
 
-        <AccordionSection
-          title={t('user.guest.prefill.sectionTitle')}
-          titleAccessory={helpAccessory}
-          icon={Download}
-          isExpanded={prefillSectionExpanded}
-          onToggle={() => setPrefillSectionExpanded((prev) => !prev)}
-          count={enabledPrefillCount}
-          badge={
-            <SectionHeaderActions>
-              {prefillConfigError !== null && !prefillSectionExpanded && <SectionErrorChip />}
-              <SectionActionsMenu label={t('management.actions.menuLabel')}>
-                {(close) => (
-                  <ActionMenuItem
-                    icon={
-                      allPrefillServicesExpanded ? (
-                        <ChevronsDownUp className="w-3.5 h-3.5" />
-                      ) : (
-                        <ChevronsUpDown className="w-3.5 h-3.5" />
-                      )
+  // Set on this page, set by the operator, or the built-in default: the server says which.
+  let sessionLengthHelpKey = 'user.panes.help.lengthDefault';
+  if (guestDuration?.source === 'ui') sessionLengthHelpKey = 'user.panes.help.lengthUi';
+  else if (guestDuration?.source === 'config')
+    sessionLengthHelpKey = 'user.panes.help.lengthConfig';
+
+  // A Reset waiting for Save shows the length the server falls back to.
+  const sessionLengthDropdown = guestDuration !== null && (
+    <span className="user-settings-dropdown">
+      <EnhancedDropdown
+        options={translatedDurationOptions}
+        value={(shownHost.durationHours ?? guestDuration.envVarValue).toString()}
+        onChange={(value: string) => editHost('durationHours', Number(value))}
+        disabled={!isAdmin}
+        size="md"
+        className="w-full"
+      />
+    </span>
+  );
+
+  const prefillServiceRows = PREFILL_SERVICES.map((service: PrefillServiceConfig) => {
+    const config = shownPrefillConfig(service);
+    const ServiceIcon = service.icon;
+    return (
+      <React.Fragment key={service.id}>
+        <div className="users-svc users-svc--two">
+          <ServiceIcon size={20} className="users-svc__icon" />
+          <span className="users-svc__name">{service.displayName}</span>
+          <ToggleSwitch
+            size="md"
+            options={onOffOptions}
+            value={config.enabledByDefault ? 'on' : 'off'}
+            onChange={() => handleToggleEnabled(service)}
+          />
+          <div className="users-svc__cells">
+            <div className="users-svc__cell">
+              <span className="users-svc__cell-label">{t('user.panes.prefs.accessLasts')}</span>
+              <span className="user-settings-dropdown">
+                <EnhancedDropdown
+                  options={prefillDurationOptions}
+                  value={config.durationHours.toString()}
+                  onChange={(value: string) => handleDurationChange(service, Number(value))}
+                  size="md"
+                  className="w-full"
+                  triggerAriaLabel={t('user.panes.prefs.accessLastsFor', {
+                    service: service.displayName
+                  })}
+                />
+              </span>
+            </div>
+            {service.supportsMaxThreads && (
+              <div className="users-svc__cell">
+                <span className="users-svc__cell-label">{t('user.panes.prefs.threads')}</span>
+                <span className="user-settings-dropdown">
+                  <EnhancedDropdown
+                    options={maxThreadOptions}
+                    // '' is the "no limit" option
+                    value={config.maxThreadCount != null ? String(config.maxThreadCount) : ''}
+                    onChange={(value: string) =>
+                      handleMaxThreadsChange(service, value === '' ? null : Number(value))
                     }
-                    disabled={!prefillSectionExpanded}
-                    onClick={() => {
-                      handlePrefillExpandCollapseAll();
-                      close();
-                    }}
-                  >
-                    {allPrefillServicesExpanded
-                      ? t('management.gameDetection.collapseAll')
-                      : t('management.gameDetection.expandAll')}
-                  </ActionMenuItem>
-                )}
-              </SectionActionsMenu>
-            </SectionHeaderActions>
-          }
-        >
-          <div className="space-y-4">
-            {prefillConfigError !== null && (
-              <ErrorBlock
-                title={t('user.guest.prefill.errors.loadConfig')}
-                message={prefillConfigError}
-                retryLabel={t('common.retry')}
-                onRetry={loadPrefillConfigs}
-              />
-            )}
-            <p className="text-xs text-themed-muted">
-              {t('user.guest.prefill.existingGuestsNote')}
-            </p>
-            {/* The panels start at default values, so a failed read shows only the box above */}
-            {prefillConfigError === null && (
-              <div className="user-settings-service-sections">
-                {PREFILL_SERVICES.map((service: PrefillServiceConfig) => (
-                  <PrefillServicePanel
-                    key={service.id}
-                    serviceName={service.displayName}
-                    serviceIcon={service.icon}
-                    iconColor={service.colorVar}
-                    config={shownPrefillConfig(service)}
-                    onToggleEnabled={() => handleToggleEnabled(service)}
-                    onDurationChange={(hours: number) => handleDurationChange(service, hours)}
-                    onMaxThreadsChange={(threads: number | null) =>
-                      handleMaxThreadsChange(service, threads)
-                    }
-                    updating={updatingPrefillConfigs[service.id]}
-                    warningText={t('user.guest.prefill.warning')}
-                    durationLabel={t('user.guest.prefill.duration.label')}
-                    durationHelpText={t('user.guest.prefill.duration.description')}
-                    maxThreadsLabel={
-                      service.supportsMaxThreads
-                        ? t('user.guest.prefill.maxThreads.label')
-                        : undefined
-                    }
-                    enableLabel={t('user.guest.prefill.enableByDefault.label')}
-                    enableDescription={t('user.guest.prefill.enableByDefault.description')}
-                    serviceDescription={serviceDescriptions[service.id]}
-                    prefillDurationOptions={prefillDurationOptions}
-                    maxThreadOptions={service.supportsMaxThreads ? maxThreadOptions : undefined}
-                    showMaxThreads={service.supportsMaxThreads}
-                    isExpanded={prefillServiceExpanded[service.id]}
-                    onToggle={() => togglePrefillService(service.id)}
+                    size="md"
+                    className="w-full"
+                    triggerAriaLabel={t('user.panes.prefs.threadsFor', {
+                      service: service.displayName
+                    })}
                   />
-                ))}
+                </span>
               </div>
             )}
           </div>
-        </AccordionSection>
-
-        {/* The card starts at default values, so a failed read shows the box in its place */}
-        {defaultPrefsError !== null ? (
-          <ErrorBlock
-            title={t('user.guest.errors.loadPreferences')}
-            message={defaultPrefsError}
-            retryLabel={t('common.retry')}
-            onRetry={() => void loadDefaultGuestPreferences()}
-          />
-        ) : (
-          <AppearanceDisplayCard
-            defaultGuestTheme={defaultGuestTheme}
-            onGuestThemeChange={onGuestThemeChange}
-            updatingGuestTheme={updatingGuestTheme}
-            availableThemes={availableThemes}
-            defaultGuestRefreshRate={defaultGuestRefreshRate}
-            onGuestRefreshRateChange={onGuestRefreshRateChange}
-            updatingGuestRefreshRate={updatingGuestRefreshRate}
-            guestRefreshRateLocked={guestRefreshRateLocked}
-            onGuestRefreshRateLockChange={onGuestRefreshRateLockChange}
-            updatingGuestRefreshRateLock={updatingGuestRefreshRateLock}
-            refreshRateOptions={translatedRefreshRateOptions}
-            defaultGuestPreferences={defaultGuestPreferences}
-            onUpdateDefaultPref={handleUpdateDefaultGuestPref}
-            updatingDefaultPref={updatingDefaultPref}
-            loadingDefaultPrefs={loadingDefaultPrefs}
-            onAllowedFormatsChange={handleAllowedFormatsChange}
-            updatingAllowedFormats={updatingAllowedFormats}
-          />
+        </div>
+        {config.enabledByDefault && (
+          <div className="users-svc__warning text-themed-warning flex items-center gap-2">
+            <span>{t('user.panes.prefs.everyGuestCan', { service: service.displayName })}</span>
+            <HelpPopover
+              aria-label={t('user.panes.help.everyGuestAria', { service: service.displayName })}
+            >
+              <p>
+                {t('user.panes.help.everyGuest', {
+                  service: service.displayName,
+                  duration: t(`user.guest.prefillDurationOptions.${config.durationHours}`)
+                })}
+              </p>
+            </HelpPopover>
+          </div>
         )}
+      </React.Fragment>
+    );
+  });
+
+  return (
+    <>
+      <UserPaneHeader
+        title={t('activeSessions.access.title')}
+        lines={headerLines}
+        actions={
+          <RowActionsMenu
+            open={menuOpen}
+            onOpenChange={setMenuOpen}
+            aria-label={t('user.panes.menu.label', { name: t('activeSessions.access.title') })}
+          >
+            {(close: () => void) => (
+              <>
+                {guestCount !== 0 && (
+                  <>
+                    <ActionMenuItem
+                      onClick={() => {
+                        close();
+                        setShowBulkResetConfirm(true);
+                      }}
+                    >
+                      {t('user.bulkActions.buttons.reset')}
+                    </ActionMenuItem>
+                    <ActionMenuDivider />
+                  </>
+                )}
+                <ActionMenuItem
+                  onClick={() => {
+                    close();
+                    setShowClearGuestsConfirm(true);
+                  }}
+                >
+                  {t('user.bulkActions.buttons.clear')}
+                </ActionMenuItem>
+              </>
+            )}
+          </RowActionsMenu>
+        }
+      />
+
+      <div className="users-pane-body">
+        <UserPaneSection title={t('user.panes.sections.guestSignIn')}>
+          <UserSettingRow
+            label={t('user.panes.prefs.newGuestsCanSignIn')}
+            help={
+              <HelpPopover aria-label={t('user.panes.help.lockAria')}>
+                <p>{t('user.panes.help.lock')}</p>
+              </HelpPopover>
+            }
+          >
+            <ToggleSwitch
+              size="md"
+              options={onOffOptions}
+              value={shownHost.guestModeLocked ? 'off' : 'on'}
+              onChange={(value: string) => editHost('guestModeLocked', value !== 'on')}
+            />
+          </UserSettingRow>
+          {guestDuration !== null ? (
+            <UserSettingRow
+              label={t('user.panes.prefs.sessionLength')}
+              help={
+                <HelpPopover aria-label={t('user.panes.help.lengthAria')}>
+                  <p>{t(sessionLengthHelpKey)}</p>
+                </HelpPopover>
+              }
+            >
+              {isAdmin && guestDuration.source === 'ui' && shownHost.durationHours !== null && (
+                <Button variant="default" size="md" onClick={() => editHost('durationHours', null)}>
+                  {t('common.reset')}
+                </Button>
+              )}
+              {isAdmin ? (
+                sessionLengthDropdown
+              ) : (
+                <Tooltip content={t('user.guest.guestDurationToggle.adminRequired')} position="top">
+                  {sessionLengthDropdown}
+                </Tooltip>
+              )}
+            </UserSettingRow>
+          ) : (
+            // A failed first read shows only in the host's error box above the pane
+            guestDefaultsError === null && (
+              <UserSettingRow label={t('user.panes.prefs.sessionLength')}>
+                <LoadingSpinner inline size="sm" />
+              </UserSettingRow>
+            )
+          )}
+        </UserPaneSection>
+
+        <UserPaneSection
+          title={t('user.panes.sections.guestPrefill')}
+          help={
+            <HelpPopover aria-label={t('user.panes.help.prefillAria')}>
+              <p>{t('user.panes.help.prefill')}</p>
+              <p>{t('user.guest.prefill.existingGuestsNote')}</p>
+            </HelpPopover>
+          }
+        >
+          {prefillConfigError !== null && (
+            <ErrorBlock
+              title={t('user.guest.prefill.errors.loadConfig')}
+              message={prefillConfigError}
+              retryLabel={t('common.retry')}
+              onRetry={loadPrefillConfigs}
+              retrying={PREFILL_SERVICES.some(
+                (service: PrefillServiceConfig) => loadingPrefillConfigs[service.id]
+              )}
+            />
+          )}
+          {/* The rows start at default values, so a failed read shows only the box above */}
+          {prefillConfigError === null && (
+            <>
+              <div className="users-svc-head users-svc--two" aria-hidden="true">
+                <span>{t('user.panes.prefs.accessLasts')}</span>
+                <span>{t('user.panes.prefs.threads')}</span>
+              </div>
+              {prefillServiceRows}
+            </>
+          )}
+        </UserPaneSection>
+
+        <UserPaneSection title={t('user.panes.sections.guestSees')}>
+          {/* The rows start at default values, so a failed read shows the box in their place */}
+          {defaultPrefsError !== null ? (
+            <ErrorBlock
+              title={t('user.guest.errors.loadPreferences')}
+              message={defaultPrefsError}
+              retryLabel={t('common.retry')}
+              onRetry={() => loadDefaultGuestPreferences()}
+            />
+          ) : (
+            <>
+              <UserSettingRow label={t('user.guest.sections.defaultTheme')}>
+                <span className="user-settings-dropdown">
+                  <EnhancedDropdown
+                    options={themeOptions}
+                    value={shownHost.theme}
+                    onChange={(value: string) => editHost('theme', value)}
+                    size="md"
+                    className="w-full"
+                  />
+                </span>
+              </UserSettingRow>
+              <UserSettingRow label={t('user.panes.prefs.refreshRate')}>
+                <span className="user-settings-dropdown">
+                  <EnhancedDropdown
+                    options={translatedRefreshRateOptions}
+                    value={shownHost.refreshRate}
+                    onChange={(value: string) => editHost('refreshRate', value)}
+                    size="md"
+                    className="w-full"
+                  />
+                </span>
+              </UserSettingRow>
+              <UserSettingRow label={t('user.panes.prefs.mayChangeRate')}>
+                <ToggleSwitch
+                  size="md"
+                  options={onOffOptions}
+                  value={shownHost.refreshRateLocked ? 'off' : 'on'}
+                  onChange={(value: string) => editHost('refreshRateLocked', value === 'off')}
+                />
+              </UserSettingRow>
+              <UserSettingRow label={t('user.panes.prefs.timeFormats')}>
+                <span className="user-settings-dropdown">
+                  <MultiSelectDropdown
+                    options={timeFormatOptions}
+                    values={shownPrefs.allowedTimeFormats}
+                    onChange={(formats: string[]) => editPreference('allowedTimeFormats', formats)}
+                    placeholder={t('user.guest.timeFormats.placeholder')}
+                    minSelections={1}
+                    disabled={loadingDefaultPrefs}
+                    dropdownWidth="w-80"
+                    alignRight
+                    className="w-full"
+                  />
+                </span>
+              </UserSettingRow>
+              <UserSettingRow label={t('user.guest.preferences.sharpCorners.label')}>
+                <ToggleSwitch
+                  size="md"
+                  options={onOffOptions}
+                  value={shownPrefs.sharpCorners ? 'on' : 'off'}
+                  disabled={loadingDefaultPrefs}
+                  onChange={(value: string) => editPreference('sharpCorners', value === 'on')}
+                />
+              </UserSettingRow>
+              <UserSettingRow label={t('activeSessions.preferencesModal.tooltips')}>
+                <ToggleSwitch
+                  size="md"
+                  options={onOffOptions}
+                  value={shownPrefs.disableTooltips ? 'off' : 'on'}
+                  disabled={loadingDefaultPrefs}
+                  onChange={(value: string) => editPreference('disableTooltips', value !== 'on')}
+                />
+              </UserSettingRow>
+              <UserSettingRow label={t('user.guest.preferences.datasourceLabels.label')}>
+                <ToggleSwitch
+                  size="md"
+                  options={onOffOptions}
+                  value={shownPrefs.showDatasourceLabels ? 'on' : 'off'}
+                  disabled={loadingDefaultPrefs}
+                  onChange={(value: string) =>
+                    editPreference('showDatasourceLabels', value === 'on')
+                  }
+                />
+              </UserSettingRow>
+            </>
+          )}
+        </UserPaneSection>
       </div>
-    </div>
+
+      <div className="guest-access-footer">
+        {saveFailure !== null && (
+          <Alert color="error" title={saveFailure.title}>
+            <p className="text-sm">{getErrorMessage(saveFailure.reason)}</p>
+          </Alert>
+        )}
+        <div className="guest-access-footer__row">
+          {hasChanges && (
+            <span className="text-sm text-themed-secondary">{t('user.panes.unsavedChanges')}</span>
+          )}
+          <Button
+            variant="filled"
+            color="primary"
+            className="users-pane-btn"
+            loading={saving}
+            disabled={!hasChanges}
+            onClick={() => void saveGuestAccess()}
+          >
+            {t('common.save')}
+          </Button>
+        </div>
+      </div>
+
+      <ConfirmationModal
+        opened={showBulkResetConfirm}
+        onClose={() => setShowBulkResetConfirm(false)}
+        onConfirm={handleBulkResetToDefaults}
+        title={t('user.bulkActions.resetModal.title')}
+        icon={<RotateCcw className="w-6 h-6 text-themed-warning" />}
+        confirmLabel={t('user.bulkActions.resetModal.confirm')}
+        confirmColor="orange"
+        loading={bulkActionInProgress === 'reset'}
+        confirmDisabled={!!bulkActionInProgress}
+      >
+        <p className="text-themed-secondary">{t('user.bulkActions.resetModal.message')}</p>
+
+        <Alert color="yellow" icon={null}>
+          <p className="text-sm">{t('user.bulkActions.resetModal.summary')}</p>
+        </Alert>
+      </ConfirmationModal>
+
+      <ConfirmationModal
+        opened={showClearGuestsConfirm}
+        onClose={() => setShowClearGuestsConfirm(false)}
+        onConfirm={handleClearAllGuests}
+        title={t('user.bulkActions.clearModal.title')}
+        icon={<Eraser className="w-6 h-6 text-themed-error" />}
+        confirmLabel={t('user.bulkActions.clearModal.confirm')}
+        loading={bulkActionInProgress === 'clear'}
+        confirmDisabled={!!bulkActionInProgress}
+      >
+        <p className="text-themed-secondary">{t('user.bulkActions.clearModal.message')}</p>
+
+        <Alert color="red" icon={null}>
+          <p className="text-sm">{t('user.bulkActions.clearModal.summary')}</p>
+        </Alert>
+      </ConfirmationModal>
+    </>
   );
 };
 

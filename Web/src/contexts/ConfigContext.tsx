@@ -189,7 +189,6 @@ const PostgresPasswordRecovery: React.FC<PostgresPasswordRecoveryProps> = ({ onS
           color="primary"
           disabled={!canSubmit}
           loading={isSaving}
-          stableWidth
           fullWidth
         >
           {t('app.configError.recovery.submit')}

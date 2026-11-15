@@ -37,6 +37,9 @@ type GameDetectionInterpolation = Record<string, string | number | boolean | nul
 export function detectionErrorDetail(event: {
   context?: Record<string, unknown> | null;
 }): string | undefined {
+  // A detection that ended on its own reason key sends that key; only a failure with no key sends text.
+  const stageKey = event.context?.detectionStageKey;
+  if (typeof stageKey === 'string' && stageKey.trim()) return i18n.t(stageKey);
   const error = event.context?.detectionError;
   if (typeof error !== 'string' || !error.trim()) return undefined;
   return i18n.t('signalr.gameDetect.error.fatal', { errorDetail: error });

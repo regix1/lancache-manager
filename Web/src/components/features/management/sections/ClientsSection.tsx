@@ -374,7 +374,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   };
 
   const handleSaveExcluded = async () => {
-    if (savingExcludedRef.current) return;
+    // Mock mode shows generated data, so nothing done on it reaches the real server.
+    if (mockMode || savingExcludedRef.current) return;
     savingExcludedRef.current = true;
     ++savesStartedRef.current;
     setSavingExcluded(true);
@@ -607,29 +608,47 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   // Written on demand rather than on every keystroke: the address is only usable once it is whole,
   // and each save clears every remembered name and re-asks the network.
   const handleHostnamesSave = useCallback(async () => {
-    if (savingHostnamesRef.current) return;
+    if (mockMode || savingHostnamesRef.current) return;
     savingHostnamesRef.current = true;
     setSavingHostnames(true);
+    let settingsWritten = false;
     try {
       // The servers to ask are written before the lookup is switched on, so the first queries the
       // toggle sets off already go where the admin just said they should.
-      await setHostnameSettings({
+      settingsWritten = await setHostnameSettings({
         resolver: hostnameForm.resolver.trim(),
         guestAccess: hostnameForm.guestAccess,
         routerLookup: hostnameForm.routerLookup,
         dockerLookup: hostnameForm.dockerLookup
       });
-      if (hostnameForm.enabled !== hostnamesEnabled) {
-        await setHostnamesEnabled(hostnameForm.enabled);
+      // Mock mode turned on while the save ran refuses the write still to come, so the form is not
+      // all saved and the save says which part was not.
+      let saved = settingsWritten;
+      if (saved && hostnameForm.enabled !== hostnamesEnabled) {
+        saved = await setHostnamesEnabled(hostnameForm.enabled);
       }
-      onSuccess(t('management.sections.clients.hostnames.settingsSaved'));
+      if (saved) {
+        onSuccess(t('management.sections.clients.hostnames.settingsSaved'));
+      } else if (settingsWritten) {
+        onError(t('management.sections.clients.hostnames.switchNotSaved'));
+      } else {
+        onError(t('management.sections.clients.hostnames.saveFailed'));
+      }
     } catch (err: unknown) {
-      onError(t('management.sections.clients.hostnames.saveFailed'), err);
+      onError(
+        t(
+          settingsWritten
+            ? 'management.sections.clients.hostnames.switchNotSaved'
+            : 'management.sections.clients.hostnames.saveFailed'
+        ),
+        err
+      );
     } finally {
       savingHostnamesRef.current = false;
       setSavingHostnames(false);
     }
   }, [
+    mockMode,
     setHostnameSettings,
     setHostnamesEnabled,
     hostnameForm,
@@ -710,7 +729,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                   title={t('management.sections.clients.errors.failedToLoadNicknames')}
                   message={error}
                   retryLabel={t('common.retry')}
-                  onRetry={() => void refreshGroups()}
+                  onRetry={() => refreshGroups()}
                 />
               )}
               {loading ? (
@@ -1097,7 +1116,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       title={t('management.sections.clients.errors.failedToLoadExcluded')}
                       message={excludedLoadError}
                       retryLabel={t('common.retry')}
-                      onRetry={() => void loadExcludedIps(true)}
+                      onRetry={() => loadExcludedIps(true)}
+                      retrying={loadingExcluded}
                     />
                   )}
                   {loadingExcluded ? (
@@ -1221,7 +1241,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     onClick={handleSaveExcluded}
                     variant="filled"
                     color="primary"
-                    disabled={!hasExcludedChanges || savingExcluded || loadingExcluded}
+                    disabled={mockMode || !hasExcludedChanges || savingExcluded || loadingExcluded}
                     loading={savingExcluded}
                     className="sm:w-40"
                   >
@@ -1269,7 +1289,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                 title={t('management.sections.clients.hostnames.loadFailed')}
                 message={hostnamesError}
                 retryLabel={t('common.retry')}
-                onRetry={() => void refreshHostnames()}
+                onRetry={() => refreshHostnames()}
+                retrying={hostnamesLoading}
               />
             ) : (
               <div className="space-y-3">
@@ -1325,7 +1346,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     variant="filled"
                     color="primary"
                     className="sm:w-40"
-                    disabled={savingHostnames || hostnamesLoading || !hostnamesChanged}
+                    disabled={mockMode || savingHostnames || hostnamesLoading || !hostnamesChanged}
                     loading={savingHostnames}
                   >
                     {t('management.sections.clients.saveChanges')}

@@ -1,7 +1,6 @@
+import type { TFunction } from 'i18next';
 import type { SessionType } from '@services/auth.service';
 import { APP_EVENTS } from '@utils/constants';
-
-export type SessionFilter = 'all' | SessionType;
 
 export interface Session {
   id: string;
@@ -17,6 +16,8 @@ export interface Session {
   isRevoked: boolean;
   revokedAt?: string | null;
   isCurrentSession: boolean;
+  /** True for the one session every browser runs on while sign-in is off; the server refuses to revoke or delete it then. Mirrors SessionRecord.IsSharedSession. */
+  isSharedSession: boolean;
   prefillEnabled: boolean;
   prefillExpiresAt?: string | null;
   steamPrefillEnabled: boolean;
@@ -30,7 +31,6 @@ export interface Session {
   xboxPrefillEnabled: boolean;
   xboxPrefillExpiresAt?: string | null;
   publicIpAddress?: string | null;
-  countryCode?: string | null;
   countryName?: string | null;
   regionName?: string | null;
   city?: string | null;
@@ -38,6 +38,27 @@ export interface Session {
   ispName?: string | null;
   screenResolution?: string | null;
   browserLanguage?: string | null;
+  /** Account behind this session. Absent for guests and shared access: the server omits null fields (Program.cs:71). Mirrors SessionRecord.AccountId. */
+  accountId?: string | null;
+  /** True when the session ended because its user signed out. A signed-out session also has isRevoked true, so check signedOut before isRevoked. Mirrors SessionRecord.SignedOut. */
+  signedOut: boolean;
+}
+
+// Wire-shape mirror of C# `GuestDurationResponse` in Models/Responses/AuthResponses.cs.
+export interface GuestDurationResponse {
+  durationHours: number;
+  source: 'ui' | 'config' | 'default';
+  canEdit: boolean;
+  envVarValue: number;
+}
+
+/** Account actions the host owns; the panes call them. */
+export interface AccountActions {
+  onEdit: (account: UserAccount) => void;
+  onSetDisabled: (account: UserAccount, disabled: boolean) => void;
+  onDelete: (account: UserAccount) => void;
+  /** Account whose disable or enable request is out, or null. */
+  disablingAccountId: string | null;
 }
 
 export interface ThemeOption {
@@ -57,8 +78,8 @@ export interface UserAccount {
   isMainAdmin: boolean;
   isDisabled: boolean;
   createdAtUtc: string;
-  /** Null until the account signs in for the first time. */
-  lastLoginAtUtc: string | null;
+  /** Left out until the account signs in for the first time: the server omits null fields (Program.cs:71). */
+  lastLoginAtUtc?: string | null;
 }
 
 /** The account waiting for deletion confirmation. */
@@ -109,10 +130,11 @@ export const parseUserAgent = (ua: string | null): ParsedUserAgent => {
   let browserVersion = '';
   let os: string | null = null;
 
-  // Detect browser (order matters - check specific before generic)
-  if (ua.includes('Edg/')) {
+  // Detect browser (order matters - check specific before generic). Every iOS browser sends "Safari/"
+  // and names itself with its own iOS token (EdgiOS, FxiOS, CriOS) instead of Edg, Firefox or Chrome.
+  if (ua.includes('Edg/') || ua.includes('EdgiOS/')) {
     browser = 'Edge';
-    browserVersion = ua.match(/Edg\/([\d.]+)/)?.[1] ?? '';
+    browserVersion = ua.match(/Edg(?:iOS)?\/([\d.]+)/)?.[1] ?? '';
   } else if (ua.includes('OPR/') || ua.includes('Opera')) {
     browser = 'Opera';
     browserVersion = ua.match(/(?:OPR|Opera)\/([\d.]+)/)?.[1] ?? '';
@@ -122,15 +144,15 @@ export const parseUserAgent = (ua: string | null): ParsedUserAgent => {
   } else if (ua.includes('Brave')) {
     browser = 'Brave';
     browserVersion = ua.match(/Chrome\/([\d.]+)/)?.[1] ?? '';
-  } else if (ua.includes('Firefox/')) {
+  } else if (ua.includes('Firefox/') || ua.includes('FxiOS/')) {
     browser = 'Firefox';
-    browserVersion = ua.match(/Firefox\/([\d.]+)/)?.[1] ?? '';
-  } else if (ua.includes('Safari/') && !ua.includes('Chrome/')) {
+    browserVersion = ua.match(/(?:Firefox|FxiOS)\/([\d.]+)/)?.[1] ?? '';
+  } else if (ua.includes('Safari/') && !ua.includes('Chrome/') && !ua.includes('CriOS/')) {
     browser = 'Safari';
     browserVersion = ua.match(/Version\/([\d.]+)/)?.[1] ?? '';
-  } else if (ua.includes('Chrome/')) {
+  } else if (ua.includes('Chrome/') || ua.includes('CriOS/')) {
     browser = 'Chrome';
-    browserVersion = ua.match(/Chrome\/([\d.]+)/)?.[1] ?? '';
+    browserVersion = ua.match(/(?:Chrome|CriOS)\/([\d.]+)/)?.[1] ?? '';
   } else if (ua.includes('curl/')) {
     browser = 'curl';
     browserVersion = ua.match(/curl\/([\d.]+)/)?.[1] ?? '';
@@ -147,13 +169,14 @@ export const parseUserAgent = (ua: string | null): ParsedUserAgent => {
     os = 'Windows';
   } else if (ua.includes('Windows NT')) {
     os = 'Windows';
+  } else if (ua.includes('iPhone') || ua.includes('iPad')) {
+    // Before the Mac check: iPhone and iPad agents also contain "like Mac OS X".
+    os = 'iOS';
   } else if (ua.includes('Mac OS X') || ua.includes('Macintosh')) {
     os = 'macOS';
   } else if (ua.includes('Android')) {
     const ver = ua.match(/Android ([\d.]+)/)?.[1];
     os = ver ? `Android ${ver.split('.')[0]}` : 'Android';
-  } else if (ua.includes('iPhone') || ua.includes('iPad')) {
-    os = 'iOS';
   } else if (ua.includes('Linux')) {
     os = 'Linux';
   } else if (ua.includes('CrOS')) {
@@ -165,16 +188,26 @@ export const parseUserAgent = (ua: string | null): ParsedUserAgent => {
   return { browser, browserVersion, os, title };
 };
 
-// Convert an ISO 3166-1 alpha-2 country code (e.g. "US") to its flag emoji
-// by offsetting each ASCII letter into the regional-indicator symbol range.
-// Returns null for anything that isn't exactly two A–Z letters so the caller
-// can fall back to showing the raw code.
-export const countryCodeToFlag = (code: string | null | undefined): string | null => {
-  if (!code || code.length !== 2) return null;
-  const upper = code.toUpperCase();
-  if (!/^[A-Z]{2}$/.test(upper)) return null;
-  const base = 0x1f1e6 - 'A'.charCodeAt(0);
-  return String.fromCodePoint(upper.charCodeAt(0) + base, upper.charCodeAt(1) + base);
+// parseUserAgent keeps returning plain English: its strings are also the search haystack in
+// sessionMatchesSearch, which matches against the raw user agent. An unknown browser or system
+// comes back as null. Only the text that reaches the screen is translated, here, and that text
+// joins the haystack so a search for the shown "Unknown" finds the row.
+export const deviceTitle = (userAgent: string | null, t: TFunction): string => {
+  if (!userAgent) return t('activeSessions.device.unknownDevice');
+  const parsed = parseUserAgent(userAgent);
+  const browser =
+    parsed.browser === null ? t('activeSessions.device.unknownBrowser') : parsed.browser;
+  return parsed.os !== null
+    ? t('activeSessions.device.browserOnOs', { browser, os: parsed.os })
+    : browser;
+};
+
+export const sessionName = (session: Session, t: TFunction): string => {
+  const username = session.username?.trim();
+  if (username) return username;
+  if (session.accountDeleted) return t('activeSessions.deletedAccount');
+  if (session.sessionType === 'guest') return t('activeSessions.filters.guest');
+  return t('activeSessions.sharedAccess');
 };
 
 // Format "Country / Region / City" into a compact display string, skipping

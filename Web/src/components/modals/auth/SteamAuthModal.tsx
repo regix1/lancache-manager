@@ -451,7 +451,6 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
               color="primary"
               onClick={onRetry}
               loading={loading}
-              stableWidth
               className="min-h-[44px] sm:min-h-10"
             >
               {t('common.retry')}

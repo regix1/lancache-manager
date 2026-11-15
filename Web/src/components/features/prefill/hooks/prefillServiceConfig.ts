@@ -17,7 +17,20 @@ import type { CommandType } from '../types';
  * Name each service gives its thread-limit field on its guest-config SignalR event.
  * The backend names the field after the service, so it cannot be read positionally.
  */
-type GuestConfigThreadField = 'maxThreadCount' | 'epicMaxThreadCount' | 'xboxMaxThreadCount';
+type GuestConfigThreadField =
+  | 'maxThreadCount'
+  | 'epicMaxThreadCount'
+  | 'xboxMaxThreadCount'
+  | 'battleNetMaxThreadCount'
+  | 'riotMaxThreadCount';
+
+/** The per-session override field on UserPreferences for a service with a thread limit. */
+type PreferenceThreadField =
+  | 'steamMaxThreadCount'
+  | 'epicMaxThreadCount'
+  | 'xboxMaxThreadCount'
+  | 'battleNetMaxThreadCount'
+  | 'riotMaxThreadCount';
 
 /** Per-session prefill grant flags carried on the Session model. */
 type SessionPrefillField =
@@ -40,9 +53,9 @@ type SessionPrefillExpiryField =
  * serve all of them. Widened from the per-service event contracts rather than restated, so
  * renaming a field on the wire surfaces here as a type error instead of a silent null.
  *
- * The thread-limit fields are optional because each service sends only its own and the two
- * anonymous services send none; the one belonging to a service is selected through that
- * service's `configEventThreadField` rather than read positionally.
+ * The thread-limit fields are optional because each service sends only its own; the one
+ * belonging to a service is selected through that service's `configEventThreadField` rather
+ * than read positionally.
  */
 export interface GuestPrefillConfigChangedPayload
   extends
@@ -158,6 +171,8 @@ interface ThreadedPrefillService extends PrefillServiceBase {
   supportsMaxThreads: true;
   /** Field this service's guest-config event uses for the thread limit. */
   configEventThreadField: GuestConfigThreadField;
+  /** Field on UserPreferences holding this service's per-session thread limit. */
+  preferenceThreadField: PreferenceThreadField;
 }
 
 export type PrefillServiceConfig = ThreadlessPrefillService | ThreadedPrefillService;
@@ -183,6 +198,7 @@ const STEAM_CONFIG: PrefillServiceConfig = {
   supportedOperatingSystems: ['windows', 'linux', 'macos'],
   supportsMaxThreads: true,
   configEventThreadField: 'maxThreadCount',
+  preferenceThreadField: 'steamMaxThreadCount',
   sessionEnabledField: 'steamPrefillEnabled',
   sessionExpiresAtField: 'steamPrefillExpiresAt',
   guestConfigPath: '/api/auth/guest/prefill/config',
@@ -212,6 +228,7 @@ const EPIC_CONFIG: PrefillServiceConfig = {
   supportedOperatingSystems: [],
   supportsMaxThreads: true,
   configEventThreadField: 'epicMaxThreadCount',
+  preferenceThreadField: 'epicMaxThreadCount',
   sessionEnabledField: 'epicPrefillEnabled',
   sessionExpiresAtField: 'epicPrefillExpiresAt',
   guestConfigPath: '/api/auth/guest/epic-prefill/config',
@@ -239,7 +256,9 @@ const BATTLENET_CONFIG: PrefillServiceConfig = {
   iconBgClass: 'bg-[var(--theme-blizzard)]',
   prefillCommands: ['prefill', 'prefill-all'],
   supportedOperatingSystems: [],
-  supportsMaxThreads: false,
+  supportsMaxThreads: true,
+  configEventThreadField: 'battleNetMaxThreadCount',
+  preferenceThreadField: 'battleNetMaxThreadCount',
   sessionEnabledField: 'battlenetPrefillEnabled',
   sessionExpiresAtField: 'battlenetPrefillExpiresAt',
   guestConfigPath: '/api/auth/guest/battlenet-prefill/config',
@@ -267,7 +286,9 @@ const RIOT_CONFIG: PrefillServiceConfig = {
   iconBgClass: 'bg-[var(--theme-riot)]',
   prefillCommands: ['prefill', 'prefill-all'],
   supportedOperatingSystems: [],
-  supportsMaxThreads: false,
+  supportsMaxThreads: true,
+  configEventThreadField: 'riotMaxThreadCount',
+  preferenceThreadField: 'riotMaxThreadCount',
   sessionEnabledField: 'riotPrefillEnabled',
   sessionExpiresAtField: 'riotPrefillExpiresAt',
   guestConfigPath: '/api/auth/guest/riot-prefill/config',
@@ -297,6 +318,7 @@ const XBOX_CONFIG: PrefillServiceConfig = {
   supportedOperatingSystems: [],
   supportsMaxThreads: true,
   configEventThreadField: 'xboxMaxThreadCount',
+  preferenceThreadField: 'xboxMaxThreadCount',
   sessionEnabledField: 'xboxPrefillEnabled',
   sessionExpiresAtField: 'xboxPrefillExpiresAt',
   guestConfigPath: '/api/auth/guest/xbox-prefill/config',

@@ -46,7 +46,7 @@ Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡
 - 密钥是整个实例共用的一个密钥，在创建或轮换时会出现在容器日志中。
 - 只带密钥的请求不会留下会话，应用无法记录是谁发出的。
 - 泄露的密钥无法单独从某个调用方收回。唯一的办法是重新生成，这会影响所有用户。
-- 已登录的会话会列在**用户 → 会话**中，并可以单独结束。
+- 已登录的会话会列在**用户**页面中，并可以在那里用**撤销**单独结束。
 
 ### 从脚本登录 { #signing-in-from-a-script }
 
@@ -56,7 +56,7 @@ Web 界面完全构建在 LANCache Manager 自身的 HTTP API 之上，因此凡
 |---|---|
 | 用户名和密码 | `username`、`password` |
 | API 密钥、用户名和密码 | `apiKey`、`username`、`password` |
-| 免认证访问 | 仅限主管理员的 `username`、`password` |
+| 免认证访问 | 无需任何内容。不需要登录，登录关闭时也不存在任何账户。 |
 | API 密钥和单点登录 | 仅限主管理员的 `apiKey`、`username`、`password` |
 | 单点登录 | 仅限主管理员的 `username`、`password` |
 

@@ -93,9 +93,9 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children, mockMode
     if (!hasLoadedRef.current) {
       setLoading(true);
     }
-    setError(null);
 
     if (mockMode) {
+      setError(null);
       const mockEvents = MockDataService.generateMockEvents();
       const now = Date.now();
       setEvents(mockEvents);
@@ -131,11 +131,13 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children, mockMode
         return;
       }
 
+      // The error on screen stays until this pair answers, so a Retry keeps its box; the pair's
+      // own result is written once below.
+      let failure: string | null = null;
       if (activeResult.status === 'fulfilled') {
         setActiveEvents(activeResult.value);
       } else {
-        const message = getErrorMessage(activeResult.reason);
-        setError(message);
+        failure = getErrorMessage(activeResult.reason);
         console.error('Failed to fetch active events:', activeResult.reason);
       }
 
@@ -153,13 +155,13 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children, mockMode
         // empties the list only for a guest, whose rejection is the normal answer and not worth an
         // error banner. An administrator keeps the events on screen and is told the read failed.
         if (authMode === 'authenticated') {
-          const message = getErrorMessage(allEventsResult.reason);
-          setError((prev) => prev ?? message);
+          if (failure === null) failure = getErrorMessage(allEventsResult.reason);
           console.error('Failed to fetch events:', allEventsResult.reason);
         } else {
           setEvents([]);
         }
       }
+      setError(failure);
     } finally {
       // Only the call still holding the latest id clears the flag. A superseded call finishing
       // first would hide the initial loading state while the newer refresh is still running.

@@ -196,25 +196,36 @@ public class SessionService
             && (session.AccountId is not null && session.SessionType.IsAccountHolder()
                 || !IsAuthenticationEnabled()
                     && session.SessionType == SessionType.Admin
-                    && (_stateService.GetSharedAdminSessionId() == session.Id
-                        || _authDisabledAdminSession?.SessionId == session.Id));
+                    && IsSharedAdminSession(session.Id));
+
+    /// <summary>
+    /// True for the one session every caller shares while authentication is off. The stored id and the
+    /// cached one are both checked: the cache is set before the id is saved, so a failed state write
+    /// leaves the session handed out under the cached id only.
+    /// </summary>
+    public bool IsSharedAdminSession(Guid sessionId)
+        => _stateService.GetSharedAdminSessionId() == sessionId
+            || _authDisabledAdminSession?.SessionId == sessionId;
 
     /// <summary>
     /// Retires the one shared unauthenticated management session after a secure mode has been saved.
-    /// Account-backed sessions are never selected by this path and remain signed in.
+    /// Account-backed sessions are never selected by this path and remain signed in. Returns the retired
+    /// session's id, or null when none was stored. The caller stops that session's prefill after this
+    /// returns, outside the lock every request waits on while authentication is off.
     /// </summary>
-    public async Task RetireSharedAdminSessionAsync()
+    public async Task<Guid?> RetireSharedAdminSessionAsync()
     {
         await _authDisabledAdminLock.WaitAsync();
         try
         {
+            Guid? sessionId = null;
             try
             {
-                var sessionId = _stateService.GetSharedAdminSessionId();
+                sessionId = _stateService.GetSharedAdminSessionId();
                 _authDisabledAdminSession = null;
                 if (sessionId is null)
                 {
-                    return;
+                    return null;
                 }
 
                 _connectionTrackingService?.DisconnectSession(sessionId.Value);
@@ -243,6 +254,7 @@ public class SessionService
                 // make the successful caller compensate a newly promoted owner account.
                 _logger.LogWarning(ex, "Could not retire the shared management session");
             }
+            return sessionId;
         }
         finally
         {
@@ -674,39 +686,167 @@ public class SessionService
             }
         }
 
-        // Backfill: pre-existing admin sessions created before the never-expires change
-        // still have a 30-day expiry. Bump them on the first validated request so the
-        // UI no longer shows a countdown for them.
-        if (session.SessionType == SessionType.Admin && session.ExpiresAtUtc < _adminNeverExpiresUtc)
+        // Backfill: pre-existing admin and user-role sessions created before the never-expires
+        // change still have a 30-day expiry. Bump them on the first validated request so the
+        // UI, which shows every account-holder session as never expiring, is telling the truth.
+        // The session is already confirmed by the reads above, so a failed move must not sign the
+        // request out: it keeps the expiry it has, which is still in the future, and the next request
+        // tries again. Caught whole for the reason SessionAuthenticationHandler gives for its own
+        // catch: no provider fault can be told apart from another, and this method takes no token.
+        if (session.SessionType.IsAccountHolder() && session.ExpiresAtUtc < _adminNeverExpiresUtc)
         {
-            await using var updateContext = _dbContextFactory.CreateDbContext();
-            var tracked = await updateContext.UserSessions.FindAsync(session.Id);
-            if (tracked != null && tracked.SessionType == SessionType.Admin && tracked.ExpiresAtUtc < _adminNeverExpiresUtc)
+            try
             {
-                tracked.ExpiresAtUtc = _adminNeverExpiresUtc;
-                await updateContext.SaveChangesAsync();
-                session.ExpiresAtUtc = _adminNeverExpiresUtc;
+                await using var updateContext = _dbContextFactory.CreateDbContext();
+                var tracked = await updateContext.UserSessions.FindAsync(session.Id);
+                if (tracked != null && tracked.SessionType.IsAccountHolder() && tracked.ExpiresAtUtc < _adminNeverExpiresUtc)
+                {
+                    tracked.ExpiresAtUtc = _adminNeverExpiresUtc;
+                    await updateContext.SaveChangesAsync();
+                    session.ExpiresAtUtc = _adminNeverExpiresUtc;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not move session {SessionId} to the never-expires expiry; it keeps its stored expiry and the next request tries again", session.Id);
             }
         }
 
         return session;
     }
 
-    public async Task<bool> RevokeSessionAsync(Guid sessionId)
+    public async Task<bool> RevokeSessionAsync(Guid sessionId, bool signedOut = false)
     {
         using var context = _dbContextFactory.CreateDbContext();
         var session = await context.UserSessions.FindAsync(sessionId);
         if (session == null)
             return false;
 
-        session.IsRevoked = true;
-        session.RevokedAtUtc = DateTime.UtcNow;
-        await context.SaveChangesAsync();
+        // Ending a session is recorded once. A second revoke (an admin acting on a stale list, or the
+        // clear-all retry of a guest whose prefill cleanup failed) must not turn "signed out" into "revoked".
+        if (!session.IsRevoked)
+        {
+            session.IsRevoked = true;
+            session.RevokedAtUtc = DateTime.UtcNow;
+            session.SignedOut = signedOut;
+            await context.SaveChangesAsync();
+            _logger.LogInformation("Revoked session {SessionId}", sessionId);
+        }
 
-        _logger.LogInformation("Revoked session {SessionId}", sessionId);
         _connectionTrackingService?.DisconnectSession(sessionId);
         await ReportSessionPresenceAsync(sessionId, false);
         return true;
+    }
+
+    /// <summary>
+    /// Ends the guest session a browser held when it signed in again, with an account or as a new
+    /// guest. The new cookie replaces the guest's, so nothing else would end that session; the guest
+    /// loses prefill access with it, so its running prefill stops the same way it does when the guest
+    /// signs out.
+    /// </summary>
+    public async Task EndGuestSessionAsync(Guid guestSessionId, IServiceProvider requestServices)
+    {
+        PrefillDaemonServiceBase.GuestGate.EnterStop(guestSessionId);
+        var cleanup = PrefillDaemonServiceBase.TerminateGuestSessionsAsync(PrefillDaemonServiceBase.ResolveAllDaemons(requestServices),
+            guestSessionId, "Guest replaced by a new sign-in in this browser", PrefillDaemonServiceBase.AccessEndedReasonKey, guestSessionId.ToString());
+        GuestPrefillStopResult stopped;
+        try
+        {
+            // An open Users page reloads its list on this event, as it does when a guest signs out.
+            if (await RevokeSessionAsync(guestSessionId))
+                await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new { sessionId = guestSessionId.ToString(), sessionType = "guest" });
+        }
+        finally
+        {
+            try { stopped = await cleanup; }
+            finally { PrefillDaemonServiceBase.GuestGate.ExitStop(guestSessionId); }
+        }
+        _logger.LogInformation("Revoked guest session {SessionId} replaced by a new sign-in in this browser", guestSessionId);
+        // The sign-in goes ahead; a failed cleanup stays pending for "Clear all guests" to retry.
+        if (!stopped.Success)
+            _logger.LogWarning("Guest {SessionId} was replaced by a new sign-in in this browser, but prefill cleanup is incomplete: {FailedSessions} sessions and {PendingStarts} starts remain",
+                guestSessionId, stopped.FailedSessions, stopped.PendingStarts);
+    }
+
+    /// <summary>
+    /// Ends the session a browser held once a sign-in has set a new session cookie over it. No browser
+    /// holds the old cookie any more and an account holder's session never expires, so nothing else
+    /// would end it. Called only after the new cookie is set, so a sign-in that fails leaves the person
+    /// signed in. A guest is not ended here: every sign-in ends it through <see cref="EndGuestSessionAsync"/>
+    /// first, which also stops its prefill. The shared session used while authentication is off is every
+    /// anonymous caller's, so it is never the one replaced. The ended session's prefill stops with it,
+    /// since no page can reach it any more.
+    /// </summary>
+    public async Task EndReplacedSessionAsync(UserSession? replaced, IServiceProvider requestServices)
+    {
+        if (replaced is null || replaced.SessionType == SessionType.Guest || IsSharedAdminSession(replaced.Id))
+            return;
+
+        // An open Users page reloads its list on this event, as it does when the session signs out.
+        if (await RevokeSessionAsync(replaced.Id))
+            await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
+            {
+                sessionId = replaced.Id.ToString(),
+                sessionType = replaced.SessionType
+            });
+
+        // After the revoke, so a prefill start still finishing for this session finds it revoked and ends itself.
+        var stopped = await PrefillDaemonServiceBase.TerminateGuestSessionsAsync(PrefillDaemonServiceBase.ResolveAllDaemons(requestServices),
+            replaced.Id, "Session replaced by a new sign-in in this browser", PrefillDaemonServiceBase.AccessEndedReasonKey, replaced.Id.ToString());
+        if (!stopped.Success)
+            _logger.LogWarning("Session {SessionId} was replaced by a new sign-in in this browser, but prefill cleanup is incomplete: {FailedSessions} sessions and {PendingStarts} starts remain",
+                replaced.Id, stopped.FailedSessions, stopped.PendingStarts);
+    }
+
+    /// <summary>
+    /// Ends the session a browser held when, with authentication off, the shared session's cookie replaced
+    /// it. The revoke and its event are done when this returns, so the browser's old live connection is
+    /// closed before the request answers and the row stays ended if the host stops right after. Stopping its
+    /// prefill kills containers and waits for their runs, so that goes on after this returns. A browser that
+    /// presents the shared session's own cookie ends nothing, since every anonymous caller shares it.
+    /// </summary>
+    public async Task EndSessionReplacedBySharedSessionAsync(UserSession held, IServiceProvider requestServices)
+    {
+        if (IsSharedAdminSession(held.Id))
+            return;
+
+        // Resolved now: the daemons are singletons, and the request's services end with its answer.
+        var daemons = PrefillDaemonServiceBase.ResolveAllDaemons(requestServices).ToArray();
+        var guest = held.SessionType == SessionType.Guest;
+
+        // An open Users page reloads its list on this event, as it does when the session signs out.
+        if (await RevokeSessionAsync(held.Id))
+            await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
+            {
+                sessionId = held.Id.ToString(),
+                sessionType = held.SessionType
+            });
+
+        _ = Task.Run(async () =>
+        {
+            // A guest loses prefill access with its session, so its new starts are refused while the stop runs.
+            if (guest)
+                PrefillDaemonServiceBase.GuestGate.EnterStop(held.Id);
+            try
+            {
+                // After the revoke, so a prefill start still finishing for this session finds it revoked and ends itself.
+                var stopped = await PrefillDaemonServiceBase.TerminateGuestSessionsAsync(daemons,
+                    held.Id, "Session replaced by the shared session's cookie", PrefillDaemonServiceBase.AccessEndedReasonKey, held.Id.ToString());
+                if (!stopped.Success)
+                    _logger.LogWarning("Session {SessionId} was replaced by the shared session's cookie, but prefill cleanup is incomplete: {FailedSessions} sessions and {PendingStarts} starts remain",
+                        held.Id, stopped.FailedSessions, stopped.PendingStarts);
+            }
+            catch (Exception ex)
+            {
+                // Nothing awaits this stop, so its failure is reported here or not at all.
+                _logger.LogError(ex, "Could not stop the prefill of session {SessionId}, which the shared session's cookie replaced", held.Id);
+            }
+            finally
+            {
+                if (guest)
+                    PrefillDaemonServiceBase.GuestGate.ExitStop(held.Id);
+            }
+        });
     }
 
     /// <summary>
@@ -716,9 +856,10 @@ public class SessionService
     ///
     /// <paramref name="keepSessionId"/> names one session to leave alone. Changing your own password
     /// passes the session the request arrived on, because signing somebody out of the screen they are
-    /// looking at is not what that endpoint is for; every other caller passes nothing.
+    /// looking at is not what that endpoint is for; every other caller passes nothing. The prefill each
+    /// revoked session started stops with it.
     /// </summary>
-    public async Task<int> RevokeAccountSessionsAsync(Guid accountId, Guid? keepSessionId = null)
+    public async Task<int> RevokeAccountSessionsAsync(Guid accountId, IServiceProvider requestServices, Guid? keepSessionId = null)
     {
         var now = DateTime.UtcNow;
         using var context = _dbContextFactory.CreateDbContext();
@@ -741,6 +882,17 @@ public class SessionService
             {
                 revoked++;
             }
+        }
+
+        // After the revokes, so a prefill start still finishing for one of these sessions finds it revoked and ends itself.
+        var daemons = PrefillDaemonServiceBase.ResolveAllDaemons(requestServices).ToArray();
+        var stops = await Task.WhenAll(sessionIds.Select(sessionId => PrefillDaemonServiceBase.TerminateGuestSessionsAsync(daemons,
+            sessionId, "Account sessions revoked", PrefillDaemonServiceBase.AccessEndedReasonKey, sessionId.ToString())));
+        foreach (var (sessionId, stopped) in sessionIds.Zip(stops))
+        {
+            if (!stopped.Success)
+                _logger.LogWarning("Session {SessionId} of account {AccountId} was revoked, but prefill cleanup is incomplete: {FailedSessions} sessions and {PendingStarts} starts remain",
+                    sessionId, accountId, stopped.FailedSessions, stopped.PendingStarts);
         }
 
         _logger.LogInformation("Revoked {Count} sessions for account {AccountId}", revoked, accountId);
@@ -766,34 +918,60 @@ public class SessionService
 
     /// <summary>
     /// Deletes all sessions from PostgreSQL. Called when a new API key is generated on startup
-    /// (e.g. after data folder deletion) so old browser cookies can no longer authenticate.
+    /// (e.g. after data folder deletion) or rotated, when every account is deleted, and on a start that
+    /// finds no account, so old browser cookies can no longer authenticate; each caller logs its own
+    /// reason. The prefill each cleared session started stops with it, since no page can reach it any more.
     /// </summary>
-    public async Task<int> ClearAllSessionsAsync()
+    public async Task<int> ClearAllSessionsAsync(IServiceProvider requestServices)
     {
         using var context = _dbContextFactory.CreateDbContext();
-        var sessionIds = await context.UserSessions
-            .Select(session => session.Id)
+        var sessions = await context.UserSessions
+            .Select(session => new { session.Id, session.SessionType })
             .ToListAsync();
-        var count = await context.UserSessions.ExecuteDeleteAsync();
+        var sessionIds = sessions.Select(session => session.Id).ToList();
+        var guestIds = sessions.Where(session => session.SessionType == SessionType.Guest).Select(session => session.Id).ToList();
+        // A guest loses prefill access with its session, so its new starts are refused from here, as when one guest is revoked.
+        foreach (var guestId in guestIds)
+            PrefillDaemonServiceBase.GuestGate.EnterStop(guestId);
+        try
+        {
+            var count = await context.UserSessions.ExecuteDeleteAsync();
 
-        if (count > 0)
-        {
-            _logger.LogWarning("Cleared all {Count} sessions from the database because a new API key was generated. All clients must log in again.", count);
-        }
+            if (count > 0)
+            {
+                _logger.LogWarning("Cleared all {Count} sessions from the database. All clients must sign in again.", count);
+            }
 
-        // Every session is gone, so clear the entire user-session presence set in one snapshot.
-        if (_activityRegistry is not null)
-        {
-            await _activityRegistry.ReplaceAsync(
-                ActivityDomains.UserSession,
-                ActivityAspects.Present,
-                new Dictionary<string, int>(StringComparer.Ordinal));
+            // Every session is gone, so clear the entire user-session presence set in one snapshot.
+            if (_activityRegistry is not null)
+            {
+                await _activityRegistry.ReplaceAsync(
+                    ActivityDomains.UserSession,
+                    ActivityAspects.Present,
+                    new Dictionary<string, int>(StringComparer.Ordinal));
+            }
+            foreach (var sessionId in sessionIds)
+            {
+                _connectionTrackingService?.DisconnectSession(sessionId);
+            }
+
+            // After the delete, so a prefill start still finishing for one of these sessions finds it gone and ends itself.
+            var daemons = PrefillDaemonServiceBase.ResolveAllDaemons(requestServices).ToArray();
+            var stops = await Task.WhenAll(sessionIds.Select(sessionId => PrefillDaemonServiceBase.TerminateGuestSessionsAsync(daemons,
+                sessionId, "Every session cleared", PrefillDaemonServiceBase.AccessEndedReasonKey, sessionId.ToString())));
+            foreach (var (sessionId, stopped) in sessionIds.Zip(stops))
+            {
+                if (!stopped.Success)
+                    _logger.LogWarning("Session {SessionId} was cleared with every other session, but prefill cleanup is incomplete: {FailedSessions} sessions and {PendingStarts} starts remain",
+                        sessionId, stopped.FailedSessions, stopped.PendingStarts);
+            }
+            return count;
         }
-        foreach (var sessionId in sessionIds)
+        finally
         {
-            _connectionTrackingService?.DisconnectSession(sessionId);
+            foreach (var guestId in guestIds)
+                PrefillDaemonServiceBase.GuestGate.ExitStop(guestId);
         }
-        return count;
     }
 
     public async Task<List<UserSession>> GetActiveSessionsAsync()
@@ -873,6 +1051,29 @@ public class SessionService
             .FirstOrDefaultAsync();
 
         return accountId != hiddenAccountId;
+    }
+
+    /// <summary>
+    /// Whether the caller may change this session: its preferences, refresh rate, revoke or delete.
+    /// A user-role account changes only the sessions its own account holds; every other caller keeps
+    /// what <see cref="CallerMaySeeSessionAsync"/> allows. A session that is not there answers true so
+    /// the existing not-found path still runs.
+    /// </summary>
+    public async Task<bool> CallerMayChangeSessionAsync(UserSession? caller, Guid sessionId)
+    {
+        if (caller?.SessionType != SessionType.User)
+        {
+            return true;
+        }
+
+        using var context = _dbContextFactory.CreateDbContext();
+        var target = await context.UserSessions
+            .AsNoTracking()
+            .Where(s => s.Id == sessionId)
+            .Select(s => new { s.AccountId })
+            .FirstOrDefaultAsync();
+
+        return target is null || (target.AccountId is { } accountId && accountId == caller.AccountId);
     }
 
     public async Task<UserSession?> GetSessionByIdAsync(Guid sessionId)
@@ -1050,9 +1251,12 @@ public class SessionService
            ?? _configuration.GetValue<int?>("Security:GuestSessionDurationHours")
            ?? 6;
 
-    // True when the runtime value comes from a UI override (state.json), not env/appsettings.
-    public bool HasDurationOverride()
-        => _stateService.GetGuestSessionDurationHours().HasValue;
+    // Where the runtime value comes from: "ui" (state.json override), "config" (set by the
+    // operator through an env var or a config file) or "default" (nobody set it).
+    public string GetGuestDurationSource()
+        => _stateService.GetGuestSessionDurationHours().HasValue ? "ui"
+           : _configuration.GetValue<int?>("Security:GuestSessionDurationHours").HasValue ? "config"
+           : "default";
 
     // The env/appsettings-resolved value (ignores any UI override). Used to render
     // "Source: config" labels and the "Reset to default" preview.

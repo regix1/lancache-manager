@@ -22,6 +22,8 @@ interface EventModalProps {
   event: Event | null; // null for create, Event for edit
   /** The calendar day a new event starts on; unset for the create button. */
   initialStart?: Date;
+  /** Shows the event with every field disabled and no Save or Delete. */
+  readOnly: boolean;
   onClose: () => void;
   onSave: () => void;
 }
@@ -33,6 +35,7 @@ const EventModal: React.FC<EventModalProps> = ({
   opened,
   event,
   initialStart,
+  readOnly,
   onClose,
   onSave
 }) => {
@@ -227,7 +230,13 @@ const EventModal: React.FC<EventModalProps> = ({
         title={
           <div className="flex items-center gap-2">
             <CalendarDays className="w-5 h-5 text-[var(--theme-primary)]" />
-            <span>{event ? t('events.modal.editTitle') : t('events.modal.createTitle')}</span>
+            <span>
+              {readOnly && event
+                ? event.name
+                : event
+                  ? t('events.modal.editTitle')
+                  : t('events.modal.createTitle')}
+            </span>
             {event && (
               <Button
                 type="button"
@@ -262,6 +271,7 @@ const EventModal: React.FC<EventModalProps> = ({
                   onChange={(e) => setName(e.target.value)}
                   placeholder={t('events.modal.placeholders.name')}
                   className="themed-input w-full px-3 py-2"
+                  disabled={readOnly}
                   autoFocus
                 />
               )}
@@ -278,6 +288,7 @@ const EventModal: React.FC<EventModalProps> = ({
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={t('events.modal.placeholders.description')}
+                  disabled={readOnly}
                   rows={3}
                   className="themed-input w-full px-3 py-2 resize-none"
                 />
@@ -294,6 +305,7 @@ const EventModal: React.FC<EventModalProps> = ({
                     {...field}
                     type="button"
                     variant="transparent"
+                    disabled={readOnly}
                     onClick={() => {
                       setPickerKey((key) => key + 1);
                       setShowStartPicker(true);
@@ -315,6 +327,7 @@ const EventModal: React.FC<EventModalProps> = ({
                     {...field}
                     type="button"
                     variant="transparent"
+                    disabled={readOnly}
                     onClick={() => {
                       setPickerKey((key) => key + 1);
                       setShowEndPicker(true);
@@ -341,6 +354,7 @@ const EventModal: React.FC<EventModalProps> = ({
                   <button
                     key={idx}
                     type="button"
+                    disabled={readOnly}
                     onClick={() => setColorIndex(idx)}
                     aria-pressed={isSelected}
                     className={`event-color-swatch w-7 h-7 themed-border-radius-sm transition flex items-center justify-center ${
@@ -359,7 +373,7 @@ const EventModal: React.FC<EventModalProps> = ({
 
           {/* Actions */}
           <div className="event-modal-actions flex flex-row items-center justify-between gap-3 pt-4 border-t border-[var(--theme-border-primary)]">
-            {event ? (
+            {event && !readOnly ? (
               <Button
                 type="button"
                 color="destructive"
@@ -380,9 +394,11 @@ const EventModal: React.FC<EventModalProps> = ({
               >
                 {t('actions.cancel')}
               </Button>
-              <Button type="submit" variant="filled" color="primary" loading={saving}>
-                {event ? t('events.modal.actions.saveChanges') : t('events.modal.actions.create')}
-              </Button>
+              {!readOnly && (
+                <Button type="submit" variant="filled" color="primary" loading={saving}>
+                  {event ? t('events.modal.actions.saveChanges') : t('events.modal.actions.create')}
+                </Button>
+              )}
             </div>
           </div>
         </form>

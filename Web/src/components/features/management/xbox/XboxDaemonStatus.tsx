@@ -176,7 +176,7 @@ const XboxDaemonStatus: React.FC<XboxDaemonStatusProps> = ({ mockMode, onError, 
         loadingMessage={t('management.sections.integrations.xboxDaemonStatus.loadingStatus')}
         loadError={loadError}
         loadErrorTitle={t('management.sections.integrations.xboxDaemonStatus.loadError')}
-        onRetry={() => void loadStatus()}
+        onRetry={() => loadStatus()}
         connected={isAuthenticated}
         connectedLabel={t('management.sections.integrations.xboxDaemonStatus.connected')}
         notConnectedLabel={t('management.sections.integrations.xboxDaemonStatus.notConnected')}

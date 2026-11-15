@@ -6,6 +6,8 @@ using System.Security.Claims;
 using System.Text.Json;
 using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
@@ -20,6 +22,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
@@ -60,7 +63,7 @@ public sealed class SocialLoginTests : IDisposable
             state,
             DispatchProxy.Create<ISignalRNotificationService, AccountLoginTests.SilentNotifications>(),
             configuration);
-        var signIns = new ExternalSignInService(access, null!, sessions);
+        var signIns = NewSignIns(access, new ThrowingDbContextFactory(), sessions);
         var properties = new AuthenticationProperties();
         properties.Items["access_revision"] = pending.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture);
         properties.Items["access_setup"] = "true";
@@ -70,7 +73,9 @@ public sealed class SocialLoginTests : IDisposable
         var principal = new ClaimsPrincipal(new ClaimsIdentity(
             [new Claim(ClaimTypes.NameIdentifier, subject)],
             kind == LoginKind.GitHub ? AccessService.GitHubSetupScheme : AccessService.GoogleSetupScheme));
+        // A browser that used the app at this address before still sends its old session cookie.
         var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers.Cookie = "LancacheManager.Session=from-an-earlier-visit";
 
         if (kind == LoginKind.GitHub)
         {
@@ -644,7 +649,7 @@ public sealed class SocialLoginTests : IDisposable
             DispatchProxy.Create<ISignalRNotificationService, AccountLoginTests.SilentNotifications>(),
             configuration,
             connectionTrackingService: connections);
-        var signIns = new ExternalSignInService(access, database.Factory, sessions);
+        var signIns = NewSignIns(access, database.Factory, sessions);
         var httpContext = new DefaultHttpContext();
 
         var signIn = await signIns.TryCreateSessionAsync(
@@ -685,7 +690,7 @@ public sealed class SocialLoginTests : IDisposable
             state,
             DispatchProxy.Create<ISignalRNotificationService, AccountLoginTests.SilentNotifications>(),
             configuration);
-        var signIns = new ExternalSignInService(access, database.Factory, sessions);
+        var signIns = NewSignIns(access, database.Factory, sessions);
         var signIn = await signIns.TryCreateSessionAsync(
             pending,
             owner: true,
@@ -716,50 +721,6 @@ public sealed class SocialLoginTests : IDisposable
     }
 
     [Fact]
-    public async Task RetirementFailureDoesNotCompensateAPromotedOwner()
-    {
-        await using var database = await TestDatabase.CreateAsync();
-        var configuration = Configuration(databaseSetupPending: false);
-        var state = CreateState();
-        var access = new AccessService(state, configuration, database.Factory);
-        var pending = Stage(access, LoginKind.Google, AccountMode.Oidc);
-        var apiKey = new ApiKeyService(NullLogger<ApiKeyService>.Instance, configuration, pathResolver: null!);
-        var workingSessions = new SessionService(
-            database.Factory,
-            apiKey,
-            NullLogger<SessionService>.Instance,
-            state,
-            DispatchProxy.Create<ISignalRNotificationService, AccountLoginTests.SilentNotifications>(),
-            configuration);
-        var signIns = new ExternalSignInService(access, database.Factory, workingSessions);
-        var signIn = await signIns.TryCreateSessionAsync(
-            pending,
-            owner: true,
-            "https://accounts.google.com",
-            "owner",
-            new DefaultHttpContext());
-        Assert.NotNull(signIn);
-
-        state.SetSharedAdminSessionId(Guid.NewGuid());
-        var failingSessions = new SessionService(
-            new ThrowingDbContextFactory(),
-            apiKey,
-            NullLogger<SessionService>.Instance,
-            state,
-            DispatchProxy.Create<ISignalRNotificationService, AccountLoginTests.SilentNotifications>(),
-            configuration);
-        var completingSignIns = new ExternalSignInService(access, database.Factory, failingSessions);
-
-        Assert.True(await completingSignIns.CompleteSetupAsync(
-            signIn,
-            () => access.PromotePendingLogin("google", pending.Revision, "https://accounts.google.com", "owner", signIn.AccountId)));
-
-        await using var context = database.Factory.CreateDbContext();
-        Assert.True(await context.UserAccounts.AnyAsync(account => account.Id == signIn.AccountId));
-        Assert.False(await context.UserSessions.Where(session => session.Id == signIn.SessionId).Select(session => session.IsRevoked).SingleAsync());
-    }
-
-    [Fact]
     public async Task CompensationKeepsAnOwnerThatACompletedSetupAlreadyAdopted()
     {
         await using var database = await TestDatabase.CreateAsync();
@@ -775,7 +736,7 @@ public sealed class SocialLoginTests : IDisposable
             state,
             DispatchProxy.Create<ISignalRNotificationService, AccountLoginTests.SilentNotifications>(),
             configuration);
-        var signIns = new ExternalSignInService(access, database.Factory, sessions);
+        var signIns = NewSignIns(access, database.Factory, sessions);
         var signIn = await signIns.TryCreateSessionAsync(
             pending,
             owner: true,
@@ -794,6 +755,63 @@ public sealed class SocialLoginTests : IDisposable
 
         await using var context = database.Factory.CreateDbContext();
         Assert.True(await context.UserAccounts.AnyAsync(account => account.Id == signIn.AccountId));
+    }
+
+    // The sign-in already told an open Users page about its new account and session. When the setup it
+    // belongs to is refused, both are taken back, and the page has to be told after that, or it keeps
+    // listing an account that no longer exists and a session that no longer works.
+    [Fact]
+    public async Task ARefusedSetupSignInTellsAnOpenUsersPageItsAccountAndSessionAreGone()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var configuration = Configuration(databaseSetupPending: false);
+        var state = CreateState();
+        var access = new AccessService(state, configuration, database.Factory);
+        var pending = Stage(access, LoginKind.Google, AccountMode.Oidc);
+        var apiKey = new ApiKeyService(NullLogger<ApiKeyService>.Instance, configuration, pathResolver: null!);
+        var sessions = new SessionService(
+            database.Factory,
+            apiKey,
+            NullLogger<SessionService>.Instance,
+            state,
+            DispatchProxy.Create<ISignalRNotificationService, AccountLoginTests.SilentNotifications>(),
+            configuration);
+        var notifications = DispatchProxy.Create<ISignalRNotificationService, CacheScanDetectionPhaseTests.RecordingNotifications>();
+        var sent = (CacheScanDetectionPhaseTests.RecordingNotifications)(object)notifications;
+        var signIns = NewSignIns(access, database.Factory, sessions, notifications);
+        var signIn = await signIns.TryCreateSessionAsync(
+            pending,
+            owner: true,
+            "https://accounts.google.com",
+            "owner",
+            new DefaultHttpContext());
+        Assert.NotNull(signIn);
+        var accountId = signIn.AccountId;
+        var sessionId = signIn.SessionId;
+
+        // What an open Users page would read back after each list event.
+        var listsLoaded = new List<(bool AccountListed, bool SessionLive)>();
+        sent.OnSent = (eventName, _) =>
+        {
+            if (eventName is not (SignalREvents.AccountsChanged or SignalREvents.UserSessionRevoked
+                or SignalREvents.UserSessionsCleared or SignalREvents.UserSessionCreated))
+                return;
+            using var context = database.Factory.CreateDbContext();
+            listsLoaded.Add((
+                context.UserAccounts.Any(account => account.Id == accountId),
+                context.UserSessions.Any(session => session.Id == sessionId && !session.IsRevoked)));
+        };
+
+        // A newer setup replaced this one, so its promotion is refused.
+        Stage(access, LoginKind.GitHub, AccountMode.Oidc);
+        Assert.False(await signIns.CompleteSetupAsync(
+            signIn,
+            () => access.PromotePendingLogin("google", pending.Revision, "https://accounts.google.com", "owner", accountId)));
+
+        Assert.True(
+            listsLoaded.Contains((false, false)),
+            $"a refused setup sign-in removed its account and ended its session but sent no list event after that " +
+            $"({listsLoaded.Count} sent), so an open Users page keeps listing both");
     }
 
     [Fact]
@@ -1057,6 +1075,19 @@ public sealed class SocialLoginTests : IDisposable
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
+
+    internal static ExternalSignInService NewSignIns(
+        AccessService access,
+        IDbContextFactory<AppDbContext> contexts,
+        SessionService sessions,
+        ISignalRNotificationService? notifications = null)
+        => ActivatorUtilities.CreateInstance<ExternalSignInService>(
+            new ServiceCollection()
+                .AddSingleton(notifications ?? DispatchProxy.Create<ISignalRNotificationService, NullReturningProxy>())
+                .BuildServiceProvider(),
+            access,
+            contexts,
+            sessions);
 
     private static string NewAppleKey()
     {

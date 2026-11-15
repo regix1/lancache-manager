@@ -1114,7 +1114,7 @@ const Dashboard: React.FC = () => {
           title={t('dashboard.errors.loadFailed')}
           message={error}
           retryLabel={t('common.retry')}
-          onRetry={() => void refreshStats(true)}
+          onRetry={() => refreshStats(true)}
         />
       )}
 

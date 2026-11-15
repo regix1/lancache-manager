@@ -6,6 +6,7 @@ import { assertOk } from '@services/apiError';
 import { getErrorMessage } from '@utils/error';
 import type {
   UserPreferencesUpdatedEvent,
+  GuestRefreshRateUpdatedEvent,
   DefaultGuestThemeChangedEvent,
   DefaultGuestPreferencesChangedEvent,
   AllowedTimeFormatsChangedEvent
@@ -57,7 +58,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   const [preferences, setPreferences] = useState<Record<string, UserPreferences>>({});
   /** Each session's last failed preferences read, by session id; only the current session's is shown. */
   const [loadErrors, setLoadErrors] = useState<Record<string, string>>({});
-  const loadingIds = useRef<Set<string>>(new Set());
+  const loadingIds = useRef<Map<string, Promise<void>>>(new Map());
   const loadedIds = useRef<Set<string>>(new Set());
   const failedIds = useRef<Set<string>>(new Set());
   const preferencesRef = useRef<Record<string, UserPreferences>>({});
@@ -66,6 +67,8 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     Map<string, { clock: ClockPreferences; previousClock: ClockPreferences }[]>
   >(new Map());
   const loadGenerations = useRef<Map<string, number>>(new Map());
+  /** A session's rate an admin set while that session's read was on the wire, laid over its answer. */
+  const pendingRefreshRates = useRef<Map<string, string | null>>(new Map());
 
   const { on, off, isConnected } = useSignalR();
   const { isAdmin, hasSession, sessionId: authSessionId, isLoading: authLoading } = useAuth();
@@ -86,13 +89,12 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   }, []);
 
   const loadSessionPreferences = useCallback(
-    async (sessionId: string) => {
-      if (
-        loadingIds.current.has(sessionId) ||
-        loadedIds.current.has(sessionId) ||
-        failedIds.current.has(sessionId)
-      )
-        return;
+    async (sessionId: string): Promise<void> => {
+      // A load already on the wire is handed back, so a Retry that folds into it stays busy until
+      // it settles.
+      const running = loadingIds.current.get(sessionId);
+      if (running || loadedIds.current.has(sessionId) || failedIds.current.has(sessionId))
+        return running;
 
       const currentSession = getCurrentSessionId();
 
@@ -106,104 +108,117 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         return;
       }
 
-      loadingIds.current.add(sessionId);
       const generation = nextLoadGeneration(sessionId);
       const isCurrentSession = sessionId === getCurrentSessionId();
 
-      try {
-        // Use cookie-based endpoint for current session, session-specific for others
-        const url = isCurrentSession
-          ? '/api/user-preferences'
-          : `/api/user-preferences/session/${encodeURIComponent(sessionId)}`;
-        const response = await fetch(url, ApiService.getFetchOptions());
+      const read = (async (): Promise<void> => {
+        try {
+          // Use cookie-based endpoint for current session, session-specific for others
+          const url = isCurrentSession
+            ? '/api/user-preferences'
+            : `/api/user-preferences/session/${encodeURIComponent(sessionId)}`;
+          const response = await fetch(url, ApiService.getFetchOptions());
 
-        if (response.status === 401 && !isCurrentSession) {
-          // 401 means unauthorized - mark as failed and loaded to prevent retries. The current
-          // session's 401 goes to the catch instead, so Display preferences can show it.
-          console.warn(
-            `[SessionPreferencesContext] 401 for session ${sessionId} - marking as failed`
+          if (response.status === 401 && !isCurrentSession) {
+            // 401 means unauthorized - mark as failed and loaded to prevent retries. The current
+            // session's 401 goes to the catch instead, so Display preferences can show it.
+            console.warn(
+              `[SessionPreferencesContext] 401 for session ${sessionId} - marking as failed`
+            );
+            failedIds.current.add(sessionId);
+            loadedIds.current.add(sessionId);
+            pendingDefaultClocks.current.delete(sessionId);
+            pendingRefreshRates.current.delete(sessionId);
+            return;
+          }
+
+          await assertOk(response);
+
+          const prefs = await response.json();
+
+          if (loadGenerations.current.get(sessionId) !== generation) {
+            // A write landed while the request was on the wire, so it is newer than this answer.
+            loadedIds.current.add(sessionId);
+            pendingDefaultClocks.current.delete(sessionId);
+            pendingRefreshRates.current.delete(sessionId);
+            return;
+          }
+
+          // A pick still waiting on its save outranks the clock this answer carries. A pick the
+          // server has confirmed does not: the client just asked it directly, so that pick is let go.
+          const incomingUseLocal = prefs.useLocalTimezone ?? false;
+          const incomingUseUtc = prefs.useUtcTimezone ?? false;
+          const incomingUse24Hour = prefs.use24HourFormat ?? true;
+
+          const {
+            useLocal: useLocalTimezone,
+            useUtc: useUtcTimezone,
+            use24Hour: use24HourFormat
+          } = isCurrentSession
+            ? preferPendingTimezone(incomingUseLocal, incomingUseUtc, incomingUse24Hour)
+            : { useLocal: incomingUseLocal, useUtc: incomingUseUtc, use24Hour: incomingUse24Hour };
+
+          const normalizedPrefs: UserPreferences = {
+            selectedTheme: prefs.selectedTheme || null,
+            sharpCorners: prefs.sharpCorners ?? false,
+            disableFocusOutlines: prefs.disableFocusOutlines ?? true,
+            disableTooltips: prefs.disableTooltips ?? false,
+            picsAlwaysVisible: prefs.picsAlwaysVisible ?? false,
+            disableStickyNotifications: prefs.disableStickyNotifications ?? false,
+            showDatasourceLabels: prefs.showDatasourceLabels ?? true,
+            useLocalTimezone,
+            useUtcTimezone,
+            use24HourFormat,
+            refreshRate: prefs.refreshRate ?? null,
+            refreshRateLocked: prefs.refreshRateLocked ?? null,
+            allowedTimeFormats: prefs.allowedTimeFormats ?? null
+          };
+
+          const pendingClocks = pendingDefaultClocks.current.get(sessionId) ?? [];
+          const clockSettledPrefs = applyGuestClockChanges(
+            isCurrentSession ? settlePendingToggles(normalizedPrefs) : normalizedPrefs,
+            pendingClocks
           );
-          failedIds.current.add(sessionId);
+          pendingDefaultClocks.current.delete(sessionId);
+          // A rate an admin set while this read was on the wire is newer than the answer's.
+          const announcedRate = pendingRefreshRates.current.get(sessionId);
+          pendingRefreshRates.current.delete(sessionId);
+          const settledPrefs =
+            announcedRate === undefined
+              ? clockSettledPrefs
+              : { ...clockSettledPrefs, refreshRate: announcedRate };
+
+          // Keep the ref and loaded marker in step with the state write. A SignalR callback can run after
+          // this function returns but before React commits the update; it must see the settled preferences
+          // rather than conclude that the event arrived before the load.
+          const updated = { ...preferencesRef.current, [sessionId]: settledPrefs };
+          preferencesRef.current = updated;
+          setPreferences(updated);
+          setLoadErrors((current) => {
+            const next = { ...current };
+            delete next[sessionId];
+            return next;
+          });
+          loadedIds.current.add(sessionId);
+        } catch (err) {
+          // Background per-session load, also used to load OTHER users' preferences for admin views:
+          // those failures stay silent. The current session's failure is kept for Display
+          // preferences, whose switches would otherwise show defaults as if saved. A failure made
+          // stale by a newer write or broadcast is dropped, the same as a stale answer above.
+          console.error('[SessionPreferencesContext] Failed to load session preferences:', err);
+          if (isCurrentSession && loadGenerations.current.get(sessionId) === generation) {
+            setLoadErrors((current) => ({ ...current, [sessionId]: getErrorMessage(err) }));
+          }
+          // Mark as loaded to prevent infinite retries on network errors
           loadedIds.current.add(sessionId);
           pendingDefaultClocks.current.delete(sessionId);
-          return;
+          pendingRefreshRates.current.delete(sessionId);
+        } finally {
+          loadingIds.current.delete(sessionId);
         }
-
-        await assertOk(response);
-
-        const prefs = await response.json();
-
-        if (loadGenerations.current.get(sessionId) !== generation) {
-          // A write landed while the request was on the wire, so it is newer than this answer.
-          loadedIds.current.add(sessionId);
-          pendingDefaultClocks.current.delete(sessionId);
-          return;
-        }
-
-        // A pick still waiting on its save outranks the clock this answer carries. A pick the
-        // server has confirmed does not: the client just asked it directly, so that pick is let go.
-        const incomingUseLocal = prefs.useLocalTimezone ?? false;
-        const incomingUseUtc = prefs.useUtcTimezone ?? false;
-        const incomingUse24Hour = prefs.use24HourFormat ?? true;
-
-        const {
-          useLocal: useLocalTimezone,
-          useUtc: useUtcTimezone,
-          use24Hour: use24HourFormat
-        } = isCurrentSession
-          ? preferPendingTimezone(incomingUseLocal, incomingUseUtc, incomingUse24Hour)
-          : { useLocal: incomingUseLocal, useUtc: incomingUseUtc, use24Hour: incomingUse24Hour };
-
-        const normalizedPrefs: UserPreferences = {
-          selectedTheme: prefs.selectedTheme || null,
-          sharpCorners: prefs.sharpCorners ?? false,
-          disableFocusOutlines: prefs.disableFocusOutlines ?? true,
-          disableTooltips: prefs.disableTooltips ?? false,
-          picsAlwaysVisible: prefs.picsAlwaysVisible ?? false,
-          disableStickyNotifications: prefs.disableStickyNotifications ?? false,
-          showDatasourceLabels: prefs.showDatasourceLabels ?? true,
-          useLocalTimezone,
-          useUtcTimezone,
-          use24HourFormat,
-          refreshRate: prefs.refreshRate ?? null,
-          refreshRateLocked: prefs.refreshRateLocked ?? null,
-          allowedTimeFormats: prefs.allowedTimeFormats ?? null
-        };
-
-        const pendingClocks = pendingDefaultClocks.current.get(sessionId) ?? [];
-        const settledPrefs = applyGuestClockChanges(
-          isCurrentSession ? settlePendingToggles(normalizedPrefs) : normalizedPrefs,
-          pendingClocks
-        );
-        pendingDefaultClocks.current.delete(sessionId);
-
-        // Keep the ref and loaded marker in step with the state write. A SignalR callback can run after
-        // this function returns but before React commits the update; it must see the settled preferences
-        // rather than conclude that the event arrived before the load.
-        const updated = { ...preferencesRef.current, [sessionId]: settledPrefs };
-        preferencesRef.current = updated;
-        setPreferences(updated);
-        setLoadErrors((current) => {
-          const next = { ...current };
-          delete next[sessionId];
-          return next;
-        });
-        loadedIds.current.add(sessionId);
-      } catch (err) {
-        // Background per-session load, also used to load OTHER users' preferences for admin views:
-        // those failures stay silent. The current session's failure is kept for Display
-        // preferences, whose switches would otherwise show defaults as if saved. A failure made
-        // stale by a newer write or broadcast is dropped, the same as a stale answer above.
-        console.error('[SessionPreferencesContext] Failed to load session preferences:', err);
-        if (isCurrentSession && loadGenerations.current.get(sessionId) === generation) {
-          setLoadErrors((current) => ({ ...current, [sessionId]: getErrorMessage(err) }));
-        }
-        // Mark as loaded to prevent infinite retries on network errors
-        loadedIds.current.add(sessionId);
-        pendingDefaultClocks.current.delete(sessionId);
-      } finally {
-        loadingIds.current.delete(sessionId);
-      }
+      })();
+      loadingIds.current.set(sessionId, read);
+      return read;
     },
     [isAdmin, getCurrentSessionId, nextLoadGeneration]
   );
@@ -232,7 +247,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
 
     loadedIds.current.delete(sessionId);
     failedIds.current.delete(sessionId);
-    loadSessionPreferences(sessionId);
+    return loadSessionPreferences(sessionId);
   }, [getCurrentSessionId, loadSessionPreferences]);
 
   useReconnectRefetch(isConnected, resyncPreferences);
@@ -242,6 +257,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     if (!hasSession) {
       initialLoadDone.current = false;
       pendingDefaultClocks.current.clear();
+      pendingRefreshRates.current.clear();
     }
   }, [hasSession]);
 
@@ -332,6 +348,20 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     [getCurrentSessionId, nextLoadGeneration]
   );
 
+  // An admin's change of one session's rate carries only that rate, so it moves the held row's rate and
+  // leaves the rest. A read on the wire is not dropped, since it may carry keys changed while the socket
+  // was down; its answer takes this rate instead of its own.
+  const handleGuestRefreshRateUpdated = useCallback((event: GuestRefreshRateUpdatedEvent) => {
+    const { sessionId, refreshRate } = event;
+    if (loadingIds.current.has(sessionId)) pendingRefreshRates.current.set(sessionId, refreshRate);
+
+    const existing = preferencesRef.current[sessionId];
+    if (!existing) return;
+    const updated = { ...preferencesRef.current, [sessionId]: { ...existing, refreshRate } };
+    preferencesRef.current = updated;
+    setPreferences(updated);
+  }, []);
+
   // When bulk preferences are reset, clear all cached prefs so badges refresh.
   // The backend may include sessionType ('guest' | 'authenticated') to scope the reset.
   // If sessionType is 'guest' and this client is admin, ignore it (admin cache is unaffected).
@@ -368,11 +398,19 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   useEffect(() => {
     on('UserPreferencesUpdated', handleUserPreferencesUpdated);
     on('UserPreferencesReset', handleUserPreferencesReset);
+    on('GuestRefreshRateUpdated', handleGuestRefreshRateUpdated);
     return () => {
       off('UserPreferencesUpdated', handleUserPreferencesUpdated);
       off('UserPreferencesReset', handleUserPreferencesReset);
+      off('GuestRefreshRateUpdated', handleGuestRefreshRateUpdated);
     };
-  }, [on, off, handleUserPreferencesUpdated, handleUserPreferencesReset]);
+  }, [
+    on,
+    off,
+    handleUserPreferencesUpdated,
+    handleUserPreferencesReset,
+    handleGuestRefreshRateUpdated
+  ]);
 
   const getSessionPreferences = useCallback(
     (sessionId: string): UserPreferences | null => {

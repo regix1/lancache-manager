@@ -369,6 +369,7 @@ const makeBar = (
     useTranslation: () => ({ t: (key) => key }),
     useNotifications: () => context,
     useConnectionLost: () => lost,
+    useAuth: () => ({ sessionType: 'admin' }),
     themeService: { getDisableStickyNotificationsSync: () => false },
     useScheduleDisplayModes: () => ({ modes: displayModes, defaultMode, ready }),
     useMediaQuery: (query) => (query === '(max-width: 767px)' ? isMobile : false),

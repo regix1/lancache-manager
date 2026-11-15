@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import test from 'node:test';
-import { pathToFileURL } from 'node:url';
 import { openStatusCheck } from './status-check-page.mjs';
+import { withBrowser } from './transpile-module.mjs';
 
 // An open Status Check service shows its name once, in its heading: the description under it reads
 // "Nintendo eShop downloads", not "Nintendo: Nintendo eShop downloads". Runs only with
@@ -12,13 +11,7 @@ test(
   'an open Status Check service shows its description without repeating its name',
   { skip: !process.env.PLAYWRIGHT_PATH },
   async () => {
-    assert.ok(
-      existsSync(new URL('../dist/index.html', import.meta.url)),
-      'run npm run build before this test'
-    );
-    const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
-    const browser = await chromium.launch({ headless: true });
-    try {
+    await withBrowser(async (browser) => {
       const { context, page } = await openStatusCheck(browser, {
         language: 'en',
         expandFailing: true
@@ -40,8 +33,6 @@ test(
       } finally {
         await context.close();
       }
-    } finally {
-      await browser.close();
-    }
+    });
   }
 );

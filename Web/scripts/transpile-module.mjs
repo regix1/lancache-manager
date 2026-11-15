@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import typescript from 'typescript';
 
 /**
@@ -403,21 +404,70 @@ export const liftConstArrow = (relativePath, constName) => {
 
 /**
  * The shipped initializer of `const <name> = ...`, evaluated, so a test reads the value the file
- * ships instead of a copy of it. The initializer may not use any other name from the file.
+ * ships instead of a copy of it. The initializer may use no other name from the file; a global it
+ * reads, such as `window`, is taken from `bindings` when given there.
  *
  * @param {string} relativePath Path to the file, relative to the repo's `Web/` directory.
  * @param {string} name Name the value is assigned to.
+ * @param {Record<string, unknown>} [bindings] Values bound by name while the initializer runs.
  * @returns {unknown} The evaluated value.
  */
-export const declaredValue = (relativePath, name) => {
+export const declaredValue = (relativePath, name, bindings = {}) => {
   const sourceFile = parseSource(relativePath);
   const declaration = findSoleNode(
     sourceFile,
     `${name} declaration`,
     (node) => typescript.isVariableDeclaration(node) && node.name.getText(sourceFile) === name
   );
-  return bindLifted(`() => (${declaration.initializer.getText(sourceFile)})`, {})();
+  return bindLifted(`() => (${declaration.initializer.getText(sourceFile)})`, bindings)();
 };
+
+/**
+ * Every order of `steps`, so a test that races several replies runs each one first, last and between.
+ *
+ * @template T
+ * @param {T[]} steps The steps to order.
+ * @returns {T[][]} Each permutation of `steps`.
+ */
+export const ordersOf = (steps) =>
+  steps.length <= 1
+    ? [steps]
+    : steps.flatMap((step, index) =>
+        ordersOf([...steps.slice(0, index), ...steps.slice(index + 1)]).map((rest) => [
+          step,
+          ...rest
+        ])
+      );
+
+/**
+ * The value imports of a file: the local name, the module, and the name the module declares it
+ * under. Type-only imports are left out, since nothing is bound for them at run time.
+ *
+ * @param {string} relativePath Path to the file, relative to the repo's `Web/` directory.
+ * @returns {{ local: string, from: string, exported: string }[]} One entry per bound name; a
+ *   default import has `exported: 'default'`.
+ */
+export const importsOf = (relativePath) =>
+  parseSource(relativePath, typescript.ScriptKind.TSX)
+    .statements.filter(typescript.isImportDeclaration)
+    .flatMap((declaration) => {
+      const clause = declaration.importClause;
+      if (!clause || clause.isTypeOnly) return [];
+      const from = declaration.moduleSpecifier.text;
+      const found = clause.name ? [{ local: clause.name.text, from, exported: 'default' }] : [];
+      const named = clause.namedBindings;
+      if (named && typescript.isNamedImports(named))
+        found.push(
+          ...named.elements
+            .filter((element) => !element.isTypeOnly)
+            .map((element) => ({
+              local: element.name.text,
+              from,
+              exported: (element.propertyName ?? element.name).text
+            }))
+        );
+      return found;
+    });
 
 /**
  * Source text of the arrow handed to a React hook inside a component.
@@ -507,6 +557,27 @@ export const builtStyles = () => {
 
 /** The origin a browser test loads the built app from; nothing listens there, `server` answers it. */
 export const builtAppOrigin = 'http://lancache.test';
+
+/**
+ * Runs `body` with a fresh Chromium from the playwright-core install `PLAYWRIGHT_PATH` names,
+ * closed afterwards. Asserts first that `npm run build` wrote the app the browser test loads.
+ *
+ * @param {(browser: import('playwright-core').Browser) => Promise<void>} body The test steps.
+ * @returns {Promise<void>}
+ */
+export const withBrowser = async (body) => {
+  assert.ok(
+    existsSync(new URL('../dist/index.html', import.meta.url)),
+    'run npm run build before this test'
+  );
+  const { chromium } = await import(pathToFileURL(process.env.PLAYWRIGHT_PATH).href);
+  const browser = await chromium.launch({ headless: true });
+  try {
+    await body(browser);
+  } finally {
+    await browser.close();
+  }
+};
 
 const contentTypes = {
   '.html': 'text/html',

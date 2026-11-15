@@ -77,9 +77,13 @@ public class SetupController : ControllerBase
     /// with nothing proved at all. AccountSetupController accepts no session at all for the first-admin
     /// endpoint, and shares the reason: a guest must not be able to claim the installation.
     ///
+    /// The account holder has to be an admin, too. A user-role account changes only itself, and these
+    /// two change the database every account runs on; UserRoleRefusalFilter cannot refuse it here
+    /// because these routes carry no AccountHolder policy.
+    ///
     /// Returns null when the caller may proceed.
     /// </summary>
-    private async Task<ObjectResult?> RequireApiKeyAsync()
+    private async Task<ActionResult?> RequireApiKeyAsync()
     {
         var apiKeyResult = _authenticationHelper.ValidateApiKey(HttpContext);
         if (apiKeyResult.IsAuthenticated)
@@ -92,7 +96,7 @@ public class SetupController : ControllerBase
         {
             if (await _antiforgery.IsRequestValidAsync(HttpContext))
             {
-                return null;
+                return HttpContext.GetUserSession()?.SessionType == SessionType.User ? Forbid() : null;
             }
 
             return BadRequest(new ErrorResponse

@@ -5,7 +5,7 @@ import {
   HubConnectionState,
   LogLevel
 } from '@microsoft/signalr';
-import { SIGNALR_BASE, STORAGE_KEYS } from '@utils/constants';
+import { APP_EVENTS, SIGNALR_BASE, STORAGE_KEYS } from '@utils/constants';
 import { sessionStore } from '@utils/storage';
 import { formatTimeRemaining, type PrefillSessionDto } from '../types';
 import type { DaemonAuthState } from '@/types/operations';
@@ -55,7 +55,7 @@ interface UsePrefillSignalRReturn {
   isConnecting: boolean;
   isConnected: boolean;
   hubConnectFailed: boolean;
-  retryConnection: () => void;
+  retryConnection: () => Promise<void>;
 
   // Session
   session: PrefillSessionDto | null;
@@ -103,6 +103,11 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const connectInFlightRef = useRef<Promise<HubConnection | null> | null>(null);
   // False once the hook unmounts, so a connect still in flight stops its socket instead of keeping it.
   const mountedRef = useRef(true);
+  // The connection whose session lookup the server answered: one it closes later is rebuilt, while
+  // one it refused at connect gets the Retry box.
+  const acceptedConnectionRef = useRef<HubConnection | null>(null);
+  const rebuildTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rebuildRef = useRef<() => void>(() => undefined);
 
   // Completion tracking refs
   const expectedAppCountRef = useRef(0);
@@ -280,14 +285,17 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         return hubConnection.current;
       }
 
-      // Stop any existing connection before creating a new one
-      if (hubConnection.current) {
+      // Stop any existing connection before creating a new one. The ref is cleared first, because
+      // stopping a reconnecting connection runs its close callback at once, which would read as the
+      // server ending it.
+      const previous = hubConnection.current;
+      if (previous) {
+        hubConnection.current = null;
         try {
-          await hubConnection.current.stop();
+          await previous.stop();
         } catch {
           // Ignore errors stopping old connection
         }
-        hubConnection.current = null;
       }
 
       setIsConnecting(true);
@@ -329,7 +337,23 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           );
         });
         connection.onreconnected(() => setIsConnected(true));
-        connection.onclose(() => setIsConnected(false));
+        // Every stop the hook asks for clears the ref first, so a close of the current connection is
+        // the server ending it, and that close forbids the client's own reconnect. A connection the
+        // server accepted is built again after 10 s, the main hub's failed-start step, or sooner once
+        // this window has read the browser's new session; one it refused at connect shows Retry.
+        connection.onclose(() => {
+          setIsConnected(false);
+          if (!mountedRef.current || hubConnection.current !== connection) return;
+          if (acceptedConnectionRef.current !== connection) {
+            setHubConnectFailed(true);
+            return;
+          }
+          if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current);
+          rebuildTimerRef.current = setTimeout(() => {
+            rebuildTimerRef.current = null;
+            rebuildRef.current();
+          }, 10000);
+        });
 
         await connection.start();
         if (!mountedRef.current) {
@@ -366,8 +390,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const initializeSession = useCallback(async () => {
     if (initializationAttempted.current) return;
     initializationAttempted.current = true;
-    setHubConnectFailed(false);
-
+    // A connection box already on screen stays until the hub answers, so a Retry keeps its box.
     setIsInitializing(true);
 
     // Declared outside the try so the catch can read the state of the connection that failed.
@@ -398,6 +421,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
         }
       }
+      setHubConnectFailed(false);
+      acceptedConnectionRef.current = connection;
       const activeSession = existingSessions.find((s) => s.status === 'Active');
 
       if (activeSession) {
@@ -445,6 +470,14 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           // Battle.net is anonymous - no login prompt needed
           addLog('info', t('prefill.log.loginPrompt', { service: t(serviceNameKey) }));
         }
+      } else if (
+        sessionRef.current &&
+        !existingSessions.some((entry: PrefillSessionDto) => entry.id === sessionRef.current?.id)
+      ) {
+        // A rebuild after the server closed the socket: only a server that no longer lists the
+        // session this page holds has ended it.
+        addLog('warning', t('prefill.log.sessionEndedOnServer'));
+        endSession();
       } else {
         // No active session found: check for stale storage data from a previous session.
         // This happens when the server was stopped/restarted and cleared sessions
@@ -473,6 +506,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     connectToHub,
     addLog,
     clearAllPrefillStorage,
+    endSession,
     serviceId,
     serviceNameKey,
     t,
@@ -483,8 +517,23 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   // Retry reconnects and adopts a running session, the same as the first mount.
   const retryConnection = useCallback(() => {
     initializationAttempted.current = false;
-    void initializeSession();
+    return initializeSession();
   }, [initializeSession]);
+  rebuildRef.current = () => void retryConnection();
+
+  // The window event AuthContext fires once this window has read its session: a rebuild still
+  // waiting on its timer starts now, with the cookie that read carried.
+  useEffect(() => {
+    const handleAuthSessionUpdated = () => {
+      if (rebuildTimerRef.current === null) return;
+      clearTimeout(rebuildTimerRef.current);
+      rebuildTimerRef.current = null;
+      void retryConnection();
+    };
+    window.addEventListener(APP_EVENTS.AUTH_SESSION_UPDATED, handleAuthSessionUpdated);
+    return () =>
+      window.removeEventListener(APP_EVENTS.AUTH_SESSION_UPDATED, handleAuthSessionUpdated);
+  }, [retryConnection]);
 
   const createSession = useCallback(
     async (clearLogs: () => void) => {
@@ -508,6 +557,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         addLog('info', t('prefill.log.creatingSession'));
 
         const created = await connection.invoke<CreateSessionResult>('OpenSessionAsync');
+        // The server answered, a refusal included, so a later close of this connection is rebuilt.
+        acceptedConnectionRef.current = connection;
         if (created.stageKey !== null) {
           // A refused create carries its reason as a key and values; the text is built from the key here.
           const refusal = t(created.stageKey, created.context ?? {});
@@ -575,6 +626,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
     return () => {
       mountedRef.current = false;
+      if (rebuildTimerRef.current) clearTimeout(rebuildTimerRef.current);
       if (hubConnection.current) {
         hubConnection.current.stop().catch((error: unknown) => console.warn('Hub cleanup:', error));
         hubConnection.current = null;

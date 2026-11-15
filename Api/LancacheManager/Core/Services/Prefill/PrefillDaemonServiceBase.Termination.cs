@@ -476,12 +476,14 @@ public abstract partial class PrefillDaemonServiceBase
         }
     }
 
+    // Stops every non-persistent prefill session the owner started. An account holder's or admin's session
+    // owns non-temporary ones and has no guest gate entry, so for that owner only the stops run.
     internal static async Task<GuestPrefillStopResult> TerminateGuestSessionsAsync(
         IEnumerable<PrefillDaemonServiceBase> daemons, Guid userId, string reason, string reasonKey, string? terminatedBy = null)
     {
         var services = daemons.ToArray();
         var targets = services.SelectMany(daemon => daemon.GetAllSessions(includeTerminating: true)
-            .Where(session => session.UserId == userId && session.IsTemporary && PrefillSessionService.IsTerminatableByAdmin(session))
+            .Where(session => session.UserId == userId && PrefillSessionService.IsTerminatableByAdmin(session))
             .Select(session => (Daemon: daemon, Session: session))).ToArray();
         var stops = targets.Select(target => target.Daemon.TerminateSessionAsync(target.Session.Id, reason, force: true, terminatedBy, reasonKey: reasonKey)).ToArray();
         var starts = GuestGate.GetStarts(userId);
@@ -492,20 +494,20 @@ public abstract partial class PrefillDaemonServiceBase
         catch (Exception ex)
         {
             services.FirstOrDefault()?._logger.LogWarning(ex,
-                "Guest {UserId} cleanup is incomplete; unfinished stages remain available for retry", userId);
+                "Prefill cleanup for session {UserId} is incomplete; unfinished stages remain available for retry", userId);
         }
         var finalStops = services.SelectMany(daemon => daemon.GetAllSessions(includeTerminating: true)
-            .Where(session => session.UserId == userId && session.IsTemporary && PrefillSessionService.IsTerminatableByAdmin(session))
+            .Where(session => session.UserId == userId && PrefillSessionService.IsTerminatableByAdmin(session))
             .Where(session => !targets.Any(target => ReferenceEquals(target.Session, session)))
             .Select(session => daemon.TerminateSessionAsync(session.Id, reason, force: true, terminatedBy, reasonKey: reasonKey))).ToArray();
         try { await Task.WhenAll(finalStops); }
         catch (Exception ex)
         {
             services.FirstOrDefault()?._logger.LogWarning(ex,
-                "Guest {UserId} late session cleanup is incomplete; unfinished stages remain available for retry", userId);
+                "Late prefill cleanup for session {UserId} is incomplete; unfinished stages remain available for retry", userId);
         }
         var failed = services.Sum(daemon => daemon.GetAllSessions(includeTerminating: true)
-            .Count(session => session.UserId == userId && session.IsTemporary && PrefillSessionService.IsTerminatableByAdmin(session)));
+            .Count(session => session.UserId == userId && PrefillSessionService.IsTerminatableByAdmin(session)));
         var pending = GuestGate.GetStarts(userId).Count(start => !start.Active && !start.Removed);
         GuestGate.FinishStop(userId, failed != 0 || pending != 0);
         return new GuestPrefillStopResult(failed, pending);
