@@ -76,6 +76,9 @@ jobs:
           -p:SkipRustBuild=true
           -warnaserror:CS8600,CS8601,CS8602,CS8603,CS8604
 
+      - name: Verify GitHub mapping proxy transport and redirects
+        run: dotnet run --project Tests/GitHubMappingProxy.ContractTests -c Release
+
       - name: Run backend tests
         run: dotnet test lancache-manager.sln --no-restore -p:SkipRustBuild=true
 
